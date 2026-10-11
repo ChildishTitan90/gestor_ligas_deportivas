@@ -1,0 +1,3 @@
+# Conserva formato LF para GitHub Actions y los scripts del pipeline.
+.github/workflows/*.yml text eol=lf
+scripts/ci/*.mjs text eol=lf

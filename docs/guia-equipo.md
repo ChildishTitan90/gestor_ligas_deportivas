@@ -96,7 +96,7 @@ Guarda `.env` con **Ctrl + S**. Cada integrante usa sus propios valores locales.
 
 El proyecto tiene **NextAuth 4**. Usamos sus nombres estándar `NEXTAUTH_SECRET` y `NEXTAUTH_URL`. La versión instalada también acepta `AUTH_SECRET` como alternativa; tu variable anterior no implica por sí sola un error. Instalar NextAuth aún no implementa el login.
 
-Para el desarrollo diario, las dos URL deben apuntar a `localhost:5433`. El acceso a Supabase de pruebas se configura por separado y se comparte por un canal privado cuando haga falta.
+Para el desarrollo diario, las dos URL deben apuntar a `localhost:5433`. La base Supabase actual se destina a producción; sus credenciales de migraciones se configuran por separado en el entorno `supabase-production` de GitHub. Cada integrante trabaja con su propia base Docker.
 
 ## 5. Instala las dependencias
 
@@ -182,7 +182,7 @@ Ver la pantalla inicial comprueba que Next.js funciona. La verificación de base
 2. Con tu copia limpia, actualiza `develop` y crea una rama con la clave real del ticket.
 3. Desarrolla, comprueba lo que cambiaste y crea commits que comiencen con esa clave.
 4. Sube tu rama y abre un **Pull Request (PR)** hacia `develop`. Un PR es una solicitud para revisar e integrar los cambios.
-5. Pasa el ticket a revisión y solicita revisión a otra persona. Víctor/Sergio pueden revisar configuración y backend; Nickte/Karol pueden revisar mutuamente UI y también participar como desarrolladoras.
+5. Pasa el ticket a revisión y solicita revisión a otra persona. Espera que pase **CI listo para integrar** en GitHub: comprueba la aplicación y prueba las migraciones en bases temporales. Víctor/Sergio pueden revisar configuración y backend; Nickte/Karol pueden revisar mutuamente UI y también participar como desarrolladoras.
 6. Después de integrar y verificar los criterios de aceptación, completa las pruebas y pasa el ticket a hecho.
 
 Ejemplo; reemplaza la clave por la del ticket que realmente te corresponde:
@@ -200,6 +200,8 @@ git push -u origin feat/PDGLD-48-integracion-nextauth
 Título del PR: `PDGLD-48: integrar autenticación con NextAuth`. Base: `develop`.
 
 Tipos de rama: `feat`, `fix`, `chore`, `docs`. `main` y `develop` reciben cambios mediante PR, conforme a las reglas de protección del equipo. Para liberar a producción se abre otro PR de `develop` hacia `main`.
+
+Una vez integrada una liberación en `main`, Víctor inicia el despliegue de migraciones desde GitHub Actions siguiendo [la guía de CI/CD](ci-cd.md). Un push, un PR o un merge a `develop` no actualiza Supabase. El workflow debe publicarse y sus secretos configurarse para activar este flujo.
 
 **Jira:** `Por hacer → Listo para desarrollo → En desarrollo → Revisión de código → En pruebas → Hecho`. Si una revisión o una prueba falla, el ticket vuelve a desarrollo. Incluir la clave relaciona ramas, commits y PR con Jira cuando la integración está configurada; no mueve por sí solo el ticket. No se verificó una automatización de estados en esta revisión.
 
@@ -261,13 +263,13 @@ Git descarga los archivos; Prisma aplica los cambios a tu base. No se copian los
 |---|---|---|
 | PDGLD-42 | GitHub/Jira, flujo de ramas y PR | Víctor |
 | PDGLD-43 | Scaffold y dependencias Prisma/Zod/NextAuth | Víctor |
-| PDGLD-44 | Docker local, variables y Supabase de pruebas | Víctor |
+| PDGLD-44 | Docker local y variables; Supabase actual destinado a producción | Víctor |
 | PDGLD-45 | SQL UUID e historial de migraciones | Víctor |
 | PDGLD-47 | Identidad, RBAC y semillas idempotentes | Karol |
 | PDGLD-48 | NextAuth Credentials, Prisma y Zod | Víctor |
 | PDGLD-71 | Avisos npm y dependencias compatibles | Sergio |
 
-La inicialización SQL contiene catálogos, pero no equivale a tener RBAC, cuentas de prueba o login implementados. Se verificó el baseline de Supabase; todavía debe confirmarse que ese proyecto sea el entorno compartido de pruebas adecuado antes de configurar el pipeline.
+La inicialización SQL contiene catálogos, pero no equivale a tener RBAC, cuentas de prueba o login implementados. El baseline de Supabase está registrado. CI usa bases temporales; la base Supabase actual se mantiene como producción y sus migraciones requieren ejecución manual desde `main`.
 
 ## Fuentes técnicas
 

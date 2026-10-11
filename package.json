@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test:ci": "node --test scripts/ci/migration-helpers.test.mjs",
+    "ci:guard-migrations": "node scripts/ci/guard-migrations.mjs",
+    "ci:database": "node scripts/ci/verify-database.mjs"
   },
   "dependencies": {
     "@prisma/client": "^7.10.0",
@@ -25,6 +28,7 @@
     "dotenv": "17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
+    "pg": "^8.23.1",
     "prisma": "^7.10.0",
     "tailwindcss": "^4",
     "typescript": "^5"

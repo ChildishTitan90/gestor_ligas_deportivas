@@ -33,3 +33,9 @@ Consulta la [guía de migraciones](docs/migraciones.md) para crear cambios y rec
 Crea ramas desde `develop` actualizado: `tipo/PDGLD-N-descripcion`. Incluye la clave real en commits y títulos de PR. Los PR de trabajo apuntan a `develop`; las liberaciones pasan de `develop` a `main`.
 
 Versionamos `.env.example` con marcadores. Los secretos y archivos `.env` no se suben.
+
+## CI/CD
+
+El workflow `.github/workflows/ci-cd.yml` comprueba los PR y los cambios en `develop` y `main`: instalación reproducible, pruebas del pipeline, ESLint, compilación y reconstrucción de las migraciones en PostgreSQL 15 y 17. El resultado conjunto se llama **CI listo para integrar**.
+
+La base Supabase actual se destina a producción. Las migraciones se despliegan mediante una ejecución manual desde `main`, después de pasar CI. Los PR y el merge a `develop` utilizan bases temporales de prueba. Consulta [CI/CD y activación en GitHub](docs/ci-cd.md) para configurar los secretos, publicar el workflow y hacer una liberación. Este CD actualiza la base de datos; el alojamiento de la aplicación sigue pendiente.

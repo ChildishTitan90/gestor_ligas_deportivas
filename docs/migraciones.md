@@ -150,7 +150,7 @@ Si estás a mitad de trabajo en una rama, primero guarda tus cambios y coordina 
 
 ## 5. Aplicar cambios a Supabase
 
-El baseline ya está registrado en la base Supabase actual. Para migraciones futuras, el administrador o el futuro pipeline usará:
+El baseline ya está registrado en la base Supabase actual, destinada a producción. El workflow de [CI/CD](ci-cd.md) utiliza este comando para aplicar migraciones futuras:
 
 ```powershell
 npx.cmd prisma migrate deploy
@@ -162,13 +162,15 @@ Para verificar el servidor, descarga su certificado desde Database → Settings 
 
 En Prisma CLI 7, la URL de migraciones debe usar `sslmode=require`, `sslaccept=strict` y `sslcert` con la ruta local del certificado de CA. Estos parámetros corresponden a su motor de migraciones; no supongas que el cliente `pg` del backend utiliza exactamente la misma configuración. Esta operación utilizó una URL temporal del proceso y mantuvo `.env` apuntando a Docker.
 
-Antes de desplegar cambios a Supabase, revisa el SQL y comprueba que las tablas protegidas conservan RLS. Si una migración crea o reconstruye tablas, revisa también su seguridad antes de exponerlas mediante la API. Son controles necesarios del futuro pipeline; todavía no están automatizados.
+Antes de desplegar cambios a Supabase, revisa el SQL y comprueba que las tablas protegidas conservan RLS. El pipeline verifica el historial, RLS y permisos de la tabla de migraciones antes y después del despliegue; no activa RLS ni cambia permisos por su cuenta. Detiene de forma conservadora las migraciones pendientes que contienen creación de tablas o desactivación de RLS, hasta preparar y aprobar un plan específico de seguridad de producción. Este filtro no interpreta SQL dinámico ni sustituye la revisión del SQL.
 
 Al crear una nueva base Supabase, ejecutar `migrate deploy` no reproduce por sí solo el RLS de la base actual. Esa seguridad debe configurarse y validarse por separado hasta incorporarla a una migración aprobada. Revisa también los permisos de `public._prisma_migrations`: en la base actual se retiraron los permisos que Supabase asignó por defecto a los roles de API, conservando los del administrador.
 
 RLS activado sin políticas bloquea filas para usuarios ordinarios de PostgreSQL; el propietario y los roles con `BYPASSRLS` pueden omitirlo. La conexión actual como `postgres` no aplica los 12 roles de usuario de la aplicación: el RBAC del backend sigue pendiente y es obligatorio. NextAuth no convierte esos usuarios automáticamente en roles de PostgreSQL.
 
-La propuesta de CI/CD es probar los PR en PostgreSQL temporal y aplicar las migraciones aprobadas a Supabase de pruebas después del merge a `develop`. Ese workflow todavía no está implementado. El push a GitHub por sí solo no modifica Supabase.
+El workflow está preparado en `.github/workflows/ci-cd.yml`. Prueba los PR y cambios en `develop` y `main` con PostgreSQL temporal 15 y 17. Para producción, primero se revisa e integra una liberación de `develop` a `main`; después Víctor ejecuta manualmente el workflow en `main` con `deploy_production` activado. Debe publicarse y configurarse con los secretos de GitHub antes de usarlo. El push a GitHub por sí solo no modifica Supabase.
+
+Las migraciones nuevas deben conservar el orden del historial de producción. Si dos compañeros crean migraciones en paralelo y una se publica antes, revisa el nombre y SQL de la que todavía no se ha compartido. El despliegue rechaza introducir una migración anterior a otra ya aplicada; una migración compartida o aplicada no se renombra ni se modifica.
 
 No utilices `db push`, `migrate dev` o `migrate reset` para actualizar la base compartida. No reapliques el SQL inicial sobre una base existente.
 

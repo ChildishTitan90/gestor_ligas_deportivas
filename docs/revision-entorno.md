@@ -43,8 +43,9 @@ Sergio debe revisar la ruta de cada dependencia, su exposición real y versiones
 
 ## Trabajo que continúa en otros tickets
 
-- **PDGLD-44:** la conexión local y las 96 tablas se verificaron por TCP al preparar el baseline. La configuración de Docker sigue validada; la preparación de Supabase de pruebas debe verificarse aparte.
-- **PDGLD-45:** ya existe `prisma/migrations/0_init` y se verificó y registró en Docker y Supabase. La alineación de RLS local queda pendiente por decisión de Víctor; el pipeline todavía no está implementado.
+- **PDGLD-44:** la conexión local y las 96 tablas se verificaron por TCP al preparar el baseline. La configuración de Docker sigue validada; Supabase actual se destina a producción y CI usa bases temporales.
+- **PDGLD-45:** ya existe `prisma/migrations/0_init` y se verificó y registró en Docker y Supabase. La alineación de RLS local queda pendiente por decisión de Víctor.
+- **PDGLD-40:** el workflow de CI y despliegue manual de migraciones está preparado. Su publicación, configuración de secretos y primera ejecución en GitHub se detallan en [CI/CD](ci-cd.md).
 - **PDGLD-47:** RBAC y semillas idempotentes de pruebas.
 - **PDGLD-48:** cliente Prisma con su adaptador PostgreSQL y autenticación con NextAuth Credentials/Zod.
 
@@ -62,4 +63,12 @@ Los tickets no se cambiaron de estado ni de asignación durante esta revisión.
 - Se registró únicamente `0_init` en Supabase. Sus objetos de aplicación, RLS y conteos de las 96 tablas permanecieron iguales. Prisma confirmó que no hay migraciones pendientes en ambas bases.
 - Se retiraron los permisos por defecto de los roles de API sobre la nueva tabla `public._prisma_migrations`; `postgres` conserva acceso y el contenido del historial permaneció igual. No se cambiaron los permisos de las tablas de la aplicación.
 - `db/init.sql` se conservó como referencia histórica porque la revisión automática rechazó eliminarlo. El montaje que lo ejecutaba se retiró de Compose; el flujo del equipo ahora aplica las migraciones versionadas.
+
+## Validación de CI/CD — PDGLD-40
+
+El workflow comprueba la aplicación y reconstruye las migraciones en PostgreSQL 15 y 17. El despliegue Supabase requiere ejecución manual desde `main` y CI correcto. Se configuró el environment `supabase-production`, limitado a `main`, con su variable de proyecto y los dos secretos autorizados.
+
+Pasaron instalación limpia, generación Prisma, build con TypeScript, ESLint, 12 pruebas de los controles, actionlint y reconstrucción/pruebas de integridad en una base temporal PostgreSQL 15. Supabase se verificó solo en lectura con TLS estricto, historial y permisos protegidos y RLS en las 96 tablas. El build inicial sobre la copia del repositorio encontró un bloqueo de escritura del entorno de revisión; la copia aislada permitió completar la compilación.
+
+El entorno no concedió escritura dentro de `.git`; los archivos están sin commit en la rama local existente. La primera ejecución del workflow en GitHub, incluyendo la matriz PostgreSQL 17, está pendiente de publicación. La [guía de CI/CD](ci-cd.md) incluye los comandos exactos y el procedimiento de liberación. Este CD actualiza migraciones; el despliegue del sitio web aún no está configurado.
 
