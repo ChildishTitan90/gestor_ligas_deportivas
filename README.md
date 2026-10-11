@@ -1,36 +1,33 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Gestor de Ligas Deportivas
 
-## Getting Started
+MVP para la Liga Municipal de Fútbol Amateur de Morelia.
 
-First, run the development server:
+Stack actual: Next.js 16, React 19, Tailwind CSS 4, NextAuth 4, Zod 4 y Prisma 7.10. Desarrollo con Node.js 24.x y PostgreSQL 15 local mediante Docker.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Instalación del equipo
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Sigue la [guía de instalación y trabajo](docs/guia-equipo.md). Incluye Docker Desktop, Git, variables locales, comprobaciones de las 96 tablas y flujo Jira/GitHub.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Resumen para quien ya instaló las herramientas:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Clona `develop` después del merge del entorno.
+2. Copia `.env.example` a `.env` si no existe; sustituye los marcadores.
+3. Ejecuta `npm ci`.
+4. Ejecuta `docker compose -f compose.yml up -d --wait`.
+5. Verifica las tablas con el comando de la guía.
+6. Ejecuta `npx prisma validate` y `npx prisma generate`.
+7. Ejecuta `npm run dev` y abre http://localhost:3000.
 
-## Learn More
+En PowerShell puedes usar `npm.cmd` y `npx.cmd`.
 
-To learn more about Next.js, take a look at the following resources:
+## Base de datos
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`db/init.sql` inicializa una base vacía con 96 tablas en `sports_management`. Docker lo ejecuta solo la primera vez que crea un volumen vacío. El volumen `postgres_data` conserva los datos al detener el contenedor.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+El esquema está en `prisma/schema.prisma`; la CLI usa `prisma.config.ts`. El historial de Prisma Migrate queda pendiente en PDGLD-45. No reapliques el SQL ni uses comandos que reinicien la base compartida.
 
-## Deploy on Vercel
+## Flujo del equipo
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Crea ramas desde `develop` actualizado: `tipo/PDGLD-N-descripcion`. Incluye la clave real en commits y títulos de PR. Los PR de trabajo apuntan a `develop`; las liberaciones pasan de `develop` a `main`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Versionamos `.env.example` con marcadores. Los secretos y archivos `.env` no se suben.
