@@ -43,10 +43,23 @@ Sergio debe revisar la ruta de cada dependencia, su exposición real y versiones
 
 ## Trabajo que continúa en otros tickets
 
-- **PDGLD-44:** confirmar en Docker Desktop que el servicio está sano, que existen las 96 tablas y que la URL local permite conectarse. La preparación de Supabase de pruebas debe verificarse aparte.
-- **PDGLD-45:** construir el baseline e historial de migraciones sin perder objetos SQL especiales. Hoy no existe `prisma/migrations`.
+- **PDGLD-44:** la conexión local y las 96 tablas se verificaron por TCP al preparar el baseline. La configuración de Docker sigue validada; la preparación de Supabase de pruebas debe verificarse aparte.
+- **PDGLD-45:** ya existe `prisma/migrations/0_init` y se verificó y registró en Docker y Supabase. La alineación de RLS local queda pendiente por decisión de Víctor; el pipeline todavía no está implementado.
 - **PDGLD-47:** RBAC y semillas idempotentes de pruebas.
 - **PDGLD-48:** cliente Prisma con su adaptador PostgreSQL y autenticación con NextAuth Credentials/Zod.
 
 Los tickets no se cambiaron de estado ni de asignación durante esta revisión.
+
+## Validación posterior del baseline — PDGLD-45
+
+- La migración completa se ejecutó en una base temporal vacía sobre PostgreSQL 15.19. Su estructura coincidió con la base local existente: 96 tablas, 693 columnas, 579 restricciones, 408 índices, 15 funciones, 119 triggers y 2 vistas; también se verificaron políticas, privilegios y la extensión `btree_gist`.
+- `migrate diff` no encontró diferencias entre la base local y el esquema de Prisma. Una ejecución de `migrate dev --create-only` comprobó la reconstrucción en la shadow database sin cambios de esquema; su migración vacía de prueba se retiró.
+- Se registró `0_init` en la base local. La estructura y los conteos de las 96 tablas permanecieron iguales. `migrate status` confirmó un historial actualizado y `migrate deploy` confirmó que no había migraciones pendientes.
+- La base temporal de prueba se eliminó. No se reinició ni se vació la base local del proyecto.
+- La conexión de sesión de Supabase se encontró comentada en `.env`. La verificación SSL inicial falló; se resolvió utilizando el certificado de CA proporcionado por Víctor, conservando la validación del certificado y del servidor.
+- Supabase usa PostgreSQL 17.11 y conserva RLS habilitado en las 96 tablas, sin políticas ni `FORCE`. La estructura común coincidió; se verificaron las diferencias de representación de vistas y del privilegio `MAINTAIN` del propietario respecto a PostgreSQL 15 local.
+- Se propuso y probó una migración para reflejar RLS localmente; la revisión automática rechazó aplicarla. Víctor eligió conservar RLS solo en Supabase y dejar pendiente la alineación local. La propuesta se retiró del historial activo y no se cambió RLS en Docker.
+- Se registró únicamente `0_init` en Supabase. Sus objetos de aplicación, RLS y conteos de las 96 tablas permanecieron iguales. Prisma confirmó que no hay migraciones pendientes en ambas bases.
+- Se retiraron los permisos por defecto de los roles de API sobre la nueva tabla `public._prisma_migrations`; `postgres` conserva acceso y el contenido del historial permaneció igual. No se cambiaron los permisos de las tablas de la aplicación.
+- `db/init.sql` se conservó como referencia histórica porque la revisión automática rechazó eliminarlo. El montaje que lo ejecutaba se retiró de Compose; el flujo del equipo ahora aplica las migraciones versionadas.
 

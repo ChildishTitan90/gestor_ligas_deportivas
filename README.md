@@ -14,17 +14,19 @@ Resumen para quien ya instaló las herramientas:
 2. Copia `.env.example` a `.env` si no existe; sustituye los marcadores.
 3. Ejecuta `npm ci`.
 4. Ejecuta `docker compose -f compose.yml up -d --wait`.
-5. Verifica las tablas con el comando de la guía.
-6. Ejecuta `npx prisma validate` y `npx prisma generate`.
+5. En una base nueva, ejecuta `npx prisma migrate deploy` y `npx prisma generate`.
+6. Ejecuta `npx prisma migrate status` y verifica las tablas con el comando de la guía.
 7. Ejecuta `npm run dev` y abre http://localhost:3000.
 
 En PowerShell puedes usar `npm.cmd` y `npx.cmd`.
 
 ## Base de datos
 
-`db/init.sql` inicializa una base vacía con 96 tablas en `sports_management`. Docker lo ejecuta solo la primera vez que crea un volumen vacío. El volumen `postgres_data` conserva los datos al detener el contenedor.
+`prisma/migrations/0_init/migration.sql` contiene el SQL inicial completo: 96 tablas en `sports_management`, restricciones, funciones, triggers, vistas y catálogos. Docker inicia PostgreSQL; Prisma Migrate crea y actualiza el esquema. El volumen `postgres_data` conserva los datos al detener el contenedor. `db/init.sql` se conserva como referencia histórica y ya no está montado en Docker.
 
-El esquema está en `prisma/schema.prisma`; la CLI usa `prisma.config.ts`. El historial de Prisma Migrate queda pendiente en PDGLD-45. No reapliques el SQL ni uses comandos que reinicien la base compartida.
+El esquema está en `prisma/schema.prisma`; la CLI usa `prisma.config.ts`. El baseline `0_init` ya se verificó y registró tanto en la base local de Víctor como en Supabase. Una base existente sin historial necesita verificación y registro del baseline antes de aplicar migraciones; una base nueva utiliza `migrate deploy` directamente.
+
+Consulta la [guía de migraciones](docs/migraciones.md) para crear cambios y recibir los del equipo. Por decisión de Víctor, Supabase conserva RLS habilitado en sus 96 tablas y Docker continúa sin RLS. `0_init` registra la estructura común y no reproduce por sí solo la seguridad de una nueva base Supabase. No reapliques el SQL ni reinicies la base compartida.
 
 ## Flujo del equipo
 

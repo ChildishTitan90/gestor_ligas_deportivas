@@ -3,12 +3,21 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
+// El historial de migraciones vive en public; los modelos conservan @schema.
+const directUrl = process.env["DIRECT_URL"];
+let migrationUrl = directUrl;
+if (directUrl) {
+  const parsedUrl = new URL(directUrl);
+  parsedUrl.searchParams.set("schema", "public");
+  migrationUrl = parsedUrl.toString();
+}
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DIRECT_URL"],
+    url: migrationUrl,
   },
 });

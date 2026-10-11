@@ -114,72 +114,57 @@ El comando puede mostrar una advertencia de ESLint y avisos de vulnerabilidades.
 
 ## 6. Inicia PostgreSQL con Docker
 
-Comprueba que estos archivos existen y tienen contenido:
+Desde la raíz del proyecto, comprueba los archivos y la configuración:
 
 ```powershell
-Get-Item compose.yml, db/init.sql | Select-Object Name, Length
+Get-Item compose.yml, prisma/migrations/0_init/migration.sql | Select-Object Name, Length
 docker compose -f compose.yml config --quiet
-```
-
-**Resultado esperado:** ambas longitudes son mayores que cero y el último comando termina sin errores. Es normal que no imprima nada.
-
-Ahora inicia la base:
-
-```powershell
 docker compose -f compose.yml up -d --wait
 docker compose -f compose.yml ps
 ```
 
-**Resultado esperado:** el servicio `db` aparece funcionando y con estado `healthy`. La primera vez Docker descarga PostgreSQL y prepara la base; puede tardar algunos minutos.
+**Resultado esperado:** el servicio `db` está funcionando y `healthy`. En una base nueva las tablas se crean en el paso siguiente, mediante Prisma.
 
-Qué está ocurriendo:
+Docker proporciona PostgreSQL 15 y el volumen `postgres_data` guarda tus datos. Node se conecta a `localhost:5433`; dentro del contenedor PostgreSQL utiliza `5432`. Cada integrante tiene una instancia y datos independientes.
 
-- **Imagen:** `postgres:15` es el paquete de PostgreSQL usado por todos.
-- **Contenedor:** es la instancia de PostgreSQL que funciona en tu computadora.
-- **Volumen `postgres_data`:** conserva los datos aunque detengas el contenedor.
-- **Puerto:** Node se conecta a `localhost:5433`; Docker lo comunica con el puerto `5432` de PostgreSQL.
-- **Script `db/init.sql`:** crea el esquema `sports_management`, sus 96 tablas y sus demás objetos cuando el volumen se inicializa vacío.
+Usamos `-f compose.yml` para seleccionar el archivo correcto. El SQL anterior `db/init.sql` permanece como referencia histórica; ya no está montado para ejecutarse automáticamente.
 
-El archivo del proyecto es **`compose.yml`**. Docker también admite `compose.yaml`, pero aquí usamos `-f compose.yml` para seleccionar explícitamente el archivo correcto.
+## 7. Aplica las migraciones y genera el cliente
 
-**El SQL no se ejecuta otra vez al reiniciar una base existente.** No vuelvas a aplicarlo sobre una base que ya tiene tablas. Conservamos PostgreSQL 15 y el volumen existente; actualizar de versión principal requiere un procedimiento aparte.
-
-## 7. Comprueba que se crearon las tablas
-
-Ejecuta esta consulta de solo lectura:
-
-```powershell
-docker compose -f compose.yml exec -T db psql -U postgres -d gestor_ligas_dev -v ON_ERROR_STOP=1 -c "SELECT count(*) AS tablas FROM information_schema.tables WHERE table_schema = 'sports_management' AND table_type = 'BASE TABLE';"
-```
-
-**Resultado esperado: 96.** Si aparece cero, faltan tablas o hay un error, revisa los registros:
-
-```powershell
-docker compose -f compose.yml logs --tail 100 db
-```
-
-Un estado `healthy` comprueba que PostgreSQL responde; el conteo comprueba además que se creó el esquema esperado. Si ya había un volumen vacío de tablas, cambiar el Compose no vuelve a ejecutar la inicialización. Solicita revisión del caso antes de borrar datos.
-
-## 8. Valida Prisma y genera el cliente
+**Base nueva:** ejecuta lo siguiente. **Base existente sin historial:** primero debe verificarse y registrarse el baseline según [la guía de migraciones](migraciones.md). El baseline de la base local de Víctor ya está registrado.
 
 ```powershell
 npx.cmd prisma validate
+npx.cmd prisma migrate deploy
 npx.cmd prisma generate
+npx.cmd prisma migrate status
 ```
 
-**Resultado esperado:** el esquema es válido y el cliente Prisma se genera correctamente. La configuración ahora se llama `prisma.config.ts` y carga `DIRECT_URL` desde `.env`.
+**Resultado esperado:** Prisma aplica `0_init` en una base vacía o la omite si ya está registrada. Después informa que el esquema está actualizado y no hay migraciones pendientes.
 
-Comprueba también que Prisma puede conectarse usando esa URL:
+Las migraciones se guardan en `prisma/migrations`. Incluyen el SQL completo, con funciones, triggers, vistas y restricciones. La CLI carga `DIRECT_URL` desde `.env`; la configuración fija `public` para el historial de migraciones. Las tablas de la aplicación siguen en `sports_management`.
+
+`0_init` también está registrado en Supabase. Por decisión de Víctor, Supabase conserva RLS activado en las 96 tablas y Docker sigue sin RLS. El historial activo no incluye la propuesta de activar RLS localmente; su alineación queda pendiente. Esto no reemplaza los permisos RBAC del backend.
+
+No necesitas `db pull` para instalar o actualizar tu copia. No uses `db push` para distribuir cambios del equipo ni ejecutes comandos de desarrollo/reset sobre Supabase compartido.
+
+## 8. Comprueba las tablas y la conexión
 
 ```powershell
+docker compose -f compose.yml exec -T db psql -U postgres -d gestor_ligas_dev -v ON_ERROR_STOP=1 -c "SELECT count(*) AS tablas FROM information_schema.tables WHERE table_schema = 'sports_management' AND table_type = 'BASE TABLE';"
 'SELECT 1;' | npx.cmd prisma db execute --stdin
 ```
 
-**Resultado esperado:** el script se ejecutó correctamente. Este comando no muestra el resultado de la consulta; informa éxito o error de conexión.
+**Resultado esperado:** 96 tablas iniciales y ejecución correcta de la consulta. El número de tablas puede aumentar con futuras migraciones aprobadas. `db execute` informa éxito o error y no muestra los datos de la consulta.
 
-No necesitas ejecutar `prisma db pull`: el esquema ya está versionado. Tampoco ejecutes `migrate dev`, `migrate reset`, `db push` o el SQL inicial sobre Supabase compartido.
+Si algo falla, revisa los registros y el estado del historial:
 
-**Situación de PDGLD-45:** actualmente no hay historial en `prisma/migrations`. El arranque local utiliza el SQL inicial. Todavía hay que establecer el baseline y el procedimiento de futuras migraciones, preservando restricciones, funciones, vistas y triggers. Haber ejecutado `db pull` no completa ese trabajo.
+```powershell
+docker compose -f compose.yml logs --tail 100 db
+npx.cmd prisma migrate status
+```
+
+No borres el volumen para resolver una discrepancia. Revisa la conexión y el historial antes de aplicar cambios.
 
 ## 9. Levanta Next.js
 
@@ -220,7 +205,9 @@ Tipos de rama: `feat`, `fix`, `chore`, `docs`. `main` y `develop` reciben cambio
 
 ## 11. Detén y vuelve a iniciar el entorno
 
-Para detener PostgreSQL conservando sus datos:
+El contenedor se detiene al apagar la laptop. Este Compose no configura reinicio automático: al volver a trabajar, abre Docker Desktop y espera a que arranque. Los datos siguen en el volumen.
+
+Para detener PostgreSQL conservando sus datos antes de apagar la laptop:
 
 ```powershell
 docker compose -f compose.yml stop
@@ -235,6 +222,24 @@ npm.cmd run dev
 
 No uses `docker compose down -v` como parte del flujo diario: elimina el volumen y sus datos.
 
+## 12. Crea migraciones y recibe cambios del equipo
+
+Si cambias la base, crea y revisa una migración local; el PR debe incluir tanto `schema.prisma` como la carpeta nueva de migración. El procedimiento completo está en [Migraciones de base de datos](migraciones.md).
+
+Después de recibir un PR fusionado, con el árbol limpio:
+
+```powershell
+git switch develop
+git pull --ff-only origin develop
+npm.cmd ci
+docker compose -f compose.yml up -d --wait
+npx.cmd prisma migrate deploy
+npx.cmd prisma generate
+npx.cmd prisma migrate status
+```
+
+Git descarga los archivos; Prisma aplica los cambios a tu base. No se copian los datos de otro integrante.
+
 ## Soluciones rápidas
 
 | Problema | Qué revisar |
@@ -243,10 +248,11 @@ No uses `docker compose down -v` como parte del flujo diario: elimina el volumen
 | Se está leyendo otro Compose | Usa los comandos con `-f compose.yml`; evita mantener un segundo archivo vacío `compose.yaml`. |
 | Docker no conecta al motor | Abre Docker Desktop, espera a que arranque y comprueba `docker info`. |
 | Falta `LOCAL_DB_PASSWORD` | Copia la plantilla, reemplaza los marcadores y guarda `.env` en la raíz. |
-| No encuentra `db/init.sql` | Actualiza tu copia después del merge del entorno; no crees un archivo vacío para ocultar el error. |
+| No encuentra las migraciones | Actualiza tu copia después del merge del baseline; no crees archivos vacíos para ocultar el error. |
+| Base existente sin historial | Pide al administrador verificar y registrar el baseline una sola vez. |
 | Puerto 5433 ocupado | Revisa `docker ps` y el servicio que lo usa. Coordina otro puerto y cambia las dos URL locales si es necesario. |
 | Contraseña rechazada | Las tres variables deben coincidir con la contraseña con la que se creó el volumen. |
-| No aparecen las 96 tablas | Revisa logs y si había un volumen previo; no borres datos para probar. |
+| No aparecen las tablas | Revisa la conexión, los logs y `prisma migrate status`; no borres datos para probar. |
 | Se muestra la página inicial, pero no hay login | Es normal en el scaffold; PDGLD-48 aún debe implementar la autenticación. |
 
 ## Responsables y alcance del Sprint 1
@@ -261,7 +267,7 @@ No uses `docker compose down -v` como parte del flujo diario: elimina el volumen
 | PDGLD-48 | NextAuth Credentials, Prisma y Zod | Víctor |
 | PDGLD-71 | Avisos npm y dependencias compatibles | Sergio |
 
-La inicialización SQL contiene catálogos, pero no equivale a tener RBAC, cuentas de prueba o login implementados. Tampoco confirma que Supabase de pruebas esté preparado.
+La inicialización SQL contiene catálogos, pero no equivale a tener RBAC, cuentas de prueba o login implementados. Se verificó el baseline de Supabase; todavía debe confirmarse que ese proyecto sea el entorno compartido de pruebas adecuado antes de configurar el pipeline.
 
 ## Fuentes técnicas
 
