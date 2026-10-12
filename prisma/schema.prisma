@@ -1,0 +1,2124 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["public", "sports_management"]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model appeal_decisions {
+  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  appeal_id            String                @db.Uuid
+  outcome              String
+  decided_by           String                @db.Uuid
+  new_ruling_id        String?               @db.Uuid
+  reason               String
+  issued_at            DateTime              @default(now()) @db.Timestamptz(6)
+  appeals              appeals               @relation(fields: [appeal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                users                 @relation(fields: [decided_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  disciplinary_rulings disciplinary_rulings? @relation(fields: [new_ruling_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([appeal_id], map: "fk_appeal_decisions_appeal_id_fkey")
+  @@index([decided_by], map: "fk_appeal_decisions_decided_by_fkey")
+  @@index([new_ruling_id], map: "fk_appeal_decisions_new_ruling_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model appeal_evidence {
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  appeal_id String  @db.Uuid
+  file_id   String  @db.Uuid
+  appeals   appeals @relation(fields: [appeal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files     files   @relation(fields: [file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([appeal_id, file_id])
+  @@index([file_id], map: "fk_appeal_evidence_file_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model appeals {
+  id                   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruling_id            String               @db.Uuid
+  submitted_by         String               @db.Uuid
+  reason               String
+  submitted_at         DateTime             @default(now()) @db.Timestamptz(6)
+  suspends_sanction    Boolean              @default(false)
+  appeal_decisions     appeal_decisions[]
+  appeal_evidence      appeal_evidence[]
+  disciplinary_rulings disciplinary_rulings @relation(fields: [ruling_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                users                @relation(fields: [submitted_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([ruling_id], map: "fk_appeals_ruling_id_fkey")
+  @@index([submitted_by], map: "fk_appeals_submitted_by_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model appointments {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  position_id      String    @db.Uuid
+  person_id        String    @db.Uuid
+  starts_at        DateTime  @db.Date
+  ends_at          DateTime? @db.Date
+  document_file_id String?   @db.Uuid
+  files            files?    @relation(fields: [document_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  people           people    @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  positions        positions @relation(fields: [position_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([document_file_id], map: "fk_appointments_document_file_id_fkey")
+  @@index([person_id], map: "fk_appointments_person_id_fkey")
+  @@index([position_id], map: "fk_appointments_position_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model audit_logs {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String?  @db.Uuid
+  occurred_at    DateTime @default(now()) @db.Timestamptz(6)
+  action         String
+  table_name     String
+  entity_id      String?  @db.Uuid
+  previous_data  Json?
+  new_data       Json?
+  reason         String
+  correlation_id String?
+  users          users?   @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([occurred_at(sort: Desc)], map: "audit_logs_date")
+  @@index([table_name, entity_id, occurred_at(sort: Desc)], map: "audit_logs_entity")
+  @@index([user_id], map: "fk_audit_logs_user_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model authentication_events {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String?  @db.Uuid
+  action         String
+  occurred_at    DateTime @default(now()) @db.Timestamptz(6)
+  correlation_id String?
+  users          users?   @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([user_id], map: "fk_authentication_events_user_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model billing_plans {
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id         String          @db.Uuid
+  club_id           String?         @db.Uuid
+  season_team_id    String?         @db.Uuid
+  charge_concept_id String          @db.Uuid
+  amount            Decimal         @db.Decimal(12, 2)
+  frequency         String
+  starts_at         DateTime        @db.Date
+  ends_at           DateTime?       @db.Date
+  created_by        String          @db.Uuid
+  charge_concepts   charge_concepts @relation(fields: [charge_concept_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubs             clubs?          @relation(fields: [club_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users             users           @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seasons           seasons         @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams      season_teams?   @relation(fields: [season_team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  charges           charges[]
+
+  @@index([charge_concept_id], map: "fk_billing_plans_charge_concept_id_fkey")
+  @@index([club_id], map: "fk_billing_plans_club_id_fkey")
+  @@index([created_by], map: "fk_billing_plans_created_by_fkey")
+  @@index([season_id], map: "fk_billing_plans_season_id_fkey")
+  @@index([season_team_id], map: "fk_billing_plans_season_team_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model bracket_matches {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bracket_id String   @db.Uuid
+  match_id   String?  @unique @db.Uuid
+  leg_number Int
+  brackets   brackets @relation(fields: [bracket_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  matches    matches? @relation(fields: [match_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([bracket_id, leg_number])
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model brackets {
+  id                                                      String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  stage_id                                                String             @db.Uuid
+  season_id                                               String             @db.Uuid
+  number                                                  Int
+  team_a_id                                               String?            @db.Uuid
+  team_b_id                                               String?            @db.Uuid
+  winner_id                                               String?            @db.Uuid
+  next_bracket_id                                         String?            @db.Uuid
+  next_slot                                               Int?
+  bracket_matches                                         bracket_matches[]
+  brackets                                                brackets?          @relation("bracketsTobrackets", fields: [next_bracket_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_brackets                                          brackets[]         @relation("bracketsTobrackets")
+  competition_stages                                      competition_stages @relation(fields: [stage_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams_brackets_team_a_id_season_idToseason_teams season_teams?      @relation("brackets_team_a_id_season_idToseason_teams", fields: [team_a_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams_brackets_team_b_id_season_idToseason_teams season_teams?      @relation("brackets_team_b_id_season_idToseason_teams", fields: [team_b_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams_brackets_winner_id_season_idToseason_teams season_teams?      @relation("brackets_winner_id_season_idToseason_teams", fields: [winner_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([stage_id, number])
+  @@index([next_bracket_id], map: "fk_brackets_next_bracket_id_fkey")
+  @@index([stage_id, season_id], map: "fk_brackets_stage_id_season_id_fkey")
+  @@index([team_a_id, season_id], map: "fk_brackets_team_a_id_season_id_fkey")
+  @@index([team_b_id, season_id], map: "fk_brackets_team_b_id_season_id_fkey")
+  @@index([winner_id, season_id], map: "fk_brackets_winner_id_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model case_evidence {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  case_id            String             @db.Uuid
+  file_id            String             @db.Uuid
+  description        String?
+  disciplinary_cases disciplinary_cases @relation(fields: [case_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files              files              @relation(fields: [file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([case_id, file_id])
+  @@index([file_id], map: "fk_case_evidence_file_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model categories {
+  id                             String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  league_id                      String                           @db.Uuid
+  sport_id                       String                           @db.Uuid
+  name                           String
+  leagues                        leagues                          @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sports                         sports                           @relation(fields: [sport_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  promotion_relegation_proposals promotion_relegation_proposals[]
+  season_categories              season_categories[]
+
+  @@unique([league_id, sport_id, name])
+  @@index([sport_id], map: "fk_categories_sport_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model charge_concepts {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String          @unique
+  name          String
+  billing_plans billing_plans[]
+  charges       charges[]
+
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model charges {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id         String             @db.Uuid
+  club_id           String?            @db.Uuid
+  season_team_id    String?            @db.Uuid
+  charge_concept_id String             @db.Uuid
+  amount            Decimal            @db.Decimal(12, 2)
+  currency          String             @default("MXN") @db.Char(3)
+  issued_on         DateTime           @db.Date
+  due_on            DateTime           @db.Date
+  period_start_date DateTime           @db.Date
+  period_end_date   DateTime           @db.Date
+  billing_plan_id   String?            @db.Uuid
+  sanction_id       String?            @unique @db.Uuid
+  created_by        String             @db.Uuid
+  voided_at         DateTime?          @db.Timestamptz(6)
+  void_reason       String?
+  version           Int                @default(1)
+  billing_plans     billing_plans?     @relation(fields: [billing_plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  charge_concepts   charge_concepts    @relation(fields: [charge_concept_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubs             clubs?             @relation(fields: [club_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  club_affiliations club_affiliations? @relation(fields: [club_id, season_id], references: [club_id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  users             users              @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sanctions         sanctions?         @relation(fields: [sanction_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seasons           seasons            @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams      season_teams?      @relation(fields: [season_team_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  payments          payments[]
+
+  @@unique([billing_plan_id, period_start_date])
+  @@index([charge_concept_id], map: "fk_charges_charge_concept_id_fkey")
+  @@index([club_id], map: "fk_charges_club_id_fkey")
+  @@index([club_id, season_id], map: "fk_charges_club_id_season_id_fkey")
+  @@index([created_by], map: "fk_charges_created_by_fkey")
+  @@index([season_id], map: "fk_charges_season_id_fkey")
+  @@index([season_team_id, season_id], map: "fk_charges_season_team_id_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model club_affiliations {
+  id                                          String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id                                   String                 @db.Uuid
+  club_id                                     String                 @db.Uuid
+  league_id                                   String                 @db.Uuid
+  reference_number                            String                 @unique
+  uniform_colors                              String
+  status                                      String                 @default("PENDING")
+  requested_by                                String                 @db.Uuid
+  reviewed_by                                 String?                @db.Uuid
+  reviewed_at                                 DateTime?              @db.Timestamptz(6)
+  review_reason                               String?
+  signed_affiliation_file_id                  String?                @db.Uuid
+  charges                                     charges[]
+  clubs                                       clubs                  @relation(fields: [club_id, league_id], references: [id, league_id], onDelete: NoAction, onUpdate: NoAction)
+  users_club_affiliations_requested_byTousers users                  @relation("club_affiliations_requested_byTousers", fields: [requested_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_club_affiliations_reviewed_byTousers  users?                 @relation("club_affiliations_reviewed_byTousers", fields: [reviewed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seasons                                     seasons                @relation(fields: [season_id, league_id], references: [id, league_id], onDelete: NoAction, onUpdate: NoAction)
+  files                                       files?                 @relation(fields: [signed_affiliation_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  club_officers                               club_officers[]
+  club_season_referees                        club_season_referees[]
+  season_teams                                season_teams[]
+
+  @@unique([club_id, season_id])
+  @@unique([id, season_id])
+  @@index([club_id, league_id], map: "fk_club_affiliations_club_id_league_id_fkey")
+  @@index([requested_by], map: "fk_club_affiliations_requested_by_fkey")
+  @@index([reviewed_by], map: "fk_club_affiliations_reviewed_by_fkey")
+  @@index([season_id, league_id], map: "fk_club_affiliations_season_id_league_id_fkey")
+  @@index([signed_affiliation_file_id], map: "fk_club_affiliations_signed_affiliation_file_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This table contains exclusion constraints and requires additional setup for migrations. Visit https://pris.ly/d/exclusion-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model club_officers {
+  id                                           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  affiliation_id                               String            @db.Uuid
+  person_id                                    String            @db.Uuid
+  office                                       String
+  starts_at                                    DateTime          @db.Date
+  ends_at                                      DateTime?         @db.Date
+  signature_file_id                            String?           @db.Uuid
+  support_file_id                              String?           @db.Uuid
+  club_affiliations                            club_affiliations @relation(fields: [affiliation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  people                                       people            @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files_club_officers_signature_file_idTofiles files?            @relation("club_officers_signature_file_idTofiles", fields: [signature_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files_club_officers_support_file_idTofiles   files?            @relation("club_officers_support_file_idTofiles", fields: [support_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([person_id], map: "fk_club_officers_person_id_fkey")
+  @@index([signature_file_id], map: "fk_club_officers_signature_file_id_fkey")
+  @@index([support_file_id], map: "fk_club_officers_support_file_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model club_season_referees {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  referee_id        String            @db.Uuid
+  season_id         String            @db.Uuid
+  club_id           String            @db.Uuid
+  club_affiliations club_affiliations @relation(fields: [club_id, season_id], references: [club_id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  referees          referees          @relation(fields: [referee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([referee_id, season_id])
+  @@index([club_id, season_id], map: "fk_club_season_referees_club_id_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model club_team_changes {
+  id                                         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id                                  String   @db.Uuid
+  club_id                                    String?  @db.Uuid
+  team_id                                    String?  @db.Uuid
+  type                                       String
+  previous_values                            Json
+  new_values                                 Json
+  new_team_id                                String?  @db.Uuid
+  document_file_id                           String   @db.Uuid
+  approved_by                                String   @db.Uuid
+  approved_at                                DateTime @db.Timestamptz(6)
+  reason                                     String
+  users                                      users    @relation(fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubs                                      clubs?   @relation(fields: [club_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files                                      files    @relation(fields: [document_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  teams_club_team_changes_new_team_idToteams teams?   @relation("club_team_changes_new_team_idToteams", fields: [new_team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seasons                                    seasons  @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  teams_club_team_changes_team_idToteams     teams?   @relation("club_team_changes_team_idToteams", fields: [team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([approved_by], map: "fk_club_team_changes_approved_by_fkey")
+  @@index([club_id], map: "fk_club_team_changes_club_id_fkey")
+  @@index([document_file_id], map: "fk_club_team_changes_document_file_id_fkey")
+  @@index([new_team_id], map: "fk_club_team_changes_new_team_id_fkey")
+  @@index([season_id], map: "fk_club_team_changes_season_id_fkey")
+  @@index([team_id], map: "fk_club_team_changes_team_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model clubs {
+  id                                             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  league_id                                      String               @db.Uuid
+  reference_number                               String               @unique
+  name                                           String
+  founded_on                                     DateTime?            @db.Date
+  status                                         String               @default("ACTIVE")
+  created_at                                     DateTime             @default(now()) @db.Timestamptz(6)
+  billing_plans                                  billing_plans[]
+  charges                                        charges[]
+  club_affiliations                              club_affiliations[]
+  club_team_changes                              club_team_changes[]
+  leagues                                        leagues              @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  official_documents                             official_documents[]
+  teams                                          teams[]
+  user_roles_user_roles_club_idToclubs           user_roles[]         @relation("user_roles_club_idToclubs")
+  user_roles_user_roles_club_id_league_idToclubs user_roles[]         @relation("user_roles_club_id_league_idToclubs")
+  venue_loans                                    venue_loans[]
+  venues                                         venues[]
+
+  @@unique([id, league_id])
+  @@index([league_id], map: "fk_clubs_league_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model competition_rule_parameters {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  competition_rule_id String            @db.Uuid
+  parameter_key       String
+  parameter_value     Json
+  requires_validation Boolean           @default(false)
+  validated_by        String?           @db.Uuid
+  competition_rules   competition_rules @relation(fields: [competition_rule_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users               users?            @relation(fields: [validated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([competition_rule_id, parameter_key])
+  @@index([validated_by], map: "fk_competition_rule_parameters_validated_by_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model competition_rules {
+  id                             String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id                      String                           @db.Uuid
+  version_number                 Int
+  file_id                        String?                          @db.Uuid
+  status                         String                           @default("DRAFT")
+  approved_by                    String?                          @db.Uuid
+  approved_at                    DateTime?                        @db.Timestamptz(6)
+  created_at                     DateTime                         @default(now()) @db.Timestamptz(6)
+  competition_rule_parameters    competition_rule_parameters[]
+  users                          users?                           @relation(fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files                          files?                           @relation(fields: [file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seasons                        seasons                          @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  competition_stages             competition_stages[]
+  promotion_relegation_proposals promotion_relegation_proposals[]
+  regulation_articles            regulation_articles[]
+  schedule_proposals             schedule_proposals[]
+  season_categories              season_categories[]
+  standing_versions              standing_versions[]
+
+  @@unique([id, season_id])
+  @@unique([season_id, version_number])
+  @@index([approved_by], map: "fk_competition_rules_approved_by_fkey")
+  @@index([file_id], map: "fk_competition_rules_file_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model competition_stages {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id           String            @db.Uuid
+  season_category_id  String            @db.Uuid
+  name                String
+  sort_order          Int
+  format              Json
+  competition_rule_id String            @db.Uuid
+  brackets            brackets[]
+  competition_rules   competition_rules @relation(fields: [competition_rule_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  season_categories   season_categories @relation(fields: [season_category_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  matches             matches[]
+
+  @@unique([id, season_id])
+  @@unique([season_category_id, sort_order])
+  @@index([competition_rule_id, season_id], map: "fk_competition_stages_competition_rule_id_season_id_fkey")
+  @@index([season_category_id, season_id], map: "fk_competition_stages_season_category_id_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model correction_authorizations {
+  id                                                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id                                            String   @db.Uuid
+  user_id                                              String   @db.Uuid
+  authorized_by                                        String   @db.Uuid
+  reason                                               String
+  document_file_id                                     String   @db.Uuid
+  expires_at                                           DateTime @db.Timestamptz(6)
+  created_at                                           DateTime @default(now()) @db.Timestamptz(6)
+  users_correction_authorizations_authorized_byTousers users    @relation("correction_authorizations_authorized_byTousers", fields: [authorized_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files                                                files    @relation(fields: [document_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seasons                                              seasons  @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_correction_authorizations_user_idTousers       users    @relation("correction_authorizations_user_idTousers", fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([authorized_by], map: "fk_correction_authorizations_authorized_by_fkey")
+  @@index([document_file_id], map: "fk_correction_authorizations_document_file_id_fkey")
+  @@index([season_id], map: "fk_correction_authorizations_season_id_fkey")
+  @@index([user_id], map: "fk_correction_authorizations_user_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model disciplinary_cases {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id            String                 @db.Uuid
+  reference_number     String                 @unique
+  event_id             String?                @db.Uuid
+  status               String                 @default("OPEN")
+  opened_by            String                 @db.Uuid
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  description          String
+  case_evidence        case_evidence[]
+  match_events         match_events?          @relation(fields: [event_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                users                  @relation(fields: [opened_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seasons              seasons                @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  disciplinary_rulings disciplinary_rulings[]
+
+  @@index([event_id], map: "fk_disciplinary_cases_event_id_fkey")
+  @@index([opened_by], map: "fk_disciplinary_cases_opened_by_fkey")
+  @@index([season_id], map: "fk_disciplinary_cases_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model disciplinary_rulings {
+  id                         String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  case_id                    String                 @db.Uuid
+  version_number             Int
+  replaces_ruling_id         String?                @db.Uuid
+  decided_by                 String                 @db.Uuid
+  issued_at                  DateTime               @default(now()) @db.Timestamptz(6)
+  decision                   String
+  reason                     String
+  document_file_id           String?                @db.Uuid
+  appeal_decisions           appeal_decisions[]
+  appeals                    appeals[]
+  disciplinary_cases         disciplinary_cases     @relation(fields: [case_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                      users                  @relation(fields: [decided_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files                      files?                 @relation(fields: [document_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  disciplinary_rulings       disciplinary_rulings?  @relation("disciplinary_rulingsTodisciplinary_rulings", fields: [replaces_ruling_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_disciplinary_rulings disciplinary_rulings[] @relation("disciplinary_rulingsTodisciplinary_rulings")
+  official_documents         official_documents[]
+  sanctions                  sanctions[]
+  team_withdrawals           team_withdrawals[]
+
+  @@unique([case_id, version_number])
+  @@unique([id, case_id])
+  @@index([decided_by], map: "fk_disciplinary_rulings_decided_by_fkey")
+  @@index([document_file_id], map: "fk_disciplinary_rulings_document_file_id_fkey")
+  @@index([replaces_ruling_id], map: "fk_disciplinary_rulings_replaces_ruling_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model document_requirements {
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_category_id String            @db.Uuid
+  document_type_id   String            @db.Uuid
+  quantity           Int               @default(1)
+  is_required        Boolean           @default(true)
+  document_types     document_types    @relation(fields: [document_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_categories  season_categories @relation(fields: [season_category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([season_category_id, document_type_id])
+  @@index([document_type_id], map: "fk_document_requirements_document_type_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model document_templates {
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  league_id          String               @db.Uuid
+  code               String
+  version            Int
+  content            String
+  leagues            leagues              @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  official_documents official_documents[]
+
+  @@unique([league_id, code, version])
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model document_types {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                  String                  @unique
+  name                  String
+  document_requirements document_requirements[]
+  player_documents      player_documents[]
+
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model event_types {
+  id                         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sport_id                   String         @db.Uuid
+  code                       String
+  name                       String
+  requires_disciplinary_case Boolean        @default(false)
+  sports                     sports         @relation(fields: [sport_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  match_events               match_events[]
+
+  @@unique([sport_id, code])
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model files {
+  id                                                                String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storage_key                                                       String                      @unique
+  original_name                                                     String
+  mime_type                                                         String
+  size_bytes                                                        BigInt
+  sha256                                                            String?                     @db.VarChar(64)
+  uploaded_by                                                       String                      @db.Uuid
+  created_at                                                        DateTime                    @default(now()) @db.Timestamptz(6)
+  appeal_evidence                                                   appeal_evidence[]
+  appointments                                                      appointments[]
+  case_evidence                                                     case_evidence[]
+  club_affiliations                                                 club_affiliations[]
+  club_officers_club_officers_signature_file_idTofiles              club_officers[]             @relation("club_officers_signature_file_idTofiles")
+  club_officers_club_officers_support_file_idTofiles                club_officers[]             @relation("club_officers_support_file_idTofiles")
+  club_team_changes                                                 club_team_changes[]
+  competition_rules                                                 competition_rules[]
+  correction_authorizations                                         correction_authorizations[]
+  disciplinary_rulings                                              disciplinary_rulings[]
+  users                                                             users                       @relation(fields: [uploaded_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  guardian_consents                                                 guardian_consents[]
+  imports                                                           imports[]
+  match_reports_match_reports_away_captain_signature_file_idTofiles match_reports[]             @relation("match_reports_away_captain_signature_file_idTofiles")
+  match_reports_match_reports_home_captain_signature_file_idTofiles match_reports[]             @relation("match_reports_home_captain_signature_file_idTofiles")
+  match_reports_match_reports_paper_copy_file_idTofiles             match_reports[]             @relation("match_reports_paper_copy_file_idTofiles")
+  news_attachments                                                  news_attachments[]
+  official_documents_official_documents_file_idTofiles              official_documents[]        @relation("official_documents_file_idTofiles")
+  official_documents_official_documents_signed_file_idTofiles       official_documents[]        @relation("official_documents_signed_file_idTofiles")
+  payments                                                          payments[]
+  player_documents                                                  player_documents[]
+  player_registrations                                              player_registrations[]
+  team_withdrawals                                                  team_withdrawals[]
+  venue_loans                                                       venue_loans[]
+
+  @@index([uploaded_by], map: "fk_files_uploaded_by_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model governing_bodies {
+  id        String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  league_id String      @db.Uuid
+  name      String
+  leagues   leagues     @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  positions positions[]
+
+  @@unique([league_id, name])
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model groups {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id          String              @db.Uuid
+  season_category_id String              @db.Uuid
+  name               String
+  season_categories  season_categories   @relation(fields: [season_category_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  matches            matches[]
+  season_teams       season_teams[]
+  standing_versions  standing_versions[]
+
+  @@unique([id, season_id])
+  @@unique([season_category_id, name])
+  @@index([season_category_id, season_id], map: "fk_groups_season_category_id_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model guardian_consents {
+  id                     String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  registration_id        String               @db.Uuid
+  guardian_person_id     String               @db.Uuid
+  relationship           String
+  privacy_notice_version String
+  signed_at              DateTime             @db.Timestamptz(6)
+  document_file_id       String               @db.Uuid
+  files                  files                @relation(fields: [document_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  people                 people               @relation(fields: [guardian_person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  player_registrations   player_registrations @relation(fields: [registration_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([document_file_id], map: "fk_guardian_consents_document_file_id_fkey")
+  @@index([guardian_person_id], map: "fk_guardian_consents_guardian_person_id_fkey")
+  @@index([registration_id], map: "fk_guardian_consents_registration_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model home_venue_assignments {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_team_id String       @db.Uuid
+  venue_id       String       @db.Uuid
+  venue_loan_id  String?      @db.Uuid
+  weekday        Int
+  start_time     DateTime     @db.Time(6)
+  starts_at      DateTime     @db.Date
+  ends_at        DateTime     @db.Date
+  season_teams   season_teams @relation(fields: [season_team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  venues         venues       @relation(fields: [venue_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  venue_loans    venue_loans? @relation(fields: [venue_loan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([season_team_id], map: "fk_home_venue_assignments_season_team_id_fkey")
+  @@index([venue_id], map: "fk_home_venue_assignments_venue_id_fkey")
+  @@index([venue_loan_id], map: "fk_home_venue_assignments_venue_loan_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model import_rows {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  import_id    String  @db.Uuid
+  row_number   Int
+  natural_key  String?
+  private_data Json
+  errors       Json    @default("[]")
+  is_applied   Boolean @default(false)
+  imports      imports @relation(fields: [import_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([import_id, row_number])
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model imports {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id   String        @db.Uuid
+  file_id     String        @db.Uuid
+  entity      String
+  status      String        @default("PREVIEW")
+  sha256      String        @db.VarChar(64)
+  user_id     String        @db.Uuid
+  created_at  DateTime      @default(now()) @db.Timestamptz(6)
+  import_rows import_rows[]
+  files       files         @relation(fields: [file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seasons     seasons       @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users       users         @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([season_id, entity, sha256])
+  @@index([file_id], map: "fk_imports_file_id_fkey")
+  @@index([user_id], map: "fk_imports_user_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model leagues {
+  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                   String                   @unique
+  timezone               String                   @default("America/Mexico_City")
+  is_active              Boolean                  @default(true)
+  categories             categories[]
+  clubs                  clubs[]
+  document_templates     document_templates[]
+  governing_bodies       governing_bodies[]
+  news                   news[]
+  notification_templates notification_templates[]
+  publications           publications[]
+  seasons                seasons[]
+  user_roles             user_roles[]
+  venues                 venues[]
+
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model lineups {
+  id                                                    String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  match_report_id                                       String                         @db.Uuid
+  registration_id                                       String                         @db.Uuid
+  season_team_id                                        String                         @db.Uuid
+  jersey_number                                         Int?
+  is_captain                                            Boolean                        @default(false)
+  validated_by                                          String                         @db.Uuid
+  exception_rule                                        String?
+  match_reports                                         match_reports                  @relation(fields: [match_report_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  player_registrations                                  player_registrations           @relation(fields: [registration_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams                                          season_teams                   @relation(fields: [season_team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                                                 users                          @relation(fields: [validated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  match_events_match_events_lineup_idTolineups          match_events[]                 @relation("match_events_lineup_idTolineups")
+  match_events_match_events_outgoing_lineup_idTolineups match_events[]                 @relation("match_events_outgoing_lineup_idTolineups")
+  player_period_participations                          player_period_participations[]
+
+  @@unique([match_report_id, registration_id])
+  @@index([registration_id], map: "fk_lineups_registration_id_fkey")
+  @@index([season_team_id], map: "fk_lineups_season_team_id_fkey")
+  @@index([validated_by], map: "fk_lineups_validated_by_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model match_events {
+  id                                               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  match_report_id                                  String               @db.Uuid
+  event_type_id                                    String               @db.Uuid
+  season_team_id                                   String?              @db.Uuid
+  lineup_id                                        String?              @db.Uuid
+  outgoing_lineup_id                               String?              @db.Uuid
+  period_number                                    Int?
+  minute                                           Int?
+  description                                      String?
+  disciplinary_cases                               disciplinary_cases[]
+  event_types                                      event_types          @relation(fields: [event_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lineups_match_events_lineup_idTolineups          lineups?             @relation("match_events_lineup_idTolineups", fields: [lineup_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  match_reports                                    match_reports        @relation(fields: [match_report_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lineups_match_events_outgoing_lineup_idTolineups lineups?             @relation("match_events_outgoing_lineup_idTolineups", fields: [outgoing_lineup_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams                                     season_teams?        @relation(fields: [season_team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([event_type_id], map: "fk_match_events_event_type_id_fkey")
+  @@index([lineup_id], map: "fk_match_events_lineup_id_fkey")
+  @@index([match_report_id], map: "fk_match_events_match_report_id_fkey")
+  @@index([outgoing_lineup_id], map: "fk_match_events_outgoing_lineup_id_fkey")
+  @@index([season_team_id], map: "fk_match_events_season_team_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model match_report_corrections {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  match_report_id  String        @db.Uuid
+  previous_version Int
+  previous_values  Json
+  new_values       Json
+  authorized_by    String        @db.Uuid
+  reason           String
+  created_at       DateTime      @default(now()) @db.Timestamptz(6)
+  users            users         @relation(fields: [authorized_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  match_reports    match_reports @relation(fields: [match_report_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([authorized_by], map: "fk_match_report_corrections_authorized_by_fkey")
+  @@index([match_report_id], map: "fk_match_report_corrections_match_report_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model match_report_syncs {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  client_id       String         @unique @db.Uuid
+  match_report_id String?        @db.Uuid
+  user_id         String         @db.Uuid
+  base_version    Int
+  status          String
+  private_payload Json
+  reason          String?
+  received_at     DateTime       @default(now()) @db.Timestamptz(6)
+  match_reports   match_reports? @relation(fields: [match_report_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users           users          @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([match_report_id], map: "fk_match_report_syncs_match_report_id_fkey")
+  @@index([user_id], map: "fk_match_report_syncs_user_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model match_reports {
+  id                                                        String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  match_id                                                  String                     @unique @db.Uuid
+  client_id                                                 String                     @unique @db.Uuid
+  captured_by                                               String                     @db.Uuid
+  source                                                    String
+  status                                                    String                     @default("DRAFT")
+  snapshot_version                                          Int?
+  snapshot_downloaded_at                                    DateTime?                  @db.Timestamptz(6)
+  version                                                   Int                        @default(1)
+  home_captain_signature_file_id                            String?                    @db.Uuid
+  away_captain_signature_file_id                            String?                    @db.Uuid
+  paper_copy_file_id                                        String?                    @db.Uuid
+  remarks                                                   String?
+  created_at                                                DateTime                   @default(now()) @db.Timestamptz(6)
+  confirmed_at                                              DateTime?                  @db.Timestamptz(6)
+  lineups                                                   lineups[]
+  match_events                                              match_events[]
+  match_report_corrections                                  match_report_corrections[]
+  match_report_syncs                                        match_report_syncs[]
+  files_match_reports_away_captain_signature_file_idTofiles files?                     @relation("match_reports_away_captain_signature_file_idTofiles", fields: [away_captain_signature_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                                                     users                      @relation(fields: [captured_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files_match_reports_home_captain_signature_file_idTofiles files?                     @relation("match_reports_home_captain_signature_file_idTofiles", fields: [home_captain_signature_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  matches                                                   matches                    @relation(fields: [match_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files_match_reports_paper_copy_file_idTofiles             files?                     @relation("match_reports_paper_copy_file_idTofiles", fields: [paper_copy_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([away_captain_signature_file_id], map: "fk_match_reports_away_captain_signature_file_id_fkey")
+  @@index([captured_by], map: "fk_match_reports_captured_by_fkey")
+  @@index([home_captain_signature_file_id], map: "fk_match_reports_home_captain_signature_file_id_fkey")
+  @@index([paper_copy_file_id], map: "fk_match_reports_paper_copy_file_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model match_results {
+  id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  match_id            String        @unique @db.Uuid
+  home_score          Int
+  away_score          Int
+  source              String
+  offending_team_id   String?       @db.Uuid
+  counts_in_standings Boolean       @default(true)
+  validated_by        String        @db.Uuid
+  validated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  reason              String?
+  version             Int           @default(1)
+  matches             matches       @relation(fields: [match_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams        season_teams? @relation(fields: [offending_team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users               users         @relation(fields: [validated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([offending_team_id], map: "fk_match_results_offending_team_id_fkey")
+  @@index([validated_by], map: "fk_match_results_validated_by_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model match_status_history {
+  id                                                                     String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  match_id                                                               String          @db.Uuid
+  previous_status_id                                                     String?         @db.Uuid
+  new_status_id                                                          String          @db.Uuid
+  user_id                                                                String          @db.Uuid
+  reason                                                                 String
+  created_at                                                             DateTime        @default(now()) @db.Timestamptz(6)
+  matches                                                                matches         @relation(fields: [match_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  match_statuses_match_status_history_new_status_idTomatch_statuses      match_statuses  @relation("match_status_history_new_status_idTomatch_statuses", fields: [new_status_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  match_statuses_match_status_history_previous_status_idTomatch_statuses match_statuses? @relation("match_status_history_previous_status_idTomatch_statuses", fields: [previous_status_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                                                                  users           @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([match_id], map: "fk_match_status_history_match_id_fkey")
+  @@index([new_status_id], map: "fk_match_status_history_new_status_id_fkey")
+  @@index([previous_status_id], map: "fk_match_status_history_previous_status_id_fkey")
+  @@index([user_id], map: "fk_match_status_history_user_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model match_status_transitions {
+  id                                                                     String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  from_status_id                                                         String         @db.Uuid
+  to_status_id                                                           String         @db.Uuid
+  role_id                                                                String         @db.Uuid
+  match_statuses_match_status_transitions_from_status_idTomatch_statuses match_statuses @relation("match_status_transitions_from_status_idTomatch_statuses", fields: [from_status_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  roles                                                                  roles          @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  match_statuses_match_status_transitions_to_status_idTomatch_statuses   match_statuses @relation("match_status_transitions_to_status_idTomatch_statuses", fields: [to_status_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([from_status_id, to_status_id, role_id])
+  @@index([role_id], map: "fk_match_status_transitions_role_id_fkey")
+  @@index([to_status_id], map: "fk_match_status_transitions_to_status_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model match_statuses {
+  id                                                                               String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                                                                             String                     @unique
+  name                                                                             String
+  reserves_resources                                                               Boolean
+  match_status_history_match_status_history_new_status_idTomatch_statuses          match_status_history[]     @relation("match_status_history_new_status_idTomatch_statuses")
+  match_status_history_match_status_history_previous_status_idTomatch_statuses     match_status_history[]     @relation("match_status_history_previous_status_idTomatch_statuses")
+  match_status_transitions_match_status_transitions_from_status_idTomatch_statuses match_status_transitions[] @relation("match_status_transitions_from_status_idTomatch_statuses")
+  match_status_transitions_match_status_transitions_to_status_idTomatch_statuses   match_status_transitions[] @relation("match_status_transitions_to_status_idTomatch_statuses")
+  matches                                                                          matches[]
+
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model matchdays {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id             String                  @db.Uuid
+  number                Int
+  start_date            DateTime                @db.Date
+  end_date              DateTime                @db.Date
+  seasons               seasons                 @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  matches               matches[]
+  publications          publications[]
+  sanction_fulfillments sanction_fulfillments[]
+  schedule_proposals    schedule_proposals[]
+  standing_versions     standing_versions[]
+  team_byes             team_byes[]
+
+  @@unique([id, season_id])
+  @@unique([season_id, number])
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model matches {
+  id                                                        String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id                                                 String                     @db.Uuid
+  group_id                                                  String                     @db.Uuid
+  matchday_id                                               String                     @db.Uuid
+  number                                                    String
+  home_team_id                                              String                     @db.Uuid
+  away_team_id                                              String                     @db.Uuid
+  venue_id                                                  String?                    @db.Uuid
+  starts_at                                                 DateTime?                  @db.Timestamptz(6)
+  ends_at                                                   DateTime?                  @db.Timestamptz(6)
+  reserved_until                                            DateTime?                  @db.Timestamptz(6)
+  status_id                                                 String                     @default(dbgenerated("sports_management.get_match_status_id('DRAFT'::text)")) @db.Uuid
+  schedule_proposal_id                                      String?                    @db.Uuid
+  notes                                                     String?
+  version                                                   Int                        @default(1)
+  deleted_at                                                DateTime?                  @db.Timestamptz(6)
+  stage_id                                                  String?                    @db.Uuid
+  bracket_matches                                           bracket_matches?
+  match_reports                                             match_reports?
+  match_results                                             match_results?
+  match_status_history                                      match_status_history[]
+  season_teams_matches_away_team_id_season_idToseason_teams season_teams               @relation("matches_away_team_id_season_idToseason_teams", fields: [away_team_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  groups                                                    groups                     @relation(fields: [group_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams_matches_home_team_id_season_idToseason_teams season_teams               @relation("matches_home_team_id_season_idToseason_teams", fields: [home_team_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  matchdays                                                 matchdays                  @relation(fields: [matchday_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  schedule_proposals                                        schedule_proposals?        @relation(fields: [schedule_proposal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  competition_stages                                        competition_stages?        @relation(fields: [stage_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction, map: "matches_stage_fk")
+  match_statuses                                            match_statuses             @relation(fields: [status_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  venues                                                    venues?                    @relation(fields: [venue_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  official_documents                                        official_documents[]
+  publications                                              publications[]
+  referee_assignments                                       referee_assignments[]
+  sanction_fulfillments                                     sanction_fulfillments[]
+  team_reservations                                         team_reservations[]
+  venue_reservations                                        venue_reservations?
+  withdrawal_match_effects                                  withdrawal_match_effects[]
+
+  @@unique([id, season_id])
+  @@unique([season_id, number])
+  @@index([away_team_id, season_id], map: "fk_matches_away_team_id_season_id_fkey")
+  @@index([group_id, season_id], map: "fk_matches_group_id_season_id_fkey")
+  @@index([home_team_id, season_id], map: "fk_matches_home_team_id_season_id_fkey")
+  @@index([matchday_id, season_id], map: "fk_matches_matchday_id_season_id_fkey")
+  @@index([schedule_proposal_id], map: "fk_matches_schedule_proposal_id_fkey")
+  @@index([stage_id, season_id], map: "fk_matches_stage_fk")
+  @@index([status_id], map: "fk_matches_status_id_fkey")
+  @@index([venue_id], map: "fk_matches_venue_id_fkey")
+  @@index([season_id, starts_at], map: "matches_date")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model news {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  league_id        String             @db.Uuid
+  title            String
+  body             String
+  category         String
+  audience         String
+  author_id        String             @db.Uuid
+  effective_from   DateTime           @default(now()) @db.Timestamptz(6)
+  effective_until  DateTime?          @db.Timestamptz(6)
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  users            users              @relation(fields: [author_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  leagues          leagues            @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  news_attachments news_attachments[]
+  publications     publications[]
+
+  @@index([author_id], map: "fk_news_author_id_fkey")
+  @@index([league_id], map: "fk_news_league_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model news_attachments {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  news_id String @db.Uuid
+  file_id String @db.Uuid
+  files   files  @relation(fields: [file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  news    news   @relation(fields: [news_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([news_id, file_id])
+  @@index([file_id], map: "fk_news_attachments_file_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model notification_attempts {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  notification_id    String        @db.Uuid
+  number             Int
+  status             String
+  error_code         String?
+  provider_reference String?
+  created_at         DateTime      @default(now()) @db.Timestamptz(6)
+  notifications      notifications @relation(fields: [notification_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([notification_id, number])
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model notification_templates {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  league_id     String          @db.Uuid
+  code          String
+  version       Int
+  subject       String
+  body          String
+  leagues       leagues         @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  notifications notifications[]
+
+  @@unique([league_id, code, version])
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model notifications {
+  id                     String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                String                  @db.Uuid
+  template_id            String                  @db.Uuid
+  idempotency_key        String                  @unique
+  private_data           Json                    @default("{}")
+  status                 String                  @default("PENDING")
+  attempt_count          Int                     @default(0)
+  next_attempt_at        DateTime                @default(now()) @db.Timestamptz(6)
+  sent_at                DateTime?               @db.Timestamptz(6)
+  created_at             DateTime                @default(now()) @db.Timestamptz(6)
+  notification_attempts  notification_attempts[]
+  notification_templates notification_templates  @relation(fields: [template_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                  users                   @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([template_id], map: "fk_notifications_template_id_fkey")
+  @@index([user_id], map: "fk_notifications_user_id_fkey")
+  @@index([next_attempt_at], map: "pending_notifications", where: raw("(status = ANY (ARRAY['PENDING'::text, 'FAILED'::text]))"))
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model official_documents {
+  id                                             String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id                                      String                @db.Uuid
+  template_id                                    String                @db.Uuid
+  reference_number                               String                @unique
+  version                                        Int
+  previous_document_id                           String?               @db.Uuid
+  club_id                                        String?               @db.Uuid
+  season_team_id                                 String?               @db.Uuid
+  registration_id                                String?               @db.Uuid
+  match_id                                       String?               @db.Uuid
+  ruling_id                                      String?               @db.Uuid
+  file_id                                        String                @db.Uuid
+  signed_file_id                                 String?               @db.Uuid
+  generated_by                                   String                @db.Uuid
+  created_at                                     DateTime              @default(now()) @db.Timestamptz(6)
+  verification_token_hash                        String?               @unique
+  clubs                                          clubs?                @relation(fields: [club_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files_official_documents_file_idTofiles        files                 @relation("official_documents_file_idTofiles", fields: [file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                                          users                 @relation(fields: [generated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  matches                                        matches?              @relation(fields: [match_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  official_documents                             official_documents?   @relation("official_documentsToofficial_documents", fields: [previous_document_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_official_documents                       official_documents[]  @relation("official_documentsToofficial_documents")
+  player_registrations                           player_registrations? @relation(fields: [registration_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  disciplinary_rulings                           disciplinary_rulings? @relation(fields: [ruling_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seasons                                        seasons               @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams                                   season_teams?         @relation(fields: [season_team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files_official_documents_signed_file_idTofiles files?                @relation("official_documents_signed_file_idTofiles", fields: [signed_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  document_templates                             document_templates    @relation(fields: [template_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([club_id], map: "fk_official_documents_club_id_fkey")
+  @@index([file_id], map: "fk_official_documents_file_id_fkey")
+  @@index([generated_by], map: "fk_official_documents_generated_by_fkey")
+  @@index([match_id], map: "fk_official_documents_match_id_fkey")
+  @@index([previous_document_id], map: "fk_official_documents_previous_document_id_fkey")
+  @@index([registration_id], map: "fk_official_documents_registration_id_fkey")
+  @@index([ruling_id], map: "fk_official_documents_ruling_id_fkey")
+  @@index([season_id], map: "fk_official_documents_season_id_fkey")
+  @@index([season_team_id], map: "fk_official_documents_season_team_id_fkey")
+  @@index([signed_file_id], map: "fk_official_documents_signed_file_id_fkey")
+  @@index([template_id], map: "fk_official_documents_template_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model password_resets {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String    @db.Uuid
+  token_hash String    @unique
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at DateTime  @db.Timestamptz(6)
+  used_at    DateTime? @db.Timestamptz(6)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([user_id], map: "fk_password_resets_user_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payment_voids {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payment_id    String   @unique @db.Uuid
+  reason        String
+  authorized_by String   @db.Uuid
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  users         users    @relation(fields: [authorized_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  payments      payments @relation(fields: [payment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([authorized_by], map: "fk_payment_voids_authorized_by_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payments {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  charge_id        String         @db.Uuid
+  reference_number String         @unique
+  amount           Decimal        @db.Decimal(12, 2)
+  paid_at          DateTime       @db.Timestamptz(6)
+  method           String
+  receipt_file_id  String?        @db.Uuid
+  recorded_by      String         @db.Uuid
+  created_at       DateTime       @default(now()) @db.Timestamptz(6)
+  payment_voids    payment_voids?
+  charges          charges        @relation(fields: [charge_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files            files?         @relation(fields: [receipt_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users            users          @relation(fields: [recorded_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([charge_id], map: "fk_payments_charge_id_fkey")
+  @@index([receipt_file_id], map: "fk_payments_receipt_file_id_fkey")
+  @@index([recorded_by], map: "fk_payments_recorded_by_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model people {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  first_name           String
+  paternal_surname     String
+  maternal_surname     String?
+  birth_date           DateTime?              @db.Date
+  curp                 String?                @unique @db.VarChar(18)
+  email                String?
+  phone                String?
+  address              String?
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  appointments         appointments[]
+  club_officers        club_officers[]
+  guardian_consents    guardian_consents[]
+  player_registrations player_registrations[]
+  referees             referees?
+  users                users?
+
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model permissions {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  module           String
+  action           String
+  role_permissions role_permissions[]
+
+  @@unique([module, action])
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model player_documents {
+  id                   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  registration_id      String               @db.Uuid
+  document_type_id     String               @db.Uuid
+  file_id              String               @db.Uuid
+  status               String               @default("PENDING")
+  reviewed_by          String?              @db.Uuid
+  reason               String?
+  document_types       document_types       @relation(fields: [document_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files                files                @relation(fields: [file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  player_registrations player_registrations @relation(fields: [registration_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                users?               @relation(fields: [reviewed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([registration_id, file_id])
+  @@index([document_type_id], map: "fk_player_documents_document_type_id_fkey")
+  @@index([file_id], map: "fk_player_documents_file_id_fkey")
+  @@index([reviewed_by], map: "fk_player_documents_reviewed_by_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model player_period_participations {
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lineup_id     String  @db.Uuid
+  period_number Int
+  entry_minute  Int?
+  exit_minute   Int?
+  lineups       lineups @relation(fields: [lineup_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([lineup_id, period_number])
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model player_registrations {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  person_id             String                  @db.Uuid
+  season_id             String                  @db.Uuid
+  season_team_id        String                  @db.Uuid
+  reference_number      String                  @unique
+  registered_at         DateTime                @default(now()) @db.Timestamptz(6)
+  withdrawn_at          DateTime?               @db.Timestamptz(6)
+  status                String                  @default("ACTIVE")
+  authorized_by         String?                 @db.Uuid
+  age_exception_reason  String?
+  age_exception_file_id String?                 @db.Uuid
+  guardian_consents     guardian_consents[]
+  lineups               lineups[]
+  official_documents    official_documents[]
+  player_documents      player_documents[]
+  files                 files?                  @relation(fields: [age_exception_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                 users?                  @relation(fields: [authorized_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  people                people                  @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams          season_teams            @relation(fields: [season_team_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  player_status_history player_status_history[]
+  sanctions             sanctions[]
+
+  @@unique([id, season_id])
+  @@unique([person_id, season_team_id])
+  @@unique([person_id, season_id], map: "unique_player_per_season", where: raw("(withdrawn_at IS NULL)"))
+  @@index([age_exception_file_id], map: "fk_player_registrations_age_exception_file_id_fkey")
+  @@index([authorized_by], map: "fk_player_registrations_authorized_by_fkey")
+  @@index([season_team_id, season_id], map: "fk_player_registrations_season_team_id_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model player_status_history {
+  id                   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  registration_id      String               @db.Uuid
+  previous_status      String?
+  new_status           String
+  user_id              String               @db.Uuid
+  reason               String
+  created_at           DateTime             @default(now()) @db.Timestamptz(6)
+  player_registrations player_registrations @relation(fields: [registration_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                users                @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([registration_id], map: "fk_player_status_history_registration_id_fkey")
+  @@index([user_id], map: "fk_player_status_history_user_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model positions {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  governing_body_id String           @db.Uuid
+  name              String
+  role_id           String?          @db.Uuid
+  appointments      appointments[]
+  governing_bodies  governing_bodies @relation(fields: [governing_body_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  roles             roles?           @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([governing_body_id, name])
+  @@index([role_id], map: "fk_positions_role_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model promotion_relegation_proposals {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id           String            @db.Uuid
+  competition_rule_id String            @db.Uuid
+  season_team_id      String            @db.Uuid
+  target_category_id  String            @db.Uuid
+  type                String
+  status              String            @default("PROPOSED")
+  justification       String
+  approved_by         String?           @db.Uuid
+  created_at          DateTime          @default(now()) @db.Timestamptz(6)
+  competition_rules   competition_rules @relation(fields: [competition_rule_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction, map: "promotion_relegation_proposal_competition_rule_id_season_i_fkey")
+  users               users?            @relation(fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams        season_teams      @relation(fields: [season_team_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  categories          categories        @relation(fields: [target_category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([competition_rule_id, season_id], map: "fk_promotion_relegation_proposal_competition_rule_id_season_i_f")
+  @@index([approved_by], map: "fk_promotion_relegation_proposals_approved_by_fkey")
+  @@index([season_team_id, season_id], map: "fk_promotion_relegation_proposals_season_team_id_season_id_fkey")
+  @@index([target_category_id], map: "fk_promotion_relegation_proposals_target_category_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model publications {
+  id                                     String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  league_id                              String             @db.Uuid
+  season_id                              String?            @db.Uuid
+  type                                   String
+  match_id                               String?            @db.Uuid
+  standing_version_id                    String?            @db.Uuid
+  sanction_id                            String?            @db.Uuid
+  news_id                                String?            @db.Uuid
+  matchday_id                            String?            @db.Uuid
+  status                                 String             @default("DRAFT")
+  public_data                            Json
+  created_by                             String             @db.Uuid
+  reviewed_by                            String?            @db.Uuid
+  published_by                           String?            @db.Uuid
+  published_at                           DateTime?          @db.Timestamptz(6)
+  created_at                             DateTime           @default(now()) @db.Timestamptz(6)
+  users_publications_created_byTousers   users              @relation("publications_created_byTousers", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  leagues                                leagues            @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  matches                                matches?           @relation(fields: [match_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  matchdays                              matchdays?         @relation(fields: [matchday_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  news                                   news?              @relation(fields: [news_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_publications_published_byTousers users?             @relation("publications_published_byTousers", fields: [published_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_publications_reviewed_byTousers  users?             @relation("publications_reviewed_byTousers", fields: [reviewed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sanctions                              sanctions?         @relation(fields: [sanction_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seasons                                seasons?           @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  standing_versions                      standing_versions? @relation(fields: [standing_version_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([created_by], map: "fk_publications_created_by_fkey")
+  @@index([league_id], map: "fk_publications_league_id_fkey")
+  @@index([match_id], map: "fk_publications_match_id_fkey")
+  @@index([matchday_id], map: "fk_publications_matchday_id_fkey")
+  @@index([news_id], map: "fk_publications_news_id_fkey")
+  @@index([published_by], map: "fk_publications_published_by_fkey")
+  @@index([reviewed_by], map: "fk_publications_reviewed_by_fkey")
+  @@index([sanction_id], map: "fk_publications_sanction_id_fkey")
+  @@index([season_id], map: "fk_publications_season_id_fkey")
+  @@index([standing_version_id], map: "fk_publications_standing_version_id_fkey")
+  @@index([league_id, type, published_at(sort: Desc)], map: "portal_publications", where: raw("(status = 'PUBLISHED'::text)"))
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model referee_assignments {
+  id                                           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  match_id                                     String    @db.Uuid
+  referee_id                                   String    @db.Uuid
+  assignment_role                              String    @default("MAIN")
+  status                                       String    @default("PROPOSED")
+  created_by                                   String    @db.Uuid
+  approved_by                                  String?   @db.Uuid
+  approved_at                                  DateTime? @db.Timestamptz(6)
+  users_referee_assignments_approved_byTousers users?    @relation("referee_assignments_approved_byTousers", fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_referee_assignments_created_byTousers  users     @relation("referee_assignments_created_byTousers", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  matches                                      matches   @relation(fields: [match_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  referees                                     referees  @relation(fields: [referee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([match_id, referee_id], map: "active_referee_assignment", where: raw("(status <> 'REVOKED'::text)"))
+  @@index([approved_by], map: "fk_referee_assignments_approved_by_fkey")
+  @@index([created_by], map: "fk_referee_assignments_created_by_fkey")
+  @@index([match_id], map: "fk_referee_assignments_match_id_fkey")
+  @@index([referee_id], map: "fk_referee_assignments_referee_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model referee_availability {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  referee_id   String   @db.Uuid
+  starts_at    DateTime @db.Timestamptz(6)
+  ends_at      DateTime @db.Timestamptz(6)
+  is_available Boolean
+  referees     referees @relation(fields: [referee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([referee_id], map: "fk_referee_availability_referee_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model referees {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  person_id            String                 @unique @db.Uuid
+  is_active            Boolean                @default(true)
+  club_season_referees club_season_referees[]
+  referee_assignments  referee_assignments[]
+  referee_availability referee_availability[]
+  people               people                 @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model regulation_articles {
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  competition_rule_id String             @db.Uuid
+  number              String
+  description         String
+  sanction_type_id    String             @db.Uuid
+  parameters          Json               @default("{}")
+  competition_rules   competition_rules  @relation(fields: [competition_rule_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sanction_types      sanction_types     @relation(fields: [sanction_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sanctions           sanctions[]
+  team_withdrawals    team_withdrawals[]
+
+  @@unique([competition_rule_id, number])
+  @@index([sanction_type_id], map: "fk_regulation_articles_sanction_type_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model role_permissions {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  role_id       String      @db.Uuid
+  permission_id String      @db.Uuid
+  context_only  Boolean     @default(true)
+  permissions   permissions @relation(fields: [permission_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  roles         roles       @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([role_id, permission_id])
+  @@index([permission_id], map: "fk_role_permissions_permission_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model roles {
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                     String                     @unique
+  name                     String
+  match_status_transitions match_status_transitions[]
+  positions                positions[]
+  role_permissions         role_permissions[]
+  user_roles               user_roles[]
+
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sanction_fulfillments {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sanction_id String     @db.Uuid
+  match_id    String?    @db.Uuid
+  matchday_id String?    @db.Uuid
+  recorded_by String     @db.Uuid
+  recorded_at DateTime   @default(now()) @db.Timestamptz(6)
+  matches     matches?   @relation(fields: [match_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  matchdays   matchdays? @relation(fields: [matchday_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users       users      @relation(fields: [recorded_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sanctions   sanctions  @relation(fields: [sanction_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([sanction_id, match_id], map: "sanction_fulfillment_per_match", where: raw("(match_id IS NOT NULL)"))
+  @@unique([sanction_id, matchday_id], map: "sanction_fulfillment_per_matchday", where: raw("(matchday_id IS NOT NULL)"))
+  @@index([match_id], map: "fk_sanction_fulfillments_match_id_fkey")
+  @@index([matchday_id], map: "fk_sanction_fulfillments_matchday_id_fkey")
+  @@index([recorded_by], map: "fk_sanction_fulfillments_recorded_by_fkey")
+  @@index([sanction_id], map: "fk_sanction_fulfillments_sanction_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sanction_types {
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                String                @unique
+  name                String
+  regulation_articles regulation_articles[]
+  sanctions           sanctions[]
+
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sanctions {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruling_id             String                  @db.Uuid
+  article_id            String                  @db.Uuid
+  sanction_type_id      String                  @db.Uuid
+  registration_id       String?                 @db.Uuid
+  season_team_id        String?                 @db.Uuid
+  starts_at             DateTime                @db.Timestamptz(6)
+  ends_at               DateTime?               @db.Timestamptz(6)
+  quantity              Int?
+  amount                Decimal?                @db.Decimal(12, 2)
+  blocks_participation  Boolean                 @default(false)
+  charges               charges?
+  publications          publications[]
+  sanction_fulfillments sanction_fulfillments[]
+  regulation_articles   regulation_articles     @relation(fields: [article_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  player_registrations  player_registrations?   @relation(fields: [registration_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  disciplinary_rulings  disciplinary_rulings    @relation(fields: [ruling_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sanction_types        sanction_types          @relation(fields: [sanction_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams          season_teams?           @relation(fields: [season_team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([article_id], map: "fk_sanctions_article_id_fkey")
+  @@index([registration_id], map: "fk_sanctions_registration_id_fkey")
+  @@index([ruling_id], map: "fk_sanctions_ruling_id_fkey")
+  @@index([sanction_type_id], map: "fk_sanctions_sanction_type_id_fkey")
+  @@index([season_team_id], map: "fk_sanctions_season_team_id_fkey")
+  @@index([starts_at, ends_at], map: "sanctions_effective_dates")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model schedule_proposals {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id           String            @db.Uuid
+  matchday_id         String            @db.Uuid
+  created_by          String            @db.Uuid
+  competition_rule_id String            @db.Uuid
+  parameters          Json              @default("{}")
+  conflicts           Json              @default("[]")
+  created_at          DateTime          @default(now()) @db.Timestamptz(6)
+  matches             matches[]
+  competition_rules   competition_rules @relation(fields: [competition_rule_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  users               users             @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  matchdays           matchdays         @relation(fields: [matchday_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  seasons             seasons           @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([competition_rule_id, season_id], map: "fk_schedule_proposals_competition_rule_id_season_id_fkey")
+  @@index([created_by], map: "fk_schedule_proposals_created_by_fkey")
+  @@index([matchday_id, season_id], map: "fk_schedule_proposals_matchday_id_season_id_fkey")
+  @@index([season_id], map: "fk_schedule_proposals_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model season_awards {
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id          String            @db.Uuid
+  season_category_id String            @db.Uuid
+  season_team_id     String            @db.Uuid
+  title              String
+  season_categories  season_categories @relation(fields: [season_category_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams       season_teams      @relation(fields: [season_team_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([season_category_id, title])
+  @@index([season_category_id, season_id], map: "fk_season_awards_season_category_id_season_id_fkey")
+  @@index([season_team_id, season_id], map: "fk_season_awards_season_team_id_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model season_breaks {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id String   @db.Uuid
+  starts_at DateTime @db.Date
+  ends_at   DateTime @db.Date
+  reason    String
+  seasons   seasons  @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([season_id], map: "fk_season_breaks_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model season_categories {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id             String                  @db.Uuid
+  category_id           String                  @db.Uuid
+  competition_rule_id   String                  @db.Uuid
+  hierarchy_order       Int
+  type                  String
+  minimum_age           Int?
+  maximum_age           Int?
+  age_cutoff_date       DateTime                @db.Date
+  competition_stages    competition_stages[]
+  document_requirements document_requirements[]
+  groups                groups[]
+  season_awards         season_awards[]
+  categories            categories              @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  competition_rules     competition_rules       @relation(fields: [competition_rule_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  seasons               seasons                 @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([id, season_id])
+  @@unique([season_id, category_id])
+  @@index([category_id], map: "fk_season_categories_category_id_fkey")
+  @@index([competition_rule_id, season_id], map: "fk_season_categories_competition_rule_id_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model season_teams {
+  id                                                   String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id                                            String                           @db.Uuid
+  team_id                                              String                           @db.Uuid
+  club_id                                              String                           @db.Uuid
+  group_id                                             String                           @db.Uuid
+  status                                               String                           @default("REGISTERED")
+  billing_plans                                        billing_plans[]
+  brackets_brackets_team_a_id_season_idToseason_teams  brackets[]                       @relation("brackets_team_a_id_season_idToseason_teams")
+  brackets_brackets_team_b_id_season_idToseason_teams  brackets[]                       @relation("brackets_team_b_id_season_idToseason_teams")
+  brackets_brackets_winner_id_season_idToseason_teams  brackets[]                       @relation("brackets_winner_id_season_idToseason_teams")
+  charges                                              charges[]
+  home_venue_assignments                               home_venue_assignments[]
+  lineups                                              lineups[]
+  match_events                                         match_events[]
+  match_results                                        match_results[]
+  matches_matches_away_team_id_season_idToseason_teams matches[]                        @relation("matches_away_team_id_season_idToseason_teams")
+  matches_matches_home_team_id_season_idToseason_teams matches[]                        @relation("matches_home_team_id_season_idToseason_teams")
+  official_documents                                   official_documents[]
+  player_registrations                                 player_registrations[]
+  promotion_relegation_proposals                       promotion_relegation_proposals[]
+  sanctions                                            sanctions[]
+  season_awards                                        season_awards[]
+  club_affiliations                                    club_affiliations                @relation(fields: [club_id, season_id], references: [club_id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  groups                                               groups                           @relation(fields: [group_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  teams                                                teams                            @relation(fields: [team_id, club_id], references: [id, club_id], onDelete: NoAction, onUpdate: NoAction)
+  standing_entries                                     standing_entries[]
+  team_byes                                            team_byes[]
+  team_reservations                                    team_reservations[]
+  team_withdrawals                                     team_withdrawals[]
+
+  @@unique([id, group_id, season_id])
+  @@unique([id, season_id])
+  @@unique([team_id, season_id])
+  @@index([club_id, season_id], map: "fk_season_teams_club_id_season_id_fkey")
+  @@index([group_id, season_id], map: "fk_season_teams_group_id_season_id_fkey")
+  @@index([team_id, club_id], map: "fk_season_teams_team_id_club_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model seasons {
+  id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  league_id                 String                      @db.Uuid
+  sport_id                  String                      @db.Uuid
+  name                      String
+  start_date                DateTime                    @db.Date
+  end_date                  DateTime                    @db.Date
+  status                    String                      @default("PLANNED")
+  competition_starts_at     DateTime?                   @db.Timestamptz(6)
+  closed_at                 DateTime?                   @db.Timestamptz(6)
+  version                   Int                         @default(1)
+  billing_plans             billing_plans[]
+  charges                   charges[]
+  club_affiliations         club_affiliations[]
+  club_team_changes         club_team_changes[]
+  competition_rules         competition_rules[]
+  correction_authorizations correction_authorizations[]
+  disciplinary_cases        disciplinary_cases[]
+  imports                   imports[]
+  matchdays                 matchdays[]
+  official_documents        official_documents[]
+  publications              publications[]
+  schedule_proposals        schedule_proposals[]
+  season_breaks             season_breaks[]
+  season_categories         season_categories[]
+  leagues                   leagues                     @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sports                    sports                      @relation(fields: [sport_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  venue_loans               venue_loans[]
+
+  @@unique([id, league_id])
+  @@unique([league_id, sport_id, name])
+  @@index([sport_id], map: "fk_seasons_sport_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sessions {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String    @db.Uuid
+  token_hash       String    @unique
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  last_activity_at DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at       DateTime  @db.Timestamptz(6)
+  revoked_at       DateTime? @db.Timestamptz(6)
+  users            users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([user_id], map: "fk_sessions_user_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sports {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String        @unique
+  name        String
+  categories  categories[]
+  event_types event_types[]
+  seasons     seasons[]
+
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model standing_entries {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  standing_version_id String            @db.Uuid
+  group_id            String            @db.Uuid
+  season_id           String            @db.Uuid
+  season_team_id      String            @db.Uuid
+  rank                Int
+  played              Int
+  won                 Int
+  drawn               Int
+  lost                Int
+  score_for           Int
+  score_against       Int
+  score_difference    Int?              @default(dbgenerated("(score_for - score_against)"))
+  points              Decimal           @db.Decimal(10, 2)
+  points_adjustment   Decimal           @default(0) @db.Decimal(10, 2)
+  season_teams        season_teams      @relation(fields: [season_team_id, group_id, season_id], references: [id, group_id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  standing_versions   standing_versions @relation(fields: [standing_version_id, group_id, season_id], references: [id, group_id, season_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([standing_version_id, rank])
+  @@unique([standing_version_id, season_team_id])
+  @@index([season_team_id, group_id, season_id], map: "fk_standing_entries_season_team_id_group_id_season_id_fkey")
+  @@index([standing_version_id, group_id, season_id], map: "fk_standing_entries_standing_version_id_group_id_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model standing_versions {
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id           String             @db.Uuid
+  group_id            String             @db.Uuid
+  matchday_id         String             @db.Uuid
+  competition_rule_id String             @db.Uuid
+  version_number      Int
+  status              String             @default("CALCULATED")
+  validated_by        String?            @db.Uuid
+  calculated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  publications        publications[]
+  standing_entries    standing_entries[]
+  competition_rules   competition_rules  @relation(fields: [competition_rule_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  groups              groups             @relation(fields: [group_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  matchdays           matchdays          @relation(fields: [matchday_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  users               users?             @relation(fields: [validated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([group_id, matchday_id, version_number])
+  @@unique([id, group_id, season_id])
+  @@index([competition_rule_id, season_id], map: "fk_standing_versions_competition_rule_id_season_id_fkey")
+  @@index([group_id, season_id], map: "fk_standing_versions_group_id_season_id_fkey")
+  @@index([matchday_id, season_id], map: "fk_standing_versions_matchday_id_season_id_fkey")
+  @@index([validated_by], map: "fk_standing_versions_validated_by_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model team_byes {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id      String       @db.Uuid
+  matchday_id    String       @db.Uuid
+  season_team_id String       @db.Uuid
+  matchdays      matchdays    @relation(fields: [matchday_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams   season_teams @relation(fields: [season_team_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([matchday_id, season_team_id])
+  @@index([matchday_id, season_id], map: "fk_team_byes_matchday_id_season_id_fkey")
+  @@index([season_team_id, season_id], map: "fk_team_byes_season_team_id_season_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This table contains exclusion constraints and requires additional setup for migrations. Visit https://pris.ly/d/exclusion-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model team_reservations {
+  id             String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  match_id       String                   @db.Uuid
+  season_team_id String                   @db.Uuid
+  time_range     Unsupported("tstzrange")
+  matches        matches                  @relation(fields: [match_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams   season_teams             @relation(fields: [season_team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([match_id, season_team_id])
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model team_withdrawals {
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_team_id           String                     @db.Uuid
+  type                     String
+  article_id               String                     @db.Uuid
+  document_file_id         String                     @db.Uuid
+  ruling_id                String?                    @db.Uuid
+  reason                   String
+  effect                   String
+  requested_by             String                     @db.Uuid
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  regulation_articles      regulation_articles        @relation(fields: [article_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files                    files                      @relation(fields: [document_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                    users                      @relation(fields: [requested_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  disciplinary_rulings     disciplinary_rulings?      @relation(fields: [ruling_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams             season_teams               @relation(fields: [season_team_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  withdrawal_decisions     withdrawal_decisions[]
+  withdrawal_match_effects withdrawal_match_effects[]
+
+  @@index([article_id], map: "fk_team_withdrawals_article_id_fkey")
+  @@index([document_file_id], map: "fk_team_withdrawals_document_file_id_fkey")
+  @@index([requested_by], map: "fk_team_withdrawals_requested_by_fkey")
+  @@index([ruling_id], map: "fk_team_withdrawals_ruling_id_fkey")
+  @@index([season_team_id], map: "fk_team_withdrawals_season_team_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model teams {
+  id                                                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  club_id                                                String              @db.Uuid
+  reference_number                                       String              @unique
+  name                                                   String
+  created_at                                             DateTime            @default(now()) @db.Timestamptz(6)
+  club_team_changes_club_team_changes_new_team_idToteams club_team_changes[] @relation("club_team_changes_new_team_idToteams")
+  club_team_changes_club_team_changes_team_idToteams     club_team_changes[] @relation("club_team_changes_team_idToteams")
+  season_teams                                           season_teams[]
+  clubs                                                  clubs               @relation(fields: [club_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([id, club_id])
+  @@index([club_id], map: "fk_teams_club_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model user_roles {
+  id                                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                                   String    @db.Uuid
+  role_id                                   String    @db.Uuid
+  league_id                                 String?   @db.Uuid
+  club_id                                   String?   @db.Uuid
+  starts_at                                 DateTime  @default(now()) @db.Timestamptz(6)
+  ends_at                                   DateTime? @db.Timestamptz(6)
+  clubs_user_roles_club_idToclubs           clubs?    @relation("user_roles_club_idToclubs", fields: [club_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubs_user_roles_club_id_league_idToclubs clubs?    @relation("user_roles_club_id_league_idToclubs", fields: [club_id, league_id], references: [id, league_id], onDelete: NoAction, onUpdate: NoAction)
+  leagues                                   leagues?  @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  roles                                     roles     @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                                     users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([club_id], map: "fk_user_roles_club_id_fkey")
+  @@index([club_id, league_id], map: "fk_user_roles_club_id_league_id_fkey")
+  @@index([league_id], map: "fk_user_roles_league_id_fkey")
+  @@index([role_id], map: "fk_user_roles_role_id_fkey")
+  @@index([user_id], map: "fk_user_roles_user_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model users {
+  id                                                                       String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  person_id                                                                String                           @unique @db.Uuid
+  username                                                                 String
+  email                                                                    String
+  password_hash                                                            String
+  is_active                                                                Boolean                          @default(true)
+  must_change_password                                                     Boolean                          @default(true)
+  failed_login_attempts                                                    Int                              @default(0)
+  locked_until                                                             DateTime?                        @db.Timestamptz(6)
+  encrypted_mfa_secret                                                     String?
+  version                                                                  Int                              @default(1)
+  created_at                                                               DateTime                         @default(now()) @db.Timestamptz(6)
+  appeal_decisions                                                         appeal_decisions[]
+  appeals                                                                  appeals[]
+  audit_logs                                                               audit_logs[]
+  authentication_events                                                    authentication_events[]
+  billing_plans                                                            billing_plans[]
+  charges                                                                  charges[]
+  club_affiliations_club_affiliations_requested_byTousers                  club_affiliations[]              @relation("club_affiliations_requested_byTousers")
+  club_affiliations_club_affiliations_reviewed_byTousers                   club_affiliations[]              @relation("club_affiliations_reviewed_byTousers")
+  club_team_changes                                                        club_team_changes[]
+  competition_rule_parameters                                              competition_rule_parameters[]
+  competition_rules                                                        competition_rules[]
+  correction_authorizations_correction_authorizations_authorized_byTousers correction_authorizations[]      @relation("correction_authorizations_authorized_byTousers")
+  correction_authorizations_correction_authorizations_user_idTousers       correction_authorizations[]      @relation("correction_authorizations_user_idTousers")
+  disciplinary_cases                                                       disciplinary_cases[]
+  disciplinary_rulings                                                     disciplinary_rulings[]
+  files                                                                    files[]
+  imports                                                                  imports[]
+  lineups                                                                  lineups[]
+  match_report_corrections                                                 match_report_corrections[]
+  match_report_syncs                                                       match_report_syncs[]
+  match_reports                                                            match_reports[]
+  match_results                                                            match_results[]
+  match_status_history                                                     match_status_history[]
+  news                                                                     news[]
+  notifications                                                            notifications[]
+  official_documents                                                       official_documents[]
+  password_resets                                                          password_resets[]
+  payment_voids                                                            payment_voids[]
+  payments                                                                 payments[]
+  player_documents                                                         player_documents[]
+  player_registrations                                                     player_registrations[]
+  player_status_history                                                    player_status_history[]
+  promotion_relegation_proposals                                           promotion_relegation_proposals[]
+  publications_publications_created_byTousers                              publications[]                   @relation("publications_created_byTousers")
+  publications_publications_published_byTousers                            publications[]                   @relation("publications_published_byTousers")
+  publications_publications_reviewed_byTousers                             publications[]                   @relation("publications_reviewed_byTousers")
+  referee_assignments_referee_assignments_approved_byTousers               referee_assignments[]            @relation("referee_assignments_approved_byTousers")
+  referee_assignments_referee_assignments_created_byTousers                referee_assignments[]            @relation("referee_assignments_created_byTousers")
+  sanction_fulfillments                                                    sanction_fulfillments[]
+  schedule_proposals                                                       schedule_proposals[]
+  sessions                                                                 sessions[]
+  standing_versions                                                        standing_versions[]
+  team_withdrawals                                                         team_withdrawals[]
+  user_roles                                                               user_roles[]
+  people                                                                   people                           @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  venue_loans                                                              venue_loans[]
+  withdrawal_decisions                                                     withdrawal_decisions[]
+
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model venue_availability {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  venue_id  String   @db.Uuid
+  starts_at DateTime @db.Timestamptz(6)
+  ends_at   DateTime @db.Timestamptz(6)
+  type      String
+  reason    String?
+  venues    venues   @relation(fields: [venue_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([venue_id], map: "fk_venue_availability_venue_id_fkey")
+  @@index([venue_id, starts_at, ends_at], map: "venue_availability_date")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model venue_loans {
+  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_id              String                   @db.Uuid
+  venue_id               String                   @db.Uuid
+  club_id                String                   @db.Uuid
+  letter_file_id         String                   @db.Uuid
+  status                 String                   @default("PENDING")
+  approved_by            String?                  @db.Uuid
+  approved_at            DateTime?                @db.Timestamptz(6)
+  home_venue_assignments home_venue_assignments[]
+  users                  users?                   @relation(fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubs                  clubs                    @relation(fields: [club_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  files                  files                    @relation(fields: [letter_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  seasons                seasons                  @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  venues                 venues                   @relation(fields: [venue_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([approved_by], map: "fk_venue_loans_approved_by_fkey")
+  @@index([club_id], map: "fk_venue_loans_club_id_fkey")
+  @@index([letter_file_id], map: "fk_venue_loans_letter_file_id_fkey")
+  @@index([season_id], map: "fk_venue_loans_season_id_fkey")
+  @@index([venue_id], map: "fk_venue_loans_venue_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This table contains exclusion constraints and requires additional setup for migrations. Visit https://pris.ly/d/exclusion-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model venue_reservations {
+  id         String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  match_id   String                   @unique @db.Uuid
+  venue_id   String                   @db.Uuid
+  time_range Unsupported("tstzrange")
+  matches    matches                  @relation(fields: [match_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  venues     venues                   @relation(fields: [venue_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model venues {
+  id                       String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  league_id                String                   @db.Uuid
+  code                     String
+  name                     String
+  address                  String
+  is_league_sports_complex Boolean                  @default(false)
+  owner_club_id            String?                  @db.Uuid
+  features                 Json                     @default("{}")
+  is_active                Boolean                  @default(true)
+  home_venue_assignments   home_venue_assignments[]
+  matches                  matches[]
+  venue_availability       venue_availability[]
+  venue_loans              venue_loans[]
+  venue_reservations       venue_reservations[]
+  leagues                  leagues                  @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubs                    clubs?                   @relation(fields: [owner_club_id, league_id], references: [id, league_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([id, league_id])
+  @@unique([league_id, code])
+  @@index([owner_club_id, league_id], map: "fk_venues_owner_club_id_league_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model withdrawal_decisions {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  withdrawal_id    String           @db.Uuid
+  is_approved      Boolean
+  user_id          String           @db.Uuid
+  reason           String
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  users            users            @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  team_withdrawals team_withdrawals @relation(fields: [withdrawal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([user_id], map: "fk_withdrawal_decisions_user_id_fkey")
+  @@index([withdrawal_id], map: "fk_withdrawal_decisions_withdrawal_id_fkey")
+  @@schema("sports_management")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model withdrawal_match_effects {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  withdrawal_id    String           @db.Uuid
+  match_id         String           @db.Uuid
+  action           String
+  previous_values  Json
+  new_values       Json
+  matches          matches          @relation(fields: [match_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  team_withdrawals team_withdrawals @relation(fields: [withdrawal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([withdrawal_id, match_id])
+  @@index([match_id], map: "fk_withdrawal_match_effects_match_id_fkey")
+  @@schema("sports_management")
+}
