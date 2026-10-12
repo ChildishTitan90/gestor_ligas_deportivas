@@ -1,0 +1,151 @@
+name: CI y migraciones de producción
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      deploy_production:
+        description: "Aplicar las migraciones revisadas de main a Supabase producción"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  app:
+    name: Aplicación
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: ci-app-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      DATABASE_URL: postgresql://postgres:ci_ephemeral_password@127.0.0.1:5432/gestor_ligas_ci
+      DIRECT_URL: postgresql://postgres:ci_ephemeral_password@127.0.0.1:5432/gestor_ligas_ci
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ci-only-secret-never-use-in-production
+      MIGRATION_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preparar Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Instalar las dependencias del lockfile
+        run: npm ci
+      - name: Comprobar la integridad de las migraciones
+        run: npm run ci:guard-migrations
+      - name: Probar los controles del pipeline
+        run: npm run test:ci
+      - name: Revisar el código
+        run: npm run lint
+      - name: Compilar la aplicación
+        run: npm run build
+
+  database:
+    name: Migraciones PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["15", "17"]
+    concurrency:
+      group: ci-database-${{ matrix.postgres }}-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      DATABASE_URL: postgresql://postgres:ci_ephemeral_password@127.0.0.1:5432/gestor_ligas_ci
+      DIRECT_URL: postgresql://postgres:ci_ephemeral_password@127.0.0.1:5432/gestor_ligas_ci
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_ephemeral_password
+          POSTGRES_DB: gestor_ligas_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gestor_ligas_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preparar Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Instalar las dependencias del lockfile
+        run: npm ci
+      - name: Validar el esquema de Prisma
+        run: npx --no-install prisma validate
+      - name: Reconstruir una base temporal desde las migraciones
+        run: npx --no-install prisma migrate deploy
+      - name: Verificar que el esquema tenga su migración
+        run: npx --no-install prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+      - name: Verificar los objetos e integridad de la base
+        run: node scripts/ci/verify-database.mjs
+
+  checks:
+    name: CI listo para integrar
+    if: ${{ always() }}
+    needs: [app, database]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      APP_RESULT: ${{ needs.app.result }}
+      DATABASE_RESULT: ${{ needs.database.result }}
+    steps:
+      - name: Exigir que todas las comprobaciones pasen
+        run: |
+          test "$APP_RESULT" = "success"
+          test "$DATABASE_RESULT" = "success"
+
+  deploy:
+    name: Migraciones Supabase producción
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_production }}
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: supabase-production
+    concurrency:
+      group: supabase-production-migrations
+      cancel-in-progress: false
+    steps:
+      - name: Descargar el código revisado de main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preparar Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Instalar las dependencias del lockfile
+        run: npm ci
+      - name: Verificar y aplicar las migraciones de producción
+        run: node scripts/ci/deploy-supabase.mjs
+        env:
+          SUPABASE_MIGRATION_URL: ${{ secrets.SUPABASE_MIGRATION_URL }}
+          SUPABASE_CA_CERT: ${{ secrets.SUPABASE_CA_CERT }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
