@@ -5,25 +5,24 @@ const prisma = new PrismaClient()
 async function main() {
   console.log('Iniciando siembra de datos...')
 
-  // 1. Definir los roles base del sistema
+  // Roles base usando 'code' y 'name' como define la estructura del proyecto
   const roles = [
-    { name: 'SUPERADMIN', description: 'Administrador general del sistema' },
-    { name: 'PRESIDENTE_LIGA', description: 'Presidente o directivo de la liga' },
-    { name: 'SECRETARIO', description: 'Secretario administrativo' },
-    { name: 'DELEGADO', description: 'Representante de un club' },
-    { name: 'ARBITRO', description: 'Árbitro de partidos' },
-    { name: 'CAPTURISTA', description: 'Capturista de cédulas y datos' },
-    { name: 'JUGADOR', description: 'Jugador registrado' },
+    { code: 'SUPERADMIN', name: 'Administrador General' },
+    { code: 'PRESIDENTE_LIGA', name: 'Presidente de Liga' },
+    { code: 'SECRETARIO', name: 'Secretario' },
+    { code: 'DELEGADO', name: 'Delegado de Club' },
+    { code: 'ARBITRO', name: 'Árbitro' },
+    { code: 'CAPTURISTA', name: 'Capturista' },
+    { code: 'JUGADOR', name: 'Jugador' },
   ]
 
-  // 2. Insertar o actualizar roles usando upsert (idempotente)
   for (const role of roles) {
     await prisma.roles.upsert({
-      where: { name: role.name },
-      update: { description: role.description },
+      where: { code: role.code },
+      update: { name: role.name },
       create: {
+        code: role.code,
         name: role.name,
-        description: role.description,
       },
     })
   }
