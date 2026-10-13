@@ -18,7 +18,7 @@ async function main() {
 
   // 2. Insertar o actualizar roles usando upsert (idempotente)
   for (const role of roles) {
-    await prisma.role.upsert({
+    await prisma.roles.upsert({
       where: { name: role.name },
       update: { description: role.description },
       create: {
