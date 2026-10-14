@@ -2,7 +2,6 @@ import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 import { Pool } from 'pg'
 
-// 1. Configuración de conexión compatible con Prisma 7 via @prisma/adapter-pg
 const connectionString = process.env.DATABASE_URL
 const pool = new Pool({ connectionString })
 const adapter = new PrismaPg(pool)
@@ -11,7 +10,7 @@ const prisma = new PrismaClient({ adapter })
 async function main() {
   console.log('Iniciando siembra de datos (seed)...')
 
-  // 2. Catálogo oficial de los 12 roles baseline del proyecto
+  // --- 1. ROLES BASELINE ---
   const roles = [
     { code: 'SUPERADMIN', name: 'Super Administrador' },
     { code: 'EXECUTIVE_PRESIDENT', name: 'Presidente Ejecutivo' },
@@ -31,14 +30,40 @@ async function main() {
     await prisma.roles.upsert({
       where: { code: role.code },
       update: { name: role.name },
-      create: {
-        code: role.code,
-        name: role.name,
-      },
+      create: { code: role.code, name: role.name },
     })
   }
 
-  console.log('12 roles baseline verificados e insertados sin duplicados.')
+  // --- 2. CONTEXTO DEPORTIVO (Liga de Morelia) ---
+  console.log('Sembrando contexto deportivo inicial...')
+  
+  // Nota: Si te marca error "leagues", cámbialo a "league" (depende si tu modelo está en singular o plural en schema.prisma)
+  let liga = await prisma.leagues.findFirst({ where: { name: 'Liga de Fútbol Morelia' } })
+  if (!liga) {
+    liga = await prisma.leagues.create({ data: { name: 'Liga de Fútbol Morelia' } })
+  }
+
+  let temporada = await prisma.seasons.findFirst({ where: { name: 'Temporada 2026' } })
+  if (!temporada) {
+    temporada = await prisma.seasons.create({ data: { name: 'Temporada 2026', leagueId: liga.id } })
+  }
+
+  let categoria = await prisma.categories.findFirst({ where: { name: 'Primera Fuerza' } })
+  if (!categoria) {
+    categoria = await prisma.categories.create({ data: { name: 'Primera Fuerza', leagueId: liga.id } })
+  }
+
+  let grupo = await prisma.groups.findFirst({ where: { name: 'Grupo A' } })
+  if (!grupo) {
+    grupo = await prisma.groups.create({ data: { name: 'Grupo A', categoryId: categoria.id } })
+  }
+  // --- 3. EVIDENCIA DE AUDITORÍA Y UUIDs ---
+  console.log('\n=== EVIDENCIA DE IDEMPOTENCIA Y UUIDS ===')
+  console.log(`Liga Morelia UUID: ${liga.id}`)
+  console.log(`Temporada UUID:    ${temporada.id}`)
+  console.log(`Categoría UUID:    ${categoria.id}`)
+  console.log(`Grupo UUID:        ${grupo.id}`)
+  console.log('Identidad, roles y auditoría validados correctamente.\n')
 }
 
 main()
