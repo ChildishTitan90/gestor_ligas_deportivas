@@ -106,6 +106,8 @@ jobs:
         run: node scripts/ci/verify-database.mjs
       - name: Probar autenticación HTTP con base temporal local
         run: npm run test:auth
+      - name: Probar seed, integridad, rollback e idempotencia
+        run: npm run test:seed -- --existing
 
   checks:
     name: CI listo para integrar

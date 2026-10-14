@@ -28,6 +28,8 @@ El esquema está en `prisma/schema.prisma`; la CLI usa `prisma.config.ts`. El ba
 
 Consulta la [guía de migraciones](docs/migraciones.md) para crear cambios y recibir los del equipo. Por decisión de Víctor, Supabase conserva RLS habilitado en sus 96 tablas y Docker continúa sin RLS. `0_init` registra la estructura común y no reproduce por sí solo la seguridad de una nueva base Supabase. No reapliques el SQL ni reinicies la base compartida.
 
+El seed sintético de PDGLD-47 se ejecuta explícitamente con `npm run db:seed`, después de migrar y generar el cliente. `npm run test:seed` reconstruye una base temporal local y verifica dos ejecuciones, UUID, relaciones, auditoría y rollback. Consulta [semillas e identidad de pruebas](docs/seed.md) para sus parámetros y resultados; Prisma 7 no lo ejecuta automáticamente al migrar.
+
 ## Flujo del equipo
 
 Crea ramas desde `develop` actualizado: `tipo/PDGLD-N-descripcion`. Incluye la clave real en commits y títulos de PR. Los PR de trabajo apuntan a `develop`; las liberaciones pasan de `develop` a `main`.

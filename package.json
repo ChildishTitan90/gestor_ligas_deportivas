@@ -12,6 +12,8 @@
     "test:auth": "node scripts/test-auth.mjs",
     "seed:dev": "node --conditions=react-server --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/seed-auth-dev.mjs",
     "auth:demo": "node scripts/test-auth.mjs --demo",
+    "db:seed": "prisma db seed",
+    "test:seed": "node scripts/test-seed.mjs",
     "ci:guard-migrations": "node scripts/ci/guard-migrations.mjs",
     "ci:database": "node scripts/ci/verify-database.mjs"
   },
@@ -30,6 +32,7 @@
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "17.4.2",
@@ -38,6 +41,7 @@
     "pg": "^8.23.1",
     "prisma": "^7.10.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
