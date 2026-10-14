@@ -9,10 +9,13 @@
     "lint": "eslint",
     "postinstall": "prisma generate",
     "test:ci": "node --test scripts/ci/migration-helpers.test.mjs",
+    "db:seed": "prisma db seed",
+    "test:seed": "node scripts/test-seed.mjs",
     "ci:guard-migrations": "node scripts/ci/guard-migrations.mjs",
     "ci:database": "node scripts/ci/verify-database.mjs"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "next": "16.4.0",
     "next-auth": "^4.24.15",
@@ -23,6 +26,7 @@
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "17.4.2",
@@ -31,6 +35,7 @@
     "pg": "^8.23.1",
     "prisma": "^7.10.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
