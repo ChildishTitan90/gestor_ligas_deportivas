@@ -36,6 +36,12 @@ Crea ramas desde `develop` actualizado: `tipo/PDGLD-N-descripcion`. Incluye la c
 
 Versionamos `.env.example` con marcadores. Los secretos y archivos `.env` no se suben.
 
+## Autenticación local — PDGLD-48
+
+NextAuth 4 Credentials valida correo/contraseña con Zod y verifica Argon2id contra PostgreSQL mediante Prisma 7. La sesión JWT solo expone UUID y estado de cambio obligatorio; la cuenta vigente se vuelve a comprobar en servidor. Cuentas temporales permanecen restringidas.
+
+Consulta [desarrollo local, pruebas y demostración](docs/authentication.md), [contratos para PDGLD-49/50/51](docs/architecture/authentication.md) y [pantallas mínimas y tokens](docs/design/auth-access.md). Para el trabajo diario, ejecuta una vez `npm run seed:dev` para cargar cuentas sintéticas persistentes en la base local y después usa `npm run dev`. `npm run test:auth` conserva una base temporal dentro del mismo PostgreSQL para sus comprobaciones; `auth:demo` es opcional. Intentos persistentes e inactividad efectiva siguen pendientes en las subtareas; esta integración no termina PDGLD-31.
+
 ## CI/CD
 
 El workflow `.github/workflows/ci-cd.yml` comprueba los PR y los cambios en `develop` y `main`: instalación reproducible, pruebas del pipeline, ESLint, compilación y reconstrucción de las migraciones en PostgreSQL 15 y 17. El resultado conjunto se llama **CI listo para integrar**.

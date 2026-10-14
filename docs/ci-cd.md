@@ -19,6 +19,7 @@ Al abrir o actualizar un PR hacia `develop` o `main`, y al integrar cambios en e
 3. Las 12 pruebas actuales de los controles del pipeline, revisión del código y compilación de Next.js.
 4. Reconstrucción de bases temporales PostgreSQL 15 y 17 desde las migraciones. La primera reproduce la versión de Docker; la segunda, la de Supabase.
 5. Comparación entre el esquema Prisma y las tablas reconstruidas, además de comprobaciones de integridad y unicidad de CURP.
+6. En la propuesta local de PDGLD-48, `npm run test:auth` verifica Credentials mediante HTTP y otra base temporal local en cada versión PostgreSQL. Incluye rechazo, restricción de cambio obligatorio, revalidación de cuenta y reinicio del servidor. La ejecución real de esta ampliación en GitHub queda pendiente de publicar y revisar los cambios; [ejecución local y límites](authentication.md).
 
 Estas pruebas usan bases desechables de GitHub. No consultan ni modifican Supabase.
 
