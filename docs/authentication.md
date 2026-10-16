@@ -1,5 +1,73 @@
 # Probar autenticación local — PDGLD-48
 
+## Inactividad efectiva — integración de sesiones
+
+El plazo configurable `AUTH_IDLE_TIMEOUT_MINUTES` (30 por defecto) se aplica en
+servidor con la tabla existente `sessions`. Cada login crea una sesión independiente;
+solo se guarda un hash SHA-256 de su secreto aleatorio. El JWT conserva un `sid`
+estable, distinto del `jti`, que no se expone en el DTO público. Las cookies
+anteriores a esta integración requieren iniciar sesión de nuevo.
+
+El navegador registra clics, teclas y desplazamientos reales mientras la página
+está visible. Agrupa eventos como máximo cada 15 segundos para evitar una petición
+por tecla. Solo esas acciones solicitan `update({ action: "activity" })`, protegido
+por CSRF de NextAuth. El servidor comprueba identidad, versión, bloqueo, revocación
+y vencimiento antes de actualizar `last_activity_at` y `expires_at` con su propio
+reloj. Nunca acepta fechas ni identidades enviadas por el navegador.
+
+GET de sesión, lecturas de negocio, cambios de foco y consultas automáticas no
+renuevan la actividad. El campo público `expires` indica el vencimiento efectivo
+registrado en PostgreSQL. Al llegar al plazo, el navegador vuelve a comprobar la
+sesión antes de volver al login, por si otra pestaña registró actividad. El servidor
+rechaza una sesión vencida aunque se conserve o renueve su cookie técnica; un POST
+de actividad tampoco la revive. Cerrar sesión revoca únicamente esa sesión.
+
+Validación HTTP con PostgreSQL local temporal: **20/20 resultados correctos**
+(19 subcasos y su prueba contenedora), incluidos los casos de renovación tras más
+de 30 minutos de antigüedad, consulta pasiva, vencimiento, replay, CSRF y cierre
+individual. El tiempo transcurrido se simula modificando exclusivamente las fechas
+de fixtures en la base temporal, sin esperar 30 minutos ni alterar el reloj del
+equipo. Pasaron ESLint, TypeScript y los 12 controles del pipeline. La compilación
+de producción sigue encontrando el fallo existente de Turbopack al procesar CSS.
+
+Prueba manual adicional en navegador con cuentas y base temporales, usando un
+plazo de un minuto solo en el proceso de demostración: la navegación por teclado
+mantuvo abierta la sesión después del vencimiento original; al dejar la página
+sin actividad, volvió automáticamente al login. Se comprobó también el caso de
+cookie ya vencida, que NextAuth puede representar como una respuesta nula: el
+cliente confirma por HTTP antes de distinguirlo de un fallo de conexión. Se
+detuvo el servidor de demostración y su runner eliminó su base temporal. El valor
+habitual sigue siendo 30 minutos; no se modificaron los secretos ni `.env`.
+
+## Correcciones de revisión de PDGLD-49
+
+El cambio de contraseña incrementa `users.version` junto con el hash y la retirada
+de `must_change_password` en la misma transacción. Esto revoca las sesiones
+anteriores. El formulario cierra la sesión mediante NextAuth 4 y navega a `/login`
+para exigir la nueva contraseña; no intenta promover la sesión restringida.
+
+Los intentos de acceso y el cambio de contraseña bloquean la fila del usuario
+con `SELECT ... FOR UPDATE` dentro de su transacción y leen su estado después
+del bloqueo. Así, los fallos simultáneos no sobrescriben el contador y un intento
+no limpia un bloqueo generado por otra petición mientras esperaba. Se conservan
+cinco fallos, bloqueo de 15 minutos y reinicio después de éxito o bloqueo vencido.
+
+`npm run test:auth` incluye regresiones HTTP/PostgreSQL para cinco fallos
+simultáneos, vencimiento y reinicio del contador, incremento de versión, rechazo
+de cookies anteriores, cierre de sesión y login con la nueva contraseña.
+También se comprueba que dos cambios simultáneos no puedan aceptar la misma
+contraseña anterior: solo uno debe completar e incrementar la versión.
+Validación local del 15/10/2026 con PostgreSQL 15: **16/16 resultados correctos**
+(15 subcasos y su prueba contenedora), cero fallos. Se ejecutó el runner completo
+con una base temporal, incluida la revalidación tras reiniciar el servidor.
+ESLint, TypeScript y los 12 controles de `test:ci` también pasaron. La compilación
+de producción sigue pendiente por el fallo de Turbopack al procesar CSS en este
+entorno; no se ha verificado CI remoto para estas correcciones.
+
+Las secciones siguientes conservan la evidencia y los pendientes originales de
+PDGLD-48. La inactividad efectiva se describe en la sección anterior; la HU18-01
+todavía requiere revisar el conjunto de sus criterios de aceptación.
+
 La integración usa PostgreSQL real de Docker, Prisma 7.10, NextAuth **4.24.15** Credentials/JWT y Zod en servidor. No modifica Supabase ni crea cuentas de producción. El esquema y `0_init` permanecen intactos.
 
 ## Preparación
@@ -96,4 +164,4 @@ El primer build falló por descarga de fuentes en el sandbox y después por IPC 
 
 No se ejecutó CI remoto ni la matriz PostgreSQL 17 en esta sesión. Persisten las nueve alertas altas npm documentadas en PDGLD-71; no se aplicó audit fix ni cambios principales.
 
-**Pendientes**: Sergio (PDGLD-49), cambio funcional y contador/bloqueo persistente; Nickte (PDGLD-50), vistas definitivas; Karol (PDGLD-51), actividad efectiva, expiración/cierre y revocación individual persistentes. Los valores de política de `.env.example` están reservados y todavía no se consumen. `maxAge` no implementa inactividad efectiva. Auditoría de accesos y autorización por permisos/contexto requieren sus integraciones. Ver [contratos completos](architecture/authentication.md) y [tokens/pantallas mínimas](design/auth-access.md).
+**Pendientes vigentes**: auditoría de accesos, autorización por permisos/contexto, avisos previos al vencimiento y revisión completa de criterios de la HU18-01. La política de bloqueo sigue fijada en cinco fallos y 15 minutos; sus variables de entorno reservadas aún no se consumen. El cambio funcional de contraseña, el contador concurrente y la inactividad efectiva con revocación individual ya se integraron según las secciones iniciales. Ver [contratos completos](architecture/authentication.md) y [tokens/pantallas mínimas](design/auth-access.md).

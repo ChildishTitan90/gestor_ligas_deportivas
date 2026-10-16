@@ -4,6 +4,8 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { authorizeCredentials } from "./credentials";
 import { refreshIdentityToken } from "./token";
+import { createIdentityToken, revokeIdentityToken } from "./persistent-session";
+import { getIdleTimeoutSeconds } from "./idle-policy";
 
 /** Evaluar en la petición: compilar no necesita secretos ni una base disponible. */
 export function getAuthOptions(): NextAuthOptions {
@@ -17,10 +19,9 @@ export function getAuthOptions(): NextAuthOptions {
     debug: false,
     // Conservar cookies HttpOnly/SameSite=lax, CSRF y JWE de NextAuth 4.
     // Secure se activa automáticamente con NEXTAUTH_URL HTTPS.
-    session: { strategy: "jwt",
-      maxAge: 30*60,
-      updateAge: 5*60,
-     },
+    // Vigencia técnica de la cookie; la actividad real se verifica en PostgreSQL.
+    // updateAge no se aplica a la estrategia JWT de NextAuth 4.
+    session: { strategy: "jwt", maxAge: getIdleTimeoutSeconds() },
     pages: { signIn: "/login", error: "/login" },
     providers: [
       CredentialsProvider({
@@ -33,17 +34,17 @@ export function getAuthOptions(): NextAuthOptions {
       }),
     ],
     callbacks: {
-      async jwt({ token, user }) {
-        const identityToken = user ? {
-          sub: user.id,
-          userVersion: user.userVersion,
-          mustChangePassword: user.mustChangePassword,
-        } : token;
-        return refreshIdentityToken(identityToken);
+      async jwt({ token, user, trigger, session }) {
+        if (user) return createIdentityToken(user);
+        // update() pasa por el CSRF de NextAuth. Solo se admite esta intención;
+        // identidad, fechas, versión y estado siempre proceden del servidor.
+        const activity = trigger === "update" && session?.action === "activity";
+        return refreshIdentityToken(token, activity);
       },
       async session({ session, token }) {
         return {
-          expires: session.expires,
+          expires: token.sub && token.idleExpiresAt
+            ? new Date(token.idleExpiresAt).toISOString() : session.expires,
           user: token.sub ? { id: token.sub, mustChangePassword: token.mustChangePassword !== false } : undefined,
         };
       },
@@ -55,6 +56,11 @@ export function getAuthOptions(): NextAuthOptions {
         } catch {
           return `${baseUrl}/access`;
         }
+      },
+    },
+    events: {
+      async signOut({ token }) {
+        await revokeIdentityToken(token);
       },
     },
     logger: {

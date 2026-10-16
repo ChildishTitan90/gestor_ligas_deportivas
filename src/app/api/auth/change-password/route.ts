@@ -3,6 +3,7 @@ import { changePasswordSchema } from "@/features/auth/schemas";
 import { getPrisma } from "@/server/db/prisma";
 import { getAuthSession } from "@/server/auth/session";
 import { verifyPassword, hashPassword } from "@/server/auth/password";
+import { lockAuthUser } from "@/server/auth/lock-user";
 
 export const runtime = "nodejs";
 
@@ -29,15 +30,7 @@ export async function POST(request: Request) {
 
     // Transacción ACID para verificar y actualizar la contraseña de forma segura
     const result = await prisma.$transaction(async (tx) => {
-      const user = await tx.users.findUnique({
-        where: { id: session.user!.id },
-        select: {
-          id: true,
-          password_hash: true,
-          is_active: true,
-          locked_until: true,
-        },
-      });
+      const user = await lockAuthUser(tx, session.user!.id);
 
       if (!user || !user.is_active || (user.locked_until && user.locked_until > new Date())) {
         return { ok: false as const, status: 403, code: "FORBIDDEN" };
@@ -55,6 +48,7 @@ export async function POST(request: Request) {
         data: {
           password_hash: newPasswordHash,
           must_change_password: false,
+          version: { increment: 1 },
           failed_login_attempts: 0,
           locked_until: null,
         },
