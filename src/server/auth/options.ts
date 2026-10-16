@@ -17,7 +17,10 @@ export function getAuthOptions(): NextAuthOptions {
     debug: false,
     // Conservar cookies HttpOnly/SameSite=lax, CSRF y JWE de NextAuth 4.
     // Secure se activa automáticamente con NEXTAUTH_URL HTTPS.
-    session: { strategy: "jwt" },
+    session: { strategy: "jwt",
+      maxAge: 30*60,
+      updateAge: 5*60,
+     },
     pages: { signIn: "/login", error: "/login" },
     providers: [
       CredentialsProvider({
