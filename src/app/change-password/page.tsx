@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getAuthSession } from "@/server/auth/session";
+import { ChangePasswordForm } from "@/features/auth/components/change-password-form";
 
 export const metadata: Metadata = { title: "Actualiza tu contraseña" };
 
@@ -21,12 +22,8 @@ export default async function ChangePasswordPage() {
           <p className="mt-4 text-sm leading-7 text-muted">
             Tu cuenta usa una contraseña temporal. Debes cambiarla antes de acceder a las funciones de la liga.
           </p>
-          <div className="mt-6 rounded-xl border border-border bg-background p-4">
-            <p className="text-sm font-medium text-primary">Tu acceso permanece restringido</p>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              El cambio de contraseña aún no está disponible. Comunícate con la administración para continuar.
-            </p>
-          </div>
+          
+          <ChangePasswordForm />
           {/* NextAuth sirve una página HTML en este endpoint; requiere navegación completa. */}
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a href="/api/auth/signout" className="mt-7 inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-border px-5 py-3 text-sm font-semibold text-primary transition-colors hover:bg-background">
