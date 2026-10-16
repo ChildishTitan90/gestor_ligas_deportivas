@@ -1,3 +1,4 @@
+import { SessionActivity } from "@/features/auth/components/session-activity";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getAccessIdentity } from "@/features/auth/server/queries";
@@ -15,6 +16,7 @@ export default async function AccessPage() {
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-lg flex-col justify-center px-6 py-10">
+      <SessionActivity />
       <p className="mb-6 text-sm font-semibold text-primary">Liga Municipal <span className="font-normal text-muted">· Morelia</span></p>
       <section aria-labelledby="access-title" className="overflow-hidden rounded-3xl border border-border bg-surface shadow-sm">
         <div className="h-1 bg-accent" />

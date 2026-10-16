@@ -2,33 +2,47 @@ import "server-only";
 
 import type { JWT } from "next-auth/jwt";
 import { z } from "zod";
-import { getPrisma } from "@/server/db/prisma";
+import { validatePersistentSession } from "./session-store";
 
 const identityTokenSchema = z.object({
   sub: z.uuid(),
   userVersion: z.number().int().positive(),
   mustChangePassword: z.boolean(),
+  sid: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
 });
 
-/** Revalidar estado actual; los campos de update() del navegador no son autoridad. */
 export async function refreshIdentityToken(token: JWT): Promise<JWT> {
   const parsed = identityTokenSchema.safeParse(token);
+
   if (!parsed.success) return {};
+
   try {
-    const user = await getPrisma().users.findUnique({
-      where: { id: parsed.data.sub },
-      select: { id: true, is_active: true, locked_until: true, must_change_password: true, version: true },
-    });
-    if (!user || !user.is_active || user.version !== parsed.data.userVersion ||
-      (user.locked_until && user.locked_until > new Date())) return {};
+    const identity = parsed.data;
+
+    const session = await validatePersistentSession(
+      identity.sid,
+      identity.sub,
+      identity.userVersion,
+    );
+
+    if (!session) return {};
 
     return {
-      sub: user.id,
-      userVersion: user.version,
-      // Una sesión restringida requiere nuevo login después del cambio.
-      mustChangePassword: parsed.data.mustChangePassword || user.must_change_password,
+      sub: session.userId,
+      userVersion: session.userVersion,
+
+      // Una sesión nacida restringida requiere iniciar sesión
+      // nuevamente después del cambio de contraseña.
+      mustChangePassword:
+        identity.mustChangePassword || session.mustChangePassword,
+
+      // Identificador estable, independiente del jti de NextAuth.
+      sid: identity.sid,
+
+      idleExpiresAt: session.expiresAt.toISOString(),
     };
   } catch {
+    // No registrar tokens, conexiones ni errores del driver.
     console.error("[auth] SESSION_UNAVAILABLE");
     return {};
   }
