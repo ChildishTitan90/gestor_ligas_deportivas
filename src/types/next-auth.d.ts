@@ -16,5 +16,7 @@ declare module "next-auth/jwt" {
   interface JWT {
     userVersion?: number;
     mustChangePassword?: boolean;
+    sid?: string;
+    idleExpiresAt?: number;
   }
 }

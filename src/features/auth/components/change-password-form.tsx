@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { CircleAlert, Eye, EyeOff } from "lucide-react";
 import { changePasswordSchema } from "@/features/auth/schemas";
 
@@ -36,7 +36,6 @@ function getConnectionStatus() {
 }
 
 export function ChangePasswordForm() {
-  const router = useRouter();
   const isOnline = useSyncExternalStore(subscribeToConnection, getConnectionStatus, () => true);
   const pendingRef = useRef(false);
   const currentPasswordRef = useRef<HTMLInputElement>(null);
@@ -102,8 +101,15 @@ export function ChangePasswordForm() {
       }
 
       updated = true;
-      router.push("/access");
-      router.refresh();
+      // El JWT anterior queda revocado. Pedir credenciales nuevas, sin promover
+      // la sesión restringida mediante datos enviados desde el navegador.
+      try {
+        await signOut({ redirect: false, callbackUrl: "/login" });
+      } finally {
+        // Aunque falle la limpieza de cookie por red, la versión ya la revocó.
+        // Una navegación completa evita conservar vistas de la sesión anterior.
+        window.location.replace("/login");
+      }
     } catch {
       setError(serviceError);
     } finally {
