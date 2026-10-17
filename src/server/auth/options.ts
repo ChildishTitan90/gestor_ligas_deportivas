@@ -1,5 +1,5 @@
 import "server-only";
-
+import { getIdleTimeoutMs } from "./session-policy";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { authorizeCredentials } from "./credentials";
@@ -30,7 +30,7 @@ export function getAuthOptions(): NextAuthOptions {
     // La inactividad se verifica por separado en PostgreSQL.
     session: {
       strategy: "jwt",
-      maxAge: 30 * 60,
+      maxAge: getIdleTimeoutMs() / 1000,
     },
 
     pages: {

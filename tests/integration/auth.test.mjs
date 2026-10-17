@@ -223,14 +223,292 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         assertPublicIdentity(await browser.session(), fixtures.padded.id, false);
         await browser.assertAccess(200);
       });
+await t.test('cerrar sesión impide reutilizar su cookie y conserva otra sesión', async () => {
+  const browser = new Browser(baseUrl);
+  const otherBrowser = new Browser(baseUrl);
 
-      await t.test('eliminar la cuenta revoca la sesión sin exponer datos', async () => {
-        const browser = new Browser(baseUrl);
-        await browser.login(fixtures.padded.email, paddedPassword);
-        await client.query('DELETE FROM sports_management.users WHERE id = $1', [fixtures.padded.id]);
-        await browser.assertAccess(401, 'UNAUTHENTICATED');
-        assert.equal((await browser.session()).user, undefined);
-      });
+  await browser.login(fixtures.padded.email, paddedPassword);
+  await otherBrowser.login(fixtures.padded.email, paddedPassword);
+
+  await browser.assertAccess(200);
+  await otherBrowser.assertAccess(200);
+
+  const csrfToken = await browser.csrf();
+
+  // Guardamos una copia para simular reutilizar la cookie anterior.
+  const replayBrowser = new Browser(baseUrl);
+  replayBrowser.cookies = new Map(browser.cookies);
+
+  const response = await browser.request('/api/auth/signout', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      csrfToken,
+      callbackUrl: '/login',
+      json: 'true',
+    }),
+  });
+
+  assert.equal(response.status, 200, 'El cierre debe responder correctamente.');
+
+  await browser.assertAccess(401, 'UNAUTHENTICATED');
+  await replayBrowser.assertAccess(401, 'UNAUTHENTICATED');
+  assert.equal((await replayBrowser.session()).user, undefined);
+
+  await otherBrowser.assertAccess(200);
+});
+await t.test('solo la actividad explícita renueva la sesión', async () => {
+  const browser = new Browser(baseUrl);
+  await browser.login(fixtures.padded.email, paddedPassword);
+
+  const result = await client.query(
+    `SELECT id
+     FROM sports_management.sessions
+     WHERE user_id = $1 AND revoked_at IS NULL
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [fixtures.padded.id],
+  );
+
+  assert.equal(result.rows.length, 1);
+  const sessionId = result.rows[0].id;
+
+  // Simulamos un minuto sin actividad en esta sesión de prueba.
+  const before = await client.query(
+    `UPDATE sports_management.sessions
+     SET last_activity_at = now() - interval '1 minute'
+     WHERE id = $1
+     RETURNING last_activity_at, expires_at`,
+    [sessionId],
+  );
+
+  await browser.session();
+  await browser.assertAccess(200);
+
+  const afterRead = await client.query(
+    `SELECT last_activity_at, expires_at
+     FROM sports_management.sessions WHERE id = $1`,
+    [sessionId],
+  );
+
+  assert.deepEqual(
+    afterRead.rows[0],
+    before.rows[0],
+    'Consultar la sesión o el acceso no debe renovar la inactividad.',
+  );
+
+  const response = await browser.request('/api/session/activity', {
+    method: 'POST',
+    headers: {
+      origin: new URL(baseUrl).origin,
+      'x-session-activity': 'interaction',
+    },
+  });
+
+  assert.equal(response.status, 200);
+
+  const afterActivity = await client.query(
+    `SELECT last_activity_at, expires_at
+     FROM sports_management.sessions WHERE id = $1`,
+    [sessionId],
+  );
+
+  assert.ok(
+    afterActivity.rows[0].last_activity_at.getTime() >
+      before.rows[0].last_activity_at.getTime(),
+    'La actividad debe actualizar la última actividad.',
+  );
+
+  assert.ok(
+    afterActivity.rows[0].expires_at.getTime() >
+      before.rows[0].expires_at.getTime(),
+    'La actividad debe extender la expiración.',
+  );
+});
+await t.test('la inactividad vence la sesión e impide reactivarla', async () => {
+  const browser = new Browser(baseUrl);
+  await browser.login(fixtures.padded.email, paddedPassword);
+  await browser.assertAccess(200);
+
+  const result = await client.query(
+    `SELECT id
+     FROM sports_management.sessions
+     WHERE user_id = $1 AND revoked_at IS NULL
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [fixtures.padded.id],
+  );
+
+  assert.equal(result.rows.length, 1);
+  const sessionId = result.rows[0].id;
+
+  // La cookie sigue vigente; simulamos inactividad en el servidor.
+  await client.query(
+    `UPDATE sports_management.sessions
+     SET last_activity_at = now() - interval '31 minutes'
+     WHERE id = $1`,
+    [sessionId],
+  );
+
+  // Intentar registrar actividad después del límite debe fallar.
+  const response = await browser.request('/api/session/activity', {
+    method: 'POST',
+    headers: {
+      origin: new URL(baseUrl).origin,
+      'x-session-activity': 'interaction',
+    },
+  });
+
+  assert.equal(response.status, 401);
+
+  await browser.assertAccess(401, 'UNAUTHENTICATED');
+  assert.equal((await browser.session()).user, undefined);
+
+  const stored = await client.query(
+    `SELECT revoked_at
+     FROM sports_management.sessions
+     WHERE id = $1`,
+    [sessionId],
+  );
+
+  assert.ok(
+    stored.rows[0].revoked_at,
+    'La sesión vencida debe quedar revocada.',
+  );
+});
+await t.test('un fallo al revocar conserva la cookie y permite reintentar', async () => {
+  const browser = new Browser(baseUrl);
+  await browser.login(fixtures.padded.email, paddedPassword);
+  await browser.assertAccess(200);
+
+  const csrfToken = await browser.csrf();
+  const originalCookies = new Map(browser.cookies);
+
+  const signOut = () => browser.request('/api/auth/signout', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      csrfToken,
+      callbackUrl: '/login',
+      json: 'true',
+    }),
+  });
+
+  // Provocamos un fallo únicamente en la base temporal.
+  await client.query(`
+    CREATE FUNCTION sports_management.pdgld51_fail_revoke()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NEW.revoked_at IS NOT NULL AND OLD.revoked_at IS NULL THEN
+        RAISE EXCEPTION 'PDGLD51_TEST_REVOKE_FAILURE';
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+  `);
+
+  try {
+    await client.query(`
+      CREATE TRIGGER pdgld51_fail_revoke
+      BEFORE UPDATE ON sports_management.sessions
+      FOR EACH ROW
+      EXECUTE FUNCTION sports_management.pdgld51_fail_revoke();
+    `);
+
+    const response = await signOut();
+
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error, 'SIGNOUT_FAILED');
+    assert.deepEqual(
+      browser.cookies,
+      originalCookies,
+      'Un cierre fallido debe conservar las cookies.',
+    );
+  } finally {
+    await client.query(`
+      DROP TRIGGER IF EXISTS pdgld51_fail_revoke
+      ON sports_management.sessions;
+    `);
+    await client.query(`
+      DROP FUNCTION sports_management.pdgld51_fail_revoke();
+    `);
+  }
+
+  await browser.assertAccess(200);
+
+  const retry = await signOut();
+  assert.equal(retry.status, 200);
+  await browser.assertAccess(401, 'UNAUTHENTICATED');
+});
+await t.test('audita el acceso y no duplica el cierre de sesión', async () => {
+  const countEvents = async () => {
+    const result = await client.query(
+      `SELECT
+         count(*) FILTER (WHERE action = 'LOGIN_OK')::int AS logins,
+         count(*) FILTER (WHERE action = 'LOGOUT')::int AS logouts
+       FROM sports_management.authentication_events
+       WHERE user_id = $1`,
+      [fixtures.padded.id],
+    );
+    return result.rows[0];
+  };
+
+  const before = await countEvents();
+
+  const browser = new Browser(baseUrl);
+  await browser.login(fixtures.padded.email, paddedPassword);
+  await browser.assertAccess(200);
+
+  const afterLogin = await countEvents();
+  assert.equal(afterLogin.logins, before.logins + 1);
+
+  const csrfToken = await browser.csrf();
+  const replayBrowser = new Browser(baseUrl);
+  replayBrowser.cookies = new Map(browser.cookies);
+
+  const signOut = (target) => target.request('/api/auth/signout', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      csrfToken,
+      callbackUrl: '/login',
+      json: 'true',
+    }),
+  });
+
+  assert.equal((await signOut(browser)).status, 200);
+
+  const afterLogout = await countEvents();
+  assert.equal(afterLogout.logouts, before.logouts + 1);
+
+  // Repetir el cierre con la cookie anterior no debe duplicar el evento.
+  assert.equal((await signOut(replayBrowser)).status, 200);
+
+  const afterReplay = await countEvents();
+  assert.deepEqual(afterReplay, afterLogout);
+  await replayBrowser.assertAccess(401, 'UNAUTHENTICATED');
+});
+   await t.test('desactivar la cuenta revoca la sesión sin exponer datos', async () => {
+  const browser = new Browser(baseUrl);
+  await browser.login(fixtures.padded.email, paddedPassword);
+  await browser.assertAccess(200);
+
+  await client.query(
+    'UPDATE sports_management.users SET is_active = false WHERE id = $1',
+    [fixtures.padded.id],
+  );
+
+  await browser.assertAccess(401, 'UNAUTHENTICATED');
+  assert.equal((await browser.session()).user, undefined);
+});
     });
   } finally {
     await client.end();
