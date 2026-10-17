@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import pg from 'pg';
 import { createAuthFixtures, fixturePassword, paddedPassword } from './auth-fixtures.mjs';
 
-class Browser {
+export class Browser {
   constructor(baseUrl) {
     this.baseUrl = baseUrl;
     this.cookies = new Map();

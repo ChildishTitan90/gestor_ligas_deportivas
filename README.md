@@ -42,6 +42,10 @@ NextAuth 4 Credentials valida correo/contraseña con Zod y verifica Argon2id con
 
 Consulta [desarrollo local, pruebas y demostración](docs/authentication.md), [contratos para PDGLD-49/50/51](docs/architecture/authentication.md) y [pantallas mínimas y tokens](docs/design/auth-access.md). Para el trabajo diario, ejecuta una vez `npm run seed:dev` para cargar cuentas sintéticas persistentes en la base local y después usa `npm run dev`. `npm run test:auth` utiliza una base temporal dentro del mismo PostgreSQL; `auth:demo` es opcional. El login cuenta fallos concurrentes, bloquea tras cinco intentos y exige nuevo acceso después del cambio de contraseña. La inactividad se valida en servidor con sesiones persistentes: `AUTH_IDLE_TIMEOUT_MINUTES=30`, renovación por acciones del usuario y revocación individual al salir. Las consultas automáticas no prolongan ese plazo. Esta integración no termina por sí sola PDGLD-31 ni los controles RBAC y auditoría pendientes.
 
+## Alta de cuentas
+
+El servidor de alta de cuentas de **PDGLD-34 / PDGLD-52** expone `/api/accounts` para SUPERADMIN, con contexto inicial, contraseña temporal, auditoría y pruebas. El [contrato para el formulario PDGLD-53](docs/architecture/account-provisioning.md) documenta entradas y errores. La interfaz conserva su subtarea separada.
+
 ## CI/CD
 
 El workflow `.github/workflows/ci-cd.yml` comprueba los PR y los cambios en `develop` y `main`: instalación reproducible, pruebas del pipeline, ESLint, compilación y reconstrucción de las migraciones en PostgreSQL 15 y 17. El resultado conjunto se llama **CI listo para integrar**.

@@ -178,6 +178,8 @@ try {
       await stopServer();
       await startServer();
     } });
+    const { runAccountIntegrationSuite } = await import('../tests/integration/accounts.test.mjs');
+    await runAccountIntegrationSuite({ databaseUrl, baseUrl });
   }
 } catch (error) {
   // Mensajes de librerías no se interpolan: pueden contener usuario/conexión/hash.
