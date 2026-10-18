@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   getIdleTimeoutMs,
   isSessionExpired,
-} from "./session-policy";
+} from "./idle-policy";
 
 const start = new Date("2026-10-16T12:00:00.000Z");
 const timeout = getIdleTimeoutMs("30");
@@ -52,7 +52,14 @@ test("admite configuración y rechaza valores inválidos", () => {
   assert.equal(getIdleTimeoutMs("5"), 300_000);
   assert.equal(getIdleTimeoutMs("30"), 1_800_000);
 
-  for (const value of ["0", "-1", "abc", "1.5", ""]) {
+  assert.equal(getIdleTimeoutMs("1440"), 86_400_000);
+  for (const value of ["0", "-1", "abc", "1.5", "", "1441", "Infinity"]) {
     assert.throws(() => getIdleTimeoutMs(value));
   }
+});
+
+test("rechaza actividad futura y fechas inválidas", () => {
+  assert.equal(isSessionExpired(makeSession(), new Date(start.getTime() - 1), timeout), true);
+  assert.equal(isSessionExpired(makeSession(), new Date("invalid"), timeout), true);
+  assert.equal(isSessionExpired({ ...makeSession(), expires_at: new Date("invalid") }, start, timeout), true);
 });

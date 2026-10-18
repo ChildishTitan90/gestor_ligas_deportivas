@@ -1,184 +1,104 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getCsrfToken } from "next-auth/react";
 
+const ACTIVITY_INTERVAL_MS = 15_000;
+const activityEvents = ["pointerdown", "click", "keydown", "wheel", "touchstart", "input"] as const;
+
+/** Un solo monitor global: las páginas públicas sin sesión no provocan redirecciones. */
 export function SessionActivity() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     let stopped = false;
     let busy = false;
-    let lastAttempt = -Infinity;
-    let expirationTimer: ReturnType<typeof setTimeout> | undefined;
-
+    let wasAuthenticated = false;
+    let expiresAt = 0;
+    let lastActivitySent = -Infinity;
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+    let activityTimer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
 
-    function goToLogin() {
-      if (stopped) return;
-
-      window.location.replace("/login?reason=session-expired");
+    function scheduleCheck(delay: number) {
+      if (expiryTimer) clearTimeout(expiryTimer);
+      expiryTimer = setTimeout(() => void checkSession(false), Math.min(Math.max(delay, 100), 2_147_483_647));
     }
 
-    async function checkSession() {
-      const response = await fetch("/api/auth/session", {
-        credentials: "same-origin",
-        cache: "no-store",
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error("SESSION_UNAVAILABLE");
-      }
-
-      const session = await response.json();
-
-      if (stopped) return;
-
-      if (!session?.user?.id) {
-        goToLogin();
-        return;
-      }
-
-      const expiration = Date.parse(session.expires);
-
-      if (!Number.isFinite(expiration)) {
-        throw new Error("INVALID_EXPIRATION");
-      }
-
-      if (expirationTimer !== undefined) {
-        clearTimeout(expirationTimer);
-      }
-
-      // El temporizador solo comprueba: no renueva actividad.
-      expirationTimer = setTimeout(() => {
-        void verifySession();
-      }, Math.min(
-        Math.max(expiration - Date.now(), 100),
-        2_147_483_647,
-      ));
-
-      setMessage("");
-    }
-
-    async function verifySession() {
-      try {
-        await checkSession();
-      } catch {
-        if (!stopped) {
-          setMessage(
-            "No pudimos comprobar tu sesión. Revisa tu conexión.",
-          );
-        }
-      }
-    }
-
-    async function renewActivity() {
-      if (
-        stopped ||
-        busy ||
-        document.visibilityState !== "visible"
-      ) {
-        return;
-      }
-
-      const now = performance.now();
-
-      // Evitar una petición por cada tecla durante escritura rápida.
-      if (now - lastAttempt < 1000) return;
-
-      lastAttempt = now;
+    async function checkSession(activity: boolean) {
+      if (stopped || busy) return;
       busy = true;
-
       try {
-        const response = await fetch("/api/session/activity", {
-          method: "POST",
-          credentials: "same-origin",
-          cache: "no-store",
-          headers: {
-            "X-Session-Activity": "interaction",
-          },
-          signal: controller.signal,
+        let init: RequestInit = {};
+        if (activity) {
+          lastActivitySent = Date.now();
+          const csrfToken = await getCsrfToken();
+          if (!csrfToken) throw new Error("SESSION_UNAVAILABLE");
+          // Mantener el contrato de develop: NextAuth verifica CSRF y emite la cookie.
+          init = { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ csrfToken, data: { action: "activity" } }) };
+        }
+        const response = await fetch("/api/auth/session", {
+          ...init, credentials: "same-origin", cache: "no-store", signal: controller.signal,
         });
-
+        if (!response.ok) throw new Error("SESSION_UNAVAILABLE");
+        const session = await response.json();
         if (stopped) return;
-
-        if (response.status === 401) {
-          goToLogin();
+        if (!session?.user?.id) {
+          if (expiryTimer) clearTimeout(expiryTimer);
+          if (activityTimer) clearTimeout(activityTimer);
+          // Solo abandonar una sesión que este monitor había visto autenticada.
+          if (wasAuthenticated && window.location.pathname !== "/login") window.location.replace("/login");
+          wasAuthenticated = false;
           return;
         }
-
-        if (!response.ok) {
-          throw new Error("ACTIVITY_UNAVAILABLE");
-        }
-
-        // NextAuth actualiza la cookie. Esta consulta, por sí sola,
-        // no modifica last_activity_at en PostgreSQL.
-        await checkSession();
+        const expiration = Date.parse(session.expires);
+        if (!Number.isFinite(expiration)) throw new Error("SESSION_UNAVAILABLE");
+        wasAuthenticated = true;
+        expiresAt = expiration;
+        setMessage("");
+        // Consultar al vencer permite observar actividad legítima de otra pestaña.
+        scheduleCheck(expiresAt - Date.now());
       } catch {
-        if (!stopped) {
-          setMessage(
-            "No pudimos renovar tu sesión. Revisa tu conexión.",
-          );
+        if (!stopped && wasAuthenticated) {
+          setMessage("No pudimos comprobar tu sesión. Revisa tu conexión; volveremos a intentarlo.");
+          scheduleCheck(ACTIVITY_INTERVAL_MS); // Reintento de lectura, nunca heartbeat.
         }
       } finally {
         busy = false;
       }
     }
 
-    function handleInteraction(event: Event) {
-      if (!event.isTrusted) return;
-
-      void renewActivity();
+    function onActivity(event: Event) {
+      if (!event.isTrusted || !wasAuthenticated || document.visibilityState !== "visible") return;
+      if (Date.now() >= expiresAt) { void checkSession(false); return; }
+      if (activityTimer) clearTimeout(activityTimer);
+      const remaining = lastActivitySent + ACTIVITY_INTERVAL_MS - Date.now();
+      if (remaining <= 0) void checkSession(true);
+      else activityTimer = setTimeout(() => {
+        if (document.visibilityState === "visible") void checkSession(Date.now() < expiresAt);
+      }, remaining);
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") void checkSession(false);
     }
 
-    function handleVisibility() {
-      if (document.visibilityState === "visible") {
-        void verifySession();
-      }
-    }
-
-    document.addEventListener("pointerdown", handleInteraction);
-    document.addEventListener("keydown", handleInteraction);
-    document.addEventListener("input", handleInteraction);
-    document.addEventListener(
-      "visibilitychange",
-      handleVisibility,
-    );
-    window.addEventListener("online", verifySession);
-
-    // Validación inicial sin renovar actividad.
-    void verifySession();
-
+    for (const event of activityEvents) document.addEventListener(event, onActivity, { passive: true });
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onVisibility);
+    window.addEventListener("online", onVisibility);
+    void checkSession(false);
     return () => {
       stopped = true;
       controller.abort();
-
-      if (expirationTimer !== undefined) {
-        clearTimeout(expirationTimer);
-      }
-
-      document.removeEventListener(
-        "pointerdown",
-        handleInteraction,
-      );
-      document.removeEventListener("keydown", handleInteraction);
-      document.removeEventListener("input", handleInteraction);
-      document.removeEventListener(
-        "visibilitychange",
-        handleVisibility,
-      );
-      window.removeEventListener("online", verifySession);
+      if (expiryTimer) clearTimeout(expiryTimer);
+      if (activityTimer) clearTimeout(activityTimer);
+      for (const event of activityEvents) document.removeEventListener(event, onActivity);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onVisibility);
+      window.removeEventListener("online", onVisibility);
     };
   }, []);
 
-  if (!message) return null;
-
-  return (
-    <p
-      role="status"
-      className="mb-4 rounded-xl border border-border bg-surface p-3 text-sm text-muted"
-    >
-      {message}
-    </p>
-  );
+  return message ? <p role="status" className="p-3 text-sm text-muted">{message}</p> : null;
 }

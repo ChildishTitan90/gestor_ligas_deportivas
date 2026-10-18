@@ -14,6 +14,9 @@ export const fixtureEmails = {
   corruptHash: 'corrupta@example.test',
   padded: 'espacios@example.test',
   underscore: 'delegado_48@example.test',
+  concurrent: 'concurrente@example.test',
+  passwordChange: 'cambio@example.test',
+  idle: 'inactividad@example.test',
 };
 
 export async function createAuthFixtures(client) {
@@ -37,7 +40,7 @@ export async function createAuthFixtures(client) {
          must_change_password, locked_until, encrypted_mfa_secret)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     `, [id, personId, `pdgld48_${kind}`, email, hash, kind !== 'inactive',
-      kind === 'temporary', kind === 'locked' ? new Date(Date.now() + 15 * 60_000) : null,
+      ['temporary', 'passwordChange'].includes(kind), kind === 'locked' ? new Date(Date.now() + 15 * 60_000) : null,
       'synthetic-mfa-value']);
     fixtures[kind] = { id, email };
   }
