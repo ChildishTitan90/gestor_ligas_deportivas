@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getAccessIdentity } from "@/features/auth/server/queries";
 import { getAuthSession } from "@/server/auth/session";
+import { SignOutButton } from "@/features/auth/components/sign-out-button";
 
 export const metadata: Metadata = { title: "Acceso a la liga" };
 
@@ -29,11 +30,7 @@ export default async function AccessPage() {
           <p className="mt-4 text-sm leading-7 text-muted">
             Tu sesión está activa. Las funciones de la liga estarán disponibles aquí.
           </p>
-          {/* NextAuth sirve una página HTML en este endpoint; requiere navegación completa. */}
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-          <a href="/api/auth/signout" className="mt-7 inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-border px-5 py-3 text-sm font-semibold text-primary transition-colors hover:bg-background">
-            Salir de la cuenta
-          </a>
+          <SignOutButton />
         </div>
       </section>
     </main>

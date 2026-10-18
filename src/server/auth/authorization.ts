@@ -8,8 +8,8 @@ import { requireOperationalUser } from "./session";
 export const permissionActions = ["CREATE", "READ", "UPDATE", "APPROVE", "PUBLISH", "IMPORT"] as const;
 export type PermissionAction = typeof permissionActions[number];
 
-/** Server authority boundaries, not a role-to-permission matrix. */
-export const authorityPermissionModules = ["accounts", "user_roles", "role_permissions"] as const;
+/** RF22 has one authority boundary for accounts, roles and permission policy. */
+export const authorityPermissionModules = ["users"] as const;
 export function isAuthorityPermissionModule(module: string): boolean {
   return (authorityPermissionModules as readonly string[]).includes(module);
 }
@@ -230,13 +230,13 @@ export async function requirePermission(request: PermissionRequest) {
   return actor;
 }
 
-/** Role grants require direct authority or explicit operational approval within the same scope. */
+/** users:UPDATE changes authority; users:CREATE alone cannot delegate a role. */
 export async function assertCanGrantRole(
   tx: Prisma.TransactionClient, actorId: string, roleId: string, context: AuthorizationContext,
 ) {
   if (!z.uuid().safeParse(roleId).success || context.seasonId || context.teamId || context.matchId)
     throw new AuthorizationError();
-  const delegation = await assertPermission(tx, actorId, { module: "user_roles", action: "CREATE", context });
+  const delegation = await assertPermission(tx, actorId, { module: "users", action: "UPDATE", context });
   // The current account contract creates an assignment with no end date. A temporary
   // delegator cannot turn finite authority into a permanent grant.
   if (!delegation.some((grant) => grant.endsAt === null)) throw new AuthorizationError();
@@ -260,7 +260,7 @@ export async function assertCanGrantRole(
     // their operations. This explicit capability cannot create control-plane
     // authority the actor does not already hold.
     if (isAuthorityPermissionModule(permission.module)) throw new AuthorizationError();
-    operationalApproval ??= await getPermissionGrants(tx, actorId, "user_roles", "APPROVE");
+    operationalApproval ??= await getPermissionGrants(tx, actorId, "users", "APPROVE");
     if (!operationalApproval.some((grant) => grant.endsAt === null && grantCoversContext(grant, resolved)))
       throw new AuthorizationError();
   }

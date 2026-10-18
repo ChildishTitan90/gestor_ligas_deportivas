@@ -23,7 +23,7 @@ export async function getAccountCreationOptions(leagueId?: string) {
   if (leagueId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(leagueId))
     throw new AccountInputError("INVALID_CONTEXT");
   return getPrisma().$transaction(async (tx) => {
-    const grants = await getPermissionGrants(tx, actor.id, "accounts", "READ");
+    const grants = await getPermissionGrants(tx, actor.id, "users", "READ");
     if (!grants.length) throw new AuthorizationError();
     const global = grants.some((grant) => !grant.contextOnly && !grant.leagueId && !grant.clubId);
     // Solo consultar ámbitos que alguna asignación con READ realmente cubre.
@@ -122,7 +122,7 @@ async function authorizeAccountCreation(tx: Prisma.TransactionClient, actorId: s
 export async function createAccount(input: unknown) {
   const actor = await requireOperationalUser();
   await getPrisma().$transaction(async (tx) => {
-    if (!(await getPermissionGrants(tx, actor.id, "accounts", "CREATE")).length) throw new AuthorizationError();
+    if (!(await getPermissionGrants(tx, actor.id, "users", "CREATE")).length) throw new AuthorizationError();
   });
   const parsed = createAccountSchema.safeParse(input);
   if (!parsed.success) throw new AccountInputError("VALIDATION_ERROR");

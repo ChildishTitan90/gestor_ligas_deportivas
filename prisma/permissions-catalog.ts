@@ -43,7 +43,7 @@ export function validatePermissionCatalog(value: unknown): readonly PermissionGr
 }
 
 export async function loadPermissionCatalog(): Promise<readonly PermissionGrant[]> {
-  // La ruta variable permite preparar el motor sin crear una matriz sustituta.
+  // PDGLD-55 es la única fuente inicial; no aceptar aliases o matrices sustitutas.
   const path = new URL("./permissions-data.ts", import.meta.url);
   try {
     await access(path);
@@ -54,7 +54,7 @@ export async function loadPermissionCatalog(): Promise<readonly PermissionGrant[
   try {
     loaded = await import(path.href) as Record<string, unknown>;
   } catch {
-    throw new SeedConfigurationError("No se pudo cargar el catálogo PDGLD-55; revisa su exportación sin sustituir la matriz aprobada.");
+    throw new SeedConfigurationError("No se pudo cargar el catálogo PDGLD-55; revisa INITIAL_PERMISSION_GRANTS sin sustituir la matriz aprobada.");
   }
-  return validatePermissionCatalog(loaded.PERMISSIONS_DATA ?? loaded.default);
+  return validatePermissionCatalog(loaded.INITIAL_PERMISSION_GRANTS);
 }

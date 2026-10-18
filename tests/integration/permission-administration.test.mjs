@@ -24,17 +24,17 @@ export async function runPermissionAdministrationSuite({ databaseUrl, baseUrl })
       const created = (await db.query(`INSERT INTO sports_management.permissions(module,action) VALUES ($1,$2)
         ON CONFLICT (module,action) DO NOTHING RETURNING id`, [module, action])).rows[0];
       if (created) {
-        if (module !== 'role_permissions') fixturePermissionIds.push(created.id);
+        if (module !== 'users') fixturePermissionIds.push(created.id);
         return created.id;
       }
       return (await db.query('SELECT id FROM sports_management.permissions WHERE module=$1 AND action=$2', [module, action])).rows[0].id;
     }
-    const read = await permission('role_permissions', 'READ');
-    const update = await permission('role_permissions', 'UPDATE');
-    const approve = await permission('role_permissions', 'APPROVE');
+    const read = await permission('users', 'READ');
+    const update = await permission('users', 'UPDATE');
+    const approve = await permission('users', 'APPROVE');
     const demonstrable = await permission(`fixture_admin_${randomUUID()}`, 'READ');
     const unowned = await permission(`fixture_unowned_${randomUUID()}`, 'CREATE');
-    const controlUnowned = await permission('user_roles', 'APPROVE');
+    const controlUnowned = await permission('users', 'CREATE');
     const league = (await db.query('INSERT INTO sports_management.leagues(name) VALUES ($1) RETURNING id', [`Gestión sintética ${randomUUID()}`])).rows[0].id;
     async function fixture(role, leagueId = null, restricted = false, expires = false) {
       const person = (await db.query("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES ('Sintético','Permisos') RETURNING id")).rows[0].id;
@@ -66,13 +66,13 @@ export async function runPermissionAdministrationSuite({ databaseUrl, baseUrl })
     const restricted = await fixture('REFEREE', null, true);
     const temporary = await fixture('EXECUTIVE_PRESIDENT', null, false, true);
     previous = (await db.query(`SELECT rp.* FROM sports_management.role_permissions rp
-      JOIN sports_management.permissions p ON p.id=rp.permission_id WHERE p.module='role_permissions'`)).rows;
+      JOIN sports_management.permissions p ON p.id=rp.permission_id WHERE p.module='users'`)).rows;
     originalCaptured = true;
     await auditFixture(managerA.id, async () => {
       // La base es temporal propia. Aislar gestores anteriores para comprobar
       // que la última autoridad real no desaparezca por dos peticiones paralelas.
       await db.query(`DELETE FROM sports_management.role_permissions rp USING sports_management.permissions p
-        WHERE rp.permission_id=p.id AND p.module='role_permissions'`);
+        WHERE rp.permission_id=p.id AND p.module='users'`);
       for (const role of ['REFEREE_MANAGER', 'SCHEDULER', 'DATA_ENTRY', 'REFEREE', 'EXECUTIVE_PRESIDENT']) {
         for (const permissionId of [read, update])
           await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,false)', [roles.get(role), permissionId]);
@@ -205,7 +205,7 @@ export async function runPermissionAdministrationSuite({ databaseUrl, baseUrl })
         try {
           await db.query("SELECT set_config('app.user_id',$1,true),set_config('app.reason','Restauración fixtures aislados PDGLD-54',true)", [fixtureActor]);
           await db.query(`DELETE FROM sports_management.role_permissions WHERE permission_id IN
-            (SELECT id FROM sports_management.permissions WHERE module='role_permissions')`);
+            (SELECT id FROM sports_management.permissions WHERE module='users')`);
           for (const assignment of previous)
             await db.query('INSERT INTO sports_management.role_permissions(id,role_id,permission_id,context_only) VALUES ($1,$2,$3,$4)', [assignment.id, assignment.role_id, assignment.permission_id, assignment.context_only]);
           await db.query('DELETE FROM sports_management.role_permissions WHERE permission_id=ANY($1::uuid[])', [fixturePermissionIds]);

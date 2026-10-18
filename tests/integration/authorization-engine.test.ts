@@ -195,9 +195,9 @@ test("PDGLD-54: autorización dinámica, ámbitos coherentes y delegación limit
         { kind: "charge-approval", chargeId: resources.charge.id })));
     });
     await t.test("delegar exige permiso específico y autoridad permanente del mismo ámbito", async () => {
-      const existing = await db.permissions.findUnique({ where: { module_action: { module: "user_roles", action: "CREATE" } } });
+      const existing = await db.permissions.findUnique({ where: { module_action: { module: "users", action: "UPDATE" } } });
       createdDelegationPermission = !existing;
-      const delegate = existing ?? await db.permissions.create({ data: { module: "user_roles", action: "CREATE" } });
+      const delegate = existing ?? await db.permissions.create({ data: { module: "users", action: "UPDATE" } });
       delegationPermissionId = delegate.id;
       previousDelegation = await db.role_permissions.findUnique({
         where: { role_id_permission_id: { role_id: role("PLAYER"), permission_id: delegate.id } },
@@ -222,14 +222,14 @@ test("PDGLD-54: autorización dinámica, ámbitos coherentes y delegación limit
     await t.test("aprobar roles operativos es una capacidad explícita y no eleva autoridad administrativa", async () => {
       const operational = await db.permissions.create({ data: { module: permissionModule, action: "UPDATE" } });
       additionalPermissions.push(operational.id);
-      const ensurePermission = async (permissionModule: string, action: "READ" | "UPDATE" | "APPROVE") => {
+      const ensurePermission = async (permissionModule: string, action: "CREATE" | "READ" | "UPDATE" | "APPROVE") => {
         const existing = await db.permissions.findUnique({ where: { module_action: { module: permissionModule, action } } });
         if (existing) return existing;
         const created = await db.permissions.create({ data: { module: permissionModule, action } });
         additionalPermissions.push(created.id);
         return created;
       };
-      const approve = await ensurePermission("user_roles", "APPROVE");
+      const approve = await ensurePermission("users", "APPROVE");
       const addGrant = async (roleId: string, permissionId: string) => write(async (tx) => {
         const previous = await tx.role_permissions.findUnique({ where: { role_id_permission_id: { role_id: roleId, permission_id: permissionId } },
           select: { id: true, context_only: true } });
@@ -243,7 +243,7 @@ test("PDGLD-54: autorización dinámica, ámbitos coherentes y delegación limit
           update: { context_only: true }, create: { role_id: role("PLAYER"), permission_id: delegationPermissionId!, context_only: true } });
       });
       const grant = (context: AuthorizationContext) => db.$transaction((tx) => assertCanGrantRole(tx, actor.id, role("REFEREE"), context));
-      // CREATE authorizes provisioning, but by itself cannot transfer unrelated operational authority.
+      // UPDATE allows assignment changes, but alone cannot transfer unrelated operational authority.
       await denied(grant({ leagueId: leagueA.id }));
       await addGrant(role("SCHEDULER"), approve.id); // Actor's SCHEDULER assignment belongs to B.
       await denied(grant({ leagueId: leagueA.id }));
@@ -255,7 +255,7 @@ test("PDGLD-54: autorización dinámica, ámbitos coherentes y delegación limit
       await grant({ leagueId: leagueA.id, clubId: clubA.id });
       await denied(grant({ leagueId: leagueB.id }));
       await denied(grant({}));
-      for (const [permissionModule, action] of [["accounts", "READ"], ["user_roles", "UPDATE"], ["role_permissions", "READ"]] as const) {
+      for (const [permissionModule, action] of [["users", "READ"], ["users", "CREATE"]] as const) {
         const control = await ensurePermission(permissionModule, action);
         const targetGrant = await addGrant(role("REFEREE"), control.id);
         await denied(grant({ leagueId: leagueA.id }));

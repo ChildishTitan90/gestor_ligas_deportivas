@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
-import { signOut } from "next-auth/react";
+import { signOutCurrentSession } from "../client/sign-out.client";
 import { CircleAlert, Eye, EyeOff } from "lucide-react";
 import { changePasswordSchema } from "@/features/auth/schemas";
 
@@ -104,7 +104,7 @@ export function ChangePasswordForm() {
       // El JWT anterior queda revocado. Pedir credenciales nuevas, sin promover
       // la sesión restringida mediante datos enviados desde el navegador.
       try {
-        await signOut({ redirect: false, callbackUrl: "/login" });
+        await signOutCurrentSession();
       } finally {
         // Aunque falle la limpieza de cookie por red, la versión ya la revocó.
         // Una navegación completa evita conservar vistas de la sesión anterior.

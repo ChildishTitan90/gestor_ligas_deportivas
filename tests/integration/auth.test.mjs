@@ -367,7 +367,9 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         assert.equal((await browser.session()).user, undefined);
         browser.cookies = new Map(oldCookies);
         assert.equal((await browser.updateSession({ action: 'activity', expires: '2099-01-01' })).user, undefined);
-        assert.deepEqual(await latestIdleSession(), expired, 'Ni una cookie anterior ni un POST reviven la sesión.');
+        const rejected = await latestIdleSession();
+        assert.ok(rejected.revoked_at instanceof Date, 'Se persiste la invalidación sin renovar actividad.');
+        assert.deepEqual({ ...rejected, revoked_at: expired.revoked_at }, expired, 'Ni una cookie anterior ni un POST reviven la sesión.');
       });
 
       await t.test('actividad explícita renueva una sesión con más de 30 minutos de antigüedad', async () => {
@@ -428,13 +430,14 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         assert.equal((await latestIdleSession()).revoked_at, null);
       });
 
-      await t.test('retirar la sesión persistente y la cuenta deniega cookies anteriores', async () => {
+      await t.test('retirar la sesión persistente deniega cookies anteriores y conserva la identidad auditada', async () => {
         const browser = new Browser(baseUrl);
         await browser.login(fixtures.padded.email, paddedPassword);
-        // El baseline no permite borrar usuarios referenciados por sesiones.
-        // Ambas eliminaciones se limitan a fixtures de esta base desechable.
+        // LOGIN_OK conserva la identidad por FK en el historial inmutable.
+        // No eliminar auditoría para simular una baja que el esquema prohíbe.
         await client.query('DELETE FROM sports_management.sessions WHERE user_id = $1', [fixtures.padded.id]);
-        await client.query('DELETE FROM sports_management.users WHERE id = $1', [fixtures.padded.id]);
+        await assert.rejects(client.query('DELETE FROM sports_management.users WHERE id = $1', [fixtures.padded.id]),
+          (error) => error.code === '23503');
         await browser.assertAccess(401, 'UNAUTHENTICATED');
         assert.equal((await browser.session()).user, undefined);
       });

@@ -7,9 +7,10 @@ import pg from "pg";
 import { DEMO_ACCOUNTS, DEMO_CONTEXT, DEMO_PASSWORD } from "../../prisma/seed-demo-data";
 import { DEMO_INSTALLATION, seedDemoDatabase } from "../../prisma/seed-demo";
 import { MATRIX_INSTALLATION, installPermissionCatalog, seedPermissionDatabase } from "../../prisma/seed-permissions";
-import { SEED_ACTOR } from "../../prisma/seed-data";
+import { SEED_ACTOR, SEED_ROLES } from "../../prisma/seed-data";
 import { readDevelopmentSeedDatabaseUrl, readSeedDatabaseUrl, readSeedProfile, SeedConfigurationError } from "../../prisma/seed-env";
-import { validatePermissionCatalog } from "../../prisma/permissions-catalog";
+import { loadPermissionCatalog, validatePermissionCatalog } from "../../prisma/permissions-catalog";
+import { INITIAL_PERMISSION_GRANTS, PERMISSION_ROLE_CODES } from "../../prisma/permissions-data";
 
 // Fixture deliberadamente aislado. No reproduce ni sustituye la matriz RF22.
 const catalog = [
@@ -53,10 +54,24 @@ test("perfiles: guardas locales, contrato PDGLD-55 y selección explícita", asy
   assert.throws(() => validatePermissionCatalog([catalog[0], catalog[0]]));
   assert.throws(() => validatePermissionCatalog([{ ...catalog[0], roleCode: "ADMIN" }]));
   assert.throws(() => validatePermissionCatalog([{ ...catalog[0], action: "DELETE" }]));
+  assert.throws(() => validatePermissionCatalog([{ ...catalog[0], contextOnly: "false" }]));
   assert.throws(() => validatePermissionCatalog([{ ...catalog[0], ersReference: "" }]));
 });
 
-test("perfil demo: instalación atómica, Argon2id, aislamiento y revocaciones conservadas", async t => {
+test("el cargador consume INITIAL_PERMISSION_GRANTS aprobado, sin aliases ni concesiones añadidas", async () => {
+  const approved = await loadPermissionCatalog();
+  assert.equal(approved.length, 127);
+  assert.deepEqual([...PERMISSION_ROLE_CODES].sort(), SEED_ROLES.map(role => role.code).sort());
+  assert.equal(PERMISSION_ROLE_CODES.length, 12);
+  assert.equal(approved.some(grant => grant.roleCode === "GUEST" || grant.action === "IMPORT"), false);
+  assert.deepEqual(approved.filter(grant => grant.module === "users").map(grant => [grant.roleCode, grant.action]).sort(),
+    [["SUPERADMIN", "APPROVE"], ["SUPERADMIN", "CREATE"], ["SUPERADMIN", "READ"], ["SUPERADMIN", "UPDATE"]]);
+  assert.equal(approved.some(grant => ["accounts", "user_roles", "role_permissions"].includes(grant.module)), false);
+  assert.deepEqual(approved, INITIAL_PERMISSION_GRANTS);
+});
+
+test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y revocaciones conservadas", async t => {
+  const approvedCatalog = await loadPermissionCatalog();
   const connectionString = target();
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   const client = new pg.Client({ connectionString, connectionTimeoutMillis: 10_000 });
@@ -107,10 +122,18 @@ test("perfil demo: instalación atómica, Argon2id, aislamiento y revocaciones c
       }
     });
 
-    await t.test("dos instalaciones concurrentes crean un perfil y solo las concesiones del fixture", async () => {
-      const results = await Promise.all([seedDemoDatabase(prisma, catalog), seedDemoDatabase(prisma, catalog)]);
+    await t.test("dos instalaciones concurrentes crean un perfil y las 127 concesiones aprobadas", async () => {
+      const results = await Promise.all([seedDemoDatabase(prisma, approvedCatalog), seedDemoDatabase(prisma, approvedCatalog)]);
       assert.equal(results.filter(result => result.alreadyInstalled).length, 1);
-      assert.equal(await prisma.role_permissions.count(), catalog.length);
+      assert.equal(await prisma.role_permissions.count(), 127);
+      const installed = await prisma.role_permissions.findMany({ select: {
+        roles: { select: { code: true } }, permissions: { select: { module: true, action: true } }, context_only: true,
+      } });
+      const normalize = (grants: readonly { roleCode: string; module: string; action: string; contextOnly: boolean }[]) =>
+        grants.map(grant => JSON.stringify([grant.roleCode, grant.module, grant.action, grant.contextOnly])).sort();
+      assert.deepEqual(normalize(installed.map(grant => ({ roleCode: grant.roles.code,
+        module: grant.permissions.module, action: grant.permissions.action, contextOnly: grant.context_only }))),
+      normalize(approvedCatalog), "Cada fila instalada conserva rol, módulo, acción y contexto exactos de RF22.");
       assert.equal(await prisma.audit_logs.count({ where: { id: DEMO_INSTALLATION.id } }), 1);
       const users = await prisma.users.findMany({ where: { person_id: { in: DEMO_ACCOUNTS.map(account => account.personId) } }, include: { user_roles: true } });
       assert.equal(users.length, 7);
@@ -130,7 +153,7 @@ test("perfil demo: instalación atómica, Argon2id, aislamiento y revocaciones c
       assert.equal(actor.user_roles.length, 0);
       assert.equal(await prisma.user_roles.count({ where: { roles: { code: "GUEST" } } }), 0);
       assert.equal(await prisma.club_affiliations.count({ where: { season_id: DEMO_CONTEXT.seasonId, league_id: DEMO_CONTEXT.leagueId, club_id: { in: [DEMO_CONTEXT.clubAId, DEMO_CONTEXT.clubBId] }, status: "PENDING" } }), 2);
-      assert.equal(await prisma.audit_logs.count({ where: { table_name: "role_permissions", action: "INSERT" } }), catalog.length, "El trigger genera un único evento por concesión.");
+      assert.equal(await prisma.audit_logs.count({ where: { table_name: "role_permissions", action: "INSERT" } }), approvedCatalog.length, "El trigger genera un único evento por concesión.");
       assert.equal(await prisma.audit_logs.count({ where: { table_name: "user_roles", action: "INSERT" } }), 7);
       assert.deepEqual(await prisma.users.findUnique({ where: { id: legacy.id } }), legacy, "Se conserva la cuenta previa de desarrollo sin reactivar ni restablecer credenciales.");
     });
@@ -145,13 +168,15 @@ test("perfil demo: instalación atómica, Argon2id, aislamiento y revocaciones c
         await tx.user_roles.updateMany({ where: { user_id: temporary.id }, data: { starts_at: new Date("2025-01-01T00:00:00Z"), ends_at: new Date("2025-02-01T00:00:00Z") } });
         await tx.user_roles.deleteMany({ where: { user_id: delegate.id } });
         await tx.role_permissions.deleteMany({ where: { roles: { code: "SECRETARY" } } });
+        await tx.role_permissions.deleteMany({ where: { roles: { code: "SUPERADMIN" }, permissions: { module: "users", action: "CREATE" } } });
         await tx.role_permissions.updateMany({ where: { roles: { code: "CLUB_DELEGATE" } }, data: { context_only: false } });
       });
       const changed = await snapshot(client);
-      assert.equal((await seedDemoDatabase(prisma, catalog)).alreadyInstalled, true);
-      assert.equal((await seedPermissionDatabase(prisma, catalog)).installed, false);
+      assert.equal((await seedDemoDatabase(prisma, approvedCatalog)).alreadyInstalled, true);
+      assert.equal((await seedPermissionDatabase(prisma, approvedCatalog)).installed, false);
       assert.deepEqual(await snapshot(client), changed, "No se escriben UPDATE vacíos, eventos duplicados ni concesiones retiradas.");
       assert.equal(await prisma.role_permissions.count({ where: { roles: { code: "SECRETARY" } } }), 0);
+      assert.equal(await prisma.role_permissions.count({ where: { roles: { code: "SUPERADMIN" }, permissions: { module: "users", action: "CREATE" } } }), 0);
       assert.equal(await prisma.user_roles.count({ where: { user_id: delegate.id } }), 0);
     });
   } catch (error) {

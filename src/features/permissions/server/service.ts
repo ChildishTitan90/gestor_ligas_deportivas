@@ -24,7 +24,7 @@ export async function getPermissionAssignments(roleCode?: string) {
   const filter = permissionRoleFilterSchema.safeParse(roleCode);
   if (!filter.success) throw new PermissionAdministrationError("VALIDATION_ERROR");
   return getPrisma().$transaction(async (tx) => {
-    await assertPermission(tx, actor.id, { module: "role_permissions", action: "READ", context: {} });
+    await assertPermission(tx, actor.id, { module: "users", action: "READ", context: {} });
     const roles = await tx.roles.findMany({
       where: filter.data ? { code: filter.data } : undefined,
       select: { id: true, code: true, name: true }, orderBy: { code: "asc" },
@@ -61,7 +61,7 @@ async function assertOperationalManagerRemains(tx: Prisma.TransactionClient) {
         JOIN sports_management.permissions p ON p.id = rp.permission_id
         WHERE ur.user_id = u.id AND ur.league_id IS NULL AND ur.club_id IS NULL
           AND ur.starts_at <= clock_timestamp() AND ur.ends_at IS NULL
-          AND NOT rp.context_only AND p.module = 'role_permissions' AND p.action = 'READ'
+          AND NOT rp.context_only AND p.module = 'users' AND p.action = 'READ'
       )
       AND EXISTS (
         SELECT 1 FROM sports_management.user_roles ur
@@ -69,7 +69,7 @@ async function assertOperationalManagerRemains(tx: Prisma.TransactionClient) {
         JOIN sports_management.permissions p ON p.id = rp.permission_id
         WHERE ur.user_id = u.id AND ur.league_id IS NULL AND ur.club_id IS NULL
           AND ur.starts_at <= clock_timestamp() AND ur.ends_at IS NULL
-          AND NOT rp.context_only AND p.module = 'role_permissions' AND p.action = 'UPDATE'
+          AND NOT rp.context_only AND p.module = 'users' AND p.action = 'UPDATE'
       )
     FOR SHARE OF u
   `;
@@ -85,7 +85,7 @@ export async function changePermissionAssignment(input: unknown) {
     // Antes de cualquier guard compartido: evita promociones de bloqueo y
     // serializa dos revocaciones que, vistas por separado, dejarían un gestor.
     await lockAuthorization(tx, "exclusive");
-    const managers = await assertPermission(tx, actor.id, { module: "role_permissions", action: "UPDATE", context: {} });
+    const managers = await assertPermission(tx, actor.id, { module: "users", action: "UPDATE", context: {} });
     // El esquema no expresa caducidad en role_permissions. Una delegación
     // temporal no puede producir una modificación permanente de la política.
     if (!managers.some((grant) => grant.endsAt === null)) throw new AuthorizationError();
@@ -113,7 +113,7 @@ export async function changePermissionAssignment(input: unknown) {
       if (!holdsPermission) {
         if (isAuthorityPermissionModule(permission.module)) throw new AuthorizationError();
         const approval = await assertPermission(tx, actor.id, {
-          module: "role_permissions", action: "APPROVE", context: {},
+          module: "users", action: "APPROVE", context: {},
         });
         if (!approval.some((grant) => grant.endsAt === null)) throw new AuthorizationError();
       }

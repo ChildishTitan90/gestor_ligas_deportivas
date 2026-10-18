@@ -15,9 +15,9 @@ el navegador. Las respuestas llevan `Cache-Control: private, no-store`.
 
 | Entrada | Permiso requerido | Contrato |
 | --- | --- | --- |
-| `GET /api/permissions` | `role_permissions / READ`, global | Catálogo y asignaciones de todos los roles. |
+| `GET /api/permissions` | `users / READ`, global | Catálogo y asignaciones de todos los roles. |
 | `GET /api/permissions?roleCode=SUPERADMIN` | El mismo permiso global | Catálogo de permisos y asignaciones del rol seleccionado. |
-| `PATCH /api/permissions` | `role_permissions / UPDATE`, global y sin caducidad; autoridad sobre la concesión según las reglas siguientes | JSON validado descrito abajo. |
+| `PATCH /api/permissions` | `users / UPDATE`, global y sin caducidad; autoridad sobre la concesión según las reglas siguientes | JSON validado descrito abajo. |
 
 Una lectura devuelve `{ roles: [{code,name}], permissions: [{id,module,action}],
 assignments: [{id,roleCode,permissionId,contextOnly}] }`. No incluye titulares de
@@ -61,17 +61,17 @@ futura interfaz: cada petición expresa una decisión individual sobre un víncu
 ## Reglas contra escalamiento
 
 Un vínculo de rol afecta a todos sus titulares actuales y futuros; no puede
-editarse desde un ámbito local. Toda escritura requiere `role_permissions /
+editarse desde un ámbito local. Toda escritura requiere `users /
 UPDATE` global, vigente y sin caducidad. Para conceder o ampliar un vínculo,
 incluso con `contextOnly: true`, se comprueba además una de estas facultades:
 
 - El actor ya posee ese mismo módulo/acción mediante una asignación global,
   `context_only = false`, vigente y sin `ends_at`.
-- Para una concesión operativa, el actor posee `role_permissions / APPROVE`
+- Para una concesión operativa, el actor posee `users / APPROVE`
   global, vigente y sin caducidad. Esta es una facultad administrativa explícita
   para aprobar asignaciones; no concede el derecho a ejecutar la operación.
 
-Los módulos de autoridad `accounts`, `user_roles` y `role_permissions` siempre
+Los permisos de autoridad del módulo canónico `users` siempre
 exigen la primera condición, sin alternativa por APPROVE. La clasificación se
 comparte con la delegación de roles mediante `isAuthorityPermissionModule` en el
 motor común. Un módulo futuro que gestione autoridad debe incorporarse a esa
@@ -80,10 +80,10 @@ clasificación antes de habilitar sus concesiones.
 Esta distinción respeta la RF22: un gestor de usuarios y roles puede administrar
 la concesión de programación CREATE/UPDATE aunque su propia operación de
 programación sea READ/APPROVE. Exigirle todos los permisos operativos cambiaría
-de hecho esa separación de funciones. Tener solo `role_permissions / UPDATE`
+de hecho esa separación de funciones. Tener solo `users / UPDATE`
 mantiene la administración limitada a facultades operativas ya poseídas. El
-catálogo de Sergio debe representar explícitamente la aprobación administrativa
-de RF22 mediante este contrato; el motor no agrega esa concesión por sí mismo.
+catálogo aprobado representa esta aprobación mediante `users / APPROVE`.
+El motor no agrega concesiones ni usa la matriz inicial como fallback.
 
 Una delegación temporal no produce una concesión permanente, porque
 `role_permissions` no contiene fecha de expiración. Tanto UPDATE como la
@@ -109,7 +109,7 @@ a comprobar el estado confirmado por la primera.
 
 Tras escribir y antes del commit debe existir al menos una cuenta activa, sin
 cambio obligatorio ni bloqueo vigente, con autoridad global de READ y UPDATE
-para `role_permissions`, ambas sin caducidad, iniciadas y `context_only = false`.
+para `users`, ambas sin caducidad, iniciadas y `context_only = false`.
 Las capacidades pueden proceder de roles diferentes de esa misma cuenta, pero
 cada permiso conserva la relación con su propia asignación global. La consulta
 protege las cuentas candidatas con `FOR SHARE`. No cuentan cuentas temporales,
@@ -133,8 +133,9 @@ que el trigger registre exactamente una vez INSERT, UPDATE o DELETE junto con
 sus valores anterior/nuevo. No inserta eventos manuales duplicados. Los motivos
 son texto administrativo: no deben incluir contraseñas ni datos sensibles.
 
-Sergio integra los permisos específicos de administración en el catálogo
-aprobado cuando corresponda; este servicio no instala concesiones de arranque.
+El PR #12 de Sergio ya aporta el catálogo aprobado: `users` es su único módulo
+de usuarios y roles. `role_permissions` conserva su nombre de tabla; este servicio
+no instala concesiones de arranque ni crea permisos equivalentes con otros módulos.
 Karol puede ampliar pruebas en archivos independientes; el runner debe invocar
 `runPermissionAdministrationSuite({databaseUrl,baseUrl})` sobre la base temporal
 local, antes de escenarios que agreguen otros gestores. La suite aísla/restaura

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getAuthSession } from "@/server/auth/session";
 import { ChangePasswordForm } from "@/features/auth/components/change-password-form";
+import { SignOutButton } from "@/features/auth/components/sign-out-button";
 
 export const metadata: Metadata = { title: "Actualiza tu contraseña" };
 
@@ -24,11 +25,7 @@ export default async function ChangePasswordPage() {
           </p>
           
           <ChangePasswordForm />
-          {/* NextAuth sirve una página HTML en este endpoint; requiere navegación completa. */}
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-          <a href="/api/auth/signout" className="mt-7 inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-border px-5 py-3 text-sm font-semibold text-primary transition-colors hover:bg-background">
-            Salir de la cuenta
-          </a>
+          <SignOutButton />
         </div>
       </section>
     </main>

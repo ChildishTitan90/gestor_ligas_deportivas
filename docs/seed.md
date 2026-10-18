@@ -11,7 +11,7 @@ npm.cmd run db:seed
 # Instalar una sola vez la definición aprobada que entrega Sergio (PDGLD-55).
 npx.cmd --no-install tsx prisma/seed.ts --profile permissions
 
-# Perfil completo de demostración; solo tras integrar el catálogo de Sergio.
+# Perfil completo de demostración con el catálogo aprobado de Sergio.
 npm.cmd run seed:dev
 
 # Mismo perfil, para un destino local de prueba ya validado.
@@ -20,11 +20,13 @@ npx.cmd --no-install tsx prisma/seed.ts --profile demo
 
 `seed:dev` reutiliza el perfil `demo` y conserva su guarda adicional: únicamente `gestor_ligas_dev`, PostgreSQL loopback, puerto 5432/5433. La CLI de perfiles permite las bases locales de prueba que admite el seed base; no debe apuntarse a una base compartida. Las pruebas automatizadas crean su propia base desechable mediante `npm run test:seed`; no usan Supabase ni reinician volúmenes del proyecto.
 
-### Consumo del catálogo aprobado y pendiente de integración
+### Consumo del catálogo aprobado
 
-`prisma/permissions-catalog.ts` **no define concesiones**. Carga exclusivamente `prisma/permissions-data.ts`, propiedad de Sergio, y espera `export const PERMISSIONS_DATA = [...]` o un array como `export default`. Cada fila tiene `roleCode`, `module`, `action`, `contextOnly` y `ersReference` (referencia no vacía al ERS). Rechaza códigos ajenos a los 12 oficiales, duplicados, contexto no booleano y acciones distintas de `CREATE`, `READ`, `UPDATE`, `APPROVE`, `PUBLISH` e `IMPORT`. No renombra módulos ni corrige asignaciones automáticamente.
+`prisma/permissions-catalog.ts` **no define concesiones**. Carga exclusivamente `INITIAL_PERMISSION_GRANTS` desde `prisma/permissions-data.ts`, entregado por Sergio en PDGLD-55 e integrado en `develop` mediante el PR #12. No admite `PERMISSIONS_DATA` ni exportación predeterminada como reemplazos silenciosos. Cada fila tiene `roleCode`, `module`, `action`, `contextOnly` y `ersReference` (referencia no vacía al ERS). Rechaza códigos ajenos a los 12 oficiales, duplicados, contexto no booleano y acciones distintas de `CREATE`, `READ`, `UPDATE`, `APPROVE`, `PUBLISH` e `IMPORT`. No renombra módulos ni corrige asignaciones automáticamente.
 
-**En el checkout de implementación falta `prisma/permissions-data.ts` de PDGLD-55.** Por eso `permissions`, `demo` y `seed:dev` terminan con un error controlado antes de abrir conexión o escribir. El perfil base sigue disponible. Sergio debe integrar ese archivo y revisar sus módulos/alcances con `docs/architecture/authorization.md` y su propia `docs/architecture/permissions.md`. Las pruebas de demo inyectan un catálogo diminuto de `fixture_seed_demo` dentro de la base desechable; ese fixture no es RF22, no se carga por la CLI y no se publica como matriz alternativa.
+La matriz aprobada contiene **127 concesiones y 12 códigos oficiales**, incluido `GUEST` sin concesiones. `users` representa «Usuarios y roles»; no se instalan permisos paralelos de `accounts`, `user_roles` o `role_permissions`. `permissions`, `demo` y `seed:dev` consumen esa misma exportación, sin una segunda matriz. Antes de abrir conexión o escribir, la CLI valida que el archivo y la exportación existan y que cada entrada cumpla su contrato. La correspondencia entre operaciones administrativas y las acciones de `users` se documenta en `docs/architecture/authorization.md`; el catálogo original y sus alcances permanecen en `docs/architecture/permissions.md`.
+
+El array sirve exclusivamente para instalar datos iniciales. Cada petición protegida consulta permisos efectivos en PostgreSQL: retirar una concesión también afecta a `SUPERADMIN` con la misma sesión. Administrar una concesión no da al administrador la operación que esa concesión representa. La cuenta `admin@demo.example.test` puede consultar opciones y crear cuentas usando los endpoints existentes mientras conserve las concesiones explícitas correspondientes de `users`; el perfil no concede esa autoridad a las otras cuentas por conveniencia.
 
 ### Instalar una vez y conservar revocaciones
 
@@ -40,7 +42,7 @@ Los perfiles adquieren los bloqueos transaccionales `(47,2026)` y `(54,2026)` en
 
 Las siete cuentas nuevas tienen contraseña inicial **`LigaDemo2026!`**, solo para estas demostraciones locales, guardada con Argon2id (`memoryCost=19456`, `timeCost=2`, `parallelism=1`). No debe usarse fuera de este perfil. No son cuentas de producción. Los datos se crean en `DEMO Liga de Fútbol Morelia`, con dos clubes distintos y una segunda liga `DEMO Liga de contraste` para probar rechazo entre ligas. Hay una temporada 2026 en cada liga y afiliaciones sintéticas `PENDING` de ambos clubes a la temporada principal, solicitadas por sus delegados; esto permite verificar relaciones club/temporada sin inventar una aprobación oficial. No se crean partidos ni se implementa programación.
 
-| Correo | Contraseña inicial | Rol | Contexto | Resultado esperado después de integrar RF22 |
+| Correo | Contraseña inicial | Rol | Contexto | Resultado esperado con RF22 |
 | --- | --- | --- | --- | --- |
 | `admin@demo.example.test` | `LigaDemo2026!` | `SUPERADMIN` | Asignación global | Solo acciones que RF22 conceda actualmente; revocar la concesión debe denegar con la misma sesión, sin bypass. |
 | `secretario@demo.example.test` | `LigaDemo2026!` | `SECRETARY` | Liga DEMO principal | Operaciones concedidas para su liga; denegación en liga de contraste y concesiones que excedan su autoridad. |
@@ -56,7 +58,9 @@ El perfil conserva `operativa@example.test` y `temporal@example.test` de PDGLD-4
 
 ### Pruebas de PDGLD-54
 
-`tests/integration/demo-seed.test.ts` se integra al harness de `test:seed` **después** de `seed.test.ts`, en otra invocación secuencial; la suite base necesita conservar su snapshot inicial sin concesiones. El nuevo archivo usa únicamente `gestor_ligas_ci` en loopback y un catálogo inyectado, etiquetado como fixture. Verifica guardas de producción/conexión, contrato del catálogo, denegación de instalación ante historial sin concesiones vigentes, rollback de matriz/cuentas/contextos/auditoría ante fallo de una asignación, dos instalaciones concurrentes, hashes Argon2id, alcances, cuenta inactiva, rol temporal, GUEST anónimo y actor reservado. Después modifica hash, estado y vigencias, retira una concesión y una asignación y repite ambos perfiles para comparar snapshots y demostrar que no restaura autoridad. La evidencia de ejecución de la entrega debe indicar el resultado real del harness; las verificaciones históricas de PDGLD-47 que siguen no sustituyen esta ejecución.
+`tests/integration/demo-seed.test.ts` se integra al harness de `test:seed` **después** de `seed.test.ts`, en otra invocación secuencial; la suite base necesita conservar su snapshot inicial sin concesiones. El archivo usa únicamente `gestor_ligas_ci` en loopback. Conserva un catálogo diminuto de `fixture_seed_demo` para probar validaciones, historial de revocación sin marcador y rollback; no es RF22, no se carga por la CLI y no se publica como matriz alternativa.
+
+La instalación exitosa carga la exportación real `INITIAL_PERMISSION_GRANTS`, verifica las 127 filas persistidas contra sus roles, módulos, acciones y contextos exactos, y prueba dos instalaciones concurrentes del demo. Comprueba Argon2id, alcances, cuenta inactiva, rol temporal, GUEST anónimo y actor reservado. Después modifica hash, estado y vigencias, retira `users:CREATE` de `SUPERADMIN`, otras concesiones y una asignación, y repite `demo` y `permissions` para comparar snapshots y demostrar que no restauran autoridad. La evidencia de ejecución de la entrega debe indicar el resultado real del harness; las verificaciones históricas de PDGLD-47 que siguen no sustituyen esta ejecución.
 
 ---
 

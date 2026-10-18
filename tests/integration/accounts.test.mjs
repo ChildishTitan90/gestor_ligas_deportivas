@@ -42,7 +42,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
     }
     const admin = await fixture('admin', 'SUPERADMIN', null);
     await db.query("SELECT set_config('app.user_id',$1,false),set_config('app.reason','PDGLD-54: concesiones aisladas de prueba, no matriz RF22',false)", [admin.id]);
-    for (const [module, action] of [['accounts', 'READ'], ['accounts', 'CREATE'], ['user_roles', 'CREATE'], ['clubs', 'CREATE']]) {
+    for (const [module, action] of [['users', 'READ'], ['users', 'CREATE'], ['users', 'UPDATE'], ['clubs', 'CREATE']]) {
       await db.query(`INSERT INTO sports_management.permissions(module,action) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [module, action]);
       await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
         SELECT r.id,p.id,false FROM sports_management.roles r,sports_management.permissions p
@@ -108,7 +108,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
       });
 
       await t.test('operador de liga consulta su ámbito y concede solo autoridad cubierta', async () => {
-        for (const [module, action] of [['accounts', 'READ'], ['accounts', 'CREATE'], ['user_roles', 'CREATE']]) {
+        for (const [module, action] of [['users', 'READ'], ['users', 'CREATE'], ['users', 'UPDATE']]) {
           await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
             SELECT r.id,p.id,true FROM sports_management.roles r,sports_management.permissions p
             WHERE r.code='EXECUTIVE_PRESIDENT' AND p.module=$1 AND p.action=$2 ON CONFLICT DO NOTHING`, [module, action]);
@@ -137,7 +137,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
 
       await t.test('revocar permiso deniega con la misma sesión y SUPERADMIN no tiene bypass', async () => {
         await db.query(`DELETE FROM sports_management.role_permissions rp USING sports_management.roles r,sports_management.permissions p
-          WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code='SUPERADMIN' AND p.module='accounts' AND p.action='CREATE'`);
+          WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code='SUPERADMIN' AND p.module='users' AND p.action='CREATE'`);
         try {
           await deny(admin.browser, payload(), 403, 'FORBIDDEN');
           // READ independiente sigue disponible; no permite crear por sí solo.
@@ -145,16 +145,16 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         } finally {
           await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
             SELECT r.id,p.id,false FROM sports_management.roles r,sports_management.permissions p
-            WHERE r.code='SUPERADMIN' AND p.module='accounts' AND p.action='CREATE'`);
+            WHERE r.code='SUPERADMIN' AND p.module='users' AND p.action='CREATE'`);
         }
         assert.equal((await post(admin.browser, payload())).status, 201);
         await db.query(`DELETE FROM sports_management.role_permissions rp USING sports_management.roles r,sports_management.permissions p
-          WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code='SUPERADMIN' AND p.module='accounts' AND p.action='READ'`);
+          WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code='SUPERADMIN' AND p.module='users' AND p.action='READ'`);
         try { assert.equal((await admin.browser.request('/api/accounts')).status, 403); }
         finally {
           await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
             SELECT r.id,p.id,false FROM sports_management.roles r,sports_management.permissions p
-            WHERE r.code='SUPERADMIN' AND p.module='accounts' AND p.action='READ'`);
+            WHERE r.code='SUPERADMIN' AND p.module='users' AND p.action='READ'`);
         }
       });
 
@@ -163,7 +163,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         const permission = (await db.query(`INSERT INTO sports_management.permissions(module,action)
           VALUES ($1,'CREATE') RETURNING id`, [operationalModule])).rows[0].id;
         const approve = (await db.query(`INSERT INTO sports_management.permissions(module,action)
-          VALUES ('user_roles','APPROVE') ON CONFLICT(module,action) DO UPDATE SET module=EXCLUDED.module RETURNING id`)).rows[0].id;
+          VALUES ('users','APPROVE') ON CONFLICT(module,action) DO UPDATE SET module=EXCLUDED.module RETURNING id`)).rows[0].id;
         await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
           SELECT id,$1,true FROM sports_management.roles WHERE code='SCHEDULER'`, [permission]);
         try {
