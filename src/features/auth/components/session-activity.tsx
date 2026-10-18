@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { getCsrfToken } from "next-auth/react";
 
 const ACTIVITY_INTERVAL_MS = 15_000;
@@ -8,6 +9,7 @@ const activityEvents = ["pointerdown", "click", "keydown", "wheel", "touchstart"
 
 /** Un solo monitor global: las páginas públicas sin sesión no provocan redirecciones. */
 export function SessionActivity() {
+  const pathname = usePathname();
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -98,7 +100,9 @@ export function SessionActivity() {
       window.removeEventListener("focus", onVisibility);
       window.removeEventListener("online", onVisibility);
     };
-  }, []);
+  // El layout se conserva al navegar: volver a consultar tras salir del login.
+  // Esta consulta solo lee la sesión; no renueva la actividad por navegar.
+  }, [pathname]);
 
   return message ? <p role="status" className="p-3 text-sm text-muted">{message}</p> : null;
 }
