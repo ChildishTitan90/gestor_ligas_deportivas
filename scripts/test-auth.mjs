@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -32,16 +32,27 @@ function localConnection() {
   return target;
 }
 
-function command(commandArgs, env) {
+function command(commandArgs, env, showTestOutput = false) {
   return new Promise((resolve, reject) => {
     // No mostrar stdout/stderr de Prisma/Next: pueden incluir conexiones o SQL.
     const child = spawn(process.execPath, commandArgs, {
       cwd: root, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     });
-    child.stdout.resume();
-    child.stderr.resume();
+    let output = '';
+    const capture = (chunk) => { if (showTestOutput) output = (output + chunk.toString()).slice(-100_000); };
+    child.stdout.on('data', capture);
+    child.stderr.on('data', capture);
     child.once('error', () => reject(new Error('No fue posible iniciar la herramienta local.')));
-    child.once('exit', (code) => code === 0 ? resolve() : reject(new Error('La herramienta local terminó con error.')));
+    child.once('exit', (code) => {
+      if (showTestOutput) {
+        let safe = output.replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, '[conexión omitida]');
+        for (const key of ['DATABASE_URL', 'DIRECT_URL', 'NEXTAUTH_SECRET'])
+          if (env[key]) safe = safe.replaceAll(env[key], '[secreto omitido]');
+        safe = safe.replace(/\$argon2(?:id|i|d)\$[^\s"']+/g, '[hash omitido]');
+        console.log(safe);
+      }
+      if (code === 0) resolve(); else reject(new Error('La herramienta local terminó con error.'));
+    });
   });
 }
 
@@ -137,7 +148,9 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).some((arg) => arg !== '--demo')) throw new Error('Uso: node scripts/test-auth.mjs [--demo].');
+  if (process.argv.slice(2).some((arg) => !['--demo', '--authorization'].includes(arg)) ||
+      (process.argv.includes('--demo') && process.argv.includes('--authorization')))
+    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --authorization].');
   if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
   }
@@ -173,11 +186,22 @@ try {
     });
   } else {
     stage = 'pruebas HTTP';
-    const { runAuthIntegrationSuite } = await import('../tests/integration/auth.test.mjs');
-    await runAuthIntegrationSuite({ databaseUrl, baseUrl, restartServer: async () => {
-      await stopServer();
-      await startServer();
-    } });
+    if (!process.argv.includes('--authorization')) {
+      const { runAuthIntegrationSuite } = await import('../tests/integration/auth.test.mjs');
+      await runAuthIntegrationSuite({ databaseUrl, baseUrl, restartServer: async () => {
+        await stopServer();
+        await startServer();
+      } });
+    }
+    // Archivos independientes de Karol pueden incorporarse siguiendo este patrón.
+    // Ejecutar secuencialmente: cada suite administra sus propios fixtures.
+    const authorizationTests = readdirSync(new URL('../tests/integration/', import.meta.url))
+      .filter((name) => /^authorization-.*\.test\.ts$/.test(name)).sort()
+      .map((name) => `tests/integration/${name}`);
+    if (authorizationTests.length)
+      await command(['--conditions=react-server', '--import', 'tsx', '--test', '--test-concurrency=1', ...authorizationTests], childEnv, true);
+    const { runPermissionAdministrationSuite } = await import('../tests/integration/permission-administration.test.mjs');
+    await runPermissionAdministrationSuite({ databaseUrl, baseUrl });
     const { runAccountIntegrationSuite } = await import('../tests/integration/accounts.test.mjs');
     await runAccountIntegrationSuite({ databaseUrl, baseUrl });
   }
@@ -188,7 +212,7 @@ try {
     'Las pruebas solo aceptan PostgreSQL loopback en puertos 5432/5433.',
     'DIRECT_URL contiene parámetros no permitidos para pruebas locales.',
     'Detén el servidor npm run dev antes de ejecutar estas pruebas.',
-    'Uso: node scripts/test-auth.mjs [--demo].',
+    'Uso: node scripts/test-auth.mjs [--demo | --authorization].',
     'Next.js no quedó disponible para las pruebas locales.',
   ]);
   console.error(safeMessages.has(error.message) ? error.message : `No se completó la fase: ${stage}.`);

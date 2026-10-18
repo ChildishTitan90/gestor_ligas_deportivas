@@ -21,7 +21,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
       clubs.push((await db.query("INSERT INTO sports_management.clubs(league_id,reference_number,name) VALUES ($1,$2,$3) RETURNING id",
         [league, randomUUID(), 'Club sintético'])).rows[0].id);
     }
-    async function fixture(kind, role, scope, restricted = false) {
+    async function fixture(kind, role, scope, restricted = false, club = null) {
       const person = (await db.query("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES ('Sintético','Cuentas') RETURNING id")).rows[0].id;
       const email = `${kind}-${randomUUID()}@example.test`;
       const user = (await db.query(`INSERT INTO sports_management.users(person_id,username,email,password_hash,must_change_password)
@@ -30,8 +30,8 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         await db.query('BEGIN');
         try {
           await db.query("SELECT set_config('app.user_id',$1,true),set_config('app.reason','Fixture sintético PDGLD-34',true)", [user.id]);
-          await db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id)
-            SELECT $1,id,$3 FROM sports_management.roles WHERE code=$2`, [user.id, role, scope]);
+          await db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id)
+            SELECT $1,id,$3,$4 FROM sports_management.roles WHERE code=$2`, [user.id, role, scope, club]);
           await db.query('COMMIT');
         } catch (error) { await db.query('ROLLBACK'); throw error; }
       }
@@ -41,9 +41,16 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
       return { ...user, email, browser };
     }
     const admin = await fixture('admin', 'SUPERADMIN', null);
+    await db.query("SELECT set_config('app.user_id',$1,false),set_config('app.reason','PDGLD-54: concesiones aisladas de prueba, no matriz RF22',false)", [admin.id]);
+    for (const [module, action] of [['accounts', 'READ'], ['accounts', 'CREATE'], ['user_roles', 'CREATE'], ['clubs', 'CREATE']]) {
+      await db.query(`INSERT INTO sports_management.permissions(module,action) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [module, action]);
+      await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
+        SELECT r.id,p.id,false FROM sports_management.roles r,sports_management.permissions p
+        WHERE r.code='SUPERADMIN' AND p.module=$1 AND p.action=$2 ON CONFLICT(role_id,permission_id) DO NOTHING`, [module, action]);
+    }
     const ordinary = await fixture('secretario', 'SECRETARY', leagueA);
     const restricted = await fixture('temporal', 'SUPERADMIN', null, true);
-    const scoped = await fixture('scoped', 'SUPERADMIN', leagueA);
+    const scoped = await fixture('scoped', 'SUPERADMIN', leagueB);
 
     function payload(extra = {}) {
       const suffix = randomUUID().replaceAll('-', '');
@@ -79,7 +86,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
     }
 
     await test('PDGLD-52: provisión autorizada y atómica de cuentas', { timeout: 240_000 }, async (t) => {
-      await t.test('deniega anónimo, rol diferente, cuenta restringida y SUPERADMIN acotado', async () => {
+      await t.test('deniega anónimo, ausencia de permisos, cuenta restringida y ámbito ajeno', async () => {
         await deny(new Browser(baseUrl), payload(), 401, 'UNAUTHENTICATED');
         await deny(ordinary.browser, payload(), 403, 'FORBIDDEN');
         await deny(restricted.browser, payload(), 403, 'PASSWORD_CHANGE_REQUIRED');
@@ -98,6 +105,79 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         assert.ok(options.clubs.some((club) => club.id === clubs[0]));
         assert.ok(!options.clubs.some((club) => club.id === clubs[1]));
         assert.deepEqual(Object.keys(options).sort(), ['clubs', 'leagues', 'roles']);
+      });
+
+      await t.test('operador de liga consulta su ámbito y concede solo autoridad cubierta', async () => {
+        for (const [module, action] of [['accounts', 'READ'], ['accounts', 'CREATE'], ['user_roles', 'CREATE']]) {
+          await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
+            SELECT r.id,p.id,true FROM sports_management.roles r,sports_management.permissions p
+            WHERE r.code='EXECUTIVE_PRESIDENT' AND p.module=$1 AND p.action=$2 ON CONFLICT DO NOTHING`, [module, action]);
+        }
+        const local = await fixture('local', 'EXECUTIVE_PRESIDENT', leagueA);
+        const response = await local.browser.request('/api/accounts');
+        assert.equal(response.status, 200);
+        const options = await response.json();
+        assert.deepEqual(options.leagues.map((league) => league.id), [leagueA]);
+        assert.ok(!options.roles.some((role) => role.code === 'SUPERADMIN'));
+        assert.equal((await local.browser.request(`/api/accounts?leagueId=${leagueB}`)).status, 403);
+        assert.equal((await post(local.browser, payload())).status, 201);
+        await deny(local.browser, payload({ leagueId: leagueB }), 403, 'FORBIDDEN');
+        await deny(local.browser, payload({ roles: ['SUPERADMIN'], leagueId: undefined }), 403, 'FORBIDDEN');
+        // Poder crear no habilita roles cuyas capacidades no posee, ni altas de clubes.
+        await deny(local.browser, payload({ roles: ['CLUB_DELEGATE'], club: { kind: 'new', name: 'Fuera de facultades' } }), 403, 'FORBIDDEN');
+        const clubLocal = await fixture('club-local', 'EXECUTIVE_PRESIDENT', leagueA, false, clubs[0]);
+        const clubOptions = await clubLocal.browser.request(`/api/accounts?leagueId=${leagueA}`);
+        assert.equal(clubOptions.status, 200);
+        const filtered = await clubOptions.json();
+        assert.deepEqual(filtered.clubs.map((club) => club.id), [clubs[0]]);
+        assert.deepEqual(filtered.roles.map((role) => role.code), ['CLUB_DELEGATE']);
+        assert.equal((await post(clubLocal.browser, payload({ roles: ['CLUB_DELEGATE'], club: { kind: 'existing', id: clubs[0] } }))).status, 201);
+        await deny(clubLocal.browser, payload(), 403, 'FORBIDDEN');
+      });
+
+      await t.test('revocar permiso deniega con la misma sesión y SUPERADMIN no tiene bypass', async () => {
+        await db.query(`DELETE FROM sports_management.role_permissions rp USING sports_management.roles r,sports_management.permissions p
+          WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code='SUPERADMIN' AND p.module='accounts' AND p.action='CREATE'`);
+        try {
+          await deny(admin.browser, payload(), 403, 'FORBIDDEN');
+          // READ independiente sigue disponible; no permite crear por sí solo.
+          assert.equal((await admin.browser.request('/api/accounts')).status, 200);
+        } finally {
+          await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
+            SELECT r.id,p.id,false FROM sports_management.roles r,sports_management.permissions p
+            WHERE r.code='SUPERADMIN' AND p.module='accounts' AND p.action='CREATE'`);
+        }
+        assert.equal((await post(admin.browser, payload())).status, 201);
+        await db.query(`DELETE FROM sports_management.role_permissions rp USING sports_management.roles r,sports_management.permissions p
+          WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code='SUPERADMIN' AND p.module='accounts' AND p.action='READ'`);
+        try { assert.equal((await admin.browser.request('/api/accounts')).status, 403); }
+        finally {
+          await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
+            SELECT r.id,p.id,false FROM sports_management.roles r,sports_management.permissions p
+            WHERE r.code='SUPERADMIN' AND p.module='accounts' AND p.action='READ'`);
+        }
+      });
+
+      await t.test('aprobar concesiones permite crear un rol operativo sin heredar su función', async () => {
+        const operationalModule = `fixture.accounts.${randomUUID()}`;
+        const permission = (await db.query(`INSERT INTO sports_management.permissions(module,action)
+          VALUES ($1,'CREATE') RETURNING id`, [operationalModule])).rows[0].id;
+        const approve = (await db.query(`INSERT INTO sports_management.permissions(module,action)
+          VALUES ('user_roles','APPROVE') ON CONFLICT(module,action) DO UPDATE SET module=EXCLUDED.module RETURNING id`)).rows[0].id;
+        await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
+          SELECT id,$1,true FROM sports_management.roles WHERE code='SCHEDULER'`, [permission]);
+        try {
+          await deny(admin.browser, payload({ roles: ['SCHEDULER'] }), 403, 'FORBIDDEN');
+          await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
+            SELECT id,$1,false FROM sports_management.roles WHERE code='SUPERADMIN'`, [approve]);
+          assert.equal((await post(admin.browser, payload({ roles: ['SCHEDULER'] }))).status, 201);
+          assert.equal((await db.query(`SELECT count(*)::int n FROM sports_management.role_permissions rp
+            JOIN sports_management.roles r ON r.id=rp.role_id WHERE r.code='SUPERADMIN' AND rp.permission_id=$1`, [permission])).rows[0].n, 0);
+          await db.query(`DELETE FROM sports_management.role_permissions WHERE permission_id=$1`, [approve]);
+          await deny(admin.browser, payload({ roles: ['SCHEDULER'] }), 403, 'FORBIDDEN');
+        } finally {
+          await db.query('DELETE FROM sports_management.role_permissions WHERE permission_id IN ($1,$2)', [permission, approve]);
+        }
       });
 
       await t.test('rechaza origen externo/ausente, formularios y payload excesivo sin escribir', async () => {

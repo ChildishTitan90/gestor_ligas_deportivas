@@ -1,4 +1,66 @@
-# Semillas sintéticas, identidad y auditoría — PDGLD-47
+# Semillas sintéticas, identidad y auditoría — PDGLD-47 / PDGLD-54
+
+## Perfiles explícitos de PDGLD-54
+
+El perfil predeterminado **base** conserva los datos y las regresiones de PDGLD-47 descritos más abajo. `prisma/seed.ts` acepta solamente `--profile base`, `--profile permissions` o `--profile demo`; migrar no ejecuta estos perfiles. Ninguno se ejecuta con `NODE_ENV=production` ni admite destinos remotos. Se conservan las guardas de `DATABASE_URL`/`DIRECT_URL`, los esquemas admitidos y los errores sin credenciales. No hay migraciones nuevas ni cambios en `0_init`, RLS o restricciones.
+
+```powershell
+# Perfil base histórico: sin cuentas de acceso ni instalación de permisos.
+npm.cmd run db:seed
+
+# Instalar una sola vez la definición aprobada que entrega Sergio (PDGLD-55).
+npx.cmd --no-install tsx prisma/seed.ts --profile permissions
+
+# Perfil completo de demostración; solo tras integrar el catálogo de Sergio.
+npm.cmd run seed:dev
+
+# Mismo perfil, para un destino local de prueba ya validado.
+npx.cmd --no-install tsx prisma/seed.ts --profile demo
+```
+
+`seed:dev` reutiliza el perfil `demo` y conserva su guarda adicional: únicamente `gestor_ligas_dev`, PostgreSQL loopback, puerto 5432/5433. La CLI de perfiles permite las bases locales de prueba que admite el seed base; no debe apuntarse a una base compartida. Las pruebas automatizadas crean su propia base desechable mediante `npm run test:seed`; no usan Supabase ni reinician volúmenes del proyecto.
+
+### Consumo del catálogo aprobado y pendiente de integración
+
+`prisma/permissions-catalog.ts` **no define concesiones**. Carga exclusivamente `prisma/permissions-data.ts`, propiedad de Sergio, y espera `export const PERMISSIONS_DATA = [...]` o un array como `export default`. Cada fila tiene `roleCode`, `module`, `action`, `contextOnly` y `ersReference` (referencia no vacía al ERS). Rechaza códigos ajenos a los 12 oficiales, duplicados, contexto no booleano y acciones distintas de `CREATE`, `READ`, `UPDATE`, `APPROVE`, `PUBLISH` e `IMPORT`. No renombra módulos ni corrige asignaciones automáticamente.
+
+**En el checkout de implementación falta `prisma/permissions-data.ts` de PDGLD-55.** Por eso `permissions`, `demo` y `seed:dev` terminan con un error controlado antes de abrir conexión o escribir. El perfil base sigue disponible. Sergio debe integrar ese archivo y revisar sus módulos/alcances con `docs/architecture/authorization.md` y su propia `docs/architecture/permissions.md`. Las pruebas de demo inyectan un catálogo diminuto de `fixture_seed_demo` dentro de la base desechable; ese fixture no es RF22, no se carga por la CLI y no se publica como matriz alternativa.
+
+### Instalar una vez y conservar revocaciones
+
+La primera instalación consume la matriz completa en una transacción y conserva `contextOnly` exactamente. Los permisos usan la clave `(module, action)` y las concesiones `(role_id, permission_id)`. Si ya existen concesiones o eventos de `role_permissions` en auditoría sin marcador de instalación, el perfil se detiene y revierte, incluso si todas las concesiones anteriores fueron retiradas y la tabla actual está vacía. No presupone que representan la matriz inicial ni restaura una revocación cuya historia desconoce.
+
+Una instalación exitosa agrega un evento inmutable a `audit_logs`: `table_name=seed_permission_matrix`, UUID reservado `54000000-0000-4000-8000-000000000051`, huella SHA-256 y referencias al catálogo. No contiene contraseñas ni hashes de cuentas. Si el marcador existe, siguientes ejecuciones no vuelven a aplicar la matriz, aunque hayan cambiado el archivo o las concesiones vigentes. Cambiar RF22 posteriormente requiere una modificación autorizada a través del servicio de permisos; repetir el seed no es una herramienta de reconciliación.
+
+El perfil demo guarda su propio evento `seed_demo_profile`, UUID `54000000-0000-4000-8000-000000000052`. Después de ese marcador, repetir `demo` no escribe nada: conserva contraseñas, cuentas inactivadas, cambios obligatorios, vigencias, contextos y asignaciones retiradas, incluyendo filas eliminadas. No crea cuentas nuevas si alguien borró las anteriores. Una primera instalación que encuentra nombres, correos o UUID DEMO ocupados falla con rollback; nunca adopta ni sobrescribe datos ajenos.
+
+Los perfiles adquieren los bloqueos transaccionales `(47,2026)` y `(54,2026)` en ese orden. El segundo se comparte con la administración de permisos. Así dos ejecuciones simultáneas no pueden pasar juntas la lectura del marcador y no interfieren con una revocación administrada. La creación de datos base, catálogo, cuentas, contextos y ambos marcadores ocurre en una sola transacción del demo: si una escritura falla, todo revierte. Los triggers existentes de `role_permissions` y `user_roles` generan sus eventos de cambio con actor/motivo; no se añaden eventos manuales por cada fila. Los dos eventos manuales de instalación registran exclusivamente las instalaciones completas.
+
+### Credenciales y contextos locales DEMO
+
+Las siete cuentas nuevas tienen contraseña inicial **`LigaDemo2026!`**, solo para estas demostraciones locales, guardada con Argon2id (`memoryCost=19456`, `timeCost=2`, `parallelism=1`). No debe usarse fuera de este perfil. No son cuentas de producción. Los datos se crean en `DEMO Liga de Fútbol Morelia`, con dos clubes distintos y una segunda liga `DEMO Liga de contraste` para probar rechazo entre ligas. Hay una temporada 2026 en cada liga y afiliaciones sintéticas `PENDING` de ambos clubes a la temporada principal, solicitadas por sus delegados; esto permite verificar relaciones club/temporada sin inventar una aprobación oficial. No se crean partidos ni se implementa programación.
+
+| Correo | Contraseña inicial | Rol | Contexto | Resultado esperado después de integrar RF22 |
+| --- | --- | --- | --- | --- |
+| `admin@demo.example.test` | `LigaDemo2026!` | `SUPERADMIN` | Asignación global | Solo acciones que RF22 conceda actualmente; revocar la concesión debe denegar con la misma sesión, sin bypass. |
+| `secretario@demo.example.test` | `LigaDemo2026!` | `SECRETARY` | Liga DEMO principal | Operaciones concedidas para su liga; denegación en liga de contraste y concesiones que excedan su autoridad. |
+| `programador@demo.example.test` | `LigaDemo2026!` | `SCHEDULER` | Liga DEMO principal | Guard de programación conforme a RF22 en su liga; denegación en otra liga. No existe endpoint de programación nuevo. |
+| `delegado-a@demo.example.test` | `LigaDemo2026!` | `CLUB_DELEGATE` | `DEMO Club A`, liga principal | Operaciones contextuales concedidas en A; denegación al usar IDs del club B o de otra liga. |
+| `delegado-b@demo.example.test` | `LigaDemo2026!` | `CLUB_DELEGATE` | `DEMO Club B`, liga principal | Operaciones contextuales concedidas en B; denegación al usar IDs del club A o de otra liga. |
+| `temporal@demo.example.test` | `LigaDemo2026!` | `SECRETARY` | Liga principal; rol válido 30 días desde primera instalación | Debe cambiar contraseña antes del uso normal; al vencer la asignación, denegación sin renovar la sesión. |
+| `inactiva@demo.example.test` | `LigaDemo2026!` | `SECRETARY` | Liga principal; cuenta inactiva | Inicio de sesión y autorización rechazados; repetir demo no la reactiva. |
+
+Los resultados positivos dependen de las concesiones exactas de RF22: esta tabla describe los contextos y las comprobaciones, no añade permisos. `GUEST` continúa anónimo, sin persona, usuario ni `user_roles`. El actor reservado de auditoría de PDGLD-47 permanece inactivo y sin roles.
+
+El perfil conserva `operativa@example.test` y `temporal@example.test` de PDGLD-48. Si todavía no existen, los crea con su contraseña histórica sintética `Local-Demo-48!real-test` y sin roles; si existen, no cambia contraseña, persona, estado ni indicador de cambio obligatorio. Tampoco modifica ninguna otra cuenta actual. Las nuevas cuentas DEMO utilizan correos diferentes.
+
+### Pruebas de PDGLD-54
+
+`tests/integration/demo-seed.test.ts` se integra al harness de `test:seed` **después** de `seed.test.ts`, en otra invocación secuencial; la suite base necesita conservar su snapshot inicial sin concesiones. El nuevo archivo usa únicamente `gestor_ligas_ci` en loopback y un catálogo inyectado, etiquetado como fixture. Verifica guardas de producción/conexión, contrato del catálogo, denegación de instalación ante historial sin concesiones vigentes, rollback de matriz/cuentas/contextos/auditoría ante fallo de una asignación, dos instalaciones concurrentes, hashes Argon2id, alcances, cuenta inactiva, rol temporal, GUEST anónimo y actor reservado. Después modifica hash, estado y vigencias, retira una concesión y una asignación y repite ambos perfiles para comparar snapshots y demostrar que no restaura autoridad. La evidencia de ejecución de la entrega debe indicar el resultado real del harness; las verificaciones históricas de PDGLD-47 que siguen no sustituyen esta ejecución.
+
+---
+
+## Historial de PDGLD-47
 
 Revisión local: 14 de octubre de 2026. PR #3, rama `feat/PDGLD-47-modelar-identidad-roles`, cabeza revisada `49635cbdb72bc2c7ccd7285eeb99465d74e8b95a`, base `develop`. El remoto y el checkout coincidían antes de editar. Se conservó `.next-auth-tests/`, resultado local de PDGLD-48; no forma parte de este cambio.
 
@@ -54,7 +116,7 @@ El contexto de auditoría se fija con `set_config(..., true)` en la misma transa
 npm.cmd run test:seed
 ```
 
-El harness crea un contenedor PostgreSQL 15 temporal con contraseña aleatoria, puerto dinámico publicado solo en loopback y datos en memoria `tmpfs`, sin volúmenes. No usa `.env` para elegir su destino. Aplica las migraciones mediante `migrate deploy`, genera el cliente y ejecuta `tsx --test tests/integration/seed.test.ts`. Al terminar detiene únicamente el contenedor creado por esa ejecución. No reinicia ni elimina volúmenes del proyecto y no conecta a Supabase.
+El harness crea un contenedor PostgreSQL 15 temporal con contraseña aleatoria, puerto dinámico publicado solo en loopback y datos en memoria `tmpfs`, sin volúmenes. No usa `.env` para elegir su destino. Aplica las migraciones mediante `migrate deploy`, genera el cliente y ejecuta primero `tsx --test tests/integration/seed.test.ts` y después `tsx --test tests/integration/demo-seed.test.ts`, en procesos secuenciales. Al terminar detiene únicamente el contenedor creado por esa ejecución. No reinicia ni elimina volúmenes del proyecto y no conecta a Supabase.
 
 Las pruebas consultan y comparan contenido completo, cantidades, UUID y relaciones de las 96 tablas antes y después. Antes de las dos ejecuciones exitosas prueban un fallo deliberado en el último INSERT, mediante trigger/función/secuencia exclusivos de la base temporal; comprueban que se alcanzó el grupo y que rollback también revierte actor y auditoría. Esos objetos de prueba se retiran en `finally`, sin alterar migraciones. Luego prueban contextos con nombres iguales y dos ejecuciones simultáneas. También comprueban errores de entorno y conexión sin secretos en salida.
 

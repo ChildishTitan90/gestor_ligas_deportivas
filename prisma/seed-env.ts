@@ -16,6 +16,9 @@ export function parsePostgresUrl(value: string | undefined, variable: string): U
 }
 
 export function readSeedDatabaseUrl(environment = process.env): string {
+  if (environment.NODE_ENV === 'production') {
+    throw new SeedConfigurationError("El seed sintético no se ejecuta en producción.");
+  }
   const target = parsePostgresUrl(environment.DATABASE_URL, "DATABASE_URL");
   const validateLocal = (url: URL, variable: string) => {
     if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
@@ -41,4 +44,23 @@ export function readSeedDatabaseUrl(environment = process.env): string {
     }
   }
   return target.href;
+}
+
+export type SeedProfile = 'base' | 'permissions' | 'demo';
+
+export function readSeedProfile(args: readonly string[]): SeedProfile {
+  if (args.length === 0) return 'base';
+  if (args.length === 2 && args[0] === '--profile' &&
+      ['base', 'permissions', 'demo'].includes(args[1])) return args[1] as SeedProfile;
+  throw new SeedConfigurationError("Uso: prisma/seed.ts [--profile base|permissions|demo].");
+}
+
+/** Guarda adicional de seed:dev; las pruebas usan sus propias bases desechables. */
+export function readDevelopmentSeedDatabaseUrl(environment = process.env): string {
+  const connectionString = readSeedDatabaseUrl(environment);
+  const target = new URL(connectionString);
+  if (!['5432', '5433'].includes(target.port || '5432') || target.pathname !== '/gestor_ligas_dev') {
+    throw new SeedConfigurationError("seed:dev solo admite gestor_ligas_dev en PostgreSQL loopback, puerto 5432/5433.");
+  }
+  return connectionString;
 }

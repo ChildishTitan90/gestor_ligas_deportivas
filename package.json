@@ -10,6 +10,7 @@
     "postinstall": "prisma generate",
     "test:ci": "node --test scripts/ci/migration-helpers.test.mjs",
     "test:auth": "node scripts/test-auth.mjs",
+    "test:authorization": "node scripts/test-auth.mjs --authorization",
     "seed:dev": "node --conditions=react-server --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/seed-auth-dev.mjs",
     "auth:demo": "node scripts/test-auth.mjs --demo",
     "db:seed": "prisma db seed",

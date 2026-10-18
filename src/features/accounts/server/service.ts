@@ -1,11 +1,15 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
-import { createAccountSchema, accountRoleCodes } from "../schemas";
+import { createAccountSchema, accountRoleCodes, type CreateAccountInput } from "../schemas";
 import { getPrisma } from "@/server/db/prisma";
 import { assertAccountAdministrator } from "@/server/auth/account-administrator";
 import { requireOperationalUser } from "@/server/auth/session";
 import { hashPassword } from "@/server/auth/password";
+import {
+  assertCanGrantRole, AuthorizationError, getPermissionGrants, grantCoversContext,
+  lockAuthorization, resolveAuthorizationContext, assertPermission, type AuthorizationContext,
+} from "@/server/auth/authorization";
 
 export class AccountInputError extends Error {
   constructor(
@@ -19,60 +23,122 @@ export async function getAccountCreationOptions(leagueId?: string) {
   if (leagueId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(leagueId))
     throw new AccountInputError("INVALID_CONTEXT");
   return getPrisma().$transaction(async (tx) => {
-    await assertAccountAdministrator(tx, actor.id);
-    const roles = await tx.roles.findMany({
-      where: { code: { in: [...accountRoleCodes] } },
-      select: { code: true, name: true }, orderBy: { name: "asc" },
+    const grants = await getPermissionGrants(tx, actor.id, "accounts", "READ");
+    if (!grants.length) throw new AuthorizationError();
+    const global = grants.some((grant) => !grant.contextOnly && !grant.leagueId && !grant.clubId);
+    // Solo consultar ámbitos que alguna asignación con READ realmente cubre.
+    const clubScopes = await tx.clubs.findMany({
+      where: { id: { in: grants.flatMap((grant) => grant.clubId ? [grant.clubId] : []) }, status: "ACTIVE" },
+      select: { id: true, league_id: true },
     });
+    const leagueIds = [...new Set([
+      ...grants.flatMap((grant) => grant.leagueId ? [grant.leagueId] : []),
+      ...clubScopes.map((club) => club.league_id),
+    ])];
     const leagues = await tx.leagues.findMany({
-      where: { is_active: true }, select: { id: true, name: true }, orderBy: { name: "asc" },
+      where: { is_active: true, ...(global ? {} : { id: { in: leagueIds } }) },
+      select: { id: true, name: true }, orderBy: { name: "asc" },
     });
-    if (leagueId && !leagues.some((league) => league.id === leagueId))
-      throw new AccountInputError("INVALID_CONTEXT");
-    // El formulario solicita los clubes de la liga elegida, sin mezclar ámbitos.
+    if (!global && !leagues.length) throw new AuthorizationError();
+    if (leagueId) {
+      const league = await tx.leagues.findFirst({ where: { id: leagueId, is_active: true }, select: { id: true } });
+      if (!league) throw new AccountInputError("INVALID_CONTEXT");
+      if (!leagues.some((entry) => entry.id === leagueId)) throw new AuthorizationError();
+    }
+    const leagueWideRead = global || grants.some((grant) => grant.leagueId === leagueId && !grant.clubId);
     const clubs = leagueId ? await tx.clubs.findMany({
-      where: { league_id: leagueId, status: "ACTIVE" },
+      where: { league_id: leagueId, status: "ACTIVE", ...(leagueWideRead ? {} : {
+        id: { in: clubScopes.filter((club) => club.league_id === leagueId).map((club) => club.id) },
+      }) },
       select: { id: true, name: true, reference_number: true },
       orderBy: [{ name: "asc" }, { id: "asc" }], take: 100,
     }) : [];
+    const catalog = await tx.roles.findMany({
+      where: { code: { in: [...accountRoleCodes] } },
+      select: { id: true, code: true, name: true }, orderBy: { name: "asc" },
+    });
+    const roles: { code: string; name: string }[] = [];
+    for (const role of catalog) {
+      // La forma del contexto corresponde al contrato existente del formulario.
+      const contexts: AuthorizationContext[] = role.code === "SUPERADMIN" ? [{}]
+        : (leagueId ? leagues.filter((league) => league.id === leagueId) : leagues)
+          .map((league) => ({ leagueId: league.id }));
+      if (role.code === "CLUB_DELEGATE") {
+        contexts.push(...clubs.map((club) => ({ leagueId, clubId: club.id })),
+          ...(!leagueId ? clubScopes.map((club) => ({ leagueId: club.league_id, clubId: club.id })) : []));
+      }
+      for (const context of contexts) {
+        try {
+          const resolved = await resolveAuthorizationContext(tx, context);
+          if (!grants.some((grant) => grantCoversContext(grant, resolved))) continue;
+          await assertAccountAdministrator(tx, actor.id, "CREATE", context);
+          await assertCanGrantRole(tx, actor.id, role.id, context);
+          roles.push({ code: role.code, name: role.name });
+          break;
+        } catch (error) {
+          if (!(error instanceof AuthorizationError)) throw error;
+        }
+      }
+    }
     return { roles, leagues, clubs };
   });
 }
 
+/** Se ejecuta antes del KDF y de nuevo dentro de la transacción de escritura. */
+async function authorizeAccountCreation(tx: Prisma.TransactionClient, actorId: string, data: CreateAccountInput) {
+  const catalog = await tx.roles.findMany({
+    where: { code: { in: data.roles } }, select: { id: true, code: true },
+  });
+  if (catalog.length !== data.roles.length) throw new AccountInputError("INVALID_CONTEXT");
+  if (data.leagueId) {
+    const league = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM sports_management.leagues WHERE id = ${data.leagueId}::uuid AND is_active FOR SHARE
+    `;
+    if (!league.length) throw new AccountInputError("INVALID_CONTEXT");
+  }
+  let clubId: string | undefined;
+  if (data.club?.kind === "existing") {
+    const clubs = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM sports_management.clubs WHERE id = ${data.club.id}::uuid
+        AND league_id = ${data.leagueId!}::uuid AND status = 'ACTIVE' FOR SHARE
+    `;
+    if (!clubs.length) throw new AccountInputError("INVALID_CONTEXT");
+    clubId = clubs[0].id;
+  }
+  for (const role of catalog) {
+    const context = { leagueId: data.leagueId,
+      ...(role.code === "CLUB_DELEGATE" && clubId ? { clubId } : {}) };
+    await assertAccountAdministrator(tx, actorId, "CREATE", context);
+    await assertCanGrantRole(tx, actorId, role.id, context);
+  }
+  if (data.club?.kind === "new")
+    await assertPermission(tx, actorId, { module: "clubs", action: "CREATE", context: { leagueId: data.leagueId } });
+  // Una persona sin cuenta no tiene necesariamente un vínculo de club verificable.
+  // Reutilizar una identidad existente requiere autoridad global de cuentas.
+  if ("id" in data.person) await assertAccountAdministrator(tx, actorId, "CREATE", {});
+  return { catalog, clubId };
+}
+
 export async function createAccount(input: unknown) {
   const actor = await requireOperationalUser();
-  // Autorizar antes del KDF y volver a comprobar dentro de la escritura.
-  await getPrisma().$transaction((tx) => assertAccountAdministrator(tx, actor.id));
+  await getPrisma().$transaction(async (tx) => {
+    if (!(await getPermissionGrants(tx, actor.id, "accounts", "CREATE")).length) throw new AuthorizationError();
+  });
   const parsed = createAccountSchema.safeParse(input);
   if (!parsed.success) throw new AccountInputError("VALIDATION_ERROR");
   const data = parsed.data;
+  await getPrisma().$transaction((tx) => authorizeAccountCreation(tx, actor.id, data));
   const passwordHash = await hashPassword(data.temporaryPassword);
   try {
     return await getPrisma().$transaction(async (tx) => {
-      await assertAccountAdministrator(tx, actor.id);
-      const catalog = await tx.roles.findMany({
-        where: { code: { in: data.roles } }, select: { id: true, code: true },
-      });
-      if (catalog.length !== data.roles.length) throw new AccountInputError("INVALID_CONTEXT");
-      if (data.leagueId) {
-        const league = await tx.$queryRaw<{ id: string }[]>`
-          SELECT id FROM sports_management.leagues
-          WHERE id = ${data.leagueId}::uuid AND is_active FOR SHARE
-        `;
-        if (!league.length) throw new AccountInputError("INVALID_CONTEXT");
-      }
+      await lockAuthorization(tx, "exclusive");
+      const authorized = await authorizeAccountCreation(tx, actor.id, data);
+      const { catalog } = authorized;
       await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true),
         set_config('app.reason', 'PDGLD-34: alta autorizada de cuenta y contexto inicial', true)`;
 
-      let clubId: string | undefined;
-      if (data.club?.kind === "existing") {
-        const club = await tx.$queryRaw<{ id: string }[]>`
-          SELECT id FROM sports_management.clubs WHERE id = ${data.club.id}::uuid
-            AND league_id = ${data.leagueId!}::uuid AND status = 'ACTIVE' FOR SHARE
-        `;
-        if (!club.length) throw new AccountInputError("INVALID_CONTEXT");
-        clubId = club[0].id;
-      } else if (data.club?.kind === "new") {
+      let clubId = authorized.clubId;
+      if (data.club?.kind === "new") {
         const club = await tx.clubs.create({
           data: { name: data.club.name, league_id: data.leagueId!, reference_number: `CLB-${randomUUID()}` },
           select: { id: true, league_id: true, status: true },
