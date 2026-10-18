@@ -153,7 +153,7 @@ try {
   baseUrl = `http://127.0.0.1:${await freePort()}`;
   childEnv = { ...process.env, DATABASE_URL: databaseUrl, DIRECT_URL: databaseUrl,
     NEXTAUTH_URL: baseUrl, NEXTAUTH_SECRET: randomBytes(48).toString('base64url'),
-    NEXT_TELEMETRY_DISABLED: '1', AUTH_TEST_RUN: '1', NODE_ENV: 'development' };
+    NEXT_TELEMETRY_DISABLED: '1', AUTH_TEST_RUN: '1', AUTH_IDLE_TIMEOUT_MINUTES: '30', NODE_ENV: 'development' };
   delete childEnv.NEXTAUTH_URL_INTERNAL;
   stage = 'aplicación de migraciones en base temporal';
   console.log('PDGLD-48: preparando PostgreSQL temporal y servidor local.');
@@ -174,10 +174,14 @@ try {
   } else {
     stage = 'pruebas HTTP';
     const { runAuthIntegrationSuite } = await import('../tests/integration/auth.test.mjs');
-    await runAuthIntegrationSuite({ databaseUrl, baseUrl, restartServer: async () => {
+    const restartServer = async (idleMinutes = '30') => {
       await stopServer();
+      childEnv.AUTH_IDLE_TIMEOUT_MINUTES = idleMinutes;
       await startServer();
-    } });
+    };
+    await runAuthIntegrationSuite({ databaseUrl, baseUrl, restartServer });
+    const { runSessionLifecycleSuite } = await import('../tests/integration/session-lifecycle.test.mjs');
+    await runSessionLifecycleSuite({ databaseUrl, baseUrl, restartServer });
     const { runAccountIntegrationSuite } = await import('../tests/integration/accounts.test.mjs');
     await runAccountIntegrationSuite({ databaseUrl, baseUrl });
   }
