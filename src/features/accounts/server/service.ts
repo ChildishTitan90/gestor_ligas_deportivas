@@ -1,14 +1,15 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
-import { createAccountSchema, accountRoleCodes, type CreateAccountInput } from "../schemas";
+import { createAccountSchema, type CreateAccountInput } from "../schemas";
 import { getPrisma } from "@/server/db/prisma";
 import { assertAccountAdministrator } from "@/server/auth/account-administrator";
 import { requireOperationalUser } from "@/server/auth/session";
+import { readAccountCreationOptions } from "./creation-options";
 import { hashPassword } from "@/server/auth/password";
 import {
-  assertCanGrantRole, AuthorizationError, getPermissionGrants, grantCoversContext,
-  lockAuthorization, resolveAuthorizationContext, assertPermission, type AuthorizationContext,
+  assertCanGrantRole, AuthorizationError, getPermissionGrants,
+  lockAuthorization, assertPermission,
 } from "@/server/auth/authorization";
 
 export class AccountInputError extends Error {
@@ -23,64 +24,12 @@ export async function getAccountCreationOptions(leagueId?: string) {
   if (leagueId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(leagueId))
     throw new AccountInputError("INVALID_CONTEXT");
   return getPrisma().$transaction(async (tx) => {
-    const grants = await getPermissionGrants(tx, actor.id, "users", "READ");
-    if (!grants.length) throw new AuthorizationError();
-    const global = grants.some((grant) => !grant.contextOnly && !grant.leagueId && !grant.clubId);
-    // Solo consultar ámbitos que alguna asignación con READ realmente cubre.
-    const clubScopes = await tx.clubs.findMany({
-      where: { id: { in: grants.flatMap((grant) => grant.clubId ? [grant.clubId] : []) }, status: "ACTIVE" },
-      select: { id: true, league_id: true },
-    });
-    const leagueIds = [...new Set([
-      ...grants.flatMap((grant) => grant.leagueId ? [grant.leagueId] : []),
-      ...clubScopes.map((club) => club.league_id),
-    ])];
-    const leagues = await tx.leagues.findMany({
-      where: { is_active: true, ...(global ? {} : { id: { in: leagueIds } }) },
-      select: { id: true, name: true }, orderBy: { name: "asc" },
-    });
-    if (!global && !leagues.length) throw new AuthorizationError();
-    if (leagueId) {
-      const league = await tx.leagues.findFirst({ where: { id: leagueId, is_active: true }, select: { id: true } });
-      if (!league) throw new AccountInputError("INVALID_CONTEXT");
-      if (!leagues.some((entry) => entry.id === leagueId)) throw new AuthorizationError();
+    const options = await readAccountCreationOptions(tx, actor.id, leagueId);
+    if ("invalidLeague" in options) {
+      if (options.invalidLeague) throw new AccountInputError("INVALID_CONTEXT");
+      throw new AuthorizationError();
     }
-    const leagueWideRead = global || grants.some((grant) => grant.leagueId === leagueId && !grant.clubId);
-    const clubs = leagueId ? await tx.clubs.findMany({
-      where: { league_id: leagueId, status: "ACTIVE", ...(leagueWideRead ? {} : {
-        id: { in: clubScopes.filter((club) => club.league_id === leagueId).map((club) => club.id) },
-      }) },
-      select: { id: true, name: true, reference_number: true },
-      orderBy: [{ name: "asc" }, { id: "asc" }], take: 100,
-    }) : [];
-    const catalog = await tx.roles.findMany({
-      where: { code: { in: [...accountRoleCodes] } },
-      select: { id: true, code: true, name: true }, orderBy: { name: "asc" },
-    });
-    const roles: { code: string; name: string }[] = [];
-    for (const role of catalog) {
-      // La forma del contexto corresponde al contrato existente del formulario.
-      const contexts: AuthorizationContext[] = role.code === "SUPERADMIN" ? [{}]
-        : (leagueId ? leagues.filter((league) => league.id === leagueId) : leagues)
-          .map((league) => ({ leagueId: league.id }));
-      if (role.code === "CLUB_DELEGATE") {
-        contexts.push(...clubs.map((club) => ({ leagueId, clubId: club.id })),
-          ...(!leagueId ? clubScopes.map((club) => ({ leagueId: club.league_id, clubId: club.id })) : []));
-      }
-      for (const context of contexts) {
-        try {
-          const resolved = await resolveAuthorizationContext(tx, context);
-          if (!grants.some((grant) => grantCoversContext(grant, resolved))) continue;
-          await assertAccountAdministrator(tx, actor.id, "CREATE", context);
-          await assertCanGrantRole(tx, actor.id, role.id, context);
-          roles.push({ code: role.code, name: role.name });
-          break;
-        } catch (error) {
-          if (!(error instanceof AuthorizationError)) throw error;
-        }
-      }
-    }
-    return { roles, leagues, clubs };
+    return options;
   });
 }
 

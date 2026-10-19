@@ -63,3 +63,53 @@ Para continuar en otra rama conservando además el respaldo sin cambios:
 ```powershell
 git switch -c feat/PDGLD-54-continuar-autorizacion backup/PDGLD-54-autorizacion-antes-integracion-51
 ```
+
+## Revisión del PR #10 — 18/10/2026
+
+Rama `fix/PDGLD-51-monitor-actividad`, cabeza remota `bba7b6d`.
+La variable local `wasAuthenticated` se reiniciaba al cambiar `pathname`.
+Si el monitor ya había observado una sesión válida y la siguiente consulta
+devolvía una sesión vacía después de navegar, no redirigía. Se conserva ahora
+ese antecedente con `useRef`; la consulta por navegación continúa siendo GET,
+sin registrar actividad. La limpieza del efecto sigue abortando consultas y
+descartando respuestas de una ruta anterior.
+
+Evidencia local de esta revisión:
+
+- Navegador con React 19 real y StrictMode, componente leído directamente del
+  código fuente y `pathname`/respuestas de red controlados: la versión remota
+  reprodujo el fallo; la corrección sí ejecutó `location.replace('/login')`.
+  Pasaron también visitante sin sesión, sesión vigente y respuesta vacía tardía
+  de una ruta anterior. En los casos de control, navegar produjo solo GET y
+  no provocó redirecciones indebidas. Es una prueba aislada del componente,
+  no un recorrido completo del router de Next.js con el backend real.
+- `npm run test:auth`: 6 pruebas puras y 41 resultados HTTP aprobados, sin
+  omisiones. Las dos regresiones añadidas a `session-lifecycle.test.mjs`
+  quedan incluidas en ese comando, que ya ejecuta CI.
+- Las regresiones HTTP solicitan `/access` y `/change-password` sin ejecutar
+  JavaScript: sin sesión responden 307 a `/login`. Con una cookie emitida por
+  un login real cuya sesión persistente se adelantó al vencimiento en la base
+  temporal, cada página redirige independientemente y `/api/access` devuelve
+  401. Antes de esas peticiones no se consulta `/api/auth/session`: no se
+  depende de que el monitor haya detectado el vencimiento. Reutilizar la cookie
+  o enviar actividad después no revive la sesión.
+- Lint, TypeScript y `git diff --check` aprobados. Tras autorizar acceso a las
+  fuentes, el build de producción terminó correctamente con Node 24.19.0,
+  ya instalado en el runtime local de Codex. Después también pasó el comando
+  habitual `npm run build` con Node 24.21.0. Incluyeron compilación, TypeScript,
+  generación de las 10 páginas y optimización, con salida 0. No se modificaron
+  dependencias ni configuración para completarlos. Un intento previo con
+  24.21.0 falló al iniciar el proceso de transformación CSS; no se demostró
+  una incompatibilidad persistente de esa versión. Permanece la advertencia
+  de Next.js sobre la desactivación preventiva de `workerThreads`; no impidió
+  estos builds ni se forzó esa opción.
+- Tras `git fetch origin`, `git merge-tree --write-tree HEAD origin/develop`
+  terminó sin conflictos contra `872b42a`. Esta simulación no mezcla cambios
+  en la rama ni actualiza el árbol de trabajo.
+
+Las pruebas de base utilizaron únicamente la base temporal creada y eliminada
+por el runner en PostgreSQL local. No se ejecutaron migraciones en la base de
+trabajo ni en Supabase. El harness del navegador y su captura quedaron como
+artefactos locales ignorados dentro de `.next-auth-tests/`; no son una suite
+de navegador ejecutada automáticamente por CI. La corrección y las pruebas
+HTTP siguen locales, pendientes de commit/push y revisión/CI del PR.

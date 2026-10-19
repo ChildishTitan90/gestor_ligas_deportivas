@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { getCsrfToken } from "next-auth/react";
 
 const ACTIVITY_INTERVAL_MS = 15_000;
@@ -8,12 +9,13 @@ const activityEvents = ["pointerdown", "click", "keydown", "wheel", "touchstart"
 
 /** Un solo monitor global: las páginas públicas sin sesión no provocan redirecciones. */
 export function SessionActivity() {
+  const pathname = usePathname();
   const [message, setMessage] = useState("");
+  const wasAuthenticated = useRef(false);
 
   useEffect(() => {
     let stopped = false;
     let busy = false;
-    let wasAuthenticated = false;
     let expiresAt = 0;
     let lastActivitySent = -Infinity;
     let expiryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -48,19 +50,19 @@ export function SessionActivity() {
           if (expiryTimer) clearTimeout(expiryTimer);
           if (activityTimer) clearTimeout(activityTimer);
           // Solo abandonar una sesión que este monitor había visto autenticada.
-          if (wasAuthenticated && window.location.pathname !== "/login") window.location.replace("/login");
-          wasAuthenticated = false;
+          if (wasAuthenticated.current && window.location.pathname !== "/login") window.location.replace("/login");
+          wasAuthenticated.current = false;
           return;
         }
         const expiration = Date.parse(session.expires);
         if (!Number.isFinite(expiration)) throw new Error("SESSION_UNAVAILABLE");
-        wasAuthenticated = true;
+        wasAuthenticated.current = true;
         expiresAt = expiration;
         setMessage("");
         // Consultar al vencer permite observar actividad legítima de otra pestaña.
         scheduleCheck(expiresAt - Date.now());
       } catch {
-        if (!stopped && wasAuthenticated) {
+        if (!stopped && wasAuthenticated.current) {
           setMessage("No pudimos comprobar tu sesión. Revisa tu conexión; volveremos a intentarlo.");
           scheduleCheck(ACTIVITY_INTERVAL_MS); // Reintento de lectura, nunca heartbeat.
         }
@@ -70,7 +72,7 @@ export function SessionActivity() {
     }
 
     function onActivity(event: Event) {
-      if (!event.isTrusted || !wasAuthenticated || document.visibilityState !== "visible") return;
+      if (!event.isTrusted || !wasAuthenticated.current || document.visibilityState !== "visible") return;
       if (Date.now() >= expiresAt) { void checkSession(false); return; }
       if (activityTimer) clearTimeout(activityTimer);
       const remaining = lastActivitySent + ACTIVITY_INTERVAL_MS - Date.now();
@@ -98,7 +100,9 @@ export function SessionActivity() {
       window.removeEventListener("focus", onVisibility);
       window.removeEventListener("online", onVisibility);
     };
-  }, []);
+  // El layout conserva el ref entre rutas; cada navegación consulta la sesión.
+  // Esta lectura no renueva la actividad y detecta una sesión que ya venció.
+  }, [pathname]);
 
   return message ? <p role="status" className="p-3 text-sm text-muted">{message}</p> : null;
 }
