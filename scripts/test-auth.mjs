@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -32,16 +32,27 @@ function localConnection() {
   return target;
 }
 
-function command(commandArgs, env) {
+function command(commandArgs, env, showTestOutput = false) {
   return new Promise((resolve, reject) => {
     // No mostrar stdout/stderr de Prisma/Next: pueden incluir conexiones o SQL.
     const child = spawn(process.execPath, commandArgs, {
       cwd: root, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     });
-    child.stdout.resume();
-    child.stderr.resume();
+    let output = '';
+    const capture = (chunk) => { if (showTestOutput) output = (output + chunk.toString()).slice(-100_000); };
+    child.stdout.on('data', capture);
+    child.stderr.on('data', capture);
     child.once('error', () => reject(new Error('No fue posible iniciar la herramienta local.')));
-    child.once('exit', (code) => code === 0 ? resolve() : reject(new Error('La herramienta local terminó con error.')));
+    child.once('exit', (code) => {
+      if (showTestOutput) {
+        let safe = output.replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, '[conexión omitida]');
+        for (const key of ['DATABASE_URL', 'DIRECT_URL', 'NEXTAUTH_SECRET'])
+          if (env[key]) safe = safe.replaceAll(env[key], '[secreto omitido]');
+        safe = safe.replace(/\$argon2(?:id|i|d)\$[^\s"']+/g, '[hash omitido]');
+        console.log(safe);
+      }
+      if (code === 0) resolve(); else reject(new Error('La herramienta local terminó con error.'));
+    });
   });
 }
 
@@ -65,6 +76,7 @@ let stage = 'preparación';
 const databaseName = `pdgld48_test_${randomBytes(8).toString('hex')}`;
 let childEnv;
 let baseUrl;
+const accountOptionMetrics = [];
 
 async function stopServer() {
   if (!server || server.exitCode !== null || server.signalCode !== null) return;
@@ -91,7 +103,19 @@ async function startServer() {
   server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', new URL(baseUrl).port], {
     cwd: root, env: childEnv, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
   });
-  server.stdout.resume();
+  if (process.argv.includes('--benchmark-options')) {
+    let pending = '';
+    server.stdout.on('data', (chunk) => {
+      pending += chunk.toString();
+      const lines = pending.split('\n');
+      pending = lines.pop();
+      for (const line of lines) {
+        const marker = 'ACCOUNT_OPTIONS_METRICS ';
+        const index = line.indexOf(marker);
+        if (index >= 0) accountOptionMetrics.push(JSON.parse(line.slice(index + marker.length)));
+      }
+    });
+  } else server.stdout.resume();
   server.stderr.resume();
   let failed = false;
   server.once('error', () => { failed = true; });
@@ -137,7 +161,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).some((arg) => arg !== '--demo')) throw new Error('Uso: node scripts/test-auth.mjs [--demo].');
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--authorization', '--benchmark-options'].includes(arg)))
+    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --authorization | --benchmark-options].');
   if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
   }
@@ -155,6 +180,10 @@ try {
     NEXTAUTH_URL: baseUrl, NEXTAUTH_SECRET: randomBytes(48).toString('base64url'),
     NEXT_TELEMETRY_DISABLED: '1', AUTH_TEST_RUN: '1', AUTH_IDLE_TIMEOUT_MINUTES: '30', NODE_ENV: 'development' };
   delete childEnv.NEXTAUTH_URL_INTERNAL;
+  if (process.argv.includes('--benchmark-options')) {
+    childEnv.ACCOUNT_OPTIONS_METRICS = '1';
+    childEnv.NODE_OPTIONS = `${childEnv.NODE_OPTIONS ?? ''} --import=${new URL('../tests/integration/account-options-metrics.mjs', import.meta.url).href}`.trim();
+  }
   stage = 'aplicación de migraciones en base temporal';
   console.log('PDGLD-48: preparando PostgreSQL temporal y servidor local.');
   await command(['node_modules/prisma/build/index.js', 'migrate', 'deploy'], childEnv);
@@ -171,17 +200,36 @@ try {
       process.stdin.resume();
       process.stdin.once('data', () => { process.stdin.pause(); resolve(); });
     });
+  } else if (process.argv.includes('--benchmark-options')) {
+    stage = 'medición local de opciones de cuentas';
+    const { runAccountOptionsBenchmark } = await import('../tests/integration/account-options-benchmark.mjs');
+    await runAccountOptionsBenchmark({ databaseUrl, baseUrl, metrics: accountOptionMetrics,
+      restartServer: async () => { await stopServer(); await startServer(); } });
   } else {
     stage = 'pruebas HTTP';
-    const { runAuthIntegrationSuite } = await import('../tests/integration/auth.test.mjs');
+    // Instalar RF22 antes de las suites aisladas que generan historial propio.
+    const { runCatalogAccountIntegrationSuite } = await import('../tests/integration/catalog-accounts.test.mjs');
+    await runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl });
     const restartServer = async (idleMinutes = '30') => {
       await stopServer();
       childEnv.AUTH_IDLE_TIMEOUT_MINUTES = idleMinutes;
       await startServer();
     };
-    await runAuthIntegrationSuite({ databaseUrl, baseUrl, restartServer });
-    const { runSessionLifecycleSuite } = await import('../tests/integration/session-lifecycle.test.mjs');
-    await runSessionLifecycleSuite({ databaseUrl, baseUrl, restartServer });
+    if (!process.argv.includes('--authorization')) {
+      const { runAuthIntegrationSuite } = await import('../tests/integration/auth.test.mjs');
+      await runAuthIntegrationSuite({ databaseUrl, baseUrl, restartServer });
+      const { runSessionLifecycleSuite } = await import('../tests/integration/session-lifecycle.test.mjs');
+      await runSessionLifecycleSuite({ databaseUrl, baseUrl, restartServer });
+    }
+    // Archivos independientes de Karol pueden incorporarse siguiendo este patrón.
+    // Ejecutar secuencialmente: cada suite administra sus propios fixtures.
+    const authorizationTests = readdirSync(new URL('../tests/integration/', import.meta.url))
+      .filter((name) => /^authorization-.*\.test\.ts$/.test(name)).sort()
+      .map((name) => `tests/integration/${name}`);
+    if (authorizationTests.length)
+      await command(['--conditions=react-server', '--import', 'tsx', '--test', '--test-concurrency=1', ...authorizationTests], childEnv, true);
+    const { runPermissionAdministrationSuite } = await import('../tests/integration/permission-administration.test.mjs');
+    await runPermissionAdministrationSuite({ databaseUrl, baseUrl });
     const { runAccountIntegrationSuite } = await import('../tests/integration/accounts.test.mjs');
     await runAccountIntegrationSuite({ databaseUrl, baseUrl });
   }
@@ -192,7 +240,7 @@ try {
     'Las pruebas solo aceptan PostgreSQL loopback en puertos 5432/5433.',
     'DIRECT_URL contiene parámetros no permitidos para pruebas locales.',
     'Detén el servidor npm run dev antes de ejecutar estas pruebas.',
-    'Uso: node scripts/test-auth.mjs [--demo].',
+    'Uso: node scripts/test-auth.mjs [--demo | --authorization | --benchmark-options].',
     'Next.js no quedó disponible para las pruebas locales.',
   ]);
   console.error(safeMessages.has(error.message) ? error.message : `No se completó la fase: ${stage}.`);

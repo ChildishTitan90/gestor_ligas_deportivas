@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { AccountInputError, createAccount, getAccountCreationOptions } from "@/features/accounts/server/service";
-import { AccountAccessError } from "@/server/auth/account-administrator";
+import { AuthorizationError } from "@/server/auth/authorization";
 import { AuthAccessError } from "@/server/auth/session";
 
 export const runtime = "nodejs";
@@ -8,7 +8,7 @@ const headers = { "Cache-Control": "private, no-store" };
 
 function failure(error: unknown) {
   if (error instanceof AuthAccessError) return NextResponse.json({ code: error.code }, { status: error.status, headers });
-  if (error instanceof AccountAccessError) return NextResponse.json({ code: "FORBIDDEN" }, { status: 403, headers });
+  if (error instanceof AuthorizationError) return NextResponse.json({ code: error.code }, { status: error.status, headers });
   if (error instanceof AccountInputError) return NextResponse.json({ code: error.code }, { status: error.status, headers });
   console.error("[accounts] SERVICE_UNAVAILABLE");
   return NextResponse.json({ code: "SERVICE_UNAVAILABLE" }, { status: 503, headers });
