@@ -4,6 +4,8 @@ MVP para la Liga Municipal de Fútbol Amateur de Morelia.
 
 Stack actual: Next.js 16, React 19, Tailwind CSS 4, NextAuth 4, Zod 4 y Prisma 7.10. Desarrollo con Node.js 24.x y PostgreSQL 15 local mediante Docker.
 
+Las dependencias directas están fijadas al lockfile; Prisma CLI, Client y adaptador PostgreSQL usan 7.10.1. Usa Node.js 24 y npm 11.19 o posterior dentro de 11.x. La [revisión PDGLD-71](docs/revision-dependencias-pdgld71.md) documenta la actualización, compatibilidad, scripts permitidos y el hallazgo residual de braces pendiente de decisión en revisión.
+
 ## Instalación del equipo
 
 Sigue la [guía de instalación y trabajo](docs/guia-equipo.md). Incluye Docker Desktop, Git, variables locales, comprobaciones de las 96 tablas y flujo Jira/GitHub.

@@ -1,5 +1,7 @@
 # Revisión del entorno — PDGLD-71
 
+> Registro histórico del 11/10/2026. La [revisión de dependencias del 19/10/2026](revision-dependencias-pdgld71.md) actualiza compatibilidad, exposición, scripts, comprobaciones y pendientes de cierre. Las comprobaciones históricas siguientes no prueban el estado del commit actual.
+
 Fecha: 11 de octubre de 2026. Responsable consultado en Jira: Sergio.
 
 ## Comprobaciones
