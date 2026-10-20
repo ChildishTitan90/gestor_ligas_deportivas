@@ -84,6 +84,18 @@ Devuelve `{ roles: [{code,name}], leagues: [{id,name}], clubs: [{id,name,referen
 
 ## Pruebas y entrega
 
+### Lectura agrupada de opciones — revisión de rendimiento de PDGLD-54
+
+`getAccountCreationOptions` conserva identidad y transacción en el servicio y
+delega la lectura a `server/creation-options.ts`. Esa lectura obtiene una vez las
+concesiones vigentes del actor, agrupa roles/permisos y reutiliza solo dentro de
+la transacción contextos leídos y bloqueados. Comparte la regla de cobertura de
+permisos con `assertCanGrantRole`; no sustituye la autorización del POST ni
+conserva permisos entre peticiones. Contratos, ámbitos y errores HTTP no cambian.
+La medición local del GET con liga elegida pasó de 500 a 14 sentencias SQL.
+Método, tiempos individuales, límites y reproducción están en
+[el informe de rendimiento](../performance/account-options.md).
+
 Las pruebas aisladas están en `tests/integration/accounts.test.mjs` y se ejecutan mediante `npm run test:auth`, después de autenticación, motor de autorización y administración de permisos, con el mismo servidor y PostgreSQL temporal. Antes de esos fixtures, `catalog-accounts.test.mjs` instala las 127 concesiones reales de `INITIAL_PERMISSION_GRANTS` y verifica opciones, altas y revocación inmediata con la misma sesión, sin conceder permisos por analogía. `npm run test:authorization` ejecuta el subconjunto de catálogo, autorización, administración y cuentas. El workflow invoca `test:auth` en sus bases temporales PostgreSQL 15/17; esto describe su configuración, no afirma una ejecución remota de estos cambios. Las credenciales de provisión de estas suites se generan aleatoriamente durante su ejecución y no se imprimen.
 
 Las regresiones preparan permisos explícitos y verifican denegaciones, CSRF/origen, validaciones, ámbitos, hash y primer ingreso, concurrencia, reutilización de persona, auditoría sin secretos y rollback ante un fallo de auditoría inyectado en la base temporal. PDGLD-54 añade lectura/escritura separadas, filtrado local, denegación de concesiones que exceden la autoridad del actor y revocación efectiva con la misma sesión. La prueba no modifica la base local persistente ni Supabase.

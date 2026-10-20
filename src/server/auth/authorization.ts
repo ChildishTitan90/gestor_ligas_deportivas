@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "./session";
@@ -88,8 +88,20 @@ export async function getPermissionGrants(
   tx: Prisma.TransactionClient, actorId: string, module: string, action: PermissionAction,
 ): Promise<PermissionGrant[]> {
   if (!permissionSchema.safeParse({ module, action, context: {} }).success) throw new AuthorizationError();
+  return readPermissionGrants(tx, actorId, { module, action });
+}
+
+/** Snapshot de lectura para una sola transacción; nunca conservar entre peticiones. */
+export function getActorPermissionGrants(tx: Prisma.TransactionClient, actorId: string) {
+  return readPermissionGrants(tx, actorId);
+}
+
+async function readPermissionGrants(
+  tx: Prisma.TransactionClient, actorId: string, permission?: { module: string; action: PermissionAction },
+): Promise<PermissionGrant[]> {
   await lockAuthorization(tx);
   await assertOperationalActor(tx, actorId);
+  const filter = permission ? Prisma.sql`AND p.module = ${permission.module} AND p.action = ${permission.action}` : Prisma.empty;
   return tx.$queryRaw<PermissionGrant[]>`
     SELECT ur.id AS "assignmentId", ur.role_id AS "roleId", p.id AS "permissionId",
       p.module, p.action, rp.context_only AS "contextOnly", ur.league_id AS "leagueId",
@@ -98,7 +110,7 @@ export async function getPermissionGrants(
     JOIN sports_management.roles r ON r.id = ur.role_id
     JOIN sports_management.role_permissions rp ON rp.role_id = ur.role_id
     JOIN sports_management.permissions p ON p.id = rp.permission_id
-    WHERE ur.user_id = ${actorId}::uuid AND p.module = ${module} AND p.action = ${action}
+    WHERE ur.user_id = ${actorId}::uuid ${filter}
       AND ur.starts_at <= clock_timestamp() AND (ur.ends_at IS NULL OR ur.ends_at > clock_timestamp())
       AND (ur.league_id IS NULL OR EXISTS (
         SELECT 1 FROM sports_management.leagues l WHERE l.id = ur.league_id AND l.is_active))
@@ -250,9 +262,19 @@ export async function assertCanGrantRole(
     WHERE rp.role_id = ${roleId}::uuid FOR SHARE OF rp, p
   `;
   const resolved = await resolveAuthorizationContext(tx, context);
-  let operationalApproval: PermissionGrant[] | undefined;
+  await assertRolePermissionCoverage(permissions, resolved,
+    (module, action) => getPermissionGrants(tx, actorId, module, action));
+}
+
+/** Misma regla para escrituras y opciones; el llamador exige antes UPDATE permanente. */
+export async function assertRolePermissionCoverage(
+  permissions: readonly { module: string; action: PermissionAction }[],
+  resolved: ResolvedAuthorizationContext,
+  readGrants: (module: string, action: PermissionAction) => readonly PermissionGrant[] | Promise<readonly PermissionGrant[]>,
+) {
+  let operationalApproval: readonly PermissionGrant[] | undefined;
   for (const permission of permissions) {
-    const grants = await getPermissionGrants(tx, actorId, permission.module, permission.action);
+    const grants = await readGrants(permission.module, permission.action);
     // Direct backing uses the target assignment's complete scope and duration.
     const allowed = grants.some((grant) => grant.endsAt === null && grantCoversContext(grant, resolved));
     if (allowed) continue;
@@ -260,7 +282,7 @@ export async function assertCanGrantRole(
     // their operations. This explicit capability cannot create control-plane
     // authority the actor does not already hold.
     if (isAuthorityPermissionModule(permission.module)) throw new AuthorizationError();
-    operationalApproval ??= await getPermissionGrants(tx, actorId, "users", "APPROVE");
+    operationalApproval ??= await readGrants("users", "APPROVE");
     if (!operationalApproval.some((grant) => grant.endsAt === null && grantCoversContext(grant, resolved)))
       throw new AuthorizationError();
   }
