@@ -195,3 +195,16 @@ Se ejecutaron las suites existentes de autorización y seed demo,
 y las dos pruebas independientes de PDGLD-56, sin fallos reportados.
 TypeScript y ESLint también aprobaron.
 La entrega queda pendiente de revisión del equipo.
+## Revalidación tras integrar develop — 19 de octubre de 2026
+
+Se incorporó origin/develop, referencia b5da4bf, a la rama de PDGLD-56.
+
+Resultados locales:
+- test:authorization: resúmenes de 22 y 34 aprobados, sin fallos.
+- Las dos pruebas independientes de PDGLD-56 aprobaron.
+- test:seed: 19 y 7 aprobados, sin fallos.
+- El seed demo conservó los permisos y asignaciones retirados.
+- typecheck y lint finalizaron sin errores.
+
+Esta evidencia actualiza la ejecución anterior.
+Los límites de cobertura documentados siguen vigentes.
