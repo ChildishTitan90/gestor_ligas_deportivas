@@ -50,7 +50,9 @@ export function SessionActivity() {
           if (expiryTimer) clearTimeout(expiryTimer);
           if (activityTimer) clearTimeout(activityTimer);
           // Solo abandonar una sesión que este monitor había visto autenticada.
-          if (wasAuthenticated.current && window.location.pathname !== "/login") window.location.replace("/login");
+          // Un espectador puede seguir en el portal si su sesión anterior vence.
+          const publicPage = ["/", "/futbol", "/login"].includes(window.location.pathname);
+          if (wasAuthenticated.current && !publicPage) window.location.replace("/login");
           wasAuthenticated.current = false;
           return;
         }

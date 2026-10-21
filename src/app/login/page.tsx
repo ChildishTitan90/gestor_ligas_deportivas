@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/features/auth/components/login-form";
 import { getAuthSession } from "@/server/auth/session";
+import { ActionLink } from "@/components/ui/action-link";
 
 export const metadata: Metadata = { title: "Iniciar sesión" };
 
@@ -39,6 +40,7 @@ export default async function LoginPage() {
             <h2 id="login-title" className="text-2xl font-semibold tracking-tight">Iniciar sesión</h2>
             <p className="mt-2 mb-7 text-sm leading-6 text-muted">Usa el correo y la contraseña de tu cuenta.</p>
             <LoginForm />
+            <ActionLink href="/futbol" variant="secondary" className="mt-4 w-full">Continuar como espectador</ActionLink>
             <p className="mt-7 border-t border-border pt-5 text-sm leading-6 text-muted">
               ¿Necesitas una cuenta o ayuda para entrar? Comunícate con la administración de la liga.
             </p>
