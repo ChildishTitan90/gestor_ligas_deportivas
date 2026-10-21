@@ -155,7 +155,7 @@ export async function runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl }
         const version = (await db.query('SELECT version FROM sports_management.users WHERE id=$1', [created.id])).rows[0].version;
         const nextPassword = `Changed-${randomBytes(18).toString('hex')}!aA`;
         const changed = await browser.request('/api/auth/change-password', { method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { 'content-type': 'application/json', origin: baseUrl },
           body: JSON.stringify({ currentPassword: input.temporaryPassword, newPassword: nextPassword, confirmPassword: nextPassword }) });
         assert.equal(changed.status, 200);
         assert.equal((await db.query('SELECT version FROM sports_management.users WHERE id=$1', [created.id])).rows[0].version, version + 1);

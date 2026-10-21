@@ -178,7 +178,8 @@ try {
   baseUrl = `http://127.0.0.1:${await freePort()}`;
   childEnv = { ...process.env, DATABASE_URL: databaseUrl, DIRECT_URL: databaseUrl,
     NEXTAUTH_URL: baseUrl, NEXTAUTH_SECRET: randomBytes(48).toString('base64url'),
-    NEXT_TELEMETRY_DISABLED: '1', AUTH_TEST_RUN: '1', AUTH_IDLE_TIMEOUT_MINUTES: '30', NODE_ENV: 'development' };
+    NEXT_TELEMETRY_DISABLED: '1', AUTH_TEST_RUN: '1', AUTH_IDLE_TIMEOUT_MINUTES: '30',
+    AUTH_MAX_FAILED_ATTEMPTS: '5', AUTH_LOCKOUT_MINUTES: '15', NODE_ENV: 'development' };
   delete childEnv.NEXTAUTH_URL_INTERNAL;
   if (process.argv.includes('--benchmark-options')) {
     childEnv.ACCOUNT_OPTIONS_METRICS = '1';
@@ -210,9 +211,11 @@ try {
     // Instalar RF22 antes de las suites aisladas que generan historial propio.
     const { runCatalogAccountIntegrationSuite } = await import('../tests/integration/catalog-accounts.test.mjs');
     await runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl });
-    const restartServer = async (idleMinutes = '30') => {
+    const restartServer = async (idleMinutes = '30', loginPolicy = {}) => {
       await stopServer();
       childEnv.AUTH_IDLE_TIMEOUT_MINUTES = idleMinutes;
+      childEnv.AUTH_MAX_FAILED_ATTEMPTS = loginPolicy.maxFailedAttempts ?? '5';
+      childEnv.AUTH_LOCKOUT_MINUTES = loginPolicy.lockoutMinutes ?? '15';
       await startServer();
     };
     if (!process.argv.includes('--authorization')) {

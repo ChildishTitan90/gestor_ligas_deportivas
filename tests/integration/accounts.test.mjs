@@ -233,7 +233,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         assert.equal(page.headers.get('location'), '/change-password');
         const nextPassword = `Cambio-${randomBytes(18).toString('hex')}!aA`;
         const changed = await login.request('/api/auth/change-password', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
+          method: 'POST', headers: { 'content-type': 'application/json', origin: baseUrl },
           body: JSON.stringify({ currentPassword: input.temporaryPassword, newPassword: nextPassword, confirmPassword: nextPassword }),
         });
         assert.equal(changed.status, 200);
