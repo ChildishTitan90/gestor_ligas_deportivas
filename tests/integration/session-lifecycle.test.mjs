@@ -44,6 +44,41 @@ export async function runSessionLifecycleSuite({ databaseUrl, baseUrl, restartSe
         }
         await browser.assertAccess(401, 'UNAUTHENTICATED');
       });
+      await t.test('las páginas protegidas redirigen sin JavaScript cuando no hay sesión', async () => {
+        const browser = new Browser(baseUrl);
+        for (const path of ['/access', '/change-password']) {
+          const response = await browser.request(path);
+          assert.equal(response.status, 307, `Falta la protección de servidor en ${path}.`);
+          assert.equal(new URL(response.headers.get('location'), baseUrl).pathname, '/login');
+        }
+      });
+      await t.test('caducar antes de navegar impide renderizar páginas y acceder a la API sin el monitor', async () => {
+        // Cada ruta recibe primero una cookie todavía válida: ninguna consulta
+        // previa a /api/auth/session ni otra ruta invalida la sesión por ella.
+        for (const path of ['/access', '/change-password', '/api/access']) {
+          const browser = await login();
+          const stored = (await db.query(`SELECT id FROM sports_management.sessions
+            WHERE user_id=$1 ORDER BY created_at DESC LIMIT 1`, [user])).rows[0];
+          const cookies = new Map(browser.cookies);
+          await db.query(`UPDATE sports_management.sessions
+            SET created_at=now()-interval '2 hours',
+                last_activity_at=now()-interval '31 minutes', expires_at=now()-interval '1 minute'
+            WHERE id=$1`, [stored.id]);
+          const response = await browser.request(path);
+          if (path === '/api/access') {
+            assert.equal(response.status, 401);
+            assert.equal((await response.json()).error, 'UNAUTHENTICATED');
+          } else {
+            assert.equal(response.status, 307, `Falta redirección de servidor en ${path}.`);
+            assert.equal(new URL(response.headers.get('location'), baseUrl).pathname, '/login');
+          }
+          const state = (await db.query('SELECT revoked_at FROM sports_management.sessions WHERE id=$1', [stored.id])).rows[0];
+          assert.ok(state.revoked_at instanceof Date);
+          browser.cookies = cookies;
+          assert.equal((await browser.session()).user, undefined);
+          assert.equal((await browser.updateSession({ action: 'activity' })).user, undefined);
+        }
+      });
       await t.test('LOGIN_OK ocurre una vez por inicio y las lecturas no duplican eventos', async () => {
         const before = await count();
         const browser = await login();

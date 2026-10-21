@@ -1,0 +1,442 @@
+{
+  "date": "2026-10-19",
+  "pr": 13,
+  "head": "e1765270d6dda5b8883fb26a834dbfb601a28278",
+  "develop": "65a445cad980c06889a53227c82141b761819c38",
+  "environment": {
+    "node": "24.9.0",
+    "next": "16.4.0",
+    "prisma": "7.10.0",
+    "postgres": "15",
+    "mode": "next dev, localhost, tmpfs, synthetic RF22/demo",
+    "candidateRoles": 9,
+    "candidatePermissionGrants": 120,
+    "remoteMeasured": false
+  },
+  "before": [
+    {
+      "iteration": 0,
+      "cold": true,
+      "httpMs": 3210.283,
+      "lockSamples": 0,
+      "samples": 164,
+      "status": 200,
+      "queries": 500,
+      "queryMs": 1415.828,
+      "poolWaitMs": 23.573,
+      "connectMs": 18.409,
+      "transactions": [
+        {
+          "queries": 5,
+          "queryMs": 33.964,
+          "startWaitMs": 115.948,
+          "bodyMs": 103.118,
+          "totalMs": 225.224,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 5
+          }
+        },
+        {
+          "queries": 495,
+          "queryMs": 1381.864,
+          "startWaitMs": 4.918,
+          "bodyMs": 1941.149,
+          "totalMs": 1947.635,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 16,
+            "policyLock": 146,
+            "actor": 146,
+            "actorGrants": 146,
+            "candidatePermissions": 9,
+            "leagueContext": 32
+          }
+        }
+      ]
+    },
+    {
+      "iteration": 1,
+      "cold": false,
+      "httpMs": 1064.359,
+      "lockSamples": 0,
+      "samples": 65,
+      "status": 200,
+      "queries": 500,
+      "queryMs": 756.004,
+      "poolWaitMs": 0.503,
+      "connectMs": 0,
+      "transactions": [
+        {
+          "queries": 5,
+          "queryMs": 6.05,
+          "startWaitMs": 2.557,
+          "bodyMs": 5.277,
+          "totalMs": 9.666,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 5
+          }
+        },
+        {
+          "queries": 495,
+          "queryMs": 749.954,
+          "startWaitMs": 3.532,
+          "bodyMs": 1000.043,
+          "totalMs": 1004.639,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 16,
+            "policyLock": 146,
+            "actor": 146,
+            "actorGrants": 146,
+            "candidatePermissions": 9,
+            "leagueContext": 32
+          }
+        }
+      ]
+    },
+    {
+      "iteration": 2,
+      "cold": false,
+      "httpMs": 916.397,
+      "lockSamples": 0,
+      "samples": 58,
+      "status": 200,
+      "queries": 500,
+      "queryMs": 645.925,
+      "poolWaitMs": 0.388,
+      "connectMs": 0,
+      "transactions": [
+        {
+          "queries": 5,
+          "queryMs": 3.921,
+          "startWaitMs": 2.034,
+          "bodyMs": 3.455,
+          "totalMs": 6.407,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 5
+          }
+        },
+        {
+          "queries": 495,
+          "queryMs": 642.004,
+          "startWaitMs": 1.329,
+          "bodyMs": 858.497,
+          "totalMs": 861.255,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 16,
+            "policyLock": 146,
+            "actor": 146,
+            "actorGrants": 146,
+            "candidatePermissions": 9,
+            "leagueContext": 32
+          }
+        }
+      ]
+    },
+    {
+      "iteration": 3,
+      "cold": false,
+      "httpMs": 1277.836,
+      "lockSamples": 0,
+      "samples": 72,
+      "status": 200,
+      "queries": 500,
+      "queryMs": 944.744,
+      "poolWaitMs": 0.44,
+      "connectMs": 0,
+      "transactions": [
+        {
+          "queries": 5,
+          "queryMs": 5.085,
+          "startWaitMs": 2.922,
+          "bodyMs": 4.306,
+          "totalMs": 8.404,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 5
+          }
+        },
+        {
+          "queries": 495,
+          "queryMs": 939.658,
+          "startWaitMs": 1.591,
+          "bodyMs": 1229.575,
+          "totalMs": 1232.492,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 16,
+            "policyLock": 146,
+            "actor": 146,
+            "actorGrants": 146,
+            "candidatePermissions": 9,
+            "leagueContext": 32
+          }
+        }
+      ]
+    }
+  ],
+  "after": [
+    {
+      "iteration": 0,
+      "cold": true,
+      "httpMs": 744.188,
+      "lockSamples": 0,
+      "samples": 43,
+      "status": 200,
+      "queries": 14,
+      "queryMs": 56.052,
+      "poolWaitMs": 33.178,
+      "connectMs": 29.201,
+      "transactions": [
+        {
+          "queries": 5,
+          "queryMs": 24.987,
+          "startWaitMs": 141.102,
+          "bodyMs": 70.973,
+          "totalMs": 217.47,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 5
+          }
+        },
+        {
+          "queries": 9,
+          "queryMs": 31.065,
+          "startWaitMs": 5.881,
+          "bodyMs": 41.564,
+          "totalMs": 49.11,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 3,
+            "policyLock": 1,
+            "actor": 1,
+            "actorGrants": 1,
+            "leagueContext": 1,
+            "clubContext": 1,
+            "candidatePermissions": 1
+          }
+        }
+      ]
+    },
+    {
+      "iteration": 1,
+      "cold": false,
+      "httpMs": 72.07,
+      "lockSamples": 0,
+      "samples": 5,
+      "status": 200,
+      "queries": 14,
+      "queryMs": 18.479,
+      "poolWaitMs": 0.427,
+      "connectMs": 0,
+      "transactions": [
+        {
+          "queries": 5,
+          "queryMs": 5.852,
+          "startWaitMs": 2.244,
+          "bodyMs": 5.652,
+          "totalMs": 9.15,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 5
+          }
+        },
+        {
+          "queries": 9,
+          "queryMs": 12.628,
+          "startWaitMs": 1.485,
+          "bodyMs": 15.915,
+          "totalMs": 18.792,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 3,
+            "policyLock": 1,
+            "actor": 1,
+            "actorGrants": 1,
+            "leagueContext": 1,
+            "clubContext": 1,
+            "candidatePermissions": 1
+          }
+        }
+      ]
+    },
+    {
+      "iteration": 2,
+      "cold": false,
+      "httpMs": 77.1,
+      "lockSamples": 0,
+      "samples": 5,
+      "status": 200,
+      "queries": 14,
+      "queryMs": 14.657,
+      "poolWaitMs": 0.417,
+      "connectMs": 0,
+      "transactions": [
+        {
+          "queries": 5,
+          "queryMs": 4.817,
+          "startWaitMs": 2.078,
+          "bodyMs": 4.613,
+          "totalMs": 7.784,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 5
+          }
+        },
+        {
+          "queries": 9,
+          "queryMs": 9.84,
+          "startWaitMs": 1.398,
+          "bodyMs": 12.415,
+          "totalMs": 14.907,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 3,
+            "policyLock": 1,
+            "actor": 1,
+            "actorGrants": 1,
+            "leagueContext": 1,
+            "clubContext": 1,
+            "candidatePermissions": 1
+          }
+        }
+      ]
+    },
+    {
+      "iteration": 3,
+      "cold": false,
+      "httpMs": 70.137,
+      "lockSamples": 0,
+      "samples": 4,
+      "status": 200,
+      "queries": 14,
+      "queryMs": 22.029,
+      "poolWaitMs": 0.438,
+      "connectMs": 0,
+      "transactions": [
+        {
+          "queries": 5,
+          "queryMs": 5.24,
+          "startWaitMs": 2.429,
+          "bodyMs": 4.196,
+          "totalMs": 8.208,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 5
+          }
+        },
+        {
+          "queries": 9,
+          "queryMs": 16.788,
+          "startWaitMs": 1.624,
+          "bodyMs": 18.542,
+          "totalMs": 23.119,
+          "timeoutMs": 5000,
+          "maxWaitMs": 2000,
+          "categories": {
+            "other": 3,
+            "policyLock": 1,
+            "actor": 1,
+            "actorGrants": 1,
+            "leagueContext": 1,
+            "clubContext": 1,
+            "candidatePermissions": 1
+          }
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "beforeWarm": {
+      "httpMs": {
+        "median": 1064.359,
+        "max": 1277.836
+      },
+      "transactionMs": {
+        "median": 1004.639,
+        "max": 1232.492
+      },
+      "queryMs": {
+        "median": 756.004,
+        "max": 944.744
+      },
+      "poolWaitMs": {
+        "median": 0.44,
+        "max": 0.503
+      }
+    },
+    "afterWarm": {
+      "httpMs": {
+        "median": 72.07,
+        "max": 77.1
+      },
+      "transactionMs": {
+        "median": 18.792,
+        "max": 23.119
+      },
+      "queryMs": {
+        "median": 18.479,
+        "max": 22.029
+      },
+      "poolWaitMs": {
+        "median": 0.427,
+        "max": 0.438
+      }
+    },
+    "beforeAll": {
+      "httpMs": {
+        "median": 1171.0974999999999,
+        "max": 3210.283
+      },
+      "transactionMs": {
+        "median": 1118.5655,
+        "max": 1947.635
+      },
+      "queryMs": {
+        "median": 850.374,
+        "max": 1415.828
+      },
+      "poolWaitMs": {
+        "median": 0.47150000000000003,
+        "max": 23.573
+      }
+    },
+    "afterAll": {
+      "httpMs": {
+        "median": 74.585,
+        "max": 744.188
+      },
+      "transactionMs": {
+        "median": 20.9555,
+        "max": 49.11
+      },
+      "queryMs": {
+        "median": 20.253999999999998,
+        "max": 56.052
+      },
+      "poolWaitMs": {
+        "median": 0.4325,
+        "max": 33.178
+      }
+    }
+  }
+}

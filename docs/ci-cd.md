@@ -124,3 +124,13 @@ Para crear una migración y recibir las del equipo, consulta [la guía de migrac
 - [Servicios PostgreSQL para pruebas en GitHub Actions](https://docs.github.com/en/actions/tutorials/use-containerized-services/create-postgresql-service-containers).
 - [Migraciones de desarrollo y producción con Prisma 7](https://www.prisma.io/docs/orm/v7/prisma-migrate/workflows/development-and-production).
 - [Conexiones de PostgreSQL en Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres).
+
+## Integración de pruebas de autorización — PDGLD-54
+
+`npm run test:auth` mantiene las pruebas HTTP de autenticación y ejecuta después el motor de autorización, la administración protegida de permisos y las regresiones de cuentas. Todo ocurre secuencialmente en la base desechable y el servidor local que crea el runner; su limpieza afecta únicamente a esos recursos. `npm run test:authorization` utiliza el mismo harness y ejecuta solo el subconjunto de autorización, administración y cuentas, omitiendo la suite completa de autenticación.
+
+Para incorporar las pruebas independientes de Karol, el runner descubre `tests/integration/authorization-*.test.ts`, las ordena por nombre y ejecuta Node con `--conditions=react-server --import tsx --test --test-concurrency=1`. Cada archivo debe preparar sus fixtures aislados, comprobar conductas y respetar las guardas del destino temporal. El patrón evita tener que registrar manualmente cada archivo nuevo; una prueba con otro nombre no queda incorporada automáticamente. Las suites de administración de permisos y cuentas conservan sus archivos separados y se ejecutan después de los archivos descubiertos. Karol debe revisar qué escenarios añade para complementar los del motor y las regresiones de cuentas.
+
+`npm run test:seed` conserva la suite base `tests/integration/seed.test.ts` y ejecuta después, en otra invocación secuencial, `tests/integration/demo-seed.test.ts`. La separación permite que la suite base compruebe sus snapshots sin concesiones antes de que demo instale su catálogo de fixture. El fixture de demo no es la matriz RF22 de Sergio; las ejecuciones reales de los perfiles `permissions` y `demo` requieren integrar `prisma/permissions-data.ts`, como detalla [la guía del seed](seed.md).
+
+El workflow mantiene `test:auth` y `test:seed -- --existing` en PostgreSQL temporal 15/17. `test:ci` sigue ejecutando los controles `.mjs` de migraciones; no descubre por sí solo las nuevas pruebas TypeScript. Los resultados históricos documentados arriba no acreditan una ejecución de PDGLD-54 ni de los nuevos archivos de Karol: la entrega debe registrar sus resultados locales reales y cualquier ejecución remota todavía pendiente.
