@@ -8,6 +8,23 @@ import { lockAuthUser } from "@/server/auth/lock-user";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  // Esta ruta propia no pasa por el control CSRF de las rutas de NextAuth.
+  // El origen público procede de configuración, nunca de Host/X-Forwarded-*.
+  let publicOrigin: string;
+  try {
+    const configured = new URL(process.env.NEXTAUTH_URL ?? "");
+    if (!["http:", "https:"].includes(configured.protocol) || configured.username || configured.password)
+      throw new Error("INVALID_PUBLIC_ORIGIN");
+    publicOrigin = configured.origin;
+  } catch {
+    console.error("[auth] INVALID_PUBLIC_ORIGIN");
+    return NextResponse.json({ code: "SERVICE_UNAVAILABLE" }, { status: 503 });
+  }
+  if (request.headers.get("origin") !== publicOrigin || request.headers.get("sec-fetch-site") === "cross-site")
+    return NextResponse.json({ code: "INVALID_ORIGIN" }, { status: 403 });
+  if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json")
+    return NextResponse.json({ code: "INVALID_PAYLOAD" }, { status: 400 });
+
   const session = await getAuthSession();
   if (!session?.user?.id) {
     return NextResponse.json({ code: "UNAUTHORIZED" }, { status: 401 });
@@ -53,6 +70,7 @@ export async function POST(request: Request) {
           locked_until: null,
         },
       });
+      await tx.authentication_events.create({ data: { user_id: user.id, action: "PASSWORD_CHANGED" } });
 
       return { ok: true as const };
     });

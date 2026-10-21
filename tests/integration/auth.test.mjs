@@ -223,9 +223,16 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         assert.equal(locked.failed_login_attempts, 5);
         assert.ok(locked.locked_until > new Date());
         assert.ok(locked.locked_until <= new Date(Date.now() + 15 * 60_000));
+        const audit = async () => (await client.query(
+          'SELECT action FROM sports_management.authentication_events WHERE user_id = $1', [account.id],
+        )).rows.map((row) => row.action);
+        assert.equal((await audit()).filter((action) => action === 'LOGIN_FAILED').length, 5);
+        assert.equal((await audit()).filter((action) => action === 'BLOCK').length, 1);
         const browser = new Browser(baseUrl);
         assert.equal((await browser.login(account.email, fixturePassword)).searchParams.get('error'), 'CredentialsSignin');
         assert.deepEqual(await state(), locked, 'Un intento durante el bloqueo no altera su vencimiento.');
+        assert.equal((await audit()).filter((action) => action === 'BLOCK').length, 1);
+        assert.equal((await audit()).filter((action) => action === 'LOGIN_FAILED').length, 6);
 
         await client.query("UPDATE sports_management.users SET locked_until = now() - interval '1 second' WHERE id = $1", [account.id]);
         assert.equal((await browser.login(account.email, 'incorrecta')).searchParams.get('error'), 'CredentialsSignin');
@@ -233,6 +240,60 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         assert.equal((await browser.login(account.email, fixturePassword)).searchParams.has('error'), false);
         assert.deepEqual(await state(), { failed_login_attempts: 0, locked_until: null });
         await browser.assertAccess(200);
+      });
+
+      await t.test('PDGLD-49: cuentas inexistentes auditan sin identidad ni crear usuarios', async () => {
+        const usersBefore = (await client.query('SELECT count(*)::int AS total FROM sports_management.users')).rows[0].total;
+        const before = (await client.query("SELECT count(*)::int AS total FROM sports_management.authentication_events WHERE user_id IS NULL AND action = 'LOGIN_FAILED'")).rows[0].total;
+        const browser = new Browser(baseUrl);
+        assert.equal((await browser.login('sin-cuenta-pdgld49@example.test', fixturePassword)).searchParams.get('error'), 'CredentialsSignin');
+        await browser.assertAccess(401, 'UNAUTHENTICATED');
+        const after = (await client.query("SELECT count(*)::int AS total FROM sports_management.authentication_events WHERE user_id IS NULL AND action = 'LOGIN_FAILED'")).rows[0].total;
+        assert.equal(after, before + 1);
+        assert.equal((await client.query('SELECT count(*)::int AS total FROM sports_management.users')).rows[0].total, usersBefore);
+      });
+
+      await t.test('PDGLD-49: rollback de intentos y bloqueo si falla LOGIN_FAILED o BLOCK', async () => {
+        const account = fixtures.concurrent;
+        for (const action of ['LOGIN_FAILED', 'BLOCK']) {
+          await client.query('UPDATE sports_management.users SET failed_login_attempts = $2, locked_until = NULL WHERE id = $1',
+            [account.id, action === 'BLOCK' ? 4 : 0]);
+          const state = async () => (await client.query('SELECT failed_login_attempts, locked_until FROM sports_management.users WHERE id = $1', [account.id])).rows[0];
+          const events = async () => (await client.query('SELECT id FROM sports_management.authentication_events WHERE user_id = $1 ORDER BY id', [account.id])).rows;
+          const before = await state();
+          const auditBefore = await events();
+          // Fallo de almacenamiento solo en la base desechable; triggers intactos.
+          await client.query(`ALTER TABLE sports_management.authentication_events ADD CONSTRAINT pdgld49_reject_event CHECK (action <> '${action}') NOT VALID`);
+          try {
+            assert.equal((await new Browser(baseUrl).login(account.email, 'incorrecta')).searchParams.get('error'), 'CredentialsSignin');
+            assert.deepEqual(await state(), before);
+            assert.deepEqual(await events(), auditBefore, 'BLOCK fallido también revierte LOGIN_FAILED.');
+          } finally {
+            await client.query('ALTER TABLE sports_management.authentication_events DROP CONSTRAINT pdgld49_reject_event');
+          }
+        }
+        await client.query('UPDATE sports_management.users SET failed_login_attempts = 0 WHERE id = $1', [account.id]);
+      });
+
+      await t.test('PDGLD-49: política de tres intentos/dos minutos aplicada tras reinicio', async () => {
+        const account = fixtures.concurrent;
+        try {
+          await restartServer('30', { maxFailedAttempts: '3', lockoutMinutes: '2' });
+          const state = async () => (await client.query('SELECT failed_login_attempts, locked_until FROM sports_management.users WHERE id = $1', [account.id])).rows[0];
+          for (let i = 1; i <= 2; i++) {
+            await new Browser(baseUrl).login(account.email, 'incorrecta');
+            assert.deepEqual(await state(), { failed_login_attempts: i, locked_until: null });
+          }
+          const start = Date.now();
+          await new Browser(baseUrl).login(account.email, 'incorrecta');
+          const locked = await state();
+          assert.equal(locked.failed_login_attempts, 3);
+          assert.ok(locked.locked_until.getTime() >= start + 120_000);
+          assert.ok(locked.locked_until.getTime() <= Date.now() + 120_000);
+        } finally {
+          await restartServer();
+          await client.query('UPDATE sports_management.users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1', [account.id]);
+        }
       });
 
       await t.test('cambiar la contraseña incrementa la versión, revoca cookies y permite un login nuevo', async () => {
@@ -244,23 +305,64 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         await browser.assertAccess(403, 'PASSWORD_CHANGE_REQUIRED');
         const oldCookies = new Map(browser.cookies);
         const state = async () => (await client.query(
-          'SELECT password_hash, must_change_password, version FROM sports_management.users WHERE id = $1',
+          'SELECT password_hash, must_change_password, version, failed_login_attempts, locked_until FROM sports_management.users WHERE id = $1',
           [account.id],
         )).rows[0];
+        const assertUnchangedState = async (expected) => {
+          const actual = await state();
+          assert.ok(actual.password_hash === expected.password_hash, 'El rechazo debe conservar el hash.');
+          assert.deepEqual({ ...actual, password_hash: undefined }, { ...expected, password_hash: undefined },
+            'El rechazo debe conservar flag, versión y contadores.');
+        };
         const before = await state();
         const newPassword = 'Nueva-Local-49!segura';
         const change = (currentPassword) => browser.request('/api/auth/change-password', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { 'content-type': 'application/json', origin: baseUrl },
           body: JSON.stringify({ currentPassword, newPassword, confirmPassword: newPassword }),
         });
+        const changes = async () => (await client.query("SELECT id FROM sports_management.authentication_events WHERE user_id = $1 AND action = 'PASSWORD_CHANGED'", [account.id])).rows;
+        const auditBefore = await changes();
+        const payload = JSON.stringify({ currentPassword: fixturePassword, newPassword, confirmPassword: newPassword });
+        const rejections = [
+          [{ 'content-type': 'application/json', origin: 'https://ajeno.example.test',
+            'x-forwarded-host': 'ajeno.example.test', 'x-forwarded-proto': 'https' }, 403],
+          [{ 'content-type': 'application/json' }, 403],
+          [{ 'content-type': 'application/json', origin: 'null' }, 403],
+          [{ 'content-type': 'application/json', origin: baseUrl, 'sec-fetch-site': 'cross-site' }, 403],
+          [{ 'content-type': 'text/plain', origin: baseUrl }, 400],
+          [{ 'content-type': 'application/x-www-form-urlencoded', origin: baseUrl }, 400],
+          [{ origin: baseUrl }, 400],
+        ];
+        for (const [headers, status] of rejections) {
+          const response = await browser.request('/api/auth/change-password', { method: 'POST', headers, body: payload });
+          assert.equal(response.status, status);
+          assert.equal((await response.json()).code, status === 403 ? 'INVALID_ORIGIN' : 'INVALID_PAYLOAD');
+          await assertUnchangedState(before);
+          assert.deepEqual(await changes(), auditBefore);
+        }
         assert.equal((await change('incorrecta')).status, 400);
-        assert.deepEqual(await state(), before, 'El rechazo no modifica las credenciales ni la versión.');
+        await assertUnchangedState(before);
+        assert.deepEqual(await changes(), auditBefore);
+        await client.query('UPDATE sports_management.users SET failed_login_attempts = 2, locked_until = now() - interval \'1 second\' WHERE id = $1', [account.id]);
+        const auditFailureState = await state();
+        await client.query("ALTER TABLE sports_management.authentication_events ADD CONSTRAINT pdgld49_reject_event CHECK (action <> 'PASSWORD_CHANGED') NOT VALID");
+        try {
+          assert.equal((await change(fixturePassword)).status, 500);
+          await assertUnchangedState(auditFailureState);
+          assert.deepEqual(await changes(), auditBefore);
+          await browser.assertAccess(403, 'PASSWORD_CHANGE_REQUIRED');
+        } finally {
+          await client.query('ALTER TABLE sports_management.authentication_events DROP CONSTRAINT pdgld49_reject_event');
+        }
         assert.equal((await change(fixturePassword)).status, 200);
         const after = await state();
         assert.equal(after.version, before.version + 1);
         assert.equal(after.must_change_password, false);
-        assert.notEqual(after.password_hash, before.password_hash);
+        assert.ok(after.password_hash !== before.password_hash, 'El cambio confirmado debe sustituir el hash.');
+        assert.equal(after.failed_login_attempts, 0);
+        assert.equal(after.locked_until, null);
+        assert.equal((await changes()).length, auditBefore.length + 1);
         await browser.assertAccess(401, 'UNAUTHENTICATED');
         await otherSession.assertAccess(401, 'UNAUTHENTICATED');
         browser.cookies = oldCookies;
@@ -295,7 +397,7 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         const responses = await Promise.all(browsers.map((browser, index) =>
           browser.request('/api/auth/change-password', {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: { 'content-type': 'application/json', origin: baseUrl },
             body: JSON.stringify({ currentPassword, newPassword: newPasswords[index], confirmPassword: newPasswords[index] }),
           })));
         const winner = responses.findIndex((response) => response.status === 200);
@@ -304,6 +406,8 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         assert.ok([400, 401].includes(responses[1 - winner].status), 'Rechazar la contraseña o sesión anterior.');
         const after = (await client.query('SELECT version FROM sports_management.users WHERE id = $1', [account.id])).rows[0];
         assert.equal(after.version, before.version + 1, 'Solo una transacción debe cambiar las credenciales.');
+        const audited = (await client.query("SELECT count(*)::int AS total FROM sports_management.authentication_events WHERE user_id = $1 AND action = 'PASSWORD_CHANGED'", [account.id])).rows[0];
+        assert.equal(audited.total, 2, 'Un evento del cambio anterior y uno del cambio concurrente ganador.');
         for (const browser of browsers) await browser.assertAccess(401, 'UNAUTHENTICATED');
         const fresh = new Browser(baseUrl);
         assert.equal((await fresh.login(account.email, newPasswords[1 - winner])).searchParams.get('error'), 'CredentialsSignin');
