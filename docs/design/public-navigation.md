@@ -32,3 +32,13 @@ Con el entorno local existente configurado:
 8. Recorrer con Tab/Shift+Tab y Enter, y comprobar anchos de móvil y escritorio. Las tarjetas «Próximamente» solo deben desplegar su aviso, sin navegar.
 
 Resultados ejecutados y límites: [arquitectura y validación](../architecture/public-navigation.md).
+
+## Pie del login
+
+Por revisión visual del usuario, el pie de `/login` incorpora «Elegir deporte» con
+flecha hacia la izquierda y enlace a `/`. Reutiliza el estilo del enlace del portal,
+con foco visible y área de interacción de al menos 44 px. Se alinea a la derecha en
+escritorio y se apila con la identificación de la liga en móvil.
+
+Se verificaron TypeScript y ESLint, además del enlace en navegador anónimo: foco
+visible, Enter hacia la selección de deporte y vista de 320 px sin desbordamiento.

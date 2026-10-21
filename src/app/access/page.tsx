@@ -1,8 +1,9 @@
 import { CreateAccountLink } from "@/features/accounts/components/create-account-link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { AuthAccessError, getAuthSession } from "@/server/auth/session";
-import { SignOutButton } from "@/features/auth/components/sign-out-button";
+import { AuthAccessError } from "@/server/auth/session";
+import { getCurrentAccount } from "@/features/auth/server/account-presentation";
+import { AccountHeader } from "@/components/layout/account-header";
 import { ActionLink } from "@/components/ui/action-link";
 import { AccessOverview } from "@/features/auth/components/access-overview";
 import { getAccessOverview } from "@/features/auth/server/access-overview";
@@ -11,10 +12,10 @@ import { AuthorizationError } from "@/server/auth/authorization";
 export const metadata: Metadata = { title: "Acceso a la liga" };
 
 export default async function AccessPage() {
-  const session = await getAuthSession();
+  const current = await getCurrentAccount({ includeAssignments: true });
 
-  if (!session?.user) redirect("/login");
-  if (session.user.mustChangePassword) redirect("/change-password");
+  if (!current) redirect("/login");
+  if (current.mustChangePassword) redirect("/change-password");
 
   let scopes;
   try {
@@ -26,8 +27,9 @@ export default async function AccessPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-6xl flex-col px-6 py-10 sm:px-10">
-      <p className="mb-6 text-sm font-semibold text-primary">Liga Municipal <span className="font-normal text-muted">· Morelia</span></p>
+    <>
+    <AccountHeader account={current.account} />
+    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10 sm:px-10">
       <div className="grid items-start gap-6 lg:grid-cols-[0.7fr_1.3fr]">
         <section aria-labelledby="access-title" className="overflow-hidden rounded-3xl border border-border bg-surface shadow-sm">
           <div className="h-1 bg-accent" />
@@ -44,11 +46,11 @@ export default async function AccessPage() {
             </p>
             <ActionLink href="/futbol" variant="secondary" className="mt-6 w-full">Ver portal de fútbol</ActionLink>
             <CreateAccountLink />
-            <SignOutButton />
           </div>
         </section>
         <AccessOverview scopes={scopes} />
       </div>
     </main>
+    </>
   );
 }

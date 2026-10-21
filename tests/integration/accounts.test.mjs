@@ -291,7 +291,18 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         assert.equal(after.clubs - before.clubs, 1);
         assert.equal(after.roles - before.roles, 1);
         await deny(admin.browser, payload({ email: input.email.toUpperCase() }), 409, 'DUPLICATE_ACCOUNT');
+        const indexes = (await db.query(`SELECT indexname,indexdef FROM pg_indexes
+          WHERE schemaname='sports_management' AND tablename='users'
+          AND indexname IN ('users_username_unique','users_email_unique')`)).rows;
+        for (const column of ['username', 'email']) {
+          const index = indexes.find((index) => index.indexname === `users_${column}_unique`);
+          assert.ok(index && index.indexdef.includes('UNIQUE') && index.indexdef.includes(`lower(${column})`));
+        }
+        // Cada rechazo también comprueba personas, clubes, asignaciones y auditoría.
+        await deny(admin.browser, payload({ username: input.username }), 409, 'DUPLICATE_ACCOUNT');
+        await deny(admin.browser, payload({ email: input.email }), 409, 'DUPLICATE_ACCOUNT');
         await deny(admin.browser, payload({ username: input.username.toUpperCase() }), 409, 'DUPLICATE_ACCOUNT');
+        await deny(admin.browser, payload({ email: input.email.toUpperCase() }), 409, 'DUPLICATE_ACCOUNT');
       });
 
       await t.test('SUPERADMIN global se crea solo por administrador y permisos se revalidan', async () => {

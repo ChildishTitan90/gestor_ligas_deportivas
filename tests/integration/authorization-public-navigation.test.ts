@@ -6,6 +6,7 @@ import { getPrisma } from "../../src/server/db/prisma";
 import { hashPassword } from "../../src/server/auth/password";
 import { lockAuthorization } from "../../src/server/auth/authorization";
 import { readAccessOverview } from "../../src/features/auth/server/access-overview";
+import { readAccountPresentation } from "../../src/features/auth/server/account-presentation";
 
 test("Entrada pública de fútbol y panel con permisos vigentes por contexto", { timeout: 240_000 }, async (t) => {
   assert.equal(process.env.AUTH_TEST_RUN, "1");
@@ -65,13 +66,14 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
       const html = await home.text();
       assert.ok(html.includes("Elige tu deporte"));
       const footballLink = html.match(/<a\b[^>]*aria-labelledby="football-title football-action"[^>]*>/)?.[0];
-      assert.ok(footballLink?.includes('href="/login"'), "Elegir fútbol debe llevar directamente al login.");
+      assert.ok(footballLink?.includes('href="/futbol"'), "Elegir fútbol debe conservar la entrada al portal de esta rama.");
       assert.ok(html.includes("Entrar a fútbol"));
       assert.ok(html.includes("Básquetbol") && html.includes("Voleibol"));
       assert.equal((html.match(/>Próximamente</g) ?? []).length, 2);
       const text = html.replace(/<!--[\s\S]*?-->/g, "");
       assert.ok(text.includes("Básquetbol está en desarrollo.") && text.includes("Voleibol está en desarrollo."));
       assert.ok(!/href="\/(?:basketball|basquetbol|voleibol|volleyball)/.test(html));
+      assert.ok(html.includes("Iniciar sesión") && !html.includes(`@${actor.username}`));
       const portal = await anonymous.request("/futbol");
       assert.equal(portal.status, 200);
       const content = await portal.text();
@@ -115,6 +117,16 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
         ] }] },
       ]);
       const content = await page.text();
+      const header = content.match(/<header\b[\s\S]*?<\/header>/)?.[0] ?? "";
+      assert.ok(header.includes(`@${actor.username}`) && !header.includes(person.first_name));
+      assert.ok(header.includes("Secretario") && header.includes("Jugador"));
+      for (const value of [scopeA, clubName]) assert.ok(!header.includes(value));
+      assert.ok(header.includes('aria-haspopup="menu"') && header.includes('aria-expanded="false"'));
+      assert.ok(header.includes('role="menu"') && header.includes('hidden=""'));
+      assert.ok(header.includes("Mi panel"));
+      assert.ok(header.includes("Portal público"));
+      assert.ok(header.indexOf("Mi panel") < header.indexOf("Portal público"));
+      assert.equal((content.match(/>Cerrar sesión</g) ?? []).length, 1);
       assert.ok(content.includes(scopeA) && content.includes(clubName) && content.includes("Consultar") && content.includes("Actualizar"));
       assert.ok(content.includes("restringido"));
       const serialized = JSON.stringify(scopes);
@@ -123,6 +135,45 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
       const login = await browser.request("/login");
       assert.equal(login.status, 307);
       assert.equal(new URL(login.headers.get("location")!, base).pathname, "/access");
+    });
+
+    await t.test("la presentación conserva todos los ámbitos sin conceder permisos ni ampliar la sesión", async () => {
+      const identity = { id: actor.id, mustChangePassword: false };
+      const presentation = await db.$transaction((tx) => readAccountPresentation(tx, identity, true));
+      assert.deepEqual(presentation, {
+        name: `${person.first_name} Prueba`, username: actor.username, initials: "IP", roleNames: ["Jugador", "Secretario"],
+        assignments: [`Jugador · ${clubName} · ${scopeB}`, `Secretario · ${scopeA}`],
+      });
+      const publicPresentation = await db.$transaction((tx) => readAccountPresentation(tx, identity, false));
+      assert.deepEqual(publicPresentation?.assignments, []);
+      const session = await browser.session();
+      assert.deepEqual(Object.keys(session.user).sort(), ["id", "mustChangePassword"]);
+      // El nombre de usuario sigue sin ser una credencial de login.
+      assert.ok((await anonymous.login(actor.username, password)).searchParams.has("error"));
+      const before = await db.user_roles.count({ where: { user_id: actor.id } });
+      for (const path of ["/futbol", "/", "/access"]) {
+        const page = await browser.request(path);
+        assert.equal(page.status, 200);
+        const content = await page.text();
+        assert.ok(content.includes(`@${actor.username}`));
+        if (path !== "/access") assert.ok(content.includes("Ir a mi panel"));
+        if (path === "/futbol") assert.ok(!content.includes("¿Formas parte de la liga?"));
+      }
+      await browser.assertAccess(200);
+      assert.equal(await db.user_roles.count({ where: { user_id: actor.id } }), before);
+    });
+
+    await t.test("un username heredado que contiene correo no se divulga ni se modifica", async () => {
+      try {
+        await db.users.update({ where: { id: actor.id }, data: { username: email } });
+        const page = await browser.request("/futbol");
+        const content = await page.text();
+        assert.equal(page.status, 200);
+        assert.ok(content.includes("Mi cuenta") && !content.includes(email) && !content.includes(person.first_name));
+        assert.equal((await db.users.findUniqueOrThrow({ where: { id: actor.id }, select: { username: true } })).username, email);
+      } finally {
+        await db.users.update({ where: { id: actor.id }, data: { username: actor.username } });
+      }
     });
 
     await t.test("una concesión contextual sin ámbito no se anuncia como autoridad global", async () => {
@@ -148,20 +199,30 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
       page = await browser.request("/access");
       assert.equal(page.status, 200);
       content = await page.text();
-      assert.ok(!content.includes(scopeA) && content.includes(clubName));
+      const overview = await db.$transaction((tx) => readAccessOverview(tx, actor.id));
+      assert.ok(!overview.some((scope) => scope.title === scopeA) && content.includes(clubName));
       await write((tx) => tx.user_roles.updateMany({ where: { user_id: actor.id, role_id: roleId("PLAYER") }, data: { starts_at: new Date(Date.now() + 3_600_000) } }));
       page = await browser.request("/access");
       assert.equal(page.status, 200);
-      assert.ok((await page.text()).includes("Tu cuenta todavía no tiene funciones habilitadas."));
+      const futureContent = await page.text();
+      assert.ok(futureContent.includes("Tu cuenta todavía no tiene funciones habilitadas."));
+      const header = futureContent.match(/<header\b[\s\S]*?<\/header>/)?.[0] ?? "";
+      assert.ok(!header.includes("Jugador") && !header.includes(clubName));
     });
 
-    await t.test("las páginas públicas omiten identidad y ámbitos privados incluso con sesión", async () => {
+    await t.test("las páginas públicas identifican solo la cuenta propia y omiten ámbitos y datos internos", async () => {
       for (const path of ["/", "/futbol"]) {
         const response = await browser.request(path);
         assert.equal(response.status, 200);
         const content = await response.text();
-        for (const value of [email, password, person.first_name, actor.id, person.id, scopeA, scopeB, clubName, "password_hash", "encrypted_mfa_secret"])
+        assert.ok(content.includes(`@${actor.username}`) && !content.includes(person.first_name));
+        assert.ok(content.includes("Ir a mi panel"));
+        assert.ok((response.headers.get("cache-control") ?? "").includes("no-store"));
+        for (const value of [email, password, actor.id, person.id, scopeA, scopeB, clubName, "password_hash", "encrypted_mfa_secret"])
           assert.ok(!content.includes(value), "La respuesta pública contiene datos privados.");
+        const anonymousPage = await anonymous.request(path);
+        const anonymousContent = await anonymousPage.text();
+        assert.ok(anonymousContent.includes("Iniciar sesión") && !anonymousContent.includes(person.first_name));
       }
     });
 
@@ -174,10 +235,41 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
         assert.equal(page.status, 307);
         assert.equal(new URL(page.headers.get("location")!, base).pathname, "/change-password");
       }
-      assert.equal((await temporary.request("/change-password")).status, 200);
-      assert.equal((await temporary.request("/futbol")).status, 200);
+      const change = await temporary.request("/change-password");
+      assert.equal(change.status, 200);
+      assert.ok((await change.text()).includes(`@${actor.username}`));
+      const portal = await temporary.request("/futbol");
+      assert.equal(portal.status, 200);
+      const content = await portal.text();
+      assert.ok(content.includes("Cambiar contraseña") && !content.includes("Ir a mi panel"));
+      assert.ok(!content.includes("¿Formas parte de la liga?"));
       await temporary.assertAccess(403, "PASSWORD_CHANGE_REQUIRED");
       await write((tx) => tx.users.update({ where: { id: actor.id }, data: { must_change_password: false, version: { increment: 1 } } }));
+    });
+
+    await t.test("cerrar sesión y entrar con otra cuenta no conserva la identidad anterior", async () => {
+      await browser.login(email, password);
+      const logout = await browser.request("/api/auth/signout", { method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ csrfToken: await browser.csrf(), callbackUrl: "/login", json: "true" }),
+      });
+      assert.equal(logout.status, 200);
+      await browser.assertAccess(401, "UNAUTHENTICATED");
+      const publicPage = await browser.request("/futbol");
+      assert.ok(!(await publicPage.text()).includes(person.first_name));
+      const otherPerson = await db.people.create({ data: { first_name: "Otra identidad sintética", paternal_surname: "Segunda" } });
+      const otherEmail = `second-${suffix}@example.test`;
+      const username = `second-${suffix}`;
+      await db.users.create({ data: { person_id: otherPerson.id, username, email: otherEmail,
+        password_hash: await hashPassword(password), must_change_password: false } });
+      await browser.login(otherEmail, password);
+      for (const path of ["/access", "/futbol", "/"]) {
+        const page = await browser.request(path);
+        assert.equal(page.status, 200);
+        const content = await page.text();
+        assert.ok(content.includes(`@${username}`) && !content.includes(otherPerson.first_name));
+        assert.ok(!content.includes(person.first_name) && !content.includes(`@${actor.username}`));
+      }
     });
 
     await t.test("una cookie vencida no impide consultar el portal ni abre el panel", async () => {

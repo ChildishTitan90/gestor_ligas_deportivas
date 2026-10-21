@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { LoginForm } from "@/features/auth/components/login-form";
 import { getAuthSession } from "@/server/auth/session";
 import { ActionLink } from "@/components/ui/action-link";
@@ -48,8 +50,11 @@ export default async function LoginPage() {
         </section>
       </div>
 
-      <footer className="mt-12 text-xs leading-5 text-muted lg:mt-16">
-        Liga Municipal de Fútbol · Morelia
+      <footer className="mt-12 flex flex-col gap-4 text-xs leading-5 text-muted sm:flex-row sm:items-center sm:justify-between lg:mt-16">
+        <p>Liga Municipal de Fútbol · Morelia</p>
+        <Link href="/" className="inline-flex min-h-11 w-fit items-center gap-2 rounded-lg font-semibold text-primary hover:underline">
+          <ArrowLeft size={14} aria-hidden="true" />Elegir deporte
+        </Link>
       </footer>
     </main>
   );
