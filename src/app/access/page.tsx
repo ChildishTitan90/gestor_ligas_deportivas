@@ -1,3 +1,4 @@
+import { CreateAccountLink } from "@/features/accounts/components/create-account-link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AuthAccessError, getAuthSession } from "@/server/auth/session";
@@ -42,6 +43,7 @@ export default async function AccessPage() {
               Tu sesión está activa. Consulta las funciones autorizadas para tus ámbitos de participación.
             </p>
             <ActionLink href="/futbol" variant="secondary" className="mt-6 w-full">Ver portal de fútbol</ActionLink>
+            <CreateAccountLink />
             <SignOutButton />
           </div>
         </section>
