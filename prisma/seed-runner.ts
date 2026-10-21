@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { SEED_ACTOR, SEED_AUDIT_REASON, SEED_CONTEXT, SEED_ROLES } from "./seed-data";
 import { SeedConfigurationError } from "./seed-env";
 
@@ -6,6 +6,12 @@ export async function seedDatabase(prisma: PrismaClient) {
   return prisma.$transaction(async (tx) => {
     // Serializa ejecuciones de este seed, incluyendo sus lecturas y creaciones.
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(47, 2026)::text`;
+    return seedBaseDatabase(tx);
+  }, { maxWait: 10_000, timeout: 30_000 });
+}
+
+/** Reutilizado por los perfiles explícitos dentro de su misma transacción. */
+export async function seedBaseDatabase(tx: Prisma.TransactionClient) {
     for (const role of SEED_ROLES) {
       await tx.roles.upsert({ where: { code: role.code }, update: {}, create: role });
     }
@@ -73,5 +79,4 @@ export async function seedDatabase(prisma: PrismaClient) {
       ?? await tx.groups.create({ data: { ...groupKey, season_id: season.id } });
     return { league: league.id, season: season.id, category: category.id,
       rule: rule.id, seasonCategory: seasonCategory.id, group: group.id };
-  }, { maxWait: 10_000, timeout: 30_000 });
 }

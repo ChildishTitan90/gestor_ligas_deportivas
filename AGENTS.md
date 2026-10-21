@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Proyecto: Gestor de Ligas Deportivas
 
-Guía del equipo y de los agentes. Revisada el 11 de octubre de 2026. Conservar intacto el bloque generado de Next.js que precede esta guía.
+Guía del equipo y de los agentes. Revisada el 17 de octubre de 2026. Conservar intacto el bloque generado de Next.js que precede esta guía.
 
 ## Contexto y estado real
 
@@ -138,6 +138,9 @@ Las páginas de servidor consultan la capa de datos directamente; no llamar por 
 
 - Rama de trabajo: `tipo/PDGLD-N-descripcion`; commits y PR comienzan con la clave real. Trabajo hacia `develop`; liberaciones de `develop` a `main`, conforme a las protecciones existentes.
 - Antes de crear otra rama, comprobar la rama y los cambios existentes. No hacer rebase, reset, limpieza, commit o publicación sin que correspondan al pedido del usuario.
+- **Revisión obligatoria de `develop` antes y después de los cambios:** antes de modificar cualquier archivo y nuevamente al terminar, actualizar la referencia remota mediante `git fetch origin develop` (o el remoto configurado) y revisar los commits y archivos actuales de `origin/develop`. No asumir que la rama local `develop`, el contexto de una conversación o una revisión anterior reflejan el estado vigente. Si no es posible actualizar la referencia, indicar esa limitación y no afirmar que se comprobó el estado actual.
+- En ambas revisiones, comparar la rama de trabajo y sus cambios locales, incluidos los preparados para commit, contra `origin/develop`. Antes de entregar, comprobar que el diff final no elimina, sobrescribe ni revierte involuntariamente funcionalidades, contratos o correcciones ya integrados por el equipo. Si `develop` avanzó durante el trabajo, integrar sus cambios en la rama de trabajo y ajustar la implementación y las pruebas pertinentes antes de darla por lista.
+- **Resolver conflictos automáticamente antes de continuar:** si la actualización desde `develop` genera conflictos con la rama de trabajo, resolverlos de manera autónoma antes de seguir desarrollando o entregar el resultado. Conservar la intención y funcionalidad de ambos cambios, revisar cada conflicto y ejecutar las comprobaciones pertinentes; no descartar trabajo ajeno ni elegir globalmente `ours`/`theirs` para forzar la integración. Esta regla autoriza la integración local y la resolución de conflictos; no autoriza resets, limpieza destructiva, rebase, commits, push, merge de PR ni despliegues que no correspondan al pedido humano.
 - Las pruebas verifican comportamientos: RBAC/alcance, CURP duplicada, rollback, transición de partido, disciplina y sincronización idempotente. No escribir pruebas que solo reflejen la forma del código.
 - Pruebas puras junto a su módulo; pruebas de base y permisos en `tests/integration`; recorridos en `tests/e2e`, cuando esos tickets configuren los runners. Estas carpetas son objetivo, no suites ya instaladas.
 - Actualmente `npm run test:ci` ejecuta los controles `.mjs` de `scripts/ci`, no futuras pruebas TypeScript. Incorporar comandos/runner al implementar pruebas nuevas; no afirmar que CI las ejecuta sin esa integración.

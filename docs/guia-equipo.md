@@ -106,11 +106,13 @@ Desde la raíz del repositorio:
 npm.cmd ci
 ```
 
-`npm ci` instala las versiones del `package-lock.json` y al terminar genera el cliente Prisma. No instales versiones nuevas de Prisma, NextAuth u otros paquetes individualmente para empezar a trabajar.
+`npm ci` instala las versiones del `package-lock.json` y al terminar genera el cliente Prisma. Usa Node.js 24.x y npm >=11.19.0 <12, como declara `package.json`. No instales versiones nuevas de Prisma, NextAuth u otros paquetes individualmente para empezar a trabajar.
+
+`allowScripts` en `package.json` permite únicamente las versiones revisadas de Prisma/engines, Argon2 y esbuild. El postinstall de `unrs-resolver` se omite: npm instala el binding opcional de cada plataforma desde el lockfile. No uses aprobación global de scripts; al actualizar paquetes, revisa también esta política. El detalle y las limitaciones están en [PDGLD-71](revision-dependencias-pdgld71.md).
 
 La revisión de este entorno pudo actualizar el lockfile sin `--legacy-peer-deps`. Ese indicador no es un requisito general del proyecto. Si tu instalación muestra un conflicto, conserva el error y coordina su revisión con Sergio en **PDGLD-71**.
 
-El comando puede mostrar una advertencia de ESLint y avisos de vulnerabilidades. No ejecutes automáticamente `npm audit fix --force`: la auditoría actual propone cambios de versión principal que requieren revisión.
+El comando puede mostrar la deprecación de ESLint 9 y el aviso de braces en las herramientas de lint. La actualización Prisma 7.10.1 corrige los avisos de deepmerge-ts/mysql2. El hallazgo residual y la incompatibilidad actual de los plugins con ESLint 10 se documentan en PDGLD-71, sin aceptación automática del riesgo. No ejecutes `npm audit fix --force` ni `--legacy-peer-deps` para ocultarlos.
 
 ## 6. Inicia PostgreSQL con Docker
 

@@ -106,6 +106,8 @@ async function main() {
   console.log('Migraciones aplicadas y cliente Prisma generado en la base temporal.');
   const output = run(process.execPath, [require.resolve('tsx/cli'), '--test', 'tests/integration/seed.test.ts'], env, 240_000);
   console.log(redact(output));
+  const demoOutput = run(process.execPath, [require.resolve('tsx/cli'), '--test', 'tests/integration/demo-seed.test.ts'], env, 240_000);
+  console.log(redact(demoOutput));
 }
 
 try {

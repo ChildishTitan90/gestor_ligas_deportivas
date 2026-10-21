@@ -4,6 +4,8 @@ MVP para la Liga Municipal de Fútbol Amateur de Morelia.
 
 Stack actual: Next.js 16, React 19, Tailwind CSS 4, NextAuth 4, Zod 4 y Prisma 7.10. Desarrollo con Node.js 24.x y PostgreSQL 15 local mediante Docker.
 
+Las dependencias directas están fijadas al lockfile; Prisma CLI, Client y adaptador PostgreSQL usan 7.10.1. Usa Node.js 24 y npm 11.19 o posterior dentro de 11.x. La [revisión PDGLD-71](docs/revision-dependencias-pdgld71.md) documenta la actualización, compatibilidad, scripts permitidos y el hallazgo residual de braces pendiente de decisión en revisión.
+
 ## Instalación del equipo
 
 Sigue la [guía de instalación y trabajo](docs/guia-equipo.md). Incluye Docker Desktop, Git, variables locales, comprobaciones de las 96 tablas y flujo Jira/GitHub.
@@ -35,6 +37,16 @@ El seed sintético de PDGLD-47 se ejecuta explícitamente con `npm run db:seed`,
 Crea ramas desde `develop` actualizado: `tipo/PDGLD-N-descripcion`. Incluye la clave real en commits y títulos de PR. Los PR de trabajo apuntan a `develop`; las liberaciones pasan de `develop` a `main`.
 
 Versionamos `.env.example` con marcadores. Los secretos y archivos `.env` no se suben.
+
+## Autenticación local — PDGLD-48
+
+NextAuth 4 Credentials valida correo/contraseña con Zod y verifica Argon2id contra PostgreSQL mediante Prisma 7. La sesión JWT solo expone UUID y estado de cambio obligatorio; la cuenta vigente se vuelve a comprobar en servidor. Cuentas temporales permanecen restringidas.
+
+Consulta [desarrollo local, pruebas y demostración](docs/authentication.md), [contratos para PDGLD-49/50/51](docs/architecture/authentication.md) y [pantallas mínimas y tokens](docs/design/auth-access.md). Para el trabajo diario, ejecuta una vez `npm run seed:dev` para cargar cuentas sintéticas persistentes en la base local y después usa `npm run dev`. `npm run test:auth` utiliza una base temporal dentro del mismo PostgreSQL; `auth:demo` es opcional. El login cuenta fallos concurrentes, bloquea tras cinco intentos y exige nuevo acceso después del cambio de contraseña. La inactividad se valida en servidor con sesiones persistentes: `AUTH_IDLE_TIMEOUT_MINUTES=30`, renovación por acciones del usuario y revocación individual al salir. Las consultas automáticas no prolongan ese plazo. Esta integración no termina por sí sola PDGLD-31 ni los controles RBAC y auditoría pendientes.
+
+## Alta de cuentas
+
+El servidor de alta de cuentas de **PDGLD-34 / PDGLD-52** expone `/api/accounts` para SUPERADMIN, con contexto inicial, contraseña temporal, auditoría y pruebas. El [contrato para el formulario PDGLD-53](docs/architecture/account-provisioning.md) documenta entradas y errores. La interfaz conserva su subtarea separada.
 
 ## CI/CD
 

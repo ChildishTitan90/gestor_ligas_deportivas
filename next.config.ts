@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Aislar compilación/lock de las pruebas sin interrumpir el dev del equipo.
+  distDir: process.env.AUTH_TEST_RUN === "1" ? ".next-auth-tests" : ".next",
+  experimental: {
+    // Next 16.4: evita el fallo IPC de procesos CSS en Windows/Node 24.9.
+    turbopackPluginRuntimeStrategy: "workerThreads",
+  },
   turbopack: {
     rules: {
       "*.css": {

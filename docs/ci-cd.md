@@ -19,6 +19,7 @@ Al abrir o actualizar un PR hacia `develop` o `main`, y al integrar cambios en e
 3. Las 12 pruebas actuales de los controles del pipeline, revisión del código y compilación de Next.js.
 4. Reconstrucción de bases temporales PostgreSQL 15 y 17 desde las migraciones. La primera reproduce la versión de Docker; la segunda, la de Supabase.
 5. Comparación entre el esquema Prisma y las tablas reconstruidas, además de comprobaciones de integridad y unicidad de CURP.
+6. En la propuesta local de PDGLD-48, `npm run test:auth` verifica Credentials mediante HTTP y otra base temporal local en cada versión PostgreSQL. Incluye rechazo, restricción de cambio obligatorio, revalidación de cuenta y reinicio del servidor. La ejecución real de esta ampliación en GitHub queda pendiente de publicar y revisar los cambios; [ejecución local y límites](authentication.md).
 
 Estas pruebas usan bases desechables de GitHub. No consultan ni modifican Supabase.
 
@@ -123,3 +124,13 @@ Para crear una migración y recibir las del equipo, consulta [la guía de migrac
 - [Servicios PostgreSQL para pruebas en GitHub Actions](https://docs.github.com/en/actions/tutorials/use-containerized-services/create-postgresql-service-containers).
 - [Migraciones de desarrollo y producción con Prisma 7](https://www.prisma.io/docs/orm/v7/prisma-migrate/workflows/development-and-production).
 - [Conexiones de PostgreSQL en Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres).
+
+## Integración de pruebas de autorización — PDGLD-54
+
+`npm run test:auth` mantiene las pruebas HTTP de autenticación y ejecuta después el motor de autorización, la administración protegida de permisos y las regresiones de cuentas. Todo ocurre secuencialmente en la base desechable y el servidor local que crea el runner; su limpieza afecta únicamente a esos recursos. `npm run test:authorization` utiliza el mismo harness y ejecuta solo el subconjunto de autorización, administración y cuentas, omitiendo la suite completa de autenticación.
+
+Para incorporar las pruebas independientes de Karol, el runner descubre `tests/integration/authorization-*.test.ts`, las ordena por nombre y ejecuta Node con `--conditions=react-server --import tsx --test --test-concurrency=1`. Cada archivo debe preparar sus fixtures aislados, comprobar conductas y respetar las guardas del destino temporal. El patrón evita tener que registrar manualmente cada archivo nuevo; una prueba con otro nombre no queda incorporada automáticamente. Las suites de administración de permisos y cuentas conservan sus archivos separados y se ejecutan después de los archivos descubiertos. Karol debe revisar qué escenarios añade para complementar los del motor y las regresiones de cuentas.
+
+`npm run test:seed` conserva la suite base `tests/integration/seed.test.ts` y ejecuta después, en otra invocación secuencial, `tests/integration/demo-seed.test.ts`. La separación permite que la suite base compruebe sus snapshots sin concesiones antes de que demo instale su catálogo de fixture. El fixture de demo no es la matriz RF22 de Sergio; las ejecuciones reales de los perfiles `permissions` y `demo` requieren integrar `prisma/permissions-data.ts`, como detalla [la guía del seed](seed.md).
+
+El workflow mantiene `test:auth` y `test:seed -- --existing` en PostgreSQL temporal 15/17. `test:ci` sigue ejecutando los controles `.mjs` de migraciones; no descubre por sí solo las nuevas pruebas TypeScript. Los resultados históricos documentados arriba no acreditan una ejecución de PDGLD-54 ni de los nuevos archivos de Karol: la entrega debe registrar sus resultados locales reales y cualquier ejecución remota todavía pendiente.

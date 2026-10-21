@@ -2,40 +2,63 @@
   "name": "gestor_ligas_deportivas",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "24.x",
+    "npm": ">=11.19.0 <12"
+  },
+  "packageManager": "npm@11.19.0",
+  "allowScripts": {
+    "@prisma/engines@7.10.1": true,
+    "prisma@7.10.1": true,
+    "argon2@0.45.1": true,
+    "esbuild@0.28.2": true,
+    "unrs-resolver": false,
+    "fsevents": false
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit --incremental false",
     "postinstall": "prisma generate",
     "test:ci": "node --test scripts/ci/migration-helpers.test.mjs",
+    "test:authorization": "node scripts/test-auth.mjs --authorization",
+    "test:session-policy": "node --conditions=react-server --import tsx --test src/server/auth/session-policy.test.ts",
+    "test:login-policy": "node --conditions=react-server --import tsx --test src/server/auth/login-policy.test.ts",
+    "test:auth": "npm run test:session-policy && npm run test:login-policy && node scripts/test-auth.mjs",
+    "seed:dev": "node --conditions=react-server --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/seed-auth-dev.mjs",
+    "auth:demo": "node scripts/test-auth.mjs --demo",
     "db:seed": "prisma db seed",
     "test:seed": "node scripts/test-seed.mjs",
     "ci:guard-migrations": "node scripts/ci/guard-migrations.mjs",
     "ci:database": "node scripts/ci/verify-database.mjs"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "^7.10.0",
-    "@prisma/client": "^7.10.0",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "argon2": "0.45.1",
+    "lucide-react": "1.56.0",
     "next": "16.4.0",
-    "next-auth": "^4.24.15",
+    "next-auth": "4.24.15",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "zod": "^4.6.5"
+    "server-only": "0.0.1",
+    "zod": "4.6.5"
   },
   "devDependencies": {
-    "@tailwindcss/turbopack": "^4",
-    "@types/node": "^20",
-    "@types/pg": "^8.23.1",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@tailwindcss/turbopack": "4.3.3",
+    "@types/node": "20.19.43",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "dotenv": "17.4.2",
-    "eslint": "^9",
+    "eslint": "9.39.5",
     "eslint-config-next": "16.4.0",
-    "pg": "^8.23.1",
-    "prisma": "^7.10.0",
-    "tailwindcss": "^4",
-    "tsx": "^4.23.15",
-    "typescript": "^5"
+    "pg": "8.23.1",
+    "prisma": "7.10.1",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
   }
 }
