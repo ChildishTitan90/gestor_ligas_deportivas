@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import test from "node:test";
 import * as argon2 from "argon2";
-import { tsImport } from "tsx/esm/api";
 import { getPrisma } from "../../src/server/db/prisma";
 import { lockAuthorization } from "../../src/server/auth/authorization";
 
@@ -29,7 +28,7 @@ test("PDGLD-56: autorización HTTP y revocación con la misma sesión", {
   assert.equal(base.password, "");
 
   // Reutiliza el cliente HTTP existente, sin ejecutar su suite.
-  const { Browser } = await tsImport("./auth.test.mjs", import.meta.url);
+  const { Browser } = await import("./auth.test.mjs");
   const db = getPrisma();
   const suffix = randomUUID();
   const email = `pd56-http-${suffix}@example.test`;

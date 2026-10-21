@@ -1,5 +1,7 @@
 # Autorización compartida en servidor — PDGLD-54
 
+Actualización de validación, 21/10/2026: `develop` en `a7396c3` ya incluye PR #11 y las suites independientes de Karol. La comprobación con inscripciones reales, preparación determinista del reloj SQL y límites de aceptación se documenta en [cierre PDGLD-54](../validation/PDGLD-54-cierre-autorizacion.md). Las menciones posteriores a dependencias ausentes o al jugador pendiente pertenecen a la evidencia histórica fechada.
+
 El motor consulta `users`, `user_roles`, `roles`, `role_permissions` y `permissions` en PostgreSQL en cada operación. El JWT aporta identidad y la sesión vigente mediante los helpers existentes de NextAuth 4; no aporta permisos. No se compara un nombre/código de rol para autorizar y SUPERADMIN necesita las mismas concesiones explícitas que cualquier otro rol. No se modifican los doce códigos oficiales ni el baseline.
 
 ## Matriz aprobada y catálogo de Sergio
