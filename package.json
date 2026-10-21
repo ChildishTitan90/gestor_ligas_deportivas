@@ -32,7 +32,8 @@
     "db:seed": "prisma db seed",
     "test:seed": "node scripts/test-seed.mjs",
     "ci:guard-migrations": "node scripts/ci/guard-migrations.mjs",
-    "ci:database": "node scripts/ci/verify-database.mjs"
+    "ci:database": "node scripts/ci/verify-database.mjs",
+    "test:account-form": "node --import tsx --test src/features/accounts/form-input.test.ts src/features/accounts/account-form.test.tsx"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",
