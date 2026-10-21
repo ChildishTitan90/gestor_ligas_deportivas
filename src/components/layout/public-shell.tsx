@@ -2,8 +2,23 @@ import Link from "next/link";
 import { ArrowLeft, LogIn } from "lucide-react";
 import type { ReactNode } from "react";
 import { ActionLink } from "@/components/ui/action-link";
+import { getAuthSession } from "@/server/auth/session";
 
-export function PublicShell({ children, football = false }: { children: ReactNode; football?: boolean }) {
+export async function PublicShell({
+  children,
+  football = false,
+}: {
+  children: ReactNode;
+  football?: boolean;
+}) {
+  const session = await getAuthSession();
+
+  const accountAction = !session?.user
+    ? { href: "/login", label: "Iniciar sesión" }
+    : session.user.mustChangePassword
+      ? { href: "/change-password", label: "Cambiar contraseña" }
+      : { href: "/access", label: "Ir a mi panel" };
+
   return (
     <>
       <a href="#main-content" className="sr-only z-10 rounded-xl bg-surface p-3 text-sm font-semibold text-primary focus:not-sr-only focus:absolute focus:top-3 focus:left-3">
@@ -16,7 +31,9 @@ export function PublicShell({ children, football = false }: { children: ReactNod
             <span className="block text-xs font-normal text-muted sm:text-sm">{football ? "Morelia" : "Nuestra comunidad deportiva"}</span>
           </Link>
           <nav aria-label="Acceso a la cuenta" className="shrink-0">
-            <ActionLink href="/login"><LogIn size={16} aria-hidden="true" />Iniciar sesión</ActionLink>
+            <ActionLink href={accountAction.href}>
+              {accountAction.label}
+            </ActionLink>
           </nav>
         </div>
       </header>

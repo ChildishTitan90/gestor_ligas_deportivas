@@ -130,9 +130,9 @@ export function ChangePasswordForm() {
     error ??
     (Object.keys(fieldErrors).length > 0
       ? {
-          title: "Revisa tus datos",
-          description: "Asegúrate de cumplir con todos los requisitos de seguridad de la nueva contraseña.",
-        }
+        title: "Revisa tus datos",
+        description: "Asegúrate de cumplir con todos los requisitos de seguridad de la nueva contraseña.",
+      }
       : undefined);
 
   return (
@@ -215,11 +215,15 @@ export function ChangePasswordForm() {
               name="newPassword"
               type={showNew ? "text" : "password"}
               autoComplete="new-password"
-              placeholder="Mínimo 8 caracteres, mayúscula, número y símbolo"
+              placeholder="Escribe tu nueva contraseña"
               maxLength={128}
               required
               aria-invalid={Boolean(fieldErrors.newPassword)}
-              aria-describedby={fieldErrors.newPassword ? "newPassword-error" : undefined}
+              aria-describedby={
+                fieldErrors.newPassword
+                  ? "newPassword-help newPassword-error"
+                  : "newPassword-help"
+              }
               className="h-12 w-full rounded-xl border border-border bg-surface py-3 pr-14 pl-3.5 text-base transition-colors placeholder:text-muted focus:border-primary"
             />
             <button
@@ -232,6 +236,14 @@ export function ChangePasswordForm() {
               {showNew ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}
             </button>
           </div>
+          <p
+            id="newPassword-help"
+            className="mt-2 text-sm leading-6 text-muted"
+          >
+            Usa entre 8 y 128 caracteres e incluye al menos una
+            mayúscula, una minúscula, un número y un símbolo.
+            Debe ser diferente de tu contraseña actual.
+          </p>
           {fieldErrors.newPassword && (
             <p id="newPassword-error" className="mt-2 text-sm text-danger">
               {fieldErrors.newPassword}
@@ -250,11 +262,15 @@ export function ChangePasswordForm() {
               name="confirmPassword"
               type={showConfirm ? "text" : "password"}
               autoComplete="new-password"
-              placeholder="••••••••"
+              placeholder="Repite tu nueva contraseña"
               maxLength={128}
               required
               aria-invalid={Boolean(fieldErrors.confirmPassword)}
-              aria-describedby={fieldErrors.confirmPassword ? "confirmPassword-error" : undefined}
+              aria-describedby={
+                fieldErrors.confirmPassword
+                  ? "confirmPassword-help confirmPassword-error"
+                  : "confirmPassword-help"
+              }
               className="h-12 w-full rounded-xl border border-border bg-surface py-3 pr-14 pl-3.5 text-base transition-colors placeholder:text-muted focus:border-primary"
             />
             <button
@@ -267,6 +283,12 @@ export function ChangePasswordForm() {
               {showConfirm ? <EyeOff size={20} aria-hidden="true" /> : <Eye size={20} aria-hidden="true" />}
             </button>
           </div>
+          <p
+            id="confirmPassword-help"
+            className="mt-2 text-sm leading-6 text-muted"
+          >
+            Repite exactamente la nueva contraseña.
+          </p>
           {fieldErrors.confirmPassword && (
             <p id="confirmPassword-error" className="mt-2 text-sm text-danger">
               {fieldErrors.confirmPassword}
