@@ -70,6 +70,22 @@ Guarda las credenciales en el environment. No las agregues al repositorio, a un 
 
 ## Cómo liberar cambios a producción
 
+### Excepción revisada para la migración de afiliación
+
+PDGLD-57 crea una relación privada y conserva su SQL original. Su despliegue exige
+la migración complementaria `20261022090000_pdgld57_supabase_security`, los checksums
+de ambos archivos registrados en `scripts/ci/production-plans.mjs` y las comprobaciones
+de ACL/RLS. Otras creaciones de tablas o desactivaciones de RLS siguen bloqueadas.
+Docker no activa RLS. No basta añadir un nombre a una lista ni aceptar SQL por env.
+
+El plan, condiciones y resultados están en
+[seguridad de afiliación](architecture/affiliation-submission-security.md).
+CI prueba su SQL en PostgreSQL temporal 15/17 y revierte sus fixtures. No ejecutar
+ese verificador sobre la base de desarrollo ni Supabase. El workflow de producción
+permanece manual desde main y no hace reset, resolve ni cambios de seguridad globales.
+
+### Pasos de liberación
+
 1. El equipo trabaja en ramas con la clave Jira y abre PR hacia `develop`.
 2. Cada PR pasa revisión humana y CI. Al integrar, los compañeros actualizan su Docker siguiendo la guía de migraciones.
 3. Cuando una versión está lista para producción, abre un PR de `develop` hacia `main`. Revisa y aprueba sus cambios; exige CI correcto antes de integrarlo.

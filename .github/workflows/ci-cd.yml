@@ -104,6 +104,8 @@ jobs:
         run: npx --no-install prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
       - name: Verificar los objetos e integridad de la base
         run: node scripts/ci/verify-database.mjs
+      - name: Probar aislamiento de producción sin modificar el entorno local
+        run: node scripts/ci/verify-production-security.mjs
       - name: Probar autenticación, autorización y cuentas con base temporal local
         run: npm run test:auth
       - name: Probar seed, integridad, rollback e idempotencia
