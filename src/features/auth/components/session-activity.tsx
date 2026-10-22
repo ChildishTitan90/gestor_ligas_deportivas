@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { getCsrfToken } from "next-auth/react";
 
 const ACTIVITY_INTERVAL_MS = 15_000;
@@ -10,8 +10,10 @@ const activityEvents = ["pointerdown", "click", "keydown", "wheel", "touchstart"
 /** Un solo monitor global: las páginas públicas sin sesión no provocan redirecciones. */
 export function SessionActivity() {
   const pathname = usePathname();
+  const router = useRouter();
   const [message, setMessage] = useState("");
   const wasAuthenticated = useRef(false);
+  const lastSessionState = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     let stopped = false;
@@ -46,12 +48,18 @@ export function SessionActivity() {
         if (!response.ok) throw new Error("SESSION_UNAVAILABLE");
         const session = await response.json();
         if (stopped) return;
+        const publicPage = ["/", "/futbol", "/login"].includes(window.location.pathname);
+        const sessionState = session?.user?.id ? `${session.user.id}:${Boolean(session.user.mustChangePassword)}` : null;
+        const changed = lastSessionState.current !== undefined && lastSessionState.current !== sessionState;
+        lastSessionState.current = sessionState;
+        // Actualizar la identidad renderizada si cambia la cuenta en otra pestaña
+        // o vence la sesión pública; conservar al espectador en el portal.
+        if (changed && (sessionState !== null || publicPage)) router.refresh();
         if (!session?.user?.id) {
           if (expiryTimer) clearTimeout(expiryTimer);
           if (activityTimer) clearTimeout(activityTimer);
           // Solo abandonar una sesión que este monitor había visto autenticada.
           // Un espectador puede seguir en el portal si su sesión anterior vence.
-          const publicPage = ["/", "/futbol", "/login"].includes(window.location.pathname);
           if (wasAuthenticated.current && !publicPage) window.location.replace("/login");
           wasAuthenticated.current = false;
           return;
@@ -104,7 +112,7 @@ export function SessionActivity() {
     };
   // El layout conserva el ref entre rutas; cada navegación consulta la sesión.
   // Esta lectura no renueva la actividad y detecta una sesión que ya venció.
-  }, [pathname]);
+  }, [pathname, router]);
 
   return message ? <p role="status" className="p-3 text-sm text-muted">{message}</p> : null;
 }

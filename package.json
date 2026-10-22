@@ -32,7 +32,10 @@
     "db:seed": "prisma db seed",
     "test:seed": "node scripts/test-seed.mjs",
     "ci:guard-migrations": "node scripts/ci/guard-migrations.mjs",
-    "ci:database": "node scripts/ci/verify-database.mjs"
+    "ci:database": "node scripts/ci/verify-database.mjs",
+    "test:account-form": "node --import tsx --test src/features/accounts/form-input.test.ts src/features/accounts/account-form.test.tsx",
+    "test:affiliation-input": "node --import tsx --test src/features/clubs/affiliation-submission.test.ts src/features/clubs/schemas.test.ts",
+    "test:affiliations": "node scripts/test-auth.mjs --affiliations"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

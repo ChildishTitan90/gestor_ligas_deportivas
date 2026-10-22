@@ -71,12 +71,14 @@ async function snapshot(client: pg.Client): Promise<Snapshot> {
     WHERE table_schema = 'sports_management' AND table_type = 'BASE TABLE'
     ORDER BY table_name
   `);
-  assert.equal(tables.length, 96, 'La prueba debe partir del baseline de 96 tablas.');
+  assert.equal(tables.length, 97, 'La base debe conservar las 96 tablas iniciales y añadir la tabla de categorías de afiliación.');
+  assert.ok(tables.some(({ table_name }) => table_name === 'club_affiliation_categories'),
+    'Debe existir la tabla de categorías de afiliación de PDGLD-57.');
   const result: Snapshot = {};
   for (const { table_name: tableName } of tables) {
-    assert.match(tableName, /^[a-z_]+$/, 'Los identificadores SQL deben pertenecer al baseline.');
+    assert.match(tableName, /^[a-z_]+$/, 'Los identificadores SQL deben pertenecer al esquema.');
     const { rows } = await client.query<{ records: Row[] }>(`
-      SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id), '[]'::jsonb) AS records
+      SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)), '[]'::jsonb) AS records
       FROM sports_management."${tableName}" AS t
     `);
     result[tableName] = rows[0].records;
@@ -206,7 +208,7 @@ test('seed en PostgreSQL temporal: atomicidad, identidad, dos ejecuciones, integ
     assert.equal(baseline.audit_logs.length, 0);
     evidence(t, 'baseline', baseline);
 
-    await t.test('un fallo en el último INSERT revierte datos y auditoría de las 96 tablas', async () => {
+    await t.test('un fallo en el último INSERT revierte datos y auditoría de las 97 tablas', async () => {
       try {
         await installFailureTrigger(client);
         await seedCli(1);
@@ -252,7 +254,7 @@ test('seed en PostgreSQL temporal: atomicidad, identidad, dos ejecuciones, integ
 
     await seedCli();
     const second = await snapshot(client);
-    assert.deepEqual(second, first, 'La segunda ejecución debe preservar cantidades, UUID, relaciones y eventos de las 96 tablas.');
+    assert.deepEqual(second, first, 'La segunda ejecución debe preservar cantidades, UUID, relaciones y eventos de las 97 tablas.');
     evidence(t, 'segunda ejecución CLI', second);
 
     await t.test('nombres iguales en otras ligas, temporadas y categorías conservan su contexto', async () => {
