@@ -20,7 +20,7 @@ export function SportSelection() {
       </div>
 
       <div className="mt-9 grid gap-5 md:mt-12 md:grid-cols-3">
-        <Link href="/login" aria-labelledby="football-title football-action" className="group flex flex-col overflow-hidden rounded-3xl border border-primary bg-surface shadow-sm transition-colors hover:border-primary-hover">
+        <Link href="/futbol" aria-labelledby="football-title football-action" className="group flex flex-col overflow-hidden rounded-3xl border border-primary bg-surface shadow-sm transition-colors hover:border-primary-hover">
           <div className="h-1 bg-accent" aria-hidden="true" />
           <div className="flex flex-1 flex-col p-6 sm:p-7">
             <div className="flex items-start justify-between gap-3">

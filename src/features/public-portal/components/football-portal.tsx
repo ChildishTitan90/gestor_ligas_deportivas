@@ -11,7 +11,7 @@ const sections = [
 ];
 
 /** Sin consultas privadas ni datos de ejemplo mientras no exista un contrato de publicación. */
-export function FootballPortal() {
+export function FootballPortal({ showSignIn }: { showSignIn: boolean }) {
   return (
     <>
       <div className="max-w-2xl">
@@ -35,13 +35,13 @@ export function FootballPortal() {
         ))}
       </div>
 
-      <aside aria-labelledby="participation-title" className="mt-8 flex flex-col items-start gap-5 rounded-3xl border border-border px-6 py-7 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+      {showSignIn && <aside aria-labelledby="participation-title" className="mt-8 flex flex-col items-start gap-5 rounded-3xl border border-border px-6 py-7 sm:flex-row sm:items-center sm:justify-between sm:px-7">
         <div>
           <h2 id="participation-title" className="text-lg font-semibold text-primary">¿Formas parte de la liga?</h2>
           <p className="mt-2 max-w-xl text-sm leading-7 text-muted">Inicia sesión para consultar las funciones autorizadas para tu cuenta.</p>
         </div>
         <ActionLink href="/login" variant="secondary" className="shrink-0">Iniciar sesión<ArrowRight size={16} aria-hidden="true" /></ActionLink>
-      </aside>
+      </aside>}
     </>
   );
 }

@@ -1,20 +1,21 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { getAuthSession } from "@/server/auth/session";
+import { getCurrentAccount } from "@/features/auth/server/account-presentation";
+import { AccountHeader } from "@/components/layout/account-header";
 import { ChangePasswordForm } from "@/features/auth/components/change-password-form";
-import { SignOutButton } from "@/features/auth/components/sign-out-button";
 
 export const metadata: Metadata = { title: "Actualiza tu contraseña" };
 
 export default async function ChangePasswordPage() {
-  const session = await getAuthSession();
+  const current = await getCurrentAccount();
 
-  if (!session?.user) redirect("/login");
-  if (!session.user.mustChangePassword) redirect("/access");
+  if (!current) redirect("/login");
+  if (!current.mustChangePassword) redirect("/access");
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-lg flex-col justify-center px-6 py-10">
-      <p className="mb-6 text-sm font-semibold text-primary">Liga Municipal <span className="font-normal text-muted">· Morelia</span></p>
+    <>
+    <AccountHeader account={current.account} mustChangePassword />
+    <main className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center px-6 py-10">
       <section aria-labelledby="password-title" className="overflow-hidden rounded-3xl border border-border bg-surface shadow-sm">
         <div className="h-1 bg-accent" />
         <div className="p-6 sm:p-9">
@@ -25,9 +26,9 @@ export default async function ChangePasswordPage() {
           </p>
           
           <ChangePasswordForm />
-          <SignOutButton />
         </div>
       </section>
     </main>
+    </>
   );
 }
