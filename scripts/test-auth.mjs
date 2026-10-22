@@ -161,8 +161,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--authorization', '--benchmark-options'].includes(arg)))
-    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --authorization | --benchmark-options].');
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--authorization', '--benchmark-options', '--affiliations'].includes(arg)))
+    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --authorization | --benchmark-options | --affiliations].');
   if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
   }
@@ -188,6 +188,10 @@ try {
   stage = 'aplicación de migraciones en base temporal';
   console.log('PDGLD-48: preparando PostgreSQL temporal y servidor local.');
   await command(['node_modules/prisma/build/index.js', 'migrate', 'deploy'], childEnv);
+  if (process.argv.includes('--affiliations')) {
+    stage = 'comparación de migraciones y esquema PDGLD-57';
+    await command(['node_modules/prisma/build/index.js', 'migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code'], childEnv);
+  }
   stage = 'inicio de Next.js';
   await startServer();
   if (process.argv.includes('--demo')) {
@@ -201,6 +205,10 @@ try {
       process.stdin.resume();
       process.stdin.once('data', () => { process.stdin.pause(); resolve(); });
     });
+  } else if (process.argv.includes('--affiliations')) {
+    stage = 'pruebas HTTP de afiliación PDGLD-57';
+    const { runAffiliationIntegrationSuite } = await import('../tests/integration/affiliations.test.mjs');
+    await runAffiliationIntegrationSuite({ databaseUrl, baseUrl });
   } else if (process.argv.includes('--benchmark-options')) {
     stage = 'medición local de opciones de cuentas';
     const { runAccountOptionsBenchmark } = await import('../tests/integration/account-options-benchmark.mjs');
@@ -235,6 +243,8 @@ try {
     await runPermissionAdministrationSuite({ databaseUrl, baseUrl });
     const { runAccountIntegrationSuite } = await import('../tests/integration/accounts.test.mjs');
     await runAccountIntegrationSuite({ databaseUrl, baseUrl });
+    const { runAffiliationIntegrationSuite } = await import('../tests/integration/affiliations.test.mjs');
+    await runAffiliationIntegrationSuite({ databaseUrl, baseUrl });
   }
 } catch (error) {
   // Mensajes de librerías no se interpolan: pueden contener usuario/conexión/hash.
@@ -243,7 +253,7 @@ try {
     'Las pruebas solo aceptan PostgreSQL loopback en puertos 5432/5433.',
     'DIRECT_URL contiene parámetros no permitidos para pruebas locales.',
     'Detén el servidor npm run dev antes de ejecutar estas pruebas.',
-    'Uso: node scripts/test-auth.mjs [--demo | --authorization | --benchmark-options].',
+    'Uso: node scripts/test-auth.mjs [--demo | --authorization | --benchmark-options | --affiliations].',
     'Next.js no quedó disponible para las pruebas locales.',
   ]);
   console.error(safeMessages.has(error.message) ? error.message : `No se completó la fase: ${stage}.`);
