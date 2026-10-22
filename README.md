@@ -48,6 +48,19 @@ Consulta [desarrollo local, pruebas y demostración](docs/authentication.md), [c
 
 El servidor de alta de cuentas de **PDGLD-34 / PDGLD-52** expone `/api/accounts` para SUPERADMIN, con contexto inicial, contraseña temporal, auditoría y pruebas. El [contrato para el formulario PDGLD-53](docs/architecture/account-provisioning.md) documenta entradas y errores. La interfaz conserva su subtarea separada.
 
+## Solicitud de afiliación — PDGLD-57
+
+El backend expone POST `/api/affiliations`: solicitud pendiente con folio único,
+directivos, categorías e historial atómicos, autorización del delegado y reenvíos
+sin duplicar registros. Consulta el [contrato e integración con PDGLD-59](docs/architecture/affiliation-submission.md)
+y la [evidencia local](docs/validation/PDGLD-57-solicitud-afiliacion.md).
+El formulario de captura aún requiere la integración de firmas y envío de PDGLD-59.
+Hay una migración aditiva nueva: aplicar `npx --no-install prisma migrate deploy`
+y `npx --no-install prisma generate` al recibirla en local, conservando datos.
+`npm run test:affiliations` valida el backend en una base temporal independiente.
+El despliegue a Supabase requiere [revisión de seguridad de la tabla nueva](docs/architecture/affiliation-submission-security.md);
+el guard de producción sigue bloqueándolo hasta completar esa revisión.
+
 ## CI/CD
 
 El workflow `.github/workflows/ci-cd.yml` comprueba los PR y los cambios en `develop` y `main`: instalación reproducible, pruebas del pipeline, ESLint, compilación y reconstrucción de las migraciones en PostgreSQL 15 y 17. El resultado conjunto se llama **CI listo para integrar**.

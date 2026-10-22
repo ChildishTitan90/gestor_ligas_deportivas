@@ -279,6 +279,10 @@ model club_affiliations {
   reviewed_at                                 DateTime?              @db.Timestamptz(6)
   review_reason                               String?
   signed_affiliation_file_id                  String?                @db.Uuid
+  club_name                                   String?
+  submission_key                              String?                @db.Uuid
+  submission_hash                             String?                @db.VarChar(64)
+  club_affiliation_categories                  club_affiliation_categories[]
   charges                                     charges[]
   clubs                                       clubs                  @relation(fields: [club_id, league_id], references: [id, league_id], onDelete: NoAction, onUpdate: NoAction)
   users_club_affiliations_requested_byTousers users                  @relation("club_affiliations_requested_byTousers", fields: [requested_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -290,12 +294,27 @@ model club_affiliations {
   season_teams                                season_teams[]
 
   @@unique([club_id, season_id])
+  @@unique([requested_by, submission_key])
   @@unique([id, season_id])
   @@index([club_id, league_id], map: "fk_club_affiliations_club_id_league_id_fkey")
   @@index([requested_by], map: "fk_club_affiliations_requested_by_fkey")
   @@index([reviewed_by], map: "fk_club_affiliations_reviewed_by_fkey")
   @@index([season_id, league_id], map: "fk_club_affiliations_season_id_league_id_fkey")
   @@index([signed_affiliation_file_id], map: "fk_club_affiliations_signed_affiliation_file_id_fkey")
+  @@schema("sports_management")
+}
+
+/// Categorías solicitadas; no representan equipos inscritos ni afiliación aprobada.
+model club_affiliation_categories {
+  affiliation_id    String            @db.Uuid
+  season_id         String            @db.Uuid
+  category_id       String            @db.Uuid
+  club_affiliations club_affiliations @relation(fields: [affiliation_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  season_categories season_categories @relation(fields: [season_id, category_id], references: [season_id, category_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([affiliation_id, category_id])
+  @@index([affiliation_id, season_id])
+  @@index([season_id, category_id])
   @@schema("sports_management")
 }
 
@@ -1655,6 +1674,7 @@ model season_breaks {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model season_categories {
+  club_affiliation_categories club_affiliation_categories[]
   id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   season_id             String                  @db.Uuid
   category_id           String                  @db.Uuid
