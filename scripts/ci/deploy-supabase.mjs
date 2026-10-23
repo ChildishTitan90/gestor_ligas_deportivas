@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, unlinkSync, rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
 import pg from 'pg';
-import { assertAppliedHistory, assertProductionSql, productionConnection, readMigrations, redact } from './migration-helpers.mjs';
+import { assertAppliedHistory, productionConnection, readMigrations, redact } from './migration-helpers.mjs';
+import { AFFILIATION_PLAN, readProductionPlan, assertProductionCreationAccess, assertAffiliationProductionSecurity } from './production-plans.mjs';
 
 const { Client } = pg;
 let client, directory, certificatePath, connection;
@@ -53,14 +54,15 @@ try {
   const migrations = readMigrations(migrationsPath);
   const applied = assertAppliedHistory(await history(), migrations);
   await securityState();
-  for (const name of migrations.keys()) if (!applied.has(name)) {
-    assertProductionSql(readFileSync(join(migrationsPath, name, 'migration.sql'), 'utf8'), name);
-  }
+  const plan = readProductionPlan(migrationsPath, migrations, applied);
+  if (plan.pendingCreation) await assertProductionCreationAccess(client);
+  if (applied.has(AFFILIATION_PLAN.migration)) await assertAffiliationProductionSecurity(client);
   console.log(`Historial verificado; ${migrations.size - applied.size} migraciones pendientes.`);
   prisma(['migrate', 'deploy']);
   await securityState();
   const finalApplied = assertAppliedHistory(await history(), migrations);
   if (finalApplied.size !== migrations.size) throw new Error('Quedan migraciones sin aplicar.');
+  if (finalApplied.has(AFFILIATION_PLAN.migration)) await assertAffiliationProductionSecurity(client);
   prisma(['migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code']);
   prisma(['migrate', 'status']);
   console.log('Despliegue de migraciones terminado; historial, modelos y RLS verificados.');
