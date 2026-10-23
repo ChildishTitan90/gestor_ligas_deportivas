@@ -49,7 +49,7 @@ jobs:
       - name: Comprobar la integridad de las migraciones
         run: npm run ci:guard-migrations
       - name: Probar los controles del pipeline
-        run: npm run test:ci && npm run test:account-form && npm run test:affiliation-input
+        run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:affiliation-input
       - name: Revisar el código
         run: npm run lint
       - name: Compilar la aplicación
