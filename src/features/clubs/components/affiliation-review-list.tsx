@@ -12,6 +12,8 @@ export type AffiliationReviewItem = {
 
 type AffiliationReviewListProps = {
   items: readonly AffiliationReviewItem[];
+  onSelect?: (id: string) => void;
+  disabled?: boolean;
 };
 
 const phaseLabels = {
@@ -20,7 +22,7 @@ const phaseLabels = {
 } satisfies Record<AffiliationReviewItem["reviewPhase"], string>;
 
 export function AffiliationReviewList({
-  items,
+  items, onSelect, disabled = false,
 }: AffiliationReviewListProps) {
   if (items.length === 0) {
     return (
@@ -77,14 +79,18 @@ export function AffiliationReviewList({
               </dl>
             </div>
 
-            <ActionLink
+            {onSelect ? <button type="button" disabled={disabled} onClick={() => onSelect(item.id)}
+              aria-label={`Ver detalle de ${item.clubName}, folio ${item.referenceNumber}`}
+              className="min-h-12 rounded-xl border border-border px-5 py-3 text-sm font-semibold text-primary disabled:opacity-50">
+              Ver detalle
+            </button> : <ActionLink
               href={item.detailHref}
               variant="secondary"
               aria-label={`Ver detalle de ${item.clubName}, folio ${item.referenceNumber}`}
               className="w-full shrink-0 sm:w-auto"
             >
               Ver detalle
-            </ActionLink>
+            </ActionLink>}
           </div>
         </li>
       ))}

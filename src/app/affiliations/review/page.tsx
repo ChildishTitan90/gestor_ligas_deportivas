@@ -1,3 +1,4 @@
+import { AffiliationReviewWorkspace } from "@/features/clubs/components/affiliation-review-workspace";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AccountHeader } from "@/components/layout/account-header";
@@ -38,15 +39,7 @@ export default async function AffiliationReviewPage() {
             Consulta y revisión de solicitudes de afiliación de clubes.
           </p>
 
-          <div className="mt-6 rounded-2xl border border-border bg-background p-5">
-            <p className="font-medium text-primary">
-              Consulta de solicitudes todavía no disponible.
-            </p>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              La bandeja está pendiente de integración con el servicio de
-              revisión.
-            </p>
-          </div>
+          <AffiliationReviewWorkspace />
         </section>
       </main>
     </>
