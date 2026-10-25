@@ -1,16 +1,26 @@
 import { z } from "zod";
-import { ReviewApiError, type ReviewApi, type ReviewAction, type ReviewDetail } from "./affiliation-review-model";
+import { ReviewApiError, type ReviewApi, type ReviewAction, type ReviewDetail, type ReviewSummary } from "./affiliation-review-model";
 
-// Respuestas provisionales pendientes de Sergio; cuerpo PATCH confirmado con decision.
+// La versión procede del detalle autorizado, nunca se calcula para reenviar.
 const summarySchema = z.object({
   id: z.uuid(), leagueId: z.uuid(), referenceNumber: z.string().min(1),
   clubName: z.string().min(1), seasonName: z.string().min(1),
+  version: z.number().int().nonnegative(),
   status: z.enum(["PENDING", "APPROVED"]),
   reviewPhase: z.enum(["AWAITING_REVIEW", "CORRECTIONS_REQUESTED"]).nullable(),
 }).refine(item => item.status !== "PENDING" || item.reviewPhase !== null);
 const detailSchema = summarySchema.safeExtend({
   uniformColors: z.string(), categories: z.array(z.string()), observations: z.string().nullable(),
+  categoryOptions: z.array(z.object({ id: z.uuid(), name: z.string().min(1), authorized: z.boolean() })).max(100)
+    .refine(items => new Set(items.map(item => item.id)).size === items.length),
   allowedActions: z.array(z.enum(["APPROVE", "REQUEST_CORRECTIONS"])),
+  history: z.array(z.object({
+    id: z.uuid(),
+    action: z.enum(["AFFILIATION_APPROVE", "AFFILIATION_REQUEST_CORRECTIONS", "AFFILIATION_RESUBMIT"]),
+    occurredAt: z.iso.datetime(), observations: z.string().nullable(),
+  })),
+  officers: z.array(z.object({ office: z.enum(["PRESIDENT", "SECRETARY", "TREASURER"]),
+    firstName: z.string(), paternalSurname: z.string(), maternalSurname: z.string(), signatureFileId: z.uuid().nullable() })),
 });
 
 export function createReviewApi(request: typeof fetch = fetch): ReviewApi {
@@ -22,7 +32,8 @@ export function createReviewApi(request: typeof fetch = fetch): ReviewApi {
     if (response.status === 403) throw new ReviewApiError("forbidden");
     if (response.status === 409) {
       const body = await response.json().catch(() => null);
-      if (body?.code === "AFFILIATION_ALREADY_REVIEWED") throw new ReviewApiError("conflict");
+      if (["AFFILIATION_ALREADY_REVIEWED", "STALE_AFFILIATION", "CORRECTIONS_PENDING", "SEASON_CLOSED"].includes(body?.code))
+        throw new ReviewApiError("conflict");
     }
     if (!response.ok) throw new ReviewApiError("unavailable");
     try { return await response.json(); }
@@ -36,21 +47,49 @@ export function createReviewApi(request: typeof fetch = fetch): ReviewApi {
   return {
     async list(leagueId) {
       if (!z.uuid().safeParse(leagueId).success) throw new ReviewApiError("invalid-response");
-      const value = await read(`/api/affiliations?${new URLSearchParams({ status: "PENDING", leagueId })}`);
-      const result = z.object({ items: z.array(summarySchema) }).safeParse(value);
-      if (!result.success || result.data.items.some(item => item.leagueId !== leagueId || item.status !== "PENDING") ||
-        new Set(result.data.items.map(item => item.id)).size !== result.data.items.length) throw new ReviewApiError("invalid-response");
-      return result.data.items;
+      const items: ReviewSummary[] = [];
+      const ids = new Set<string>();
+      for (let page = 1; page <= 10000; page++) {
+        const value = await read(`/api/affiliations?${new URLSearchParams({ status: "PENDING", leagueId, page: String(page), pageSize: "100" })}`);
+        const result = z.object({ items: z.array(summarySchema).max(100), page: z.literal(page),
+          pageSize: z.literal(100), hasMore: z.boolean() }).safeParse(value);
+        if (!result.success || (result.data.hasMore && result.data.items.length !== 100))
+          throw new ReviewApiError("invalid-response");
+        for (const item of result.data.items) {
+          if (item.leagueId !== leagueId || item.status !== "PENDING" || ids.has(item.id))
+            throw new ReviewApiError("invalid-response");
+          ids.add(item.id); items.push(item);
+        }
+        if (!result.data.hasMore) return items;
+      }
+      throw new ReviewApiError("invalid-response");
     },
     async detail(id) { return detail(await read(`/api/affiliations/${encodeURIComponent(id)}`), id); },
-    async review(id, action: ReviewAction, observations) {
-      const result = detail(await read(`/api/affiliations/${encodeURIComponent(id)}/review`, {
+    async signature(id) {
+      if (!z.uuid().safeParse(id).success) throw new ReviewApiError("invalid-response");
+      const response = await read("/api/affiliations/signatures/download", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signatureFileId: id }) });
+      const result = z.object({ downloadUrl: z.url().refine(value => {
+        const url = new URL(value);
+        return url.protocol === "https:" && !url.username && !url.password && !url.hash &&
+          url.pathname.startsWith("/storage/v1/object/sign/firmas-afiliacion/");
+      }), expiresInSeconds: z.number().int().positive().max(60) }).safeParse(response);
+      if (!result.success) throw new ReviewApiError("invalid-response");
+      return result.data;
+    },
+    async review(id, action: ReviewAction, observations, expectedVersion, authorizedCategoryIds = []) {
+      const response = await read(`/api/affiliations/${encodeURIComponent(id)}/review`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(action === "APPROVE" ? { decision: "APPROVE" } :
-          { decision: "REQUEST_CORRECTIONS", observations: observations.trim() }),
-      }), id);
-      if (action === "APPROVE" ? result.status !== "APPROVED" :
-        result.status !== "PENDING" || result.reviewPhase !== "CORRECTIONS_REQUESTED") throw new ReviewApiError("invalid-response");
+        body: JSON.stringify(action === "APPROVE" ? { decision: "APPROVE", expectedVersion, authorizedCategoryIds } :
+          { decision: "REQUEST_CORRECTIONS", observations: observations.trim(), expectedVersion }),
+      });
+      const saved = summarySchema.safeParse(response);
+      if (!saved.success || saved.data.id !== id || saved.data.version !== expectedVersion + 1 ||
+          (action === "APPROVE" ? saved.data.status !== "APPROVED" :
+            saved.data.status !== "PENDING" || saved.data.reviewPhase !== "CORRECTIONS_REQUESTED"))
+        throw new ReviewApiError("invalid-response");
+      // PATCH confirma la escritura; GET obtiene el detalle y acciones vigentes.
+      const result = detail(await read(`/api/affiliations/${encodeURIComponent(id)}`), id);
       return result;
     },
   };

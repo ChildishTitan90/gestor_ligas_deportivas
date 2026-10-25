@@ -278,6 +278,7 @@ model club_affiliations {
   reviewed_by                                 String?                @db.Uuid
   reviewed_at                                 DateTime?              @db.Timestamptz(6)
   review_reason                               String?
+  review_version                              Int                    @default(0)
   signed_affiliation_file_id                  String?                @db.Uuid
   club_name                                   String?
   submission_key                              String?                @db.Uuid
@@ -309,12 +310,16 @@ model club_affiliation_categories {
   affiliation_id    String            @db.Uuid
   season_id         String            @db.Uuid
   category_id       String            @db.Uuid
+  authorized_by     String?           @db.Uuid
+  authorized_at     DateTime?         @db.Timestamptz(6)
+  users             users?            @relation(fields: [authorized_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   club_affiliations club_affiliations @relation(fields: [affiliation_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
   season_categories season_categories @relation(fields: [season_id, category_id], references: [season_id, category_id], onDelete: NoAction, onUpdate: NoAction)
 
   @@id([affiliation_id, category_id])
   @@index([affiliation_id, season_id])
   @@index([season_id, category_id])
+  @@index([authorized_by])
   @@schema("sports_management")
 }
 
@@ -1708,6 +1713,11 @@ model season_teams {
   club_id                                              String                           @db.Uuid
   group_id                                             String                           @db.Uuid
   status                                               String                           @default("REGISTERED")
+  enrolled_by                                          String?                          @db.Uuid
+  enrolled_at                                          DateTime?                        @db.Timestamptz(6)
+  enrollment_key                                       String?                          @db.Uuid
+  enrollment_hash                                      String?                          @db.VarChar(64)
+  users                                                users?                           @relation(fields: [enrolled_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   billing_plans                                        billing_plans[]
   brackets_brackets_team_a_id_season_idToseason_teams  brackets[]                       @relation("brackets_team_a_id_season_idToseason_teams")
   brackets_brackets_team_b_id_season_idToseason_teams  brackets[]                       @relation("brackets_team_b_id_season_idToseason_teams")
@@ -1735,6 +1745,7 @@ model season_teams {
   @@unique([id, group_id, season_id])
   @@unique([id, season_id])
   @@unique([team_id, season_id])
+  @@unique([enrolled_by, enrollment_key])
   @@index([club_id, season_id], map: "fk_season_teams_club_id_season_id_fkey")
   @@index([group_id, season_id], map: "fk_season_teams_group_id_season_id_fkey")
   @@index([team_id, club_id], map: "fk_season_teams_team_id_club_id_fkey")
@@ -1966,6 +1977,8 @@ model user_roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
+  authorized_affiliation_categories club_affiliation_categories[]
+  enrolled_season_teams season_teams[]
   id                                                                       String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   person_id                                                                String                           @unique @db.Uuid
   username                                                                 String

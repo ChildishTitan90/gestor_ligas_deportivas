@@ -8,17 +8,23 @@ import { AffiliationReviewView } from "./components/affiliation-review-workspace
 
 // Exclusivamente fixtures de pruebas: nunca importadas por la página real.
 const leagueId = "61000000-0000-4000-8000-000000000001";
+const categoryId = "61000000-0000-4000-8000-000000000040";
 const fixture: ReviewDetail = {
   id: "61000000-0000-4000-8000-000000000002", leagueId,
   referenceNumber: "TEST-61", clubName: "Club sintético", seasonName: "Temporada de prueba",
-  status: "PENDING", reviewPhase: "AWAITING_REVIEW", uniformColors: "Azul sintético",
+  status: "PENDING", reviewPhase: "AWAITING_REVIEW", uniformColors: "Azul sintético", version: 0,
   categories: ["Categoría de prueba"], observations: null, allowedActions: ["APPROVE", "REQUEST_CORRECTIONS"],
+  categoryOptions: [{ id: categoryId, name: "Categoría de prueba", authorized: false }],
+  history: [],
+  officers: [{ office: "PRESIDENT", firstName: "Persona sintética", paternalSurname: "Prueba", maternalSurname: "",
+    signatureFileId: "61000000-0000-4000-8000-000000000030" }],
 };
 function setup(overrides: Partial<ReviewApi> = {}) {
   const calls: string[] = [];
   const api: ReviewApi = {
     list: async () => { calls.push("list"); return [fixture]; },
     detail: async () => { calls.push("detail"); return fixture; },
+    signature: async () => ({ downloadUrl: "https://storage.example.test/storage/v1/object/sign/firmas-afiliacion/fixture?token=synthetic", expiresInSeconds: 60 }),
     review: async (_id, action, observations) => {
       calls.push(`${action}:${observations}`);
       return { ...fixture, status: action === "APPROVE" ? "APPROVED" : "PENDING",
@@ -28,12 +34,117 @@ function setup(overrides: Partial<ReviewApi> = {}) {
   return { controller: createReviewController(api), calls };
 }
 function html(controller: ReturnType<typeof createReviewController>) {
-  return renderToStaticMarkup(<AffiliationReviewView controller={controller} />);
+  return renderToStaticMarkup(<AffiliationReviewView controller={controller} leagues={[{ id: leagueId, name: "Liga sintética" }]} />);
 }
+test("historial conserva correcciones, reenvío y aprobación, escapa observaciones y se retira al perder acceso", async () => {
+  const history: ReviewDetail["history"] = [
+    { id: "61000000-0000-4000-8000-000000000010", action: "AFFILIATION_REQUEST_CORRECTIONS",
+      occurredAt: "2026-10-24T18:00:00.000Z", observations: "Aclarar colores <script>alert(1)</script>" },
+    { id: "61000000-0000-4000-8000-000000000011", action: "AFFILIATION_RESUBMIT",
+      occurredAt: "2026-10-24T18:01:00.000Z", observations: null },
+    { id: "61000000-0000-4000-8000-000000000012", action: "AFFILIATION_APPROVE",
+      occurredAt: "2026-10-24T18:02:00.000Z", observations: null },
+  ];
+  for (const kind of ["unauthenticated", "forbidden"] as const) {
+    let reads = 0;
+    const { controller } = await selected({ detail: async () => {
+      if (++reads > 1) throw new ReviewApiError(kind);
+      return { ...fixture, status: "APPROVED", reviewPhase: null, allowedActions: [], history };
+    } });
+    const markup = html(controller);
+    assert.match(markup, /Historial de revisión/);
+    assert.ok(markup.indexOf("Correcciones solicitadas") < markup.indexOf("Solicitud reenviada"));
+    assert.ok(markup.indexOf("Solicitud reenviada") < markup.indexOf("Afiliación aprobada"));
+    assert.match(markup, /datetime="2026-10-24T18:00:00.000Z"/i);
+    assert.match(markup, /Ciudad de México/);
+    assert.match(markup, /Aclarar colores &lt;script&gt;/);
+    assert.doesNotMatch(markup, /<script>/);
+    await controller.open(fixture.id);
+    assert.doesNotMatch(html(controller), /Aclarar colores|Solicitud reenviada|Historial de revisión/);
+  }
+  assert.match(html((await selected()).controller), /Sin revisiones registradas/);
+});
+
+test("adaptador exige un historial válido y conserva solo sus campos de presentación", async () => {
+  const entry = { id: "61000000-0000-4000-8000-000000000010", action: "AFFILIATION_REQUEST_CORRECTIONS",
+    occurredAt: "2026-10-24T18:00:00.000Z", observations: "Precisar uniforme." };
+  const api = createReviewApi(async () => Response.json({ ...fixture, history: [{ ...entry, actorId: leagueId }] }));
+  assert.deepEqual((await api.detail(fixture.id)).history, [entry]);
+  for (const history of [null, [{ ...entry, occurredAt: "fecha inválida" }], [{ ...entry, action: "DELETE" }]]) {
+    const invalid = createReviewApi(async () => Response.json({ ...fixture, history }));
+    await assert.rejects(invalid.detail(fixture.id), /invalid-response/);
+  }
+});
+
+test("firmas: consulta explícita, enlace temporal privado y limpieza al perder permiso", async () => {
+  let requests = 0;
+  const { controller } = await selected({ signature: async () => {
+    if (++requests > 1) throw new ReviewApiError("forbidden");
+    return { downloadUrl: "https://storage.example.test/storage/v1/object/sign/firmas-afiliacion/fixture?token=synthetic", expiresInSeconds: 60 };
+  } });
+  assert.match(html(controller), /Directivos y firmas privadas/);
+  assert.doesNotMatch(html(controller), /token=synthetic/);
+  await controller.signature(leagueId); assert.equal(requests, 0);
+  await controller.signature(fixture.officers[0].signatureFileId!);
+  assert.match(html(controller), /Descargar firma de presidente/);
+  assert.match(html(controller), /referrerPolicy="no-referrer"|referrerpolicy="no-referrer"/);
+  controller.clearDownload(); assert.doesNotMatch(html(controller), /token=synthetic/);
+  await controller.signature(fixture.officers[0].signatureFileId!);
+  assert.equal(controller.getSnapshot().detail, null);
+  assert.doesNotMatch(html(controller), /Persona sintética|token=synthetic/);
+});
+
+test("un enlace atrasado no reaparece tras cambiar la consulta", async () => {
+  let finish!: (value: { downloadUrl: string; expiresInSeconds: number }) => void;
+  const { controller } = await selected({ signature: () => new Promise(resolve => { finish = resolve; }) });
+  const pending = controller.signature(fixture.officers[0].signatureFileId!);
+  await controller.load(leagueId);
+  finish({ downloadUrl: "https://storage.example.test/storage/v1/object/sign/firmas-afiliacion/stale", expiresInSeconds: 60 });
+  await pending; assert.equal(controller.getSnapshot().download, null);
+});
+
+test("adaptador de firmas usa el endpoint privado y rechaza enlaces o vigencias inválidos", async () => {
+  const id = fixture.officers[0].signatureFileId!;
+  const api = createReviewApi(async (path, init) => {
+    assert.equal(path, "/api/affiliations/signatures/download");
+    assert.equal(init?.method, "POST"); assert.equal(init?.cache, "no-store"); assert.equal(init?.credentials, "same-origin");
+    assert.deepEqual(JSON.parse(String(init?.body)), { signatureFileId: id });
+    return Response.json({ downloadUrl: "https://storage.example.test/storage/v1/object/sign/firmas-afiliacion/file?token=synthetic", expiresInSeconds: 60 });
+  });
+  assert.equal((await api.signature(id)).expiresInSeconds, 60);
+  for (const body of [{ downloadUrl: "javascript:alert(1)", expiresInSeconds: 60 },
+    { downloadUrl: "https://storage.example.test/public/file", expiresInSeconds: 60 },
+    { downloadUrl: "https://storage.example.test/storage/v1/object/sign/firmas-afiliacion/file", expiresInSeconds: 120 }]) {
+    await assert.rejects(createReviewApi(async () => Response.json(body)).signature(id), /invalid-response/);
+  }
+});
+
 async function selected(overrides: Partial<ReviewApi> = {}) {
   const value = setup(overrides);
-  await value.controller.load(leagueId); await value.controller.open(fixture.id); return value;
+  await value.controller.load(leagueId); await value.controller.open(fixture.id);
+  value.controller.category(categoryId, true);
+  return value;
 }
+
+test("autorización exige selección explícita, congela confirmación y limpia al cambiar de detalle", async () => {
+  const { controller } = setup();
+  await controller.load(leagueId); await controller.open(fixture.id);
+  assert.deepEqual(controller.getSnapshot().selectedCategoryIds, []);
+  controller.category(leagueId, true);
+  await controller.submit("APPROVE");
+  assert.equal(controller.getSnapshot().confirming, false);
+  assert.match(html(controller), /Selecciona al menos una categoría/);
+  controller.category(categoryId, true);
+  await controller.submit("APPROVE");
+  assert.match(html(controller), /Se autorizarán estas categorías: Categoría de prueba/);
+  controller.category(categoryId, false);
+  assert.deepEqual(controller.getSnapshot().selectedCategoryIds, [categoryId]);
+  controller.cancel(); controller.category(categoryId, false);
+  assert.deepEqual(controller.getSnapshot().selectedCategoryIds, []);
+  controller.category(categoryId, true);
+  await controller.open(fixture.id);
+  assert.deepEqual(controller.getSnapshot().selectedCategoryIds, []);
+});
 
 test("consulta: carga, vacío, error y acceso denegado con datos privados retirados", async () => {
   let finish!: (items: []) => void;
@@ -122,29 +233,32 @@ test("sin capacidades del servidor no permite acciones", async () => {
 
 test("adaptador usa rutas acordadas, PATCH JSON, cookies del origen y no-store", async () => {
   const calls: { path: string; init?: RequestInit }[] = [];
+  let approved = false;
   const request: typeof fetch = async (path, init) => {
     calls.push({ path: String(path), init });
-    return Response.json(init?.method === "PATCH" ? { ...fixture, status: "APPROVED", reviewPhase: null } :
-      String(path).includes("?") ? { items: [fixture] } : fixture);
+    if (init?.method === "PATCH") approved = true;
+    return Response.json(String(path).includes("?") ? { items: [fixture], page: 1, pageSize: 100, hasMore: false } :
+      approved ? { ...fixture, status: "APPROVED", reviewPhase: null, version: 1 } : fixture);
   };
   const api = createReviewApi(request);
-  await api.list(leagueId); await api.detail(fixture.id); await api.review(fixture.id, "APPROVE", "  Nota  ");
-  assert.equal(calls[0].path, `/api/affiliations?status=PENDING&leagueId=${leagueId}`);
+  await api.list(leagueId); await api.detail(fixture.id); await api.review(fixture.id, "APPROVE", "  Nota  ", 0, [categoryId]);
+  assert.equal(calls[0].path, `/api/affiliations?status=PENDING&leagueId=${leagueId}&page=1&pageSize=100`);
   assert.equal(calls[1].path, `/api/affiliations/${fixture.id}`);
   assert.equal(calls[2].path, `/api/affiliations/${fixture.id}/review`);
   assert.equal(calls[2].init?.method, "PATCH");
-  assert.equal(calls[2].init?.body, JSON.stringify({ decision: "APPROVE" }));
+  assert.equal(calls[2].init?.body, JSON.stringify({ decision: "APPROVE", expectedVersion: 0, authorizedCategoryIds: [categoryId] }));
+  assert.equal(calls[3].path, `/api/affiliations/${fixture.id}`);
   for (const call of calls) { assert.equal(call.init?.cache, "no-store"); assert.equal(call.init?.credentials, "same-origin"); }
 });
 
-test("PATCH de correcciones envía exactamente decision y observaciones recortadas", async () => {
+test("PATCH de correcciones envía versión y observaciones recortadas", async () => {
   let body: RequestInit["body"];
   const api = createReviewApi(async (_path, init) => {
-    body = init?.body;
-    return Response.json({ ...fixture, reviewPhase: "CORRECTIONS_REQUESTED" });
+    if (init?.method === "PATCH") body = init.body;
+    return Response.json({ ...fixture, reviewPhase: "CORRECTIONS_REQUESTED", version: 1 });
   });
-  await api.review(fixture.id, "REQUEST_CORRECTIONS", "  Corregir categoría sintética  ");
-  assert.equal(body, JSON.stringify({ decision: "REQUEST_CORRECTIONS", observations: "Corregir categoría sintética" }));
+  await api.review(fixture.id, "REQUEST_CORRECTIONS", "  Corregir categoría sintética  ", 0);
+  assert.equal(body, JSON.stringify({ decision: "REQUEST_CORRECTIONS", observations: "Corregir categoría sintética", expectedVersion: 0 }));
 });
 
 test("adaptador rechaza respuestas incompletas, otra liga y éxito sin resultado confirmado", async () => {
@@ -153,7 +267,7 @@ test("adaptador rechaza respuestas incompletas, otra liga y éxito sin resultado
     await assert.rejects(api.list(leagueId), (e: unknown) => e instanceof ReviewApiError && e.kind === "invalid-response");
   }
   const api = createReviewApi(async () => Response.json(fixture));
-  await assert.rejects(api.review(fixture.id, "APPROVE", ""), /invalid-response/);
+  await assert.rejects(api.review(fixture.id, "APPROVE", "", 0), /invalid-response/);
 });
 
 test("adaptador reconoce 401, 403 y el código exacto de conflicto", async () => {
@@ -162,6 +276,32 @@ test("adaptador reconoce 401, 403 y el código exacto de conflicto", async () =>
     const api = createReviewApi(async () => Response.json({ code }, { status }));
     await assert.rejects(api.detail(fixture.id), (e: unknown) => e instanceof ReviewApiError && e.kind === kind);
   }
+});
+
+test("el controlador envía la versión leída y un conflicto exige consultar otra vez", async () => {
+  let expected: number | undefined;
+  const { controller } = await selected({ detail: async () => ({ ...fixture, version: 7 }),
+    review: async (_id, _action, _observations, version) => { expected = version; throw new ReviewApiError("conflict"); } });
+  await controller.submit("APPROVE"); await controller.confirmApproval();
+  assert.equal(expected, 7);
+  for (const code of ["STALE_AFFILIATION", "CORRECTIONS_PENDING", "SEASON_CLOSED"]) {
+    const api = createReviewApi(async () => Response.json({ code }, { status: 409 }));
+    await assert.rejects(api.review(fixture.id, "APPROVE", "", 7), /conflict/);
+  }
+});
+
+test("la bandeja consulta todas las páginas y rechaza resultados repetidos", async () => {
+  const items = Array.from({ length: 100 }, (_, index) => ({ ...fixture,
+    id: `61000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}` }));
+  const pages: number[] = [];
+  const api = createReviewApi(async (path) => {
+    const page = Number(new URL(String(path), "http://localhost").searchParams.get("page")); pages.push(page);
+    return Response.json({ items: page === 1 ? items : [fixture], page, pageSize: 100, hasMore: page === 1 });
+  });
+  assert.equal((await api.list(leagueId)).length, 101);
+  assert.deepEqual(pages, [1, 2]);
+  const duplicated = createReviewApi(async () => Response.json({ items: [fixture, fixture], page: 1, pageSize: 100, hasMore: false }));
+  await assert.rejects(duplicated.list(leagueId), /invalid-response/);
 });
 
 

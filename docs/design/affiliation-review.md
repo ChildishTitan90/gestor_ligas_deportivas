@@ -1,105 +1,117 @@
 # Bandeja de revisión — PDGLD-61
 
-Implementación de interfaz sobre las rutas acordadas de PDGLD-60. El backend de
-consulta/revisión todavía no está implementado en este checkout: la ruta actual
-`/api/affiliations` solo admite POST de solicitudes. La bandeja real no usa fixtures.
-Un endpoint ausente o una respuesta incompatible muestra error y bloquea acciones.
-No se anuncia una aprobación/corrección antes de validar una respuesta real del
-PATCH con el resultado correspondiente.
+Interfaz de Nick conectada al backend PDGLD-60 en esta rama. La página real
+consulta el servidor con la sesión vigente; los fixtures solo viven en pruebas.
+El contrato del backend está en ../architecture/affiliation-review.md.
 
 ## Uso y estados
 
-`/affiliations/review` conserva el encabezado y los controles de sesión existentes.
-Por ahora solicita el UUID de una liga autorizada: no inventa un catálogo de ligas
-ni deriva autorización de los nombres de roles. Sergio debe confirmar cómo obtener
-las opciones de liga filtradas antes de sustituir este campo por un selector.
-Consultar inicia el GET desde el cliente; el Server Component no llama a su API.
-La lista tiene estados de carga, vacío, error, 401 y acceso denegado 403. El detalle
-se abre dentro de la misma página, con foco en su encabezado. Reutiliza los tokens,
-ActionLink y la lista existente; no incorpora componentes o dependencias externas.
+/affiliations/review conserva el encabezado y los controles de sesión existentes.
+Ofrece ligas obtenidas del servidor con READ vigente para la consulta de liga.
+Un permiso limitado a un club no abre el listado de toda la liga. No se infieren permisos del rol.
+Consultar inicia GET desde el cliente; el Server Component no llama a su API.
+La lista contempla carga, vacío, error, 401 y acceso denegado 403. El detalle
+se abre dentro de la misma página, con foco en su encabezado. Reutiliza los
+tokens, ActionLink y la lista existente, sin dependencias adicionales.
 
-El estado de aprobación `PENDING` se muestra separado de la fase
-`AWAITING_REVIEW` o `CORRECTIONS_REQUESTED`. Pedir correcciones conserva PENDING.
-Las observaciones previas y la nueva captura tienen controles separados. No se
-incluyen CURP, correos ni datos personales de directivos en este modelo mínimo.
-La captura exige observaciones no vacías para correcciones. Aprobar requiere una
-confirmación explícita con club/folio y opción de cancelar. Durante el envío se
-bloquean consultas, cambios de selección y ambas acciones; el controlador también
-impide doble envío. Las acciones dependen de las capacidades devueltas por el
-servidor y se bloquean para solicitudes ya resueltas; esto no autoriza operaciones.
+PENDING se presenta separado de AWAITING_REVIEW/CORRECTIONS_REQUESTED.
+Pedir correcciones conserva PENDING. Las observaciones previas y la nueva
+captura tienen controles separados. El historial muestra correcciones, reenvíos y
+aprobación en orden cronológico, con fecha en America/Mexico_City y observaciones
+como texto escapado. Una solicitud sin eventos indica que no hay revisiones
+registradas. Se retira junto con el detalle ante 401/403. Se presentan los tres
+directivos actuales y sus firmas. Cada consulta explícita solicita el endpoint
+privado de PDGLD-59; el enlace tiene un máximo de 60 segundos, se retira al vencer,
+al cambiar de solicitud o al perder acceso y no se guarda en almacenamiento local.
+La descarga abre una pestaña con noopener/noreferrer y referrerPolicy=no-referrer.
+Un fallo de Storage no anuncia éxito ni crea un enlace.
 
-401 retira los datos y ofrece login. 403 retira los datos y muestra acceso denegado.
-409 con `AFFILIATION_ALREADY_REVIEWED` informa el conflicto y vuelve a consultar
-el detalle y la bandeja; no repite PATCH. Si la actualización falla, se bloquean
-acciones y se ofrece consultar de nuevo. Ante error de red o formato después de
-PATCH no se supone rollback: se pide consultar antes de reenviar. Esa advertencia
-solo se muestra para un PATCH cuyo resultado no pudo confirmarse. Los fallos de
-listado muestran «No se pudieron cargar las solicitudes. Intenta consultar
-nuevamente.»; el detalle tiene un mensaje de lectura separado. Un fallo al
-refrescar la bandeja tras un PATCH confirmado, o al reconsultar tras 409, no se
-presenta como un envío incierto. No hay reintentos
-automáticos de escrituras ni actualizaciones optimistas.
+La captura exige observaciones no vacías de hasta 2000 caracteres para
+correcciones. Aprobar requiere seleccionar explícitamente una o varias categorías
+solicitadas; no hay casillas preseleccionadas. Solo las seleccionadas permitirán
+inscribir equipos. La confirmación muestra sus nombres, club/folio y opción de
+cancelar. Durante el envío se bloquean consultas, selección y acciones; el
+controlador también impide envíos duplicados. Las acciones proceden de
+allowedActions del servidor, calculadas con la misma regla que protege PATCH.
+Las solicitudes con correcciones pendientes, temporada cerrada o ya resueltas
+no ofrecen nuevas acciones de revisión.
 
-## Contrato confirmado con Sergio
+401/403 retiran los datos privados y muestran acceso o denegación.
+Los conflictos AFFILIATION_ALREADY_REVIEWED, STALE_AFFILIATION, CORRECTIONS_PENDING
+y SEASON_CLOSED provocan consulta del detalle y de la bandeja, sin repetir PATCH.
+Ante fallo de red/formato después de una escritura se pide consultar antes de
+reenviar. Un fallo de listado o detalle tiene un mensaje de lectura separado.
+No hay reintentos automáticos de escrituras ni actualizaciones optimistas.
 
-Las rutas acordadas son GET `/api/affiliations?status=PENDING&leagueId=UUID`,
-GET `/api/affiliations/{id}` y PATCH `/api/affiliations/{id}/review`.
-El cuerpo del PATCH está confirmado y se envía exactamente así:
+## Contrato integrado
 
-```json
-{ "decision": "APPROVE" }
-```
-
-```json
-{ "decision": "REQUEST_CORRECTIONS", "observations": "texto" }
-```
-
-Al aprobar no se envían `action` ni `observations`, incluso si hay texto capturado.
-En correcciones se envían observaciones no vacías, recortadas con `trim()`.
-Las únicas decisiones de este alcance son APPROVE y REQUEST_CORRECTIONS.
-REJECTED no es una transición autorizada ni un requisito acordado para PDGLD-61;
-no hay acción de rechazo y el adaptador no la incorpora al modelo de esta interfaz.
-
-## Modelo provisional: confirmar con Sergio
-
-`affiliation-review-model.ts` describe solo presentación. El único adaptador HTTP
-es `affiliation-review-adapter.ts`, con validación de respuestas desconocidas y
-selección explícita de campos. **Los modelos de respuesta no son un contrato definitivo de PDGLD-60.**
-El cuerpo PATCH confirmado se documenta por separado arriba.
-
-Supuestos actuales pendientes de confirmar:
-
-| Operación/campo | Supuesto provisional |
+| Operación | Comportamiento |
 | --- | --- |
-| GET `/api/affiliations?status=PENDING&leagueId=UUID` | Respuesta `{ items: ReviewSummary[] }`, colección completa; falta acordar paginación y totales. No se admite mezclar ligas ni estados. |
-| Resumen | `id`, `leagueId`, `referenceNumber`, `clubName`, `seasonName` (strings; IDs UUID). Confirmar nombres, envoltorios y origen del nombre del club. |
-| Estados | `status`: PENDING/APPROVED; `reviewPhase`: AWAITING_REVIEW/CORRECTIONS_REQUESTED o null para un resultado resuelto. PENDING exige fase explícita. |
-| GET `/api/affiliations/{id}` | Objeto directo de detalle, con los campos del resumen. |
-| Detalle | `uniformColors: string`, `categories: string[]` de nombres y `observations: string \| null`. Confirmar observaciones actuales frente a historial, categorías y datos/documentos adicionales que el revisor necesite. |
-| Capacidades | `allowedActions: (APPROVE \| REQUEST_CORRECTIONS)[]`, calculadas por el servidor. Ausencia/formato incorrecto bloquea la integración; nunca inferir capacidades de SECRETARY. |
-| Límites y concurrencia del PATCH | Confirmar longitud máxima de observaciones y mecanismo de versión si procede, conservando el cuerpo confirmado. |
-| Confirmación PATCH | Respuesta de detalle con mismo ID/liga y APPROVED para aprobar, o PENDING + CORRECTIONS_REQUESTED para correcciones. Confirmar si el servidor devolverá ese DTO u otro acuse y GET posterior. Un 204 o `{ok:true}` no produce éxito con este adaptador. |
-| Errores | 401, 403 y 409 `{code:"AFFILIATION_ALREADY_REVIEWED"}`. Confirmar errores de validación, sesión con cambio obligatorio, no encontrado y reglas de transición PDGLD-60. |
+| GET /api/affiliations?status=PENDING&leagueId=UUID&page=1&pageSize=100 | Respuesta items, page, pageSize, hasMore. El adaptador recorre páginas hasta hasMore=false y rechaza duplicados, páginas incoherentes o mezcla de ligas/estados. No muestra una lista parcial como completa. |
+| Resumen | id, leagueId, referenceNumber, clubName, seasonName, status, reviewPhase, version. El nombre anual del club usa el nombre operativo como respaldo para registros antiguos sin captura. |
+| GET /api/affiliations/{id} | Añade uniformColors, categories con nombres, observations actuales, allowedActions, officers e history. Cada evento valida id, action, occurredAt ISO y observations. El adaptador conserva solo los campos de presentación del historial. |
+| PATCH /api/affiliations/{id}/review | decision, expectedVersion y authorizedCategoryIds para APPROVE; observations solo para REQUEST_CORRECTIONS. El servidor exige permiso, ámbito, asignación, separación de funciones, estado, pertenencia de categorías y versión. |
+| Respuesta PATCH | Resumen con el ID, estado/fase de la decisión y versión incrementada. El adaptador valida ese acuse y consulta nuevamente el detalle con permisos vigentes. Un 204 o un simple ok no anuncia éxito. |
+| POST /api/affiliations/signatures/download | signatureFileId del detalle autorizado. El servidor vuelve a comprobar READ y contexto antes y después de consultar Storage. La UI valida HTTPS, ruta de firma privada y vigencia máxima de 60 segundos. |
 
-El motor y las reglas de PDGLD-60 deben comprobar identidad, permisos, alcance,
-estado y concurrencia en cada operación. Una capacidad presentada, un UUID de liga
-o una concesión configurada no sustituye esas comprobaciones. No se modificó ese
-backend ni se añadieron permisos, endpoints o migraciones.
+## Captura de correcciones
 
-## Verificación sin base ni servicios
+`/affiliations/new` ofrece las solicitudes propias con correcciones pendientes,
+incluso con UPDATE sin CREATE. El enlace abre `/affiliations/{id}/correct`: exige
+READ, UPDATE, delegado del club, solicitante original, temporada abierta y fase
+de corrección, todo comprobado en servidor. Precarga datos, categorías, motivo,
+versión y referencias de las firmas registradas; permite conservarlas o reemplazarlas.
+
+El formulario reutiliza la clave original y envía PATCH /api/affiliations/{id}/resubmit
+con expectedVersion. Solo un acuse válido confirma el folio y la nueva versión.
+Un 409 obliga a consultar nuevamente sin incrementar la versión ni repetir la
+escritura automáticamente. El resultado incierto conserva la captura congelada
+y ofrece volver a consultar. No se permite convertir una corrección en un alta nueva.
+
+Ejemplos:
+
+```json
+{ "decision": "APPROVE", "expectedVersion": 0, "authorizedCategoryIds": ["UUID-de-categoria-solicitada"] }
+```
+
+```json
+{ "decision": "REQUEST_CORRECTIONS", "observations": "Precisar colores.", "expectedVersion": 0 }
+```
+
+La versión procede del detalle abierto. Ante un conflicto, el usuario revisa
+nuevamente antes de confirmar; el cliente no incrementa la versión para reenviar.
+Las observaciones se recortan con trim(). APPROVE no envía observations.
+No se implementa rechazo definitivo ni se añade REJECTED al modelo de esta vista.
+Para un resultado APPROVED, reviewPhase es null.
+
+## Verificación
 
 ```sh
 npm run test:affiliation-review
+npm run test:affiliations
 npm run typecheck
 npm run lint
 ```
 
-Los fixtures sintéticos están únicamente en `affiliation-review.test.tsx`, sin ruta
-preview ni fallback de producción. Las pruebas de interacción ejercitan el mismo
-controlador usado por la vista (consultar/seleccionar/observar/confirmar/cancelar,
-concurrencia de envío y respuestas tardías), el adaptador HTTP y fragmentos del HTML
-mediante React server rendering. Son llamadas a métodos del controlador, no clics
-ni eventos DOM. No verifican foco efectivo, teclado, hidratación ni accesibilidad
-en un navegador. No son pruebas de navegador ni de integración con
-PDGLD-60. No hacen peticiones reales ni escriben en la base. El comando no está
-incorporado a CI por este ticket; no afirmar que `test:ci` ejecuta esta suite.
+test:affiliation-review comprueba el controlador, el adaptador y fragmentos HTML
+con React server rendering. Sus fixtures son sintéticos, sin rutas de preview ni
+fallback de producción. Incluye versión obsoleta, datos privados tras 401/403,
+confirmación/cancelación, envío duplicado, respuestas tardías y paginación.
+Esta suite se incorporó al job Aplicación de CI; test:ci sigue comprobando
+controles de migración.
+
+test:affiliations prueba además el adaptador y controlador de producción contra
+HTTP/PostgreSQL locales temporales, incluida carga de la página, correcciones,
+reenvío, conflicto de versión y aprobación. Forma parte de test:auth.
+Estas pruebas no sustituyen clics, teclado, foco efectivo e hidratación en un
+navegador ni la validación del flujo de archivos privados de PDGLD-59.
+
+El 24/10/2026 pasaron 18 pruebas de la bandeja y 24 resultados de integración
+(incluidos contenedores de pruebas), sin fallos. El runner detuvo su servidor y
+eliminó la base temporal al terminar. Inicialmente se verificó con Node 24.21.0.
+Posteriormente, con la versión 24.22.1 LTS autorizada por Víctor, se repitió
+test:affiliations: 24 resultados aprobados y cero fallos. El build mantiene el fallo
+de creación del proceso CSS de Turbopack; actualizar Node no lo resolvió.
+
+La integración posterior con PDGLD-59 y el recorrido real en navegador se documentan
+en [la evidencia de PDGLD-60](../validation/PDGLD-60-integracion-afiliaciones.md).

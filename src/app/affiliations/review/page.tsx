@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { AccountHeader } from "@/components/layout/account-header";
 import { ActionLink } from "@/components/ui/action-link";
 import { getCurrentAccount } from "@/features/auth/server/account-presentation";
+import { getAffiliationReviewLeagueOptions } from "@/features/clubs/server/affiliation-review-service";
 
 export const metadata: Metadata = {
   title: "Revisión de afiliaciones",
@@ -14,6 +15,7 @@ export default async function AffiliationReviewPage() {
 
   if (!current) redirect("/login");
   if (current.mustChangePassword) redirect("/change-password");
+  const leagues = await getAffiliationReviewLeagueOptions();
 
   return (
     <>
@@ -39,7 +41,7 @@ export default async function AffiliationReviewPage() {
             Consulta y revisión de solicitudes de afiliación de clubes.
           </p>
 
-          <AffiliationReviewWorkspace />
+          <AffiliationReviewWorkspace leagues={leagues} />
         </section>
       </main>
     </>
