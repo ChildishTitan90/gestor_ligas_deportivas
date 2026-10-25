@@ -74,8 +74,41 @@ cierran el servidor y eliminan esa base. La demostración verificada fue limpiad
   modificaron Next/Tailwind para ocultarlo. Requiere resolución o evidencia de
   compilación exitosa en el entorno acordado y CI aprobado.
 - Revisión independiente del diff integrado, CI remoto y aceptación en entorno
-  de pruebas, incluida la configuración privada de Storage y la descarga positiva.
+  de pruebas. La descarga positiva y el vencimiento del proveedor se comprobaron
+  el 25/10/2026, como se describe abajo.
 - Validación externa de las reglas pendientes de PV-02, conforme al padre.
 - Consolidar los cambios y la integración local en commit y PR hacia develop.
 
 No se declara terminada HU01-02 ni se cambia Jira por esta evidencia local.
+
+## Descarga con Storage real — 25/10/2026
+
+Se configuraron localmente las tres variables de servidor del bucket usado para
+las pruebas. La consulta de configuración confirmó acceso autorizado, bucket privado
+y límite de tamaño válido. No se registraron valores de credenciales ni enlaces.
+
+Se ejecutó `npm run verify:signature-download -- --test-storage` contra el
+proveedor configurado. El comprobador creó un PNG ficticio con UUID nuevo dentro
+del prefijo de prueba definido en el script y verificó:
+
+- Descarga HTTP 200 con tipo PNG, tamaño y SHA-256 iguales al contenido creado.
+- Rechazo del acceso sin token y del acceso por ruta pública.
+- Rechazo del mismo enlace después de esperar su vigencia de 60 segundos más
+  cinco segundos de margen.
+- Eliminación del único objeto ficticio creado; salida final aprobada y código 0.
+
+No se modificó PostgreSQL ni se consultaron archivos existentes. Esto verifica el
+adaptador y la privacidad/vigencia del proveedor. La autorización de usuarios por
+sesión y contexto corresponde a las pruebas HTTP y de autorización ya registradas;
+esta ejecución de CLI no sustituye una prueba de descarga positiva en navegador
+con NextAuth ni una aceptación en producción.
+
+El comando es optativo y requiere `--test-storage`. El CI solo ejecuta las tres
+pruebas del comprobador con proveedor simulado; no carga archivos en Supabase.
+La suite test:signatures pasó de 39 a 42 pruebas, sin fallos; lint y typecheck
+también pasaron. `.env.example` documenta las variables sin valores reales.
+
+Al revisar GitHub no se encontró un PR de la rama de PDGLD-60; no hay resultado de
+CI remoto de esta entrega ni aprobación independiente confirmados. El build local
+mantiene el fallo de Turbopack registrado el 24/10; no se repitió sin cambios de
+Next/configuración que justificaran otro intento.

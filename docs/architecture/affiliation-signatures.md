@@ -64,6 +64,8 @@ Variables necesarias:
 
 La credencial permanece exclusivamente en el servidor.
 No debe utilizar el prefijo NEXT_PUBLIC_ ni incluirse en Git.
+Las variables se documentan como marcadores en `.env.example`. El valor de la
+clave debe copiarse completo, en una sola línea y sin espacios internos.
 
 NextAuth continúa autenticando a los usuarios. Supabase Storage
 no sustituye las comprobaciones de permisos de la aplicación.
