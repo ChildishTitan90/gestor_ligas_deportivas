@@ -1,8 +1,8 @@
 # Inscripción y consulta de equipos — PDGLD-63
 
-Primera entrega: componente presentacional de consulta y modelo de presentación.
-No hay integración HTTP, formulario de inscripción ni página real conectada en esta
-entrega. Los datos sintéticos existen únicamente en el archivo de pruebas.
+Avance desde 91422ba: lista y formulario presentacionales con modelos de presentación.
+No hay integración HTTP ni página real conectada en esta entrega. Los datos
+sintéticos existen únicamente en archivos de pruebas.
 
 ## Requisitos confirmados de PDGLD-12
 
@@ -52,8 +52,9 @@ mecanismo específico de correcciones autorizadas; no se modifica en este ticket
 **PDGLD-62 — Víctor:** definir contratos de consultas/inscripción y opciones
 filtradas; obtener identidad del servidor; validar permisos, alcance, relaciones y
 reglas; garantizar atomicidad y concurrencia; traducir conflictos de restricciones;
-conservar historial y estado inicial REGISTERED. Determinar cómo crear o reutilizar
-el equipo permanente. Las respuestas deben exponer solo los datos necesarios.
+conservar historial y estado inicial REGISTERED. Según la propuesta recibida, un
+equipo nuevo y su inscripción se crearán en una única transacción de PDGLD-62.
+Las respuestas deben exponer solo los datos necesarios.
 
 El catálogo agrupa clubes y equipos en `clubs`: existen las acciones CREATE y READ.
 Su correspondencia con cada operación debe integrarse con Víctor, sin crear un
@@ -67,8 +68,9 @@ temporadas, y posteriormente implementar captura con opciones del servidor,
 validación de campos, bloqueo de envíos duplicados y tratamiento de errores. No
 duplicar reglas de negocio ni decisiones de autorización en el navegador.
 
-Esta entrega solo implementa `TeamRegistrationList` y su modelo. No contiene
-botones de activación, baja o edición, formularios, peticiones ni adaptador HTTP.
+Esta entrega implementa `TeamRegistrationList`, `TeamRegistrationForm` y sus
+modelos/controlador de presentación. No contiene botones de activación, baja o
+edición, peticiones ni adaptador HTTP.
 
 ## Presentación implementada
 
@@ -87,26 +89,99 @@ Reutiliza los tokens existentes `surface`, `border`, `primary`, `muted` y `soft`
 los patrones de tarjetas y espaciado del proyecto. Los estados tienen texto y no
 se comunican solo mediante color. No se introduce un control genérico innecesario.
 
+## Propuesta recibida para integrar con PDGLD-62
+
+Se contempla seleccionar un equipo existente o crear uno nuevo cuando el servidor
+lo permita. Equipo nuevo e inscripción se crearán transaccionalmente en PDGLD-62.
+El resultado inicial será `REGISTERED` («Inscrito»), sin activación automática.
+Se conserva una inscripción y un único grupo por equipo/temporada.
+
+Las siguientes **rutas son propuestas**, no contratos HTTP definitivos:
+
+- GET `/api/team-enrollments/options`
+- GET `/api/team-enrollments?clubId=...&seasonId=...`
+- POST `/api/team-enrollments`
+
+Éxito previsto del alta: HTTP 201. Errores previstos: 400/401/403/409 con código
+controlado. No se han acordado aquí el cuerpo JSON exacto, los DTO de respuesta,
+los nombres de códigos ni los parámetros de las opciones. No se implementa un
+adaptador POST con estos supuestos.
+
+## Formulario presentacional
+
+`TeamRegistrationForm` recibe `TeamRegistrationFormOptions` y un callback async
+`onSubmit`. Las opciones agrupan clubes, sus temporadas, equipos disponibles,
+categorías y grupos. `canCreateTeam` es una capacidad de presentación por
+club/temporada proporcionada por quien integre la vista con el servidor. No se
+infiere del rol ni reemplaza la autorización del backend. Estos modelos anidados
+son internos de UI, no el formato supuesto de GET `/options`.
+
+Cambiar club limpia temporada, modo, equipo/nombre, categoría y grupo. Cambiar
+temporada limpia todos sus dependientes. Cambiar modo o equipo limpia categoría
+y grupo; cambiar categoría limpia el grupo. Actualizar las opciones elimina IDs
+que ya no están disponibles y retira el modo nuevo si desaparece su capacidad.
+Un grupo ajeno a la categoría/temporada nunca se conserva ni se entrega al callback.
+El nombre solo se muestra y se requiere en modo nuevo; se descarta en modo existente.
+
+La validación comprueba pertenencia a las opciones recibidas y nombre no vacío;
+no decide reglas de elegibilidad, duplicados ni autorización. Cada error está
+asociado a su campo y el envío inválido intenta enfocar el primero. Mientras el
+callback está pendiente se bloquean cambios y envíos concurrentes, tanto en los
+controles como en el controlador. El callback recibe una captura discriminada:
+identificadores de ámbito/categoría/grupo y `team` existente por ID o nuevo por
+nombre recortado. **No es el JSON del futuro POST**: no incluye estado ni activa
+el equipo. El futuro adaptador mapeará esa captura al contrato confirmado.
+
+El callback devuelve un resultado **tipado interno**, independiente del futuro
+DTO HTTP:
+
+- `confirmed`: el integrador confirma persistencia con `teamId`, `seasonTeamId` y
+  `status: "REGISTERED"`. Solo entonces se muestra «Inscripción confirmada como
+  Inscrito». Para equipo existente, la identidad confirmada debe coincidir.
+- `correctable`: rechazo confirmado **sin creación**, con errores por campo
+  opcionales. Conserva la captura y permite corregir y volver a enviar.
+- `unconfirmed`: se desconoce el resultado. También se usa ante una excepción,
+  respuesta ausente o confirmación incompleta/incompatible del callback.
+
+Un resultado incierto bloquea nuevos envíos **y cambios de captura**; conserva los
+valores y pide verificar la inscripción antes de reenviar. Cambiar opciones o el
+callback no elimina ese bloqueo. No hay botón de reintento ni de desbloqueo ficticio.
+La futura integración deberá consultar el estado real y solo preparar un nuevo
+formulario cuando haya resuelto esa incertidumbre; refrescar props o volver a montar
+la UI por sí solo no verifica persistencia. PDGLD-62 sigue siendo responsable de la
+idempotencia. Una confirmación explícita también bloquea repetir esa inscripción en
+la instancia actual. No hay activación automática.
+
+El botón se deshabilita cuando faltan opciones indispensables de club/temporada,
+equipo existente en ese modo, categorías o grupos. Se muestran avisos específicos
+si no hay temporadas, categorías, equipos existentes o grupos. Una categoría sin
+grupos no permite enviar aunque otra sí los tenga. «Crear equipo» permanece
+seleccionable si la capacidad lo permite, incluso sin equipos existentes; el modo
+nuevo no exige un equipo previo, pero sí categoría y grupo disponibles. La validación
+del controlador también impide invocar el callback con selecciones incompletas.
+
+Los errores HTTP, confirmación de persistencia y actualización de la lista siguen
+pendientes del contrato de PDGLD-62. Este resultado interno no define códigos HTTP,
+endpoints ni presume que todo callback resuelto equivalga a una escritura confirmada.
+
 ## Preguntas de integración pendientes
 
-1. ¿El alta crea equipo e inscripción atómicamente, reutiliza un equipo existente
-   o admite ambas opciones? ¿Quién genera la referencia y cómo se evita duplicar?
+1. ¿Cuál es el cuerpo JSON exacto para equipo existente y nuevo? ¿Quién genera la
+   referencia? ¿Cómo se distingue `teamId` de `seasonTeamId` en la respuesta 201?
 2. ¿Qué estado de afiliación permite inscribir? ¿Las categorías deben estar entre
    las solicitadas/aprobadas del club? ¿Qué temporadas admiten inscripciones?
-3. ¿Qué entrada usará el servidor (servicio, Action o endpoint), con qué métodos,
-   rutas si procede, campos y envoltorios? No hay endpoints acordados aquí.
-4. ¿Cómo se obtienen clubes, temporadas, equipos reutilizables, categorías y grupos
-   autorizados y relacionados? ¿Qué ocurre cuando una opción deja de ser válida?
-5. ¿Qué respuesta distingue `teamId`, `seasonTeamId`, `categoryId` y
-   `seasonCategoryId`? ¿Qué campos/capacidades recibirá la interfaz?
-6. ¿Qué códigos/estados HTTP, si procede, distinguen validación, falta de sesión,
-   acceso denegado, inscripción duplicada, grupo inválido y temporada cerrada?
-7. ¿Qué mecanismo de reintento/idempotencia y consulta evita duplicar una
+3. ¿Qué parámetros y DTO de respuesta tendrá GET `/options`? ¿Cómo se expresan
+   capacidades, equipos reutilizables y relaciones categoría/grupo por ámbito?
+4. ¿Qué ocurre cuando una opción deja de ser válida durante la captura o el envío?
+   ¿El identificador de categoría enviado será `categoryId` o `seasonCategoryId`?
+5. ¿Cuáles son los códigos controlados y errores por campo de 400/401/403/409?
+   ¿Qué respuestas representan duplicado, grupo inválido o temporada cerrada?
+6. ¿Qué mecanismo de reintento/idempotencia y consulta evita duplicar una
    inscripción cuando no puede confirmarse el resultado de un envío?
-8. ¿Qué filtros, orden, paginación y permisos aplican a la consulta histórica?
+7. ¿Qué filtros, orden, paginación y permisos aplican a la consulta histórica?
 
-Estas preguntas no son contratos confirmados ni autorizan implementar endpoints,
-permisos, restricciones nuevas o reglas de activación.
+La propuesta y estas preguntas no autorizan inventar payloads, endpoints
+implementados, permisos nuevos, restricciones adicionales o reglas de activación.
 
 ## Verificación
 
@@ -114,7 +189,13 @@ permisos, restricciones nuevas o reglas de activación.
 `renderToStaticMarkup`, siguiendo los patrones existentes. Comprueba campos e
 identidades, vacío, varias inscripciones del mismo equipo entre temporadas,
 varios equipos en una temporada y traducción de los tres estados sin acciones.
-Los fixtures solo se declaran en `team-registration-list.test.tsx`; ninguna página
+`npm run test:team-registration-form` comprueba dependencias de selectores, ambos
+modos, capacidad recibida/revocada, validación, falta de opciones, errores
+corregibles y bloqueo persistente de resultados inciertos con el mismo
+controlador de la vista y renderizado estático. No son clics DOM ni pruebas de
+foco real en navegador.
+
+Los fixtures solo se declaran en los archivos `team-registration-*.test.tsx`; ninguna página
 real los importa. No se usa base de datos ni HTTP. Son pruebas de renderizado,
 no de navegador, accesibilidad completa o integración con PDGLD-62.
 
