@@ -177,8 +177,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments'].includes(arg)))
-    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --authorization | --benchmark-options | --affiliations | --team-enrollments].');
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments'].includes(arg)))
+    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments].');
   if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
   }
@@ -197,6 +197,12 @@ try {
     NEXT_TELEMETRY_DISABLED: '1', AUTH_TEST_RUN: '1', AUTH_IDLE_TIMEOUT_MINUTES: '30',
     AUTH_MAX_FAILED_ATTEMPTS: '5', AUTH_LOCKOUT_MINUTES: '15', NODE_ENV: 'development' };
   delete childEnv.NEXTAUTH_URL_INTERNAL;
+  // Las suites automatizadas nunca usan el Storage real configurado en .env.
+  // La demostración manual conserva su configuración explícita.
+  if (!process.argv.includes('--demo')) {
+    childEnv.SUPABASE_URL = 'https://storage.example.test';
+    childEnv.SUPABASE_STORAGE_SERVER_KEY = 'test-only-no-real-storage';
+  }
   if (process.argv.includes('--benchmark-options')) {
     childEnv.ACCOUNT_OPTIONS_METRICS = '1';
     childEnv.NODE_OPTIONS = `${childEnv.NODE_OPTIONS ?? ''} --import=${new URL('../tests/integration/account-options-metrics.mjs', import.meta.url).href}`.trim();
@@ -210,16 +216,31 @@ try {
   }
   stage = 'inicio de Next.js';
   await startServer();
-  if (process.argv.includes('--demo')) {
+  if (process.argv.includes('--demo') || process.argv.includes('--affiliation-demo')) {
     stage = 'carga de datos sintéticos';
     const client = new pg.Client({ connectionString: databaseUrl });
     await client.connect();
-    try { await createAuthFixtures(client); } finally { await client.end(); }
+    try {
+      const users = await createAuthFixtures(client);
+      if (process.argv.includes('--affiliation-demo')) {
+        const { prepareAffiliationReviewDemo } = await import('../tests/integration/affiliation-review-demo.mjs');
+        const demo = await prepareAffiliationReviewDemo(client, databaseUrl, users);
+        console.log(`PDGLD-60: contexto sintético preparado; solicitud ${demo.affiliationId}.`);
+      }
+    } finally { await client.end(); }
     console.log(`Demostración local: ${baseUrl}/login`);
     console.log('Usa los datos sintéticos documentados. Enter o Ctrl+C detiene el servidor y elimina esta base temporal.');
     await new Promise((resolve) => {
+      const finish = () => {
+        process.stdin.removeListener('data', finish);
+        process.stdin.removeListener('end', finish);
+        process.stdin.pause();
+        resolve();
+      };
+      if (process.stdin.readableEnded) { resolve(); return; }
+      process.stdin.once('data', finish);
+      process.stdin.once('end', finish);
       process.stdin.resume();
-      process.stdin.once('data', () => { process.stdin.pause(); resolve(); });
     });
   } else if (process.argv.includes('--team-enrollments')) {
     stage = 'pruebas HTTP de inscripción PDGLD-62/64';
@@ -273,7 +294,7 @@ try {
     'Las pruebas solo aceptan PostgreSQL loopback en puertos 5432/5433.',
     'DIRECT_URL contiene parámetros no permitidos para pruebas locales.',
     'Detén el servidor npm run dev antes de ejecutar estas pruebas.',
-    'Uso: node scripts/test-auth.mjs [--demo | --authorization | --benchmark-options | --affiliations | --team-enrollments].',
+    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments].',
     'Next.js no quedó disponible para las pruebas locales.',
   ]);
   console.error(safeMessages.has(error.message) ? error.message : `No se completó la fase: ${stage}.`);

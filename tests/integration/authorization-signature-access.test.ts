@@ -10,6 +10,7 @@ import {
   assertSignatureUploadAccess,
   SignatureAccessError,
 } from "../../src/features/clubs/server/signature-access";
+import { assertSignatureDownloadAccess } from "../../src/features/clubs/server/signature-download-service";
 
 test("PDGLD-59: firmas limitadas al club y liga autorizados", async () => {
   // No permitir que esta prueba use una base habitual o remota.
@@ -184,6 +185,42 @@ test("PDGLD-59: firmas limitadas al club y liga autorizados", async () => {
             error instanceof AuthorizationError &&
             error.status === 403,
         );
+
+        // UPDATE permite reemplazar una firma únicamente para corregir la
+        // solicitud propia. No habilita cargas de una afiliación nueva.
+        const update = await tx.permissions.upsert({ where: { module_action: { module: "clubs", action: "UPDATE" } },
+          update: {}, create: { module: "clubs", action: "UPDATE" } });
+        await tx.role_permissions.upsert({ where: { role_id_permission_id: { role_id: role.id, permission_id: update.id } },
+          update: { context_only: true }, create: { role_id: role.id, permission_id: update.id, context_only: true } });
+        await assert.rejects(assertSignatureUploadAccess(tx, actor.id, { clubId: ownClub.id, seasonId: seasonA.id }), AuthorizationError);
+        const correction = await tx.club_affiliations.create({ data: { club_id: ownClub.id, season_id: seasonA.id,
+          league_id: leagueA.id, requested_by: actor.id, reference_number: `pd60-${suffix}`,
+          status: "PENDING", uniform_colors: "Blanco sintético", review_reason: "Reemplazar la firma sintética." } });
+        assert.equal((await assertSignatureUploadAccess(tx, actor.id, { clubId: ownClub.id, seasonId: seasonA.id })).clubId, ownClub.id);
+        const otherPerson = await tx.people.create({ data: { first_name: "Otro solicitante sintético", paternal_surname: "Prueba" } });
+        const otherActor = await tx.users.create({ data: { person_id: otherPerson.id, username: `pd60-${suffix}`,
+          email: `pd60-${suffix}@example.test`, password_hash: "fixture-without-login", must_change_password: false } });
+        await tx.club_affiliations.update({ where: { id: correction.id }, data: { requested_by: otherActor.id } });
+        await assert.rejects(assertSignatureUploadAccess(tx, actor.id, { clubId: ownClub.id, seasonId: seasonA.id }), AuthorizationError);
+        await tx.club_affiliations.update({ where: { id: correction.id }, data: { requested_by: actor.id } });
+        await tx.club_affiliations.update({ where: { id: correction.id }, data: { review_reason: null } });
+        await assert.rejects(assertSignatureUploadAccess(tx, actor.id, { clubId: ownClub.id, seasonId: seasonA.id }), AuthorizationError);
+        await tx.club_affiliations.update({ where: { id: correction.id }, data: { review_reason: "Firma pendiente." } });
+        await tx.role_permissions.delete({ where: { role_id_permission_id: { role_id: role.id, permission_id: update.id } } });
+        await assert.rejects(assertSignatureUploadAccess(tx, actor.id, { clubId: ownClub.id, seasonId: seasonA.id }), AuthorizationError);
+
+        const fileId = randomUUID();
+        const storageKey = `affiliation-signatures/v1/${ownClub.id}/${seasonA.id}/${actor.id}/PRESIDENT/${fileId}`;
+        await tx.files.create({ data: { id: fileId, storage_key: storageKey, uploaded_by: actor.id,
+          original_name: "firma-sintetica.png", mime_type: "image/png", size_bytes: 100, sha256: "a".repeat(64) } });
+        const read = await tx.permissions.upsert({ where: { module_action: { module: "clubs", action: "READ" } },
+          update: {}, create: { module: "clubs", action: "READ" } });
+        await tx.role_permissions.upsert({ where: { role_id_permission_id: { role_id: role.id, permission_id: read.id } },
+          update: { context_only: true }, create: { role_id: role.id, permission_id: read.id, context_only: true } });
+        assert.equal((await assertSignatureDownloadAccess(tx, actor.id, fileId)).storageKey, storageKey);
+        await assert.rejects(assertSignatureDownloadAccess(tx, otherActor.id, fileId), AuthorizationError);
+        await tx.role_permissions.delete({ where: { role_id_permission_id: { role_id: role.id, permission_id: read.id } } });
+        await assert.rejects(assertSignatureDownloadAccess(tx, actor.id, fileId), AuthorizationError);
 
         // Revertir todos los datos y ajustes creados por esta prueba.
         throw rollback;

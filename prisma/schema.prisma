@@ -278,6 +278,7 @@ model club_affiliations {
   reviewed_by                                 String?                @db.Uuid
   reviewed_at                                 DateTime?              @db.Timestamptz(6)
   review_reason                               String?
+  review_version                              Int                    @default(0)
   signed_affiliation_file_id                  String?                @db.Uuid
   club_name                                   String?
   submission_key                              String?                @db.Uuid

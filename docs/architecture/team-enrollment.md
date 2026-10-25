@@ -12,9 +12,11 @@ Se implementan inscripción `REGISTERED` (texto de interfaz **INSCRITO**), opcio
 y consulta. No se implementan las pantallas de PDGLD-63, ni aprobación de
 afiliación, activación de equipos, finanzas, jugadores o franquicias.
 
-En `origin/develop` revisado, PDGLD-60 no expone servicio/endpoint real de
-aprobación. La bandeja de PDGLD-61 tiene un adaptador separado; su presencia y el
-estado de Jira no demuestran que el backend de aprobación esté integrado.
+Actualización 25/10/2026: se incorporó localmente `origin/develop` en `a9c6810`
+(PR #28). PDGLD-60 ya expone consulta, aprobación, correcciones y reenvío reales.
+Se conserva su versión de revisión y su integración con captura y firmas.
+La aprobación todavía no registra autorización individual de categorías; esa
+dependencia impide dar por completo el recorrido hasta inscripción.
 
 ## Categorías solicitadas y autorizadas
 
@@ -25,13 +27,24 @@ El servicio exige afiliación `APPROVED` y autorización explícita de la catego
 de esa temporada. `clubs.status=ACTIVE` es una condición operativa de alcance,
 no una aprobación.
 
-Este es el contrato de persistencia propuesto para integrar PDGLD-60: su operación
-real debe comprobar Secretaría, `clubs:APPROVE`, alcance y categorías elegidas;
-registrar responsable/fecha de las autorizadas y auditar el conjunto en su
-transacción. Esta entrega solo **consume** esas marcas; no proporciona un camino
-para establecerlas. Las solicitudes existentes permanecen sin autorización hasta
-su revisión explícita. La compatibilidad debe validarse con la implementación de
-PDGLD-60 antes de dar el flujo por integrado.
+El contrato real recibido es `GET /api/affiliations/{id}` y
+`PATCH /api/affiliations/{id}/review` con
+`{ decision: "APPROVE", expectedVersion: detalle.version }`. Verifica Secretaría,
+`clubs:APPROVE`, alcance, separación de funciones, estado y versión; aprueba y
+audita la afiliación. **No escribe** `authorized_by`/`authorized_at` ni recibe una
+selección de categorías autorizadas. La categoría solicitada sigue sin autorización.
+
+Checo coordina la autorización individual de categorías y su contrato real. Si
+necesita selección en pantalla, debe acordarla con Nick. No se agrega una selección,
+una aprobación alternativa ni un backfill en esta integración. La inscripción
+solo **consume** las dos marcas, conserva `CATEGORY_NOT_AUTHORIZED` si faltan y
+mantiene vacías las opciones de categorías no autorizadas.
+
+PDGLD-64 ejecuta solicitud y aprobación reales con sesiones de delegado y secretario,
+leyendo `expectedVersion` del detalle vigente. Comprueba el rechazo posterior por
+categoría no autorizada y que aprobar no activa equipos previamente REGISTERED.
+Los positivos de inscripción usan otra temporada con fixtures explícitamente
+autorizados; no equivalen a haber completado la autorización real pendiente.
 
 ## HTTP para Nick
 
@@ -165,8 +178,11 @@ evento manual ni se sobrescribe historial anual.
 
 La migración nueva `20261025010000_pdgld62_team_enrollment` es aditiva, no crea
 tablas ni modifica baseline/RLS. Para recibirla, seguir `docs/migraciones.md` con
-`migrate deploy` y `generate` en Docker local. No se ha aplicado a desarrollo ni
-a Supabase por esta entrega; las verificaciones usan bases desechables.
+`migrate deploy` y `generate` en Docker local. El 25/10/2026 se aplicaron las
+migraciones pendientes en `gestor_ligas_dev` de `localhost:5433`, tras verificar
+el destino: los conteos de clubes, equipos, inscripciones, afiliaciones y auditoría
+se conservaron. También se reconstruyen en bases de prueba desechables. No se
+modificó Supabase ni se editaron migraciones compartidas.
 
 En Supabase conserva las políticas/ACL existentes de `season_teams` y
 `club_affiliation_categories` (esta última sin acceso a roles API). No concede

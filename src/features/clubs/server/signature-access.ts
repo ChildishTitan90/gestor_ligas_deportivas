@@ -7,6 +7,7 @@ import { requireOperationalUser } from "@/server/auth/session";
 import {
   assertPermission,
   AuthorizationError,
+  lockAuthorization,
 } from "@/server/auth/authorization";
 
 const signatureContextSchema = z.strictObject({
@@ -38,12 +39,25 @@ export async function assertSignatureUploadAccess(
 
   const context = parsed.data;
 
+  await lockAuthorization(tx);
+  // El modo procede de PostgreSQL, nunca de un permiso elegido por el cliente.
+  const affiliations = await tx.$queryRaw<{
+    status: string; review_reason: string | null; requested_by: string;
+  }[]>`
+    SELECT status, review_reason, requested_by FROM sports_management.club_affiliations
+    WHERE club_id = ${context.clubId}::uuid AND season_id = ${context.seasonId}::uuid
+    FOR SHARE
+  `;
+  const affiliation = affiliations[0];
+  const correcting = affiliation?.status === "PENDING" && !!affiliation.review_reason;
+  if (correcting && affiliation.requested_by !== actorId) throw new AuthorizationError();
+
   // Para una afiliación nueva se autoriza por club.
   // El contexto club+temporada del guard presupone una afiliación existente.
   const grants = await assertPermission(tx, actorId, {
     module: "clubs",
-    action: "CREATE",
-    context: { clubId: context.clubId },
+    action: correcting ? "UPDATE" : "CREATE",
+    context: { clubId: context.clubId, ...(correcting ? { seasonId: context.seasonId } : {}) },
   });
 
   const delegate = await tx.roles.findUniqueOrThrow({

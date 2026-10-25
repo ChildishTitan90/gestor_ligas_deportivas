@@ -7,6 +7,7 @@ import {
 } from "../schemas";
 import { affiliationSubmissionSchema } from "../affiliation-submission";
 import { submitAffiliationRequest } from "../submit-affiliation.client";
+import { resubmitAffiliationRequest } from "../resubmit-affiliation.client";
 import {
   createSignatureUploadTask,
   SignatureUploadClientError,
@@ -52,11 +53,13 @@ export function AffiliationForm(props: AffiliationFormProps) {
   // Cambiar de cuenta, club o temporada descarta el estado anterior.
   const identity = context
     ? [
-      context.actorId,
-      context.clubId,
-      context.seasonId,
-      context.storageOrigin,
-    ].join(":")
+        context.actorId,
+        context.clubId,
+        context.seasonId,
+        context.storageOrigin,
+        props.correction?.id ?? "new",
+        props.correction?.expectedVersion ?? "",
+      ].join(":")
     : "capture-only";
 
   return <AffiliationFormContent key={identity} {...props} />;
@@ -66,6 +69,7 @@ function AffiliationFormContent({
   categories,
   initialValues,
   submissionContext,
+  correction,
 }: AffiliationFormProps) {
   const prefix = useId();
   const formRef = useRef<HTMLFormElement>(null);
@@ -76,13 +80,15 @@ function AffiliationFormContent({
   const [errors, setErrors] = useState<AffiliationFieldErrors>({});
   const [signatures, setSignatures] = useState<
     Partial<Record<Office, SignatureState>>
-  >({});
+  >(() => Object.fromEntries(Object.entries(correction?.signatureFileIds ?? {}).map(([office, id]) =>
+    [office, { id, message: "Firma registrada. Puedes conservarla o reemplazarla." }])));
   const [busy, setBusy] = useState(false);
   const [frozen, setFrozen] = useState(false);
   const [finished, setFinished] = useState(false);
   const [canCorrect, setCanCorrect] = useState(false);
   const [checked, setChecked] = useState(false);
   const [message, setMessage] = useState("");
+  const [needsReload, setNeedsReload] = useState(false);
 
   const categoryOptions = categories.filter(
     (option, index, all) =>
@@ -300,7 +306,7 @@ function AffiliationFormContent({
 
         const submission = affiliationSubmissionSchema.safeParse({
           ...capture.data,
-          submissionKey: crypto.randomUUID(),
+          submissionKey: correction?.submissionKey ?? crypto.randomUUID(),
           clubId: submissionContext.clubId,
           seasonId: submissionContext.seasonId,
           officers: {
@@ -318,18 +324,18 @@ function AffiliationFormContent({
         }
 
         // Conservar una copia estable del envío y su clave.
-        pendingSubmission.current = submission.data;
+        pendingSubmission.current = correction ? { ...submission.data, expectedVersion: correction.expectedVersion } : submission.data;
         setFrozen(true);
       }
 
-      const outcome = await submitAffiliationRequest(
-        pendingSubmission.current,
-      );
+      const outcome = correction
+        ? await resubmitAffiliationRequest(correction.id, pendingSubmission.current)
+        : await submitAffiliationRequest(pendingSubmission.current);
 
       if (outcome.kind === "confirmed") {
         setFinished(true);
         setMessage(
-          `${outcome.result.replayed
+          `${correction ? "Correcciones enviadas; solicitud pendiente de revisión" : outcome.result.replayed
             ? "Solicitud recuperada"
             : "Solicitud registrada"
           }. Folio: ${outcome.result.referenceNumber}.`,
@@ -337,6 +343,7 @@ function AffiliationFormContent({
       } else {
         setMessage(outcome.message);
         setCanCorrect(outcome.kind === "rejected");
+        setNeedsReload(outcome.kind === "conflict" || outcome.kind === "access-denied");
       }
     } catch {
       setMessage(
@@ -384,8 +391,13 @@ function AffiliationFormContent({
           Completa los datos de tu club y sus directivos.
           Los campos con * son obligatorios.
         </p>
+        {correction && <div className="mt-3 space-y-2 rounded-xl border border-border p-3">
+          <p className="font-medium">Corregir solicitud · {correction.referenceNumber}</p>
+          <p className="whitespace-pre-wrap break-words">{correction.observations}</p>
+          <p className="text-sm">El reenvío conserva el folio y el historial. Puedes conservar las firmas registradas o reemplazarlas.</p>
+        </div>}
         <p className="mt-3 rounded-xl bg-soft p-3 text-sm leading-6">
-          {submissionContext
+          {correction ? "Revisa los datos solicitados y confirma las firmas antes de reenviar." : submissionContext
             ? "Selecciona las tres firmas. Cada archivo se carga y valida antes de enviar la solicitud."
             : "Esta vista permite revisar los datos. El envío todavía no está disponible desde esta pantalla."}
         </p>
@@ -547,16 +559,16 @@ function AffiliationFormContent({
       <div className="space-y-3">
         <button
           type="submit"
-          disabled={busy || finished || !categoryOptions.length}
+          disabled={busy || finished || needsReload || !categoryOptions.length}
           className={`${buttonClass} w-full sm:w-auto`}
         >
           {busy
             ? "Procesando…"
             : finished
-              ? "Solicitud registrada"
+              ? correction ? "Correcciones enviadas" : "Solicitud registrada"
               : frozen
                 ? "Reintentar envío"
-                : submissionContext
+              : correction ? "Reenviar correcciones" : submissionContext
                   ? "Enviar solicitud"
                   : "Revisar datos"}
         </button>
@@ -571,6 +583,10 @@ function AffiliationFormContent({
             Corregir datos
           </button>
         )}
+        {correction && (needsReload || (frozen && !finished && !busy)) &&
+          <a href={`/affiliations/${correction.id}/correct`} className="ml-3 inline-block min-h-12 rounded-xl border border-border px-5 py-3">
+            Volver a consultar solicitud
+          </a>}
 
         <p role="status" className="text-sm leading-6 text-muted">
           {message ||

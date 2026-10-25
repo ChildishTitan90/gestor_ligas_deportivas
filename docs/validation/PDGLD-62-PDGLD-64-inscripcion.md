@@ -1,5 +1,10 @@
 # Evidencia local — PDGLD-62 / PDGLD-64
 
+**Actualización 25/10/2026:** la integración de PDGLD-60 desde el PR #28 y sus
+comprobaciones actuales se documentan en
+[integración de develop](PDGLD-62-PDGLD-64-integracion-pr28.md). Los resultados
+del 24/10 siguientes se conservan como evidencia histórica de la primera entrega.
+
 Sesión del 24/10/2026 (America/Mexico_City). Rama
 `feat/PDGLD-62-PDGLD-64-inscripcion-equipos`. Referencia inicial y final revisada:
 `origin/develop` en `1d732d6`, PR #26. Se ejecutó fetch remoto antes de modificar
@@ -91,16 +96,20 @@ Durante el trabajo aparecieron cambios externos en `affiliation-form.tsx` y
 
 ## Pendientes separados
 
-**PDGLD-62:** validar con PDGLD-60 el contrato de autorización por categoría y
-conectar su operación real; validar con profesor/Liga la transición a ACTIVO,
+**PDGLD-62:** Checo debe integrar la autorización individual por categoría. La
+aprobación real ya llegó mediante PR #28, pero no escribe authorized_by/authorized_at.
+Se conserva CATEGORY_NOT_AUTHORIZED y no se autoriza ninguna fila automáticamente.
+Validar con profesor/Liga la transición a ACTIVO,
 autoridad, pago/mínimo de jugadores y requisitos finales. La propuesta está
 documentada y la transición no está habilitada. Requiere revisión humana, CI
 remoto e integración revisada antes de cierre.
 
-**PDGLD-64:** completar afiliación → aprobación → inscripción por los servicios
-reales de PDGLD-60. La prueba ejecutó la solicitud real y después un fixture SQL
-aprobado expresamente identificado; **no ejecutó una aprobación real**. Completar
-el recorrido visual al integrar PDGLD-63, siguiendo
+**PDGLD-64:** el 25/10 se ejecutaron solicitud y aprobación reales con la versión
+leída del detalle y la sesión de Secretaría. El recorrido termina correctamente
+en CATEGORY_NOT_AUTHORIZED: falta autorización individual real para completar
+la inscripción positiva. Los positivos aislados conservan fixtures explícitos
+en otra temporada y no demuestran esa autorización. Completar el recorrido visual
+al integrar PDGLD-63, siguiendo
 [aceptación pendiente](../../tests/integration/team-enrollment-acceptance.md).
 
 No se declaran completas las subtareas. No se hicieron commits, push, merge,

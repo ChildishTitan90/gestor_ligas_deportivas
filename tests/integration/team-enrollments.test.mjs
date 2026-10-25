@@ -5,8 +5,9 @@ import pg from 'pg';
 import * as argon2 from 'argon2';
 import { Browser } from './auth.test.mjs';
 
-/** HTTP real y PostgreSQL desechable. Las aprobaciones son fixtures explícitos,
- * NO evidencia de haber ejecutado PDGLD-60, cuyo endpoint aún no está integrado. */
+/** HTTP real y PostgreSQL desechable. PDGLD-60 ya aprueba afiliaciones, pero
+ * todavía no autoriza categorías. Ese recorrido real debe terminar en rechazo;
+ * los escenarios positivos de inscripción usan fixtures autorizados separados. */
 export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }) {
   const target = new URL(databaseUrl);
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(target.hostname));
@@ -48,9 +49,18 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
       const permission = (await db.query(`INSERT INTO sports_management.permissions(module,action) VALUES ('clubs',$1)
         ON CONFLICT(module,action) DO UPDATE SET module=EXCLUDED.module RETURNING id`, [action])).rows[0].id;
       const prior = (await db.query('SELECT context_only FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [roleId, permission])).rows[0];
-      savedGrants.push({ permission, prior, action });
+      savedGrants.push({ roleId, permission, prior, action });
       await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)
         ON CONFLICT(role_id,permission_id) DO UPDATE SET context_only=true`, [roleId, permission]);
+    }
+    const secretaryRoleId = (await db.query("SELECT id FROM sports_management.roles WHERE code='SECRETARY'")).rows[0].id;
+    for (const action of ['READ', 'APPROVE']) {
+      const permission = (await db.query(`INSERT INTO sports_management.permissions(module,action) VALUES ('clubs',$1)
+        ON CONFLICT(module,action) DO UPDATE SET module=EXCLUDED.module RETURNING id`, [action])).rows[0].id;
+      const prior = (await db.query('SELECT context_only FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [secretaryRoleId, permission])).rows[0];
+      savedGrants.push({ roleId: secretaryRoleId, permission, prior, action });
+      await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,false)
+        ON CONFLICT(role_id,permission_id) DO UPDATE SET context_only=false`, [secretaryRoleId, permission]);
     }
     async function season(leagueId = league) {
       const id = (await db.query(`INSERT INTO sports_management.seasons(league_id,sport_id,name,start_date,end_date)
@@ -70,6 +80,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
     const context = await season();
     const elsewhere = await season(foreignLeague);
     const nextSeason = await season();
+    const reviewContext = await season();
     const post = (browser, body, headers = {}) => browser.request('/api/team-enrollments', {
       method: 'POST', headers: { origin: baseUrl, 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
     });
@@ -89,43 +100,77 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
     }
     // Datos aprobados preparados solo en la base temporal. No hay aprobación
     // ficticia ni bypass en servicios, handlers o UI de producción.
-    async function approvedFixture(ctx, scopeClub = clubId) {
+    async function approvedFixture(ctx, scopeClub = clubId, authorizedCategoryIds = ctx.categories.map((category) => category.id)) {
       const affiliation = (await db.query(`INSERT INTO sports_management.club_affiliations(season_id,club_id,league_id,reference_number,
         uniform_colors,status,requested_by,reviewed_by,reviewed_at)
         VALUES ($1,$2,$3,$4,'Azul','APPROVED',$5,$6,now()) RETURNING id`,
       [ctx.id, scopeClub, scopeClub === foreignClub ? foreignLeague : league, randomUUID(), actor.id, secretary.id])).rows[0].id;
-      for (const category of ctx.categories) await db.query(`INSERT INTO sports_management.club_affiliation_categories
-        (affiliation_id,season_id,category_id,authorized_by,authorized_at) VALUES ($1,$2,$3,$4,now())`, [affiliation, ctx.id, category.id, secretary.id]);
+      for (const category of ctx.categories) {
+        const authorized = authorizedCategoryIds.includes(category.id);
+        await db.query(`INSERT INTO sports_management.club_affiliation_categories
+          (affiliation_id,season_id,category_id,authorized_by,authorized_at) VALUES ($1,$2,$3,$4,$5)`,
+        [affiliation, ctx.id, category.id, authorized ? secretary.id : null, authorized ? new Date() : null]);
+      }
       return affiliation;
     }
     await test('PDGLD-62/64: inscripción HTTP, permisos, integridad y reintentos', { timeout: 240_000 }, async (t) => {
-      await t.test('solicitud real permanece PENDING y no autoriza categorías ni inscribe equipos', async () => {
+      await t.test('solicitud y aprobación reales no autorizan categorías ni activan equipos', async () => {
         const officers = {};
         for (const office of ['PRESIDENT', 'SECRETARY', 'TREASURER']) {
           const id = randomUUID();
           await db.query(`INSERT INTO sports_management.files(id,storage_key,original_name,mime_type,size_bytes,sha256,uploaded_by)
             VALUES ($1,$2,'firma-sintetica.png','image/png',100,$3,$4)`,
-          [id, `affiliation-signatures/v1/${clubId}/${context.id}/${actor.id}/${office}/${id}`, 'a'.repeat(64), actor.id]);
+          [id, `affiliation-signatures/v1/${clubId}/${reviewContext.id}/${actor.id}/${office}/${id}`, 'a'.repeat(64), actor.id]);
           officers[office] = { firstName: 'Sintético', paternalSurname: 'PD64', maternalSurname: '', signatureFileId: id };
         }
         const response = await actor.browser.request('/api/affiliations', { method: 'POST',
           headers: { origin: baseUrl, 'content-type': 'application/json' }, body: JSON.stringify({
-            submissionKey: randomUUID(), clubId, seasonId: context.id, clubName: 'Club sintético', uniformColors: 'Azul',
-            categoryIds: context.categories.map((c) => c.id), officers }) });
+            submissionKey: randomUUID(), clubId, seasonId: reviewContext.id, clubName: 'Club sintético', uniformColors: 'Azul',
+            categoryIds: reviewContext.categories.map((c) => c.id), officers }) });
         assert.equal(response.status, 201);
         const request = await response.json();
         assert.equal(request.status, 'PENDING');
         assert.deepEqual(await counts(), { teams: 0, enrollments: 0, audits: 0 });
-        await deny(actor.browser, payload(), 409, 'AFFILIATION_NOT_APPROVED');
-        const options = await actor.browser.request(`/api/team-enrollments/options?clubId=${clubId}&seasonId=${context.id}`);
+        await deny(actor.browser, payload(reviewContext), 409, 'AFFILIATION_NOT_APPROVED');
+        const options = await actor.browser.request(`/api/team-enrollments/options?clubId=${clubId}&seasonId=${reviewContext.id}`);
         assert.deepEqual((await options.json()).categories, []);
-        // Inicio del fixture de aprobación: NO es una llamada a PDGLD-60.
-        await db.query("UPDATE sports_management.club_affiliations SET status='APPROVED',reviewed_by=$1,reviewed_at=now() WHERE id=$2", [secretary.id, request.id]);
-        await deny(actor.browser, payload(), 409, 'CATEGORY_NOT_AUTHORIZED');
-        assert.deepEqual(await counts(), { teams: 0, enrollments: 0, audits: 0 });
-        await db.query('UPDATE sports_management.club_affiliation_categories SET authorized_by=$1,authorized_at=now() WHERE affiliation_id=$2 AND category_id=$3',
-          [secretary.id, request.id, context.categories[0].id]);
+        // Registro legado sintético, preparado solo para comprobar que la
+        // aprobación no cambia a ACTIVE equipos que ya estaban REGISTERED.
+        const legacyTeam = (await db.query("INSERT INTO sports_management.teams(club_id,reference_number,name) VALUES ($1,$2,'Equipo legado sintético') RETURNING id", [clubId, randomUUID()])).rows[0].id;
+        const legacyEnrollment = (await db.query(`INSERT INTO sports_management.season_teams(team_id,club_id,season_id,group_id,status)
+          VALUES ($1,$2,$3,$4,'REGISTERED') RETURNING id`, [legacyTeam, clubId, reviewContext.id, reviewContext.categories[0].groups[0]])).rows[0].id;
+        const beforeApproval = await counts();
+        const detailResponse = await secretary.browser.request(`/api/affiliations/${request.id}`);
+        assert.equal(detailResponse.status, 200);
+        const detail = await detailResponse.json();
+        assert.equal(Number.isInteger(detail.version), true);
+        assert.ok(detail.allowedActions.includes('APPROVE'));
+        const approval = await secretary.browser.request(`/api/affiliations/${request.id}/review`, {
+          method: 'PATCH', headers: { origin: baseUrl, 'content-type': 'application/json' },
+          body: JSON.stringify({ decision: 'APPROVE', expectedVersion: detail.version }),
+        });
+        assert.equal(approval.status, 200);
+        const approved = await approval.json();
+        assert.equal(approved.status, 'APPROVED');
+        assert.equal(approved.version, detail.version + 1);
+        const saved = (await db.query('SELECT status,reviewed_by FROM sports_management.club_affiliations WHERE id=$1', [request.id])).rows[0];
+        assert.deepEqual(saved, { status: 'APPROVED', reviewed_by: secretary.id });
+        const events = (await db.query("SELECT user_id FROM sports_management.audit_logs WHERE table_name='club_affiliations' AND entity_id=$1 AND action='AFFILIATION_APPROVE'", [request.id])).rows;
+        assert.deepEqual(events, [{ user_id: secretary.id }]);
+        // El contrato real de revisión NO escribe la autorización individual.
+        // No suplir esa operación mediante UPDATE ni anunciar un flujo completo.
+        const categories = (await db.query('SELECT authorized_by,authorized_at FROM sports_management.club_affiliation_categories WHERE affiliation_id=$1', [request.id])).rows;
+        assert.equal(categories.length, reviewContext.categories.length);
+        assert.ok(categories.every((category) => category.authorized_by === null && category.authorized_at === null));
+        await deny(actor.browser, payload(reviewContext), 409, 'CATEGORY_NOT_AUTHORIZED');
+        const approvedOptions = await actor.browser.request(`/api/team-enrollments/options?clubId=${clubId}&seasonId=${reviewContext.id}`);
+        assert.deepEqual((await approvedOptions.json()).categories, []);
+        assert.deepEqual(await counts(), beforeApproval);
+        assert.equal((await db.query('SELECT status FROM sports_management.season_teams WHERE id=$1', [legacyEnrollment])).rows[0].status, 'REGISTERED');
       });
+      // Otra temporada: fixture explícito para pruebas aisladas de inscripción.
+      // No completa el recorrido anterior ni demuestra una autorización real.
+      await approvedFixture(context, clubId, [context.categories[0].id]);
       await t.test('sesión operativa y alcance: anónimo, cambio de contraseña, sin permiso y otros clubes', async () => {
         await deny(new Browser(baseUrl), payload(), 401, 'UNAUTHENTICATED');
         await deny(restricted.browser, payload(), 403, 'PASSWORD_CHANGE_REQUIRED');
@@ -321,9 +366,9 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
     });
   } finally {
     // Restaurar los permisos del runner; el historial queda hasta eliminar la BD.
-    for (const { permission, prior } of savedGrants) {
-      if (prior) await db.query('UPDATE sports_management.role_permissions SET context_only=$1 WHERE role_id=$2 AND permission_id=$3', [prior.context_only, roleId, permission]);
-      else await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [roleId, permission]);
+    for (const { roleId: grantRoleId, permission, prior } of savedGrants) {
+      if (prior) await db.query('UPDATE sports_management.role_permissions SET context_only=$1 WHERE role_id=$2 AND permission_id=$3', [prior.context_only, grantRoleId, permission]);
+      else await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [grantRoleId, permission]);
     }
     await db.end();
   }

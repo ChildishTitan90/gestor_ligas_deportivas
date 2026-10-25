@@ -1,5 +1,10 @@
 # PDGLD-59: firmas privadas de afiliación
 
+Integración con PDGLD-60, 24/10/2026: el PR #26 se incorporó desde develop.
+La evidencia y los pendientes de esta integración se mantienen en
+[PDGLD-60](../validation/PDGLD-60-integracion-afiliaciones.md); los resultados
+de entrega de PDGLD-59 que figuran abajo corresponden a su revisión original.
+
 ## Flujo implementado
 
 La página `/affiliations/new` obtiene desde el servidor los clubes,
@@ -14,6 +19,13 @@ Cada firma sigue tres pasos:
 
 La confirmación devuelve signatureFileId únicamente después de validar
 el archivo y comprobar nuevamente la autorización.
+
+Para una corrección, el servidor deriva el modo de club_affiliations. Una solicitud
+PENDING con observaciones exige clubs:UPDATE, la asignación de delegado del club y
+el solicitante original. Un contexto nuevo sigue exigiendo CREATE. La preparación
+y las dos comprobaciones de confirmación usan esa misma regla y detectan revocaciones.
+El cliente no elige la acción de permiso. El reenvío vuelve a validar la vinculación
+de cada firma con propietario, club, temporada y cargo.
 
 El formulario requiere las firmas de PRESIDENT, SECRETARY y TREASURER.
 Al enviar, el servidor comprueba propietario, club, temporada y cargo
@@ -52,6 +64,8 @@ Variables necesarias:
 
 La credencial permanece exclusivamente en el servidor.
 No debe utilizar el prefijo NEXT_PUBLIC_ ni incluirse en Git.
+Las variables se documentan como marcadores en `.env.example`. El valor de la
+clave debe copiarse completo, en una sola línea y sin espacios internos.
 
 NextAuth continúa autenticando a los usuarios. Supabase Storage
 no sustituye las comprobaciones de permisos de la aplicación.

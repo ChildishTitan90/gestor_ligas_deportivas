@@ -58,9 +58,9 @@ export function AffiliationReviewList({
                   </dd>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <dt className="text-muted">Temporada</dt>
-                  <dd className="mt-1 wrap-break-words">{item.seasonName}</dd>
+                  <dd className="mt-1 wrap-break-word">{item.seasonName}</dd>
                 </div>
 
                 <div>
