@@ -12,6 +12,7 @@ const historyLabels = {
   AFFILIATION_REQUEST_CORRECTIONS: "Correcciones solicitadas",
   AFFILIATION_RESUBMIT: "Solicitud reenviada",
 };
+const officeNames = { PRESIDENT: "Presidente", SECRETARY: "Secretario", TREASURER: "Tesorero" };
 const historyDate = new Intl.DateTimeFormat("es-MX", {
   dateStyle: "medium", timeStyle: "short", timeZone: "America/Mexico_City",
 });
@@ -23,13 +24,14 @@ const errors = {
   "invalid-response": "No se pudo cargar el detalle de la solicitud. Intenta consultar nuevamente.",
 };
 
-export function AffiliationReviewWorkspace() {
+type LeagueOption = { id: string; name: string };
+export function AffiliationReviewWorkspace({ leagues }: { leagues: LeagueOption[] }) {
   const [controller] = useState(() => createReviewController(createReviewApi()));
-  return <AffiliationReviewView controller={controller} />;
+  return <AffiliationReviewView controller={controller} leagues={leagues} />;
 }
 
 /** Las pruebas inyectan su controlador; la página real solo usa el adaptador HTTP. */
-export function AffiliationReviewView({ controller }: { controller: ReviewController }) {
+export function AffiliationReviewView({ controller, leagues = [] }: { controller: ReviewController; leagues?: LeagueOption[] }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const prefix = useId();
   const observationsRef = useRef<HTMLTextAreaElement>(null);
@@ -37,6 +39,11 @@ export function AffiliationReviewView({ controller }: { controller: ReviewContro
   const detailHeading = useRef<HTMLHeadingElement>(null);
   const approveButton = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (detail) detailHeading.current?.focus(); }, [detail]);
+  useEffect(() => {
+    if (!state.download) return;
+    const timeout = setTimeout(controller.clearDownload, Math.max(0, state.download.expiresAt - Date.now()));
+    return () => clearTimeout(timeout);
+  }, [controller, state.download]);
   function query(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const leagueId = String(new FormData(event.currentTarget).get("leagueId") ?? "").trim();
@@ -47,21 +54,26 @@ export function AffiliationReviewView({ controller }: { controller: ReviewContro
     if (!state.observations.trim()) observationsRef.current?.focus();
     void controller.submit("REQUEST_CORRECTIONS");
   }
-  const busy = state.submitting || state.loading || state.detailLoading;
+  const busy = state.submitting || state.loading || state.detailLoading || state.downloading;
   const uncertainResult = state.errorContext === "review" && (state.error === "unavailable" || state.error === "invalid-response");
   const errorMessage = uncertainResult ? "No se pudo confirmar el resultado de la revisión. Verifica el estado de la solicitud antes de reenviarla." :
     state.errorContext === "list" && (state.error === "unavailable" || state.error === "invalid-response") ?
-      "No se pudieron cargar las solicitudes. Intenta consultar nuevamente." : state.error ? errors[state.error] : "";
+      "No se pudieron cargar las solicitudes. Intenta consultar nuevamente." :
+      state.errorContext === "download" && (state.error === "unavailable" || state.error === "invalid-response") ?
+        "No se pudo obtener el enlace de la firma. Vuelve a consultar la solicitud." : state.error ? errors[state.error] : "";
   const canReview = detail?.status === "PENDING" && !state.error && !busy;
   return <div className="mt-6 space-y-6">
     <form onSubmit={query} className="space-y-3" aria-busy={state.loading}>
-      <label htmlFor={`${prefix}-league`} className="block text-sm font-medium">Identificador de liga</label>
+      <label htmlFor={`${prefix}-league`} className="block text-sm font-medium">Liga</label>
       <p id={`${prefix}-league-help`} className="text-sm text-muted">Consulta una liga de tu ámbito autorizado.</p>
-      <input id={`${prefix}-league`} name="leagueId" required disabled={state.submitting}
+      <select id={`${prefix}-league`} name="leagueId" required disabled={busy || !leagues.length}
         aria-describedby={`${prefix}-league-help${!detail && state.fieldError ? ` ${prefix}-field-error` : ""}`}
         aria-invalid={!detail && !!state.fieldError}
-        className="min-h-12 w-full rounded-xl border border-border bg-surface px-3.5 py-3" />
-      <button type="submit" disabled={busy} className={buttonClass}>Consultar pendientes</button>
+        className="min-h-12 w-full rounded-xl border border-border bg-surface px-3.5 py-3">
+        {leagues.map(league => <option key={league.id} value={league.id}>{league.name}</option>)}
+      </select>
+      {!leagues.length && <p>No tienes ligas disponibles para consultar esta bandeja.</p>}
+      <button type="submit" disabled={busy || !leagues.length} className={buttonClass}>Consultar pendientes</button>
     </form>
     {state.fieldError && <p id={`${prefix}-field-error`} role="alert" className="text-danger">{state.fieldError}</p>}
     {state.message && <p role="status" className="rounded-xl bg-soft p-4">{state.message}</p>}
@@ -88,6 +100,27 @@ export function AffiliationReviewView({ controller }: { controller: ReviewContro
         <div><dt className="text-muted">Categorías solicitadas</dt><dd>{detail.categories.join(", ") || "Sin categorías informadas"}</dd></div>
         <div><dt className="text-muted">Observaciones registradas</dt><dd className="whitespace-pre-wrap break-words">{detail.observations || "Sin observaciones registradas"}</dd></div>
       </dl>
+      <section aria-labelledby={`${prefix}-officers-title`} className="space-y-3">
+        <h3 id={`${prefix}-officers-title`} className="font-semibold">Directivos y firmas privadas</h3>
+        <ul className="space-y-3">
+          {detail.officers.map(officer => <li key={officer.office} className="space-y-2 rounded-xl border border-border p-3 text-sm">
+            <p className="font-medium">{officeNames[officer.office]}</p>
+            <p>{[officer.firstName, officer.paternalSurname, officer.maternalSurname].filter(Boolean).join(" ")}</p>
+            {officer.signatureFileId ? <button type="button" className={buttonClass} disabled={busy || state.confirming || !!state.error}
+              onClick={() => void controller.signature(officer.signatureFileId!)}>Consultar firma de {officeNames[officer.office].toLowerCase()}</button> :
+              <p>Sin firma registrada.</p>}
+            {state.download && state.download.fileId === officer.signatureFileId && <div className="space-y-2">
+              <p>Enlace temporal disponible durante un máximo de 60 segundos.</p>
+              <a href={state.download.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer"
+                className="inline-block rounded-xl border border-border px-4 py-3 font-semibold"
+                onClick={event => { if (Date.now() >= state.download!.expiresAt) { event.preventDefault(); controller.clearDownload(); } }}>
+                Descargar firma de {officeNames[officer.office].toLowerCase()}
+              </a>
+            </div>}
+          </li>)}
+        </ul>
+        {state.downloading && <p role="status">Solicitando acceso a la firma…</p>}
+      </section>
       <section aria-labelledby={`${prefix}-history-title`} className="space-y-3">
         <h3 id={`${prefix}-history-title`} className="font-semibold">Historial de revisión</h3>
         {detail.history.length === 0 ? <p className="text-sm text-muted">Sin revisiones registradas.</p> : <>

@@ -7,8 +7,8 @@ El contrato del backend está en ../architecture/affiliation-review.md.
 ## Uso y estados
 
 /affiliations/review conserva el encabezado y los controles de sesión existentes.
-Solicita el UUID de una liga autorizada; queda pendiente sustituir este campo
-por opciones de contexto obtenidas del servidor. No se infieren permisos del rol.
+Ofrece ligas obtenidas del servidor con READ vigente para la consulta de liga.
+Un permiso limitado a un club no abre el listado de toda la liga. No se infieren permisos del rol.
 Consultar inicia GET desde el cliente; el Server Component no llama a su API.
 La lista contempla carga, vacío, error, 401 y acceso denegado 403. El detalle
 se abre dentro de la misma página, con foco en su encabezado. Reutiliza los
@@ -19,9 +19,12 @@ Pedir correcciones conserva PENDING. Las observaciones previas y la nueva
 captura tienen controles separados. El historial muestra correcciones, reenvíos y
 aprobación en orden cronológico, con fecha en America/Mexico_City y observaciones
 como texto escapado. Una solicitud sin eventos indica que no hay revisiones
-registradas. Se retira junto con el detalle ante 401/403. La vista no presenta datos
-personales de directivos ni documentos. El backend entrega esas referencias para su
-integración con PDGLD-59. Falta validar el recorrido de documentos privados.
+registradas. Se retira junto con el detalle ante 401/403. Se presentan los tres
+directivos actuales y sus firmas. Cada consulta explícita solicita el endpoint
+privado de PDGLD-59; el enlace tiene un máximo de 60 segundos, se retira al vencer,
+al cambiar de solicitud o al perder acceso y no se guarda en almacenamiento local.
+La descarga abre una pestaña con noopener/noreferrer y referrerPolicy=no-referrer.
+Un fallo de Storage no anuncia éxito ni crea un enlace.
 
 La captura exige observaciones no vacías de hasta 2000 caracteres para
 correcciones. Aprobar requiere confirmación explícita con club/folio y opción de
@@ -44,9 +47,24 @@ No hay reintentos automáticos de escrituras ni actualizaciones optimistas.
 | --- | --- |
 | GET /api/affiliations?status=PENDING&leagueId=UUID&page=1&pageSize=100 | Respuesta items, page, pageSize, hasMore. El adaptador recorre páginas hasta hasMore=false y rechaza duplicados, páginas incoherentes o mezcla de ligas/estados. No muestra una lista parcial como completa. |
 | Resumen | id, leagueId, referenceNumber, clubName, seasonName, status, reviewPhase, version. El nombre anual del club usa el nombre operativo como respaldo para registros antiguos sin captura. |
-| GET /api/affiliations/{id} | Añade uniformColors, categories con nombres, observations actuales, allowedActions e history. Cada evento valida id, action, occurredAt ISO y observations. El adaptador conserva solo los campos de presentación del historial. El servidor entrega además directivos y referencias de archivos, pendientes de integrar con PDGLD-59. |
+| GET /api/affiliations/{id} | Añade uniformColors, categories con nombres, observations actuales, allowedActions, officers e history. Cada evento valida id, action, occurredAt ISO y observations. El adaptador conserva solo los campos de presentación del historial. |
 | PATCH /api/affiliations/{id}/review | decision, expectedVersion y observations solo para REQUEST_CORRECTIONS. El servidor exige permiso, ámbito, asignación, separación de funciones, estado y versión. |
 | Respuesta PATCH | Resumen con el ID, estado/fase de la decisión y versión incrementada. El adaptador valida ese acuse y consulta nuevamente el detalle con permisos vigentes. Un 204 o un simple ok no anuncia éxito. |
+| POST /api/affiliations/signatures/download | signatureFileId del detalle autorizado. El servidor vuelve a comprobar READ y contexto antes y después de consultar Storage. La UI valida HTTPS, ruta de firma privada y vigencia máxima de 60 segundos. |
+
+## Captura de correcciones
+
+`/affiliations/new` ofrece las solicitudes propias con correcciones pendientes,
+incluso con UPDATE sin CREATE. El enlace abre `/affiliations/{id}/correct`: exige
+READ, UPDATE, delegado del club, solicitante original, temporada abierta y fase
+de corrección, todo comprobado en servidor. Precarga datos, categorías, motivo,
+versión y referencias de las firmas registradas; permite conservarlas o reemplazarlas.
+
+El formulario reutiliza la clave original y envía PATCH /api/affiliations/{id}/resubmit
+con expectedVersion. Solo un acuse válido confirma el folio y la nueva versión.
+Un 409 obliga a consultar nuevamente sin incrementar la versión ni repetir la
+escritura automáticamente. El resultado incierto conserva la captura congelada
+y ofrece volver a consultar. No se permite convertir una corrección en un alta nueva.
 
 Ejemplos:
 
@@ -92,3 +110,6 @@ eliminó la base temporal al terminar. Inicialmente se verificó con Node 24.21.
 Posteriormente, con la versión 24.22.1 LTS autorizada por Víctor, se repitió
 test:affiliations: 24 resultados aprobados y cero fallos. El build mantiene el fallo
 de creación del proceso CSS de Turbopack; actualizar Node no lo resolvió.
+
+La integración posterior con PDGLD-59 y el recorrido real en navegador se documentan
+en [la evidencia de PDGLD-60](../validation/PDGLD-60-integracion-afiliaciones.md).

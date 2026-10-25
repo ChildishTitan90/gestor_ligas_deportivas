@@ -157,3 +157,24 @@ No se repitió el build, cuyo fallo CSS sigue pendiente; no se modificó su conf
 Esta comprobación no cubre clics, foco e hidratación en navegador, documentos privados
 de PDGLD-59, CI remoto, despliegue ni revisión independiente. Los cambios locales
 todavía deben consolidarse en commit; hay una integración de develop en curso.
+
+## Integración con PDGLD-59 — 24/10/2026
+
+Se incorporó origin/develop en 1d732d6 (PR #26 de Karol), conservando validación
+del contenido y vinculación de firmas, catálogo, migraciones y suites de ambos tickets.
+La bandeja utiliza opciones de liga autorizadas y presenta los directivos actuales,
+historial y acceso explícito a enlaces temporales del endpoint privado de firmas.
+
+El delegado encuentra sus correcciones desde `/affiliations/new` y abre
+`/affiliations/{id}/correct`, con READ/UPDATE, propiedad, fase y versión verificadas.
+Las firmas existentes pueden conservarse o sustituirse; su carga deriva UPDATE
+de la solicitud pendiente propia y no exige conservar CREATE. Un alta nueva sí
+requiere CREATE. El servidor revalida firma y contexto durante el reenvío.
+
+Los nuevos reenvíos guardan en la auditoría referencias a las personas, archivos y
+categorías previas y actuales. Esto conserva la relación histórica que se perdía
+al actualizar los directivos en su fila. Son identificadores privados: no se copian
+nombres, bytes, claves de Storage ni enlaces firmados. El DTO de historial de la
+bandeja sigue limitado a acción, fecha y observaciones.
+
+Pruebas y límites actuales: [evidencia de integración](../validation/PDGLD-60-integracion-afiliaciones.md).

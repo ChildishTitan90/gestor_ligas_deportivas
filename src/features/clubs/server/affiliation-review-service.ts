@@ -4,7 +4,7 @@ import { z } from "zod";
 import { affiliationListSchema, affiliationReviewPhase, affiliationReviewSchema } from "../affiliation-review";
 import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "@/server/auth/session";
-import { assertPermission, AuthorizationError, lockAuthorization } from "@/server/auth/authorization";
+import { assertPermission, AuthorizationError, lockAuthorization, getPermissionGrants } from "@/server/auth/authorization";
 
 export class AffiliationReviewError extends Error {
   constructor(public readonly code: string, public readonly status = 400) { super(code); }
@@ -43,6 +43,20 @@ async function assertReviewer(tx: Prisma.TransactionClient, actorId: string,
   if (delegates.length) throw new AuthorizationError();
 }
 
+/** Opciones para el listado por liga; una concesión por club no abre la liga completa. */
+export async function getAffiliationReviewLeagueOptions() {
+  const actor = await requireOperationalUser();
+  return getPrisma().$transaction(async tx => {
+    const grants = (await getPermissionGrants(tx, actor.id, "clubs", "READ"))
+      .filter(grant => !grant.clubId && (!!grant.leagueId || !grant.contextOnly));
+    if (!grants.length) return [];
+    const allLeagues = grants.some(grant => !grant.leagueId);
+    return tx.leagues.findMany({ where: { is_active: true,
+      ...(allLeagues ? {} : { id: { in: grants.map(grant => grant.leagueId!) } }) },
+      select: { id: true, name: true }, orderBy: { name: "asc" } });
+  });
+}
+
 export async function listAffiliations(input: unknown) {
   const actor = await requireOperationalUser();
   const parsed = affiliationListSchema.safeParse(input);
@@ -68,7 +82,7 @@ export async function getAffiliation(id: string) {
       ...summarySelect, uniform_colors: true, signed_affiliation_file_id: true, submission_key: true, requested_by: true,
       club_affiliation_categories: { select: { category_id: true,
         season_categories: { select: { categories: { select: { name: true } } } } }, orderBy: { category_id: "asc" } },
-      club_officers: { select: { office: true, signature_file_id: true, support_file_id: true,
+      club_officers: { where: { ends_at: null }, select: { office: true, signature_file_id: true, support_file_id: true,
         people: { select: { first_name: true, paternal_surname: true, maternal_surname: true } } }, orderBy: { office: "asc" } },
     } });
     if (!row) throw new AffiliationReviewError("NOT_FOUND", 404);

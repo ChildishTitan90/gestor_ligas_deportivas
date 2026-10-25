@@ -14,12 +14,15 @@ const fixture: ReviewDetail = {
   status: "PENDING", reviewPhase: "AWAITING_REVIEW", uniformColors: "Azul sintético", version: 0,
   categories: ["Categoría de prueba"], observations: null, allowedActions: ["APPROVE", "REQUEST_CORRECTIONS"],
   history: [],
+  officers: [{ office: "PRESIDENT", firstName: "Persona sintética", paternalSurname: "Prueba", maternalSurname: "",
+    signatureFileId: "61000000-0000-4000-8000-000000000030" }],
 };
 function setup(overrides: Partial<ReviewApi> = {}) {
   const calls: string[] = [];
   const api: ReviewApi = {
     list: async () => { calls.push("list"); return [fixture]; },
     detail: async () => { calls.push("detail"); return fixture; },
+    signature: async () => ({ downloadUrl: "https://storage.example.test/storage/v1/object/sign/firmas-afiliacion/fixture?token=synthetic", expiresInSeconds: 60 }),
     review: async (_id, action, observations) => {
       calls.push(`${action}:${observations}`);
       return { ...fixture, status: action === "APPROVE" ? "APPROVED" : "PENDING",
@@ -29,7 +32,7 @@ function setup(overrides: Partial<ReviewApi> = {}) {
   return { controller: createReviewController(api), calls };
 }
 function html(controller: ReturnType<typeof createReviewController>) {
-  return renderToStaticMarkup(<AffiliationReviewView controller={controller} />);
+  return renderToStaticMarkup(<AffiliationReviewView controller={controller} leagues={[{ id: leagueId, name: "Liga sintética" }]} />);
 }
 test("historial conserva correcciones, reenvío y aprobación, escapa observaciones y se retira al perder acceso", async () => {
   const history: ReviewDetail["history"] = [
@@ -68,6 +71,49 @@ test("adaptador exige un historial válido y conserva solo sus campos de present
   for (const history of [null, [{ ...entry, occurredAt: "fecha inválida" }], [{ ...entry, action: "DELETE" }]]) {
     const invalid = createReviewApi(async () => Response.json({ ...fixture, history }));
     await assert.rejects(invalid.detail(fixture.id), /invalid-response/);
+  }
+});
+
+test("firmas: consulta explícita, enlace temporal privado y limpieza al perder permiso", async () => {
+  let requests = 0;
+  const { controller } = await selected({ signature: async () => {
+    if (++requests > 1) throw new ReviewApiError("forbidden");
+    return { downloadUrl: "https://storage.example.test/storage/v1/object/sign/firmas-afiliacion/fixture?token=synthetic", expiresInSeconds: 60 };
+  } });
+  assert.match(html(controller), /Directivos y firmas privadas/);
+  assert.doesNotMatch(html(controller), /token=synthetic/);
+  await controller.signature(leagueId); assert.equal(requests, 0);
+  await controller.signature(fixture.officers[0].signatureFileId!);
+  assert.match(html(controller), /Descargar firma de presidente/);
+  assert.match(html(controller), /referrerPolicy="no-referrer"|referrerpolicy="no-referrer"/);
+  controller.clearDownload(); assert.doesNotMatch(html(controller), /token=synthetic/);
+  await controller.signature(fixture.officers[0].signatureFileId!);
+  assert.equal(controller.getSnapshot().detail, null);
+  assert.doesNotMatch(html(controller), /Persona sintética|token=synthetic/);
+});
+
+test("un enlace atrasado no reaparece tras cambiar la consulta", async () => {
+  let finish!: (value: { downloadUrl: string; expiresInSeconds: number }) => void;
+  const { controller } = await selected({ signature: () => new Promise(resolve => { finish = resolve; }) });
+  const pending = controller.signature(fixture.officers[0].signatureFileId!);
+  await controller.load(leagueId);
+  finish({ downloadUrl: "https://storage.example.test/storage/v1/object/sign/firmas-afiliacion/stale", expiresInSeconds: 60 });
+  await pending; assert.equal(controller.getSnapshot().download, null);
+});
+
+test("adaptador de firmas usa el endpoint privado y rechaza enlaces o vigencias inválidos", async () => {
+  const id = fixture.officers[0].signatureFileId!;
+  const api = createReviewApi(async (path, init) => {
+    assert.equal(path, "/api/affiliations/signatures/download");
+    assert.equal(init?.method, "POST"); assert.equal(init?.cache, "no-store"); assert.equal(init?.credentials, "same-origin");
+    assert.deepEqual(JSON.parse(String(init?.body)), { signatureFileId: id });
+    return Response.json({ downloadUrl: "https://storage.example.test/storage/v1/object/sign/firmas-afiliacion/file?token=synthetic", expiresInSeconds: 60 });
+  });
+  assert.equal((await api.signature(id)).expiresInSeconds, 60);
+  for (const body of [{ downloadUrl: "javascript:alert(1)", expiresInSeconds: 60 },
+    { downloadUrl: "https://storage.example.test/public/file", expiresInSeconds: 60 },
+    { downloadUrl: "https://storage.example.test/storage/v1/object/sign/firmas-afiliacion/file", expiresInSeconds: 120 }]) {
+    await assert.rejects(createReviewApi(async () => Response.json(body)).signature(id), /invalid-response/);
   }
 });
 

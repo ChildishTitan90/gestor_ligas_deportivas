@@ -53,13 +53,7 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
     const restricted = await fixture('CLUB_DELEGATE', true, clubId);
     const secretary = await fixture('SECRETARY');
     const ordinary = await fixture('PLAYER');
-    const foreignOwner = await fixture('CLUB_DELEGATE', false, sameLeagueClub);
-    const files = [];
-    for (let i = 0; i < 3; i++) {
-      files.push((await db.query(`INSERT INTO sports_management.files(storage_key,original_name,mime_type,size_bytes,sha256,uploaded_by)
-        VALUES ($1,'firma-sintetica.png','image/png',100,$2,$3) RETURNING id`,
-      [`private/fixtures/${prefix}/${i}`, 'a'.repeat(64), actor.id])).rows[0].id);
-    }
+       const foreignOwner = await fixture('CLUB_DELEGATE', false, sameLeagueClub);
     async function season(leagueId = league) {
       const id = (await db.query(`INSERT INTO sports_management.seasons(league_id,sport_id,name,start_date,end_date)
         VALUES ($1,$2,$3,'2026-01-01','2026-12-31') RETURNING id`, [leagueId, sport, randomUUID()])).rows[0].id;
@@ -72,10 +66,44 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           VALUES ($1,$2,$3,$4,'OPEN','2026-01-01')`, [id, category, rule, i + 1]);
         categories.push(category);
       }
-      return { id, categories };
+           const files = [];
+
+      for (const office of [
+        "PRESIDENT",
+        "SECRETARY",
+        "TREASURER"
+      ]) {
+        const fileId = randomUUID();
+
+        const storageKey = [
+          "affiliation-signatures",
+          "v1",
+          clubId,
+          id,
+          actor.id,
+          office,
+          fileId
+        ].join("/");
+
+        await db.query(
+          `INSERT INTO sports_management.files(
+            id, storage_key, original_name, mime_type,
+            size_bytes, sha256, uploaded_by
+          )
+          VALUES (
+            $1, $2, 'firma-sintetica.png', 'image/png',
+            100, $3, $4
+          )`,
+          [fileId, storageKey, "a".repeat(64), actor.id]
+        );
+
+        files.push(fileId);
+      }
+
+      return { id, categories, files };
     }
     function payload(context, extra = {}) {
-      const officer = (i) => ({ firstName: `Directivo sintético ${i}`, paternalSurname: 'PD57', maternalSurname: '', signatureFileId: files[i] });
+      const officer = (i) => ({ firstName: `Directivo sintético ${i}`, paternalSurname: 'PD57', maternalSurname: '', signatureFileId: context.files[i] });
       return { submissionKey: randomUUID(), clubId, seasonId: context.id, clubName: 'Nombre anual sintético',
         uniformColors: 'Azul sintético', categoryIds: context.categories,
         officers: { PRESIDENT: officer(0), SECRETARY: officer(1), TREASURER: officer(2) }, ...extra };
@@ -101,6 +129,7 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
     }
     await test('PDGLD-57: solicitud transaccional por delegado, folio e idempotencia', { timeout: 180_000 }, async (t) => {
       const context = await season();
+       const files = context.files;
       await t.test('deniega anónimo, restringido, secretario, jugador y clubes ajenos', async () => {
         await deny(new Browser(baseUrl), payload(context), 401, 'UNAUTHENTICATED');
         await deny(restricted.browser, payload(context), 403, 'PASSWORD_CHANGE_REQUIRED');
@@ -143,6 +172,75 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           finally { await db.query(`UPDATE sports_management.files SET uploaded_by=$1,size_bytes=100,mime_type='image/png',sha256=$2 WHERE id=$3`, [actor.id, 'a'.repeat(64), files[0]]); }
         }
       });
+            await t.test(
+        'PDGLD-59: rechaza firmas de otro cargo, temporada o club',
+        async () => {
+          // Intentar usar la firma del secretario como presidente.
+          const wrongOffice = payload(context);
+          wrongOffice.officers.PRESIDENT.signatureFileId =
+            context.files[1];
+
+          await deny(
+            actor.browser,
+            wrongOffice,
+            400,
+            'INVALID_SIGNATURE'
+          );
+
+          // Mismo usuario y club, pero firma de otra temporada.
+          const otherSeason = await season();
+          const wrongSeason = payload(context);
+          wrongSeason.officers.PRESIDENT.signatureFileId =
+            otherSeason.files[0];
+
+          await deny(
+            actor.browser,
+            wrongSeason,
+            400,
+            'INVALID_SIGNATURE'
+          );
+
+          // El propietario sigue siendo el mismo usuario,
+          // pero la clave del archivo corresponde a otro club.
+          const fileId = context.files[0];
+
+          const original = (
+            await db.query(
+              'SELECT storage_key FROM sports_management.files WHERE id=$1',
+              [fileId]
+            )
+          ).rows[0].storage_key;
+
+          const foreignClubKey = [
+            'affiliation-signatures',
+            'v1',
+            sameLeagueClub,
+            context.id,
+            actor.id,
+            'PRESIDENT',
+            fileId
+          ].join('/');
+
+          await db.query(
+            'UPDATE sports_management.files SET storage_key=$1 WHERE id=$2',
+            [foreignClubKey, fileId]
+          );
+
+          try {
+            await deny(
+              actor.browser,
+              payload(context),
+              400,
+              'INVALID_SIGNATURE'
+            );
+          } finally {
+            await db.query(
+              'UPDATE sports_management.files SET storage_key=$1 WHERE id=$2',
+              [original, fileId]
+            );
+          }
+        }
+      );
       let submitted;
       const body = payload(context);
       await t.test('crea afiliación PENDING, tres directivos, categorías y un evento sin PII', async () => {
@@ -321,10 +419,50 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           assert.equal(result.version, 1);
           assert.deepEqual(await (await patch(secretary.browser, 'review', { ...approve, expectedVersion: 1 })).json(), { code: 'CORRECTIONS_PENDING' });
         });
+        await r.test('corrección desde la página propia funciona con UPDATE sin CREATE y protege datos ajenos', async () => {
+          const pageUrl = `/affiliations/${created.id}/correct`;
+          await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [delegateRoleId, permissionId]);
+          try {
+            const entryPage = await actor.browser.request('/affiliations/new');
+            assert.equal(entryPage.status, 200);
+            assert.ok((await entryPage.text()).includes(pageUrl));
+            const own = await actor.browser.request(pageUrl);
+            assert.equal(own.status, 200);
+            const markup = await own.text();
+            assert.match(markup, /Reenviar correcciones/);
+            assert.match(markup, /Aclarar colores del uniforme/);
+            assert.match(markup, /Nombre anual sintético/);
+            for (const denied of [foreignOwner.browser, secretary.browser]) {
+              const other = await denied.request(pageUrl);
+              assert.doesNotMatch(await other.text(), /Reenviar correcciones|Nombre anual sintético/);
+            }
+            assert.equal((await new Browser(baseUrl).request(pageUrl)).status, 307);
+            const update = reviewGrants[3];
+            assert.ok(update);
+            await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [update.roleId, update.permId]);
+            try {
+              const denied = await actor.browser.request(pageUrl);
+              assert.doesNotMatch(await denied.text(), /Reenviar correcciones|Nombre anual sintético/);
+              const upload = await actor.browser.request('/api/affiliations/signatures/prepare', { method: 'POST',
+                headers: { origin: baseUrl, 'content-type': 'application/json' },
+                body: JSON.stringify({ clubId, seasonId: fresh.seasonId, office: 'PRESIDENT', mimeType: 'image/png', sizeBytes: 100 }) });
+              assert.equal(upload.status, 403);
+              assert.equal((await patch(actor.browser, 'resubmit', { ...fresh, expectedVersion: 1 })).status, 403);
+            } finally {
+              await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [update.roleId, update.permId]);
+            }
+          } finally {
+            await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [delegateRoleId, permissionId]);
+          }
+        });
         await r.test('corrección inválida o ajena no altera el agregado; reenvío conserva folio e historial', async () => {
           const before = await counts();
+          const previousOfficers = (await db.query('SELECT office,person_id,signature_file_id FROM sports_management.club_officers WHERE affiliation_id=$1', [created.id])).rows;
           assert.equal((await patch(foreignOwner.browser, 'resubmit', { ...fresh, expectedVersion: 1 })).status, 403);
           assert.equal((await patch(actor.browser, 'resubmit', { ...fresh, expectedVersion: 1, categoryIds: [randomUUID()] })).status, 400);
+          const wrongSignature = await patch(actor.browser, 'resubmit', { ...fresh, expectedVersion: 1,
+            officers: { ...fresh.officers, PRESIDENT: { ...fresh.officers.PRESIDENT, signatureFileId: fresh.officers.SECRETARY.signatureFileId } } });
+          assert.deepEqual(await wrongSignature.json(), { code: 'INVALID_SIGNATURE' });
           assert.deepEqual(await counts(), before);
           const responses = await Promise.all([1, 2].map(() => patch(actor.browser, 'resubmit', { ...fresh, expectedVersion: 1, uniformColors: 'Blanco corregido' })));
           assert.deepEqual(responses.map((x) => x.status).sort(), [200, 409]);
@@ -338,6 +476,15 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           assert.equal(detail.officers.length, 3);
           assert.equal(detail.history[0].observations, 'Aclarar colores del uniforme.');
           assert.equal(detail.history.length, 2);
+          const change = (await db.query("SELECT previous_data,new_data FROM sports_management.audit_logs WHERE entity_id=$1 AND action='AFFILIATION_RESUBMIT'", [created.id])).rows[0];
+          assert.equal(change.previous_data.officers.length, 3);
+          for (const officer of previousOfficers) {
+            const snapshot = change.previous_data.officers.find(item => item.office === officer.office);
+            assert.equal(snapshot.personId, officer.person_id);
+            assert.equal(snapshot.signatureFileId, officer.signature_file_id);
+          }
+          assert.equal(change.new_data.officers.length, 3);
+          assert.equal(JSON.stringify(change).includes('Directivo sintético'), false);
           assert.equal((await counts()).affiliations, before.affiliations);
           assert.deepEqual(await (await patch(secretary.browser, 'review', approve)).json(), { code: 'STALE_AFFILIATION' });
         });
@@ -373,11 +520,11 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
         await r.test('bandeja PDGLD-61 conectada: consulta, correcciones, reenvío, conflicto y aprobación', async () => {
           const { createReviewApi } = await tsImport('../../src/features/clubs/affiliation-review-adapter.ts', import.meta.url);
           const { createReviewController } = await tsImport('../../src/features/clubs/affiliation-review-controller.ts', import.meta.url);
+          const { resubmitAffiliationRequest } = await tsImport('../../src/features/clubs/resubmit-affiliation.client.ts', import.meta.url);
           const nextPayload = payload(await season());
           const nextResponse = await post(actor.browser, nextPayload);
           assert.equal(nextResponse.status, 201);
           const next = await nextResponse.json();
-          const nextUrl = `/api/affiliations/${next.id}`;
           // El adaptador/controlador son los de producción; transporte HTTP real
           // con cookies sintéticas. No sustituye clics/foco/hidratación en navegador.
           const api = createReviewApi((path, init) => secretary.browser.request(String(path), {
@@ -386,7 +533,10 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           const controller = createReviewController(api);
           const page = await secretary.browser.request('/affiliations/review');
           assert.equal(page.status, 200);
-          assert.match(await page.text(), /Revisión de afiliaciones/);
+          const pageMarkup = await page.text();
+          assert.match(pageMarkup, /Revisión de afiliaciones/);
+          assert.ok(pageMarkup.includes(league));
+          assert.equal(pageMarkup.includes(otherLeague), false);
           await controller.load(league);
           assert.equal(controller.getSnapshot().error, null);
           assert.ok(controller.getSnapshot().items.some((item) => item.id === next.id));
@@ -398,10 +548,11 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           assert.equal(controller.getSnapshot().detail.reviewPhase, 'CORRECTIONS_REQUESTED');
           assert.deepEqual(controller.getSnapshot().detail.allowedActions, []);
           async function resubmit(version) {
-            const response = await actor.browser.request(`${nextUrl}/resubmit`, { method: 'PATCH',
-              headers: { origin: baseUrl, 'content-type': 'application/json' },
-              body: JSON.stringify({ ...nextPayload, expectedVersion: version, uniformColors: 'Blanco precisado' }) });
-            assert.equal(response.status, 200);
+            const outcome = await resubmitAffiliationRequest(next.id,
+              { ...nextPayload, expectedVersion: version, uniformColors: 'Blanco precisado' },
+              (path, init) => actor.browser.request(String(path), { ...init, headers: { ...init.headers, origin: baseUrl } }));
+            assert.equal(outcome.kind, 'confirmed');
+            assert.equal(outcome.result.version, version + 1);
           }
           await resubmit(1);
           await controller.open(next.id);

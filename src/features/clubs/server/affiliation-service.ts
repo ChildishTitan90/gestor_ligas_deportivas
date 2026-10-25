@@ -1,3 +1,4 @@
+import { matchesSignatureBinding } from "./signature-binding";
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
@@ -93,19 +94,71 @@ export async function submitAffiliation(input: unknown, correctionId?: string) {
     `;
     if (categories.length !== data.categoryIds.length) throw new AffiliationInputError("INVALID_CONTEXT");
 
-    const signatures = [...new Set(affiliationOfficeCodes.map((office) => data.officers[office].signatureFileId))];
-    const files = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM sports_management.files
-      WHERE id IN (${Prisma.join(signatures.map((id) => Prisma.sql`${id}::uuid`))})
-        AND uploaded_by = ${actor.id}::uuid AND size_bytes > 0 AND size_bytes <= 10485760
-        AND mime_type IN ('image/png', 'image/jpeg', 'application/pdf')
+    const signatures = [
+      ...new Set(
+        affiliationOfficeCodes.map(
+          (office) => data.officers[office].signatureFileId,
+        ),
+      ),
+    ];
+
+    const files = await tx.$queryRaw<
+      {
+        id: string;
+        storage_key: string;
+        uploaded_by: string;
+      }[]
+    >`
+      SELECT id, storage_key, uploaded_by
+      FROM sports_management.files
+      WHERE id IN (
+        ${Prisma.join(
+          signatures.map((id) => Prisma.sql`${id}::uuid`),
+        )}
+      )
+        AND uploaded_by = ${actor.id}::uuid
+        AND size_bytes > 0
+        AND size_bytes <= 10485760
+        AND mime_type IN (
+          'image/png',
+          'image/jpeg',
+          'application/pdf'
+        )
         AND sha256 ~ '^[a-fA-F0-9]{64}$'
       FOR SHARE
     `;
-    if (files.length !== signatures.length) throw new AffiliationInputError("INVALID_SIGNATURE");
 
+    if (files.length !== signatures.length) {
+      throw new AffiliationInputError("INVALID_SIGNATURE");
+    }
+
+    for (const office of affiliationOfficeCodes) {
+      const file = files.find(
+        (item) =>
+          item.id === data.officers[office].signatureFileId,
+      );
+
+      if (
+        !file ||
+        !matchesSignatureBinding(file, {
+          actorId: actor.id,
+          clubId: data.clubId,
+          seasonId: data.seasonId,
+          office,
+        })
+      ) {
+        throw new AffiliationInputError("INVALID_SIGNATURE");
+      }
+    }
     await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true),
       set_config('app.reason', 'PDGLD-57: solicitud de afiliación', true)`;
+    const previousOfficers = corrected ? await tx.club_officers.findMany({
+      where: { affiliation_id: corrected.id, ends_at: null },
+      select: { id: true, office: true, person_id: true, signature_file_id: true, support_file_id: true },
+    }) : [];
+    const previousCategories = corrected ? await tx.club_affiliation_categories.findMany({
+      where: { affiliation_id: corrected.id }, select: { category_id: true },
+    }) : [];
     const affiliation = corrected ? await tx.club_affiliations.update({ where: { id: corrected.id },
       data: { club_name: data.clubName, uniform_colors: data.uniformColors,
         reviewed_by: null, reviewed_at: null, review_reason: null, review_version: { increment: 1 } },
@@ -122,14 +175,14 @@ export async function submitAffiliation(input: unknown, correctionId?: string) {
       affiliation_id: affiliation.id, season_id: data.seasonId, category_id: categoryId,
     })) });
     const officerIds: string[] = [];
+    const officerReferences: { office: string; personId: string; signatureFileId: string }[] = [];
     for (const office of affiliationOfficeCodes) {
       const person = data.officers[office];
       const identity = await tx.people.create({ data: {
         first_name: person.firstName, paternal_surname: person.paternalSurname,
         maternal_surname: person.maternalSurname || null,
       }, select: { id: true } });
-      const previousOfficer = corrected ? await tx.club_officers.findFirst({ where: {
-        affiliation_id: corrected.id, office, ends_at: null }, select: { id: true } }) : null;
+      const previousOfficer = previousOfficers.find(item => item.office === office);
       const officer = previousOfficer ? await tx.club_officers.update({ where: { id: previousOfficer.id },
         data: { person_id: identity.id, signature_file_id: person.signatureFileId }, select: { id: true },
       }) : await tx.club_officers.create({ data: {
@@ -137,15 +190,19 @@ export async function submitAffiliation(input: unknown, correctionId?: string) {
         starts_at: seasons[0].startsAt, signature_file_id: person.signatureFileId,
       }, select: { id: true } });
       officerIds.push(officer.id);
+      officerReferences.push({ office, personId: identity.id, signatureFileId: person.signatureFileId });
     }
     // El baseline no audita club_affiliations/club_officers automáticamente.
     // Un solo evento del agregado; no copiar nombres, firmas ni hashes.
     await tx.audit_logs.create({ data: {
       user_id: actor.id, action: corrected ? "AFFILIATION_RESUBMIT" : "INSERT", table_name: "club_affiliations", entity_id: affiliation.id,
-      ...(corrected ? { previous_data: { status: "PENDING", version: corrected.review_version } } : {}),
+      ...(corrected ? { previous_data: { status: "PENDING", version: corrected.review_version,
+        categoryIds: previousCategories.map(item => item.category_id),
+        officers: previousOfficers.map(item => ({ office: item.office, personId: item.person_id,
+          signatureFileId: item.signature_file_id, supportFileId: item.support_file_id })) } } : {}),
       new_data: { status: "PENDING", club_id: data.clubId, season_id: data.seasonId,
         category_ids: data.categoryIds, officer_ids: officerIds,
-        ...(corrected ? { version: corrected.review_version + 1 } : {}) },
+        ...(corrected ? { version: corrected.review_version + 1, officers: officerReferences } : {}) },
       reason: corrected ? "PDGLD-60: reenvío de correcciones" : "PDGLD-57: solicitud de afiliación",
     } });
     return { id: affiliation.id, referenceNumber: affiliation.reference_number, status: affiliation.status, replayed: false,

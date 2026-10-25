@@ -17,6 +17,8 @@ const detailSchema = summarySchema.safeExtend({
     action: z.enum(["AFFILIATION_APPROVE", "AFFILIATION_REQUEST_CORRECTIONS", "AFFILIATION_RESUBMIT"]),
     occurredAt: z.iso.datetime(), observations: z.string().nullable(),
   })),
+  officers: z.array(z.object({ office: z.enum(["PRESIDENT", "SECRETARY", "TREASURER"]),
+    firstName: z.string(), paternalSurname: z.string(), maternalSurname: z.string(), signatureFileId: z.uuid().nullable() })),
 });
 
 export function createReviewApi(request: typeof fetch = fetch): ReviewApi {
@@ -61,6 +63,18 @@ export function createReviewApi(request: typeof fetch = fetch): ReviewApi {
       throw new ReviewApiError("invalid-response");
     },
     async detail(id) { return detail(await read(`/api/affiliations/${encodeURIComponent(id)}`), id); },
+    async signature(id) {
+      if (!z.uuid().safeParse(id).success) throw new ReviewApiError("invalid-response");
+      const response = await read("/api/affiliations/signatures/download", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signatureFileId: id }) });
+      const result = z.object({ downloadUrl: z.url().refine(value => {
+        const url = new URL(value);
+        return url.protocol === "https:" && !url.username && !url.password && !url.hash &&
+          url.pathname.startsWith("/storage/v1/object/sign/firmas-afiliacion/");
+      }), expiresInSeconds: z.number().int().positive().max(60) }).safeParse(response);
+      if (!result.success) throw new ReviewApiError("invalid-response");
+      return result.data;
+    },
     async review(id, action: ReviewAction, observations, expectedVersion) {
       const response = await read(`/api/affiliations/${encodeURIComponent(id)}/review`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
