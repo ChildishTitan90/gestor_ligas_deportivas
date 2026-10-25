@@ -50,6 +50,8 @@ jobs:
         run: npm run ci:guard-migrations
       - name: Probar los controles del pipeline
         run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:affiliation-input
+      - name: Probar firmas de afiliación
+        run: npm run test:signatures
       - name: Revisar el código
         run: npm run lint
       - name: Compilar la aplicación

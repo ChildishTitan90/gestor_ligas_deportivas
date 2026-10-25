@@ -1,3 +1,4 @@
+import { matchesSignatureBinding } from "./signature-binding";
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
@@ -71,15 +72,62 @@ export async function submitAffiliation(input: unknown) {
     `;
     if (categories.length !== data.categoryIds.length) throw new AffiliationInputError("INVALID_CONTEXT");
 
-    const signatures = [...new Set(affiliationOfficeCodes.map((office) => data.officers[office].signatureFileId))];
-    const files = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM sports_management.files
-      WHERE id IN (${Prisma.join(signatures.map((id) => Prisma.sql`${id}::uuid`))})
-        AND uploaded_by = ${actor.id}::uuid AND size_bytes > 0 AND size_bytes <= 10485760
-        AND mime_type IN ('image/png', 'image/jpeg', 'application/pdf')
+        const signatures = [
+      ...new Set(
+        affiliationOfficeCodes.map(
+          (office) => data.officers[office].signatureFileId,
+        ),
+      ),
+    ];
+
+    const files = await tx.$queryRaw<
+      {
+        id: string;
+        storage_key: string;
+        uploaded_by: string;
+      }[]
+    >`
+      SELECT id, storage_key, uploaded_by
+      FROM sports_management.files
+      WHERE id IN (
+        ${Prisma.join(
+          signatures.map((id) => Prisma.sql`${id}::uuid`),
+        )}
+      )
+        AND uploaded_by = ${actor.id}::uuid
+        AND size_bytes > 0
+        AND size_bytes <= 10485760
+        AND mime_type IN (
+          'image/png',
+          'image/jpeg',
+          'application/pdf'
+        )
         AND sha256 ~ '^[a-fA-F0-9]{64}$'
       FOR SHARE
     `;
+
+    if (files.length !== signatures.length) {
+      throw new AffiliationInputError("INVALID_SIGNATURE");
+    }
+
+    for (const office of affiliationOfficeCodes) {
+      const file = files.find(
+        (item) =>
+          item.id === data.officers[office].signatureFileId,
+      );
+
+      if (
+        !file ||
+        !matchesSignatureBinding(file, {
+          actorId: actor.id,
+          clubId: data.clubId,
+          seasonId: data.seasonId,
+          office,
+        })
+      ) {
+        throw new AffiliationInputError("INVALID_SIGNATURE");
+      }
+    }
     if (files.length !== signatures.length) throw new AffiliationInputError("INVALID_SIGNATURE");
 
     await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true),
