@@ -1,5 +1,19 @@
 # Inscripción de equipos — PDGLD-62 / contrato para PDGLD-63
 
+## Actualización de integración PDGLD-60 (25/10/2026)
+
+La aprobación ahora recibe `authorizedCategoryIds` (selección explícita no vacía
+de categorías solicitadas), obtenidos de `categoryOptions` del detalle.
+Secretaría selecciona y confirma en la bandeja; el servidor verifica pertenencia,
+permiso, ámbito y versión y escribe responsable/fecha junto con aprobación e
+historial. Solo las elegidas aparecen en las opciones de inscripción. El primer
+recorrido de `test:team-enrollments` ejecuta solicitud → aprobación/autorización →
+inscripción real, sin sustituir aprobación por SQL. También comprueba el rechazo
+de una categoría no elegida. Los apartados siguientes describen la entrega
+original y sus pendientes históricos; este apartado actualiza el pendiente de
+autorización. Los fixtures restantes aíslan las demás reglas de inscripción.
+Ver [evidencia PDGLD-60](../validation/PDGLD-60-autorizacion-categorias.md).
+
 ## Alcance confirmado y dependencias
 
 Revisados PDGLD-12, PDGLD-62, PDGLD-64 y PDGLD-11 en Jira el 24/10/2026.

@@ -362,7 +362,7 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
         const patch = (browser, suffix, data, headers = {}) => browser.request(`${url}/${suffix}`, {
           method: 'PATCH', headers: { origin: baseUrl, 'content-type': 'application/json', ...headers }, body: JSON.stringify(data),
         });
-        const approve = { decision: 'APPROVE', expectedVersion: 0 };
+        const approve = { decision: 'APPROVE', expectedVersion: 0, authorizedCategoryIds: [fresh.categoryIds[0]] };
         await r.test('listado paginado y detalle privados, sin acceso a otros clubes ni datos de storage', async () => {
           const listing = await secretary.browser.request(`/api/affiliations?leagueId=${league}&pageSize=1`);
           assert.equal(listing.status, 200);
@@ -403,6 +403,16 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
             SELECT $1,id,$2 FROM sports_management.roles WHERE code='SECRETARY' RETURNING id`, [actor.id, league])).rows[0].id;
           try { assert.equal((await patch(actor.browser, 'review', approve)).status, 403); }
           finally { await db.query('DELETE FROM sports_management.user_roles WHERE id=$1', [extra]); }
+        });
+        await r.test('selección vacía, repetida, ajena o ausente no aprueba ni autoriza categorías', async () => {
+          for (const authorizedCategoryIds of [[], [fresh.categoryIds[0], fresh.categoryIds[0]], [randomUUID()], body.categoryIds]) {
+            assert.equal((await patch(secretary.browser, 'review', { ...approve, authorizedCategoryIds })).status, 400);
+          }
+          assert.equal((await patch(secretary.browser, 'review', { decision: 'APPROVE', expectedVersion: 0 })).status, 400);
+          const row = (await db.query('SELECT status,review_version FROM sports_management.club_affiliations WHERE id=$1', [created.id])).rows[0];
+          assert.deepEqual(row, { status: 'PENDING', review_version: 0 });
+          const categories = await db.query('SELECT authorized_by,authorized_at FROM sports_management.club_affiliation_categories WHERE affiliation_id=$1', [created.id]);
+          assert.ok(categories.rows.every(c => c.authorized_by === null && c.authorized_at === null));
         });
         await r.test('revocar APPROVE impide revisar con una sesión existente', async () => {
           const grant = reviewGrants.find((g, i) => i === 1);
@@ -497,6 +507,8 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
             const detail = await (await secretary.browser.request(url)).json();
             assert.equal(detail.status, 'PENDING');
             assert.equal(detail.version, 2);
+            const categories = await db.query('SELECT authorized_by,authorized_at FROM sports_management.club_affiliation_categories WHERE affiliation_id=$1', [created.id]);
+            assert.ok(categories.rows.every(c => c.authorized_by === null && c.authorized_at === null));
           } finally {
             await db.query('DROP TRIGGER pdgld60_test_failure ON sports_management.audit_logs');
             await db.query('DROP FUNCTION sports_management.pdgld60_test_failure()');
@@ -504,14 +516,24 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
         });
         await r.test('aprobación concurrente tiene un ganador y un solo evento; conserva club/equipos', async () => {
           const before = await counts();
-          const responses = await Promise.all([1, 2, 3].map(() => patch(secretary.browser, 'review', { ...approve, expectedVersion: 2 })));
+          const selections = [[fresh.categoryIds[0]], [fresh.categoryIds[1]], [...fresh.categoryIds]];
+          const responses = await Promise.all(selections.map(authorizedCategoryIds => patch(secretary.browser, 'review', { ...approve, expectedVersion: 2, authorizedCategoryIds })));
           assert.deepEqual(responses.map((x) => x.status).sort(), [200, 409, 409]);
+          const winningIds = [...selections[responses.findIndex(response => response.status === 200)]].sort();
           for (const response of responses.filter((x) => x.status === 409))
             assert.deepEqual(await response.json(), { code: 'AFFILIATION_ALREADY_REVIEWED' });
           const detail = await (await secretary.browser.request(url)).json();
           assert.equal(detail.status, 'APPROVED');
           assert.equal(detail.version, 3);
           assert.equal(detail.history.filter((h) => h.action === 'AFFILIATION_APPROVE').length, 1);
+          assert.deepEqual(detail.categoryOptions.filter(c => c.authorized).map(c => c.id), winningIds);
+          const authorization = (await db.query('SELECT category_id,authorized_by,authorized_at FROM sports_management.club_affiliation_categories WHERE affiliation_id=$1 AND authorized_by IS NOT NULL', [created.id])).rows;
+          assert.equal(authorization.length, winningIds.length);
+          assert.ok(authorization.every(c => c.authorized_by === secretary.id));
+          const audit = (await db.query("SELECT new_data FROM sports_management.audit_logs WHERE entity_id=$1 AND action='AFFILIATION_APPROVE'", [created.id])).rows[0].new_data;
+          assert.deepEqual(audit.authorizedCategoryIds, winningIds);
+          assert.equal(audit.authorizedBy, secretary.id);
+          assert.equal(audit.authorizedAt, authorization[0].authorized_at.toISOString());
           assert.equal((await counts()).audits, before.audits + 1);
           assert.equal((await counts()).teams, before.teams);
           assert.equal((await db.query('SELECT name FROM sports_management.clubs WHERE id=$1', [clubId])).rows[0].name, 'Nombre original sintético');
@@ -559,6 +581,7 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           assert.equal(controller.getSnapshot().detail.version, 2);
           // Otra revisión entre abrir detalle y confirmar impide aprobar a ciegas.
           await api.review(next.id, 'REQUEST_CORRECTIONS', 'Revisar nuevamente el uniforme.', 2);
+          controller.category(nextPayload.categoryIds[0], true);
           await controller.submit('APPROVE'); await controller.confirmApproval();
           assert.equal(controller.getSnapshot().error, null);
           assert.equal(controller.getSnapshot().detail.reviewPhase, 'CORRECTIONS_REQUESTED');
@@ -566,6 +589,7 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           assert.match(controller.getSnapshot().message, /Otra persona ya revisó/);
           await resubmit(3);
           await controller.open(next.id);
+          controller.category(nextPayload.categoryIds[0], true);
           await controller.submit('APPROVE'); await controller.confirmApproval();
           assert.equal(controller.getSnapshot().error, null);
           assert.equal(controller.getSnapshot().detail.status, 'APPROVED');

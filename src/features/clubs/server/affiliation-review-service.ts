@@ -80,7 +80,7 @@ export async function getAffiliation(id: string) {
     await lockAuthorization(tx);
     const row = await tx.club_affiliations.findUnique({ where: { id }, select: {
       ...summarySelect, uniform_colors: true, signed_affiliation_file_id: true, submission_key: true, requested_by: true,
-      club_affiliation_categories: { select: { category_id: true,
+      club_affiliation_categories: { select: { category_id: true, authorized_by: true, authorized_at: true,
         season_categories: { select: { categories: { select: { name: true } } } } }, orderBy: { category_id: "asc" } },
       club_officers: { where: { ends_at: null }, select: { office: true, signature_file_id: true, support_file_id: true,
         people: { select: { first_name: true, paternal_surname: true, maternal_surname: true } } }, orderBy: { office: "asc" } },
@@ -102,6 +102,8 @@ export async function getAffiliation(id: string) {
       signedAffiliationFileId: row.signed_affiliation_file_id,
       categoryIds: row.club_affiliation_categories.map((c) => c.category_id),
       categories: row.club_affiliation_categories.map((c) => c.season_categories.categories.name),
+      categoryOptions: row.club_affiliation_categories.map(c => ({ id: c.category_id,
+        name: c.season_categories.categories.name, authorized: !!c.authorized_by && !!c.authorized_at })),
       officers: row.club_officers.map((o) => ({ office: o.office, firstName: o.people.first_name,
         paternalSurname: o.people.paternal_surname, maternalSurname: o.people.maternal_surname ?? "",
         signatureFileId: o.signature_file_id, supportFileId: o.support_file_id })),
@@ -129,14 +131,36 @@ export async function reviewAffiliation(id: string, input: unknown) {
     if (row.review_reason) throw new AffiliationReviewError("CORRECTIONS_PENDING", 409);
     const season = await tx.seasons.findUniqueOrThrow({ where: { id: row.season_id }, select: { status: true } });
     if (season.status === "CLOSED") throw new AffiliationReviewError("SEASON_CLOSED", 409);
+    // Decisión acordada con Sergio: selección explícita dentro de la solicitud.
+    // Revisar este contrato con Vic/Nick si negocio modifica la autorización.
+    const requested = await tx.$queryRaw<{ categoryId: string; authorizedBy: string | null; authorizedAt: Date | null }[]>`
+      SELECT category_id AS "categoryId", authorized_by AS "authorizedBy", authorized_at AS "authorizedAt"
+      FROM sports_management.club_affiliation_categories
+      WHERE affiliation_id = ${id}::uuid AND season_id = ${row.season_id}::uuid FOR UPDATE
+    `;
+    const authorizedCategoryIds = data.decision === "APPROVE" ? [...data.authorizedCategoryIds].sort() : [];
+    if (authorizedCategoryIds.some(categoryId => !requested.some(c => c.categoryId === categoryId)))
+      throw new AffiliationReviewError("INVALID_CATEGORY_SELECTION");
+    const reviewedAt = new Date();
+    if (data.decision === "APPROVE") {
+      await tx.club_affiliation_categories.updateMany({ where: { affiliation_id: id, season_id: row.season_id },
+        data: { authorized_by: null, authorized_at: null } });
+      const marked = await tx.club_affiliation_categories.updateMany({ where: { affiliation_id: id,
+        season_id: row.season_id, category_id: { in: authorizedCategoryIds } },
+        data: { authorized_by: actor.id, authorized_at: reviewedAt } });
+      if (marked.count !== authorizedCategoryIds.length) throw new AffiliationReviewError("INVALID_CATEGORY_SELECTION");
+    }
     const updated = await tx.club_affiliations.update({ where: { id }, data: {
       status: data.decision === "APPROVE" ? "APPROVED" : "PENDING", reviewed_by: actor.id,
-      reviewed_at: new Date(), review_reason: data.decision === "REQUEST_CORRECTIONS" ? data.observations : null,
+      reviewed_at: reviewedAt, review_reason: data.decision === "REQUEST_CORRECTIONS" ? data.observations : null,
       review_version: { increment: 1 },
     }, select: summarySelect });
     await tx.audit_logs.create({ data: { user_id: actor.id, table_name: "club_affiliations", entity_id: id,
-      action: `AFFILIATION_${data.decision}`, previous_data: { status: row.status, version: row.review_version },
+      action: `AFFILIATION_${data.decision}`, previous_data: { status: row.status, version: row.review_version,
+        ...(data.decision === "APPROVE" ? { authorizedCategoryIds: requested.filter(c => c.authorizedBy && c.authorizedAt).map(c => c.categoryId).sort() } : {}) },
       new_data: { status: updated.status, version: updated.review_version,
+        ...(data.decision === "APPROVE" ? { authorizedCategoryIds, authorizedBy: actor.id,
+          authorizedAt: reviewedAt.toISOString() } : {}),
         ...(data.decision === "REQUEST_CORRECTIONS" ? { observations: data.observations } : {}) },
       reason: "PDGLD-60: revisión de afiliación" } });
     return summary(updated);

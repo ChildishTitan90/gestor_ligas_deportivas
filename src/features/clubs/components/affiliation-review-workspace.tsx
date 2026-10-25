@@ -38,7 +38,9 @@ export function AffiliationReviewView({ controller, leagues = [] }: { controller
   const { detail } = state;
   const detailHeading = useRef<HTMLHeadingElement>(null);
   const approveButton = useRef<HTMLButtonElement>(null);
+  const firstCategory = useRef<HTMLInputElement>(null);
   useEffect(() => { if (detail) detailHeading.current?.focus(); }, [detail]);
+  useEffect(() => { if (state.categoryError) firstCategory.current?.focus(); }, [state.categoryError]);
   useEffect(() => {
     if (!state.download) return;
     const timeout = setTimeout(controller.clearDownload, Math.max(0, state.download.expiresAt - Date.now()));
@@ -98,6 +100,8 @@ export function AffiliationReviewView({ controller, leagues = [] }: { controller
         <div><dt className="text-muted">Fase de revisión</dt><dd>{detail.reviewPhase === "AWAITING_REVIEW" ? "Pendiente de revisión" : detail.reviewPhase === "CORRECTIONS_REQUESTED" ? "Correcciones solicitadas" : "No aplica"}</dd></div>
         <div><dt className="text-muted">Colores del uniforme</dt><dd>{detail.uniformColors || "Sin información"}</dd></div>
         <div><dt className="text-muted">Categorías solicitadas</dt><dd>{detail.categories.join(", ") || "Sin categorías informadas"}</dd></div>
+        {detail.status === "APPROVED" && <div><dt className="text-muted">Categorías autorizadas</dt>
+          <dd>{detail.categoryOptions.filter(c => c.authorized).map(c => c.name).join(", ") || "Sin categorías autorizadas"}</dd></div>}
         <div><dt className="text-muted">Observaciones registradas</dt><dd className="whitespace-pre-wrap break-words">{detail.observations || "Sin observaciones registradas"}</dd></div>
       </dl>
       <section aria-labelledby={`${prefix}-officers-title`} className="space-y-3">
@@ -136,6 +140,17 @@ export function AffiliationReviewView({ controller, leagues = [] }: { controller
       </section>
       {detail.status === "PENDING" && detail.allowedActions.length === 0 && <p>No hay acciones de revisión disponibles para esta solicitud.</p>}
       {detail.status === "PENDING" && <form onSubmit={corrections} className="space-y-4">
+        {detail.allowedActions.includes("APPROVE") && <fieldset disabled={!canReview || state.confirming} className="space-y-3">
+          <legend className="font-medium">Categorías que autorizas</legend>
+          <p id={`${prefix}-categories-help`} className="text-sm text-muted">Selecciona al menos una categoría solicitada. Solo las seleccionadas permitirán inscribir equipos; las demás conservarán su solicitud sin autorización.</p>
+          {detail.categoryOptions.map((category, index) => <label key={category.id} className="flex min-h-12 items-center gap-3 rounded-xl border border-border p-3">
+            <input ref={index === 0 ? firstCategory : undefined} type="checkbox" checked={state.selectedCategoryIds.includes(category.id)}
+              onChange={event => controller.category(category.id, event.target.checked)}
+              aria-invalid={!!state.categoryError} aria-describedby={`${prefix}-categories-help${state.categoryError ? ` ${prefix}-categories-error` : ""}`} className="size-5 shrink-0 accent-primary" />
+            <span className="wrap-break-word">{category.name}</span>
+          </label>)}
+          {state.categoryError && <p id={`${prefix}-categories-error`} role="alert" className="text-danger">{state.categoryError}</p>}
+        </fieldset>}
         <label htmlFor={`${prefix}-observations`} className="block font-medium">Observaciones (obligatorias para solicitar correcciones)</label>
         <textarea ref={observationsRef} id={`${prefix}-observations`} value={state.observations} maxLength={2000}
           disabled={!canReview} onChange={event => controller.observations(event.target.value)}
@@ -148,6 +163,7 @@ export function AffiliationReviewView({ controller, leagues = [] }: { controller
       </form>}
       {state.confirming && <div role="group" aria-labelledby={`${prefix}-confirm`} className="space-y-3 rounded-xl border border-border p-4">
         <p id={`${prefix}-confirm`}>¿Confirmas la aprobación de {detail.clubName}, folio {detail.referenceNumber}?</p>
+        <p>Se autorizarán estas categorías: {detail.categoryOptions.filter(c => state.selectedCategoryIds.includes(c.id)).map(c => c.name).join(", ")}.</p>
         <div className="flex flex-wrap gap-3">
           <button type="button" autoFocus disabled={state.submitting} onClick={() => { controller.cancel(); requestAnimationFrame(() => approveButton.current?.focus()); }} className={buttonClass}>Cancelar</button>
           <button type="button" disabled={state.submitting} onClick={() => void controller.confirmApproval()} className={buttonClass}>Confirmar aprobación</button>

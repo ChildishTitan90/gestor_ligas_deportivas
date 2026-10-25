@@ -5,9 +5,9 @@ import pg from 'pg';
 import * as argon2 from 'argon2';
 import { Browser } from './auth.test.mjs';
 
-/** HTTP real y PostgreSQL desechable. PDGLD-60 ya aprueba afiliaciones, pero
- * todavía no autoriza categorías. Ese recorrido real debe terminar en rechazo;
- * los escenarios positivos de inscripción usan fixtures autorizados separados. */
+/** HTTP real y PostgreSQL desechable. El primer recorrido solicita, aprueba
+ * seleccionando una categoría e inscribe con servicios reales. Los demás
+ * escenarios aislados conservan sus fixtures autorizados separados. */
 export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }) {
   const target = new URL(databaseUrl);
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(target.hostname));
@@ -114,7 +114,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
       return affiliation;
     }
     await test('PDGLD-62/64: inscripción HTTP, permisos, integridad y reintentos', { timeout: 240_000 }, async (t) => {
-      await t.test('solicitud y aprobación reales no autorizan categorías ni activan equipos', async () => {
+      await t.test('solicitud, aprobación con selección e inscripción reales; no autoriza otras categorías ni activa equipos', async () => {
         const officers = {};
         for (const office of ['PRESIDENT', 'SECRETARY', 'TREASURER']) {
           const id = randomUUID();
@@ -147,7 +147,8 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
         assert.ok(detail.allowedActions.includes('APPROVE'));
         const approval = await secretary.browser.request(`/api/affiliations/${request.id}/review`, {
           method: 'PATCH', headers: { origin: baseUrl, 'content-type': 'application/json' },
-          body: JSON.stringify({ decision: 'APPROVE', expectedVersion: detail.version }),
+          body: JSON.stringify({ decision: 'APPROVE', expectedVersion: detail.version,
+            authorizedCategoryIds: [reviewContext.categories[0].id] }),
         });
         assert.equal(approval.status, 200);
         const approved = await approval.json();
@@ -157,19 +158,33 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
         assert.deepEqual(saved, { status: 'APPROVED', reviewed_by: secretary.id });
         const events = (await db.query("SELECT user_id FROM sports_management.audit_logs WHERE table_name='club_affiliations' AND entity_id=$1 AND action='AFFILIATION_APPROVE'", [request.id])).rows;
         assert.deepEqual(events, [{ user_id: secretary.id }]);
-        // El contrato real de revisión NO escribe la autorización individual.
-        // No suplir esa operación mediante UPDATE ni anunciar un flujo completo.
-        const categories = (await db.query('SELECT authorized_by,authorized_at FROM sports_management.club_affiliation_categories WHERE affiliation_id=$1', [request.id])).rows;
+        const categories = (await db.query('SELECT category_id,authorized_by,authorized_at FROM sports_management.club_affiliation_categories WHERE affiliation_id=$1', [request.id])).rows;
         assert.equal(categories.length, reviewContext.categories.length);
-        assert.ok(categories.every((category) => category.authorized_by === null && category.authorized_at === null));
-        await deny(actor.browser, payload(reviewContext), 409, 'CATEGORY_NOT_AUTHORIZED');
+        const authorized = categories.find(c => c.category_id === reviewContext.categories[0].id);
+        assert.equal(authorized.authorized_by, secretary.id);
+        assert.ok(authorized.authorized_at);
+        const unselected = categories.find(c => c.category_id === reviewContext.categories[1].id);
+        assert.equal(unselected.authorized_by, null);
+        assert.equal(unselected.authorized_at, null);
+        await deny(actor.browser, payload(reviewContext, { categoryId: reviewContext.categories[1].id,
+          groupId: reviewContext.categories[1].groups[0] }), 409, 'CATEGORY_NOT_AUTHORIZED');
         const approvedOptions = await actor.browser.request(`/api/team-enrollments/options?clubId=${clubId}&seasonId=${reviewContext.id}`);
-        assert.deepEqual((await approvedOptions.json()).categories, []);
+        assert.deepEqual((await approvedOptions.json()).categories.map(c => c.id), [reviewContext.categories[0].id]);
         assert.deepEqual(await counts(), beforeApproval);
         assert.equal((await db.query('SELECT status FROM sports_management.season_teams WHERE id=$1', [legacyEnrollment])).rows[0].status, 'REGISTERED');
+        const enrollment = payload(reviewContext);
+        const enrolledResponse = await post(actor.browser, enrollment);
+        assert.equal(enrolledResponse.status, 201);
+        const enrolled = await enrolledResponse.json();
+        assert.equal(enrolled.status, 'REGISTERED');
+        assert.equal(enrolled.categoryId, reviewContext.categories[0].id);
+        assert.deepEqual(await counts(), { teams: beforeApproval.teams + 1, enrollments: beforeApproval.enrollments + 1, audits: beforeApproval.audits + 1 });
+        const replay = await post(actor.browser, enrollment);
+        assert.equal(replay.status, 200);
+        assert.deepEqual(await replay.json(), { ...enrolled, replayed: true });
       });
       // Otra temporada: fixture explícito para pruebas aisladas de inscripción.
-      // No completa el recorrido anterior ni demuestra una autorización real.
+      // Los siguientes casos aíslan inscripción, además del recorrido real anterior.
       await approvedFixture(context, clubId, [context.categories[0].id]);
       await t.test('sesión operativa y alcance: anónimo, cambio de contraseña, sin permiso y otros clubes', async () => {
         await deny(new Browser(baseUrl), payload(), 401, 'UNAUTHENTICATED');

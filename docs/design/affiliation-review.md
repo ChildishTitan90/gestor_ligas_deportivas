@@ -27,7 +27,9 @@ La descarga abre una pestaña con noopener/noreferrer y referrerPolicy=no-referr
 Un fallo de Storage no anuncia éxito ni crea un enlace.
 
 La captura exige observaciones no vacías de hasta 2000 caracteres para
-correcciones. Aprobar requiere confirmación explícita con club/folio y opción de
+correcciones. Aprobar requiere seleccionar explícitamente una o varias categorías
+solicitadas; no hay casillas preseleccionadas. Solo las seleccionadas permitirán
+inscribir equipos. La confirmación muestra sus nombres, club/folio y opción de
 cancelar. Durante el envío se bloquean consultas, selección y acciones; el
 controlador también impide envíos duplicados. Las acciones proceden de
 allowedActions del servidor, calculadas con la misma regla que protege PATCH.
@@ -48,7 +50,7 @@ No hay reintentos automáticos de escrituras ni actualizaciones optimistas.
 | GET /api/affiliations?status=PENDING&leagueId=UUID&page=1&pageSize=100 | Respuesta items, page, pageSize, hasMore. El adaptador recorre páginas hasta hasMore=false y rechaza duplicados, páginas incoherentes o mezcla de ligas/estados. No muestra una lista parcial como completa. |
 | Resumen | id, leagueId, referenceNumber, clubName, seasonName, status, reviewPhase, version. El nombre anual del club usa el nombre operativo como respaldo para registros antiguos sin captura. |
 | GET /api/affiliations/{id} | Añade uniformColors, categories con nombres, observations actuales, allowedActions, officers e history. Cada evento valida id, action, occurredAt ISO y observations. El adaptador conserva solo los campos de presentación del historial. |
-| PATCH /api/affiliations/{id}/review | decision, expectedVersion y observations solo para REQUEST_CORRECTIONS. El servidor exige permiso, ámbito, asignación, separación de funciones, estado y versión. |
+| PATCH /api/affiliations/{id}/review | decision, expectedVersion y authorizedCategoryIds para APPROVE; observations solo para REQUEST_CORRECTIONS. El servidor exige permiso, ámbito, asignación, separación de funciones, estado, pertenencia de categorías y versión. |
 | Respuesta PATCH | Resumen con el ID, estado/fase de la decisión y versión incrementada. El adaptador valida ese acuse y consulta nuevamente el detalle con permisos vigentes. Un 204 o un simple ok no anuncia éxito. |
 | POST /api/affiliations/signatures/download | signatureFileId del detalle autorizado. El servidor vuelve a comprobar READ y contexto antes y después de consultar Storage. La UI valida HTTPS, ruta de firma privada y vigencia máxima de 60 segundos. |
 
@@ -69,7 +71,7 @@ y ofrece volver a consultar. No se permite convertir una corrección en un alta 
 Ejemplos:
 
 ```json
-{ "decision": "APPROVE", "expectedVersion": 0 }
+{ "decision": "APPROVE", "expectedVersion": 0, "authorizedCategoryIds": ["UUID-de-categoria-solicitada"] }
 ```
 
 ```json

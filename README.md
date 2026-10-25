@@ -71,9 +71,11 @@ el folio y reenviar mediante `/affiliations/{id}/correct`. El servidor comprueba
 permisos vigentes, contexto, versión y separación de funciones en cada operación.
 Consulta el [contrato](docs/architecture/affiliation-review.md) y la
 [evidencia de integración y pendientes](docs/validation/PDGLD-60-integracion-afiliaciones.md).
-La integración local con PDGLD-62/64 compila con Next 16.4.3. La aprobación real
-de PDGLD-60 todavía no registra autorización individual de categorías; inscripción
-conserva `CATEGORY_NOT_AUTHORIZED` hasta que Checo integre ese contrato. No se
+La integración local con PDGLD-62/64 compila con Next 16.4.3. Secretaría selecciona
+explícitamente las categorías solicitadas que autoriza al aprobar; el servidor
+registra responsable/fecha y conjunto autorizado en la misma transacción. Solo
+esas categorías permiten inscribir equipos. Consulta la
+[decisión y evidencia actual](docs/validation/PDGLD-60-autorizacion-categorias.md). No se
 declara cerrada la HU sin revisión independiente, CI y aceptación en pruebas.
 
 ## Inscripción de equipos — PDGLD-62 / PDGLD-64
@@ -85,8 +87,10 @@ describe las modalidades de equipo existente/nuevo y los errores.
 La migración aditiva distingue categorías solicitadas de autorizadas; no las
 autoriza automáticamente. `npm run test:team-enrollments` ejecuta HTTP real y
 PostgreSQL local desechable, también incorporados en CI 15/17.
-La aprobación real de PDGLD-60, las pantallas de PDGLD-63 y la definición de
-activación siguen siendo dependencias separadas; no se habilita transición a ACTIVE.
+La suite incluye solicitud → aprobación con selección de categorías → inscripción
+por servicios reales y rechazo de categorías no seleccionadas. Las pantallas de
+PDGLD-63 y la definición de activación siguen siendo dependencias separadas;
+no se habilita transición a ACTIVE.
 
 ## CI/CD
 
