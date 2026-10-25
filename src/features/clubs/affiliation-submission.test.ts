@@ -5,13 +5,19 @@ import { affiliationSubmissionSchema, canonicalAffiliationSubmission } from "./a
 import { affiliationReviewSchema, affiliationResubmissionSchema, affiliationListSchema } from "./affiliation-review";
 
 test("PDGLD-60: requiere versión, motivo de corrección y rechaza decisiones no acordadas", () => {
-  assert.ok(affiliationReviewSchema.safeParse({ decision: "APPROVE", expectedVersion: 0 }).success);
+  const categoryId = randomUUID();
+  const approval = { decision: "APPROVE", expectedVersion: 0, authorizedCategoryIds: [categoryId] };
+  assert.ok(affiliationReviewSchema.safeParse(approval).success);
+  assert.deepEqual(affiliationReviewSchema.parse({ ...approval, authorizedCategoryIds: [categoryId.toUpperCase()] }), approval);
   assert.ok(affiliationReviewSchema.safeParse({ decision: "REQUEST_CORRECTIONS", expectedVersion: 3, observations: "Corregir uniforme" }).success);
   for (const invalid of [
-    { decision: "APPROVE" }, { decision: "APPROVE", expectedVersion: -1 },
+    { decision: "APPROVE" }, { ...approval, expectedVersion: -1 },
+    { decision: "APPROVE", expectedVersion: 0 }, { ...approval, authorizedCategoryIds: [] },
+    { ...approval, authorizedCategoryIds: [categoryId, categoryId.toUpperCase()] },
+    { ...approval, authorizedCategoryIds: Array.from({ length: 101 }, () => randomUUID()) },
     { decision: "REJECT", expectedVersion: 0 },
     { decision: "REQUEST_CORRECTIONS", expectedVersion: 0, observations: "  " },
-    { decision: "APPROVE", expectedVersion: 0, reviewedBy: randomUUID() },
+    { ...approval, reviewedBy: randomUUID() },
   ]) assert.equal(affiliationReviewSchema.safeParse(invalid).success, false);
 });
 test("PDGLD-60: limita consultas y exige envío completo para corregir", () => {

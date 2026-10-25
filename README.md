@@ -71,8 +71,26 @@ el folio y reenviar mediante `/affiliations/{id}/correct`. El servidor comprueba
 permisos vigentes, contexto, versión y separación de funciones en cada operación.
 Consulta el [contrato](docs/architecture/affiliation-review.md) y la
 [evidencia de integración y pendientes](docs/validation/PDGLD-60-integracion-afiliaciones.md).
-El build local conserva el fallo de procesos CSS de Turbopack; no se declara
-cerrada la HU sin revisión independiente, CI y aceptación en el entorno de pruebas.
+La integración local con PDGLD-62/64 compila con Next 16.4.3. Secretaría selecciona
+explícitamente las categorías solicitadas que autoriza al aprobar; el servidor
+registra responsable/fecha y conjunto autorizado en la misma transacción. Solo
+esas categorías permiten inscribir equipos. Consulta la
+[decisión y evidencia actual](docs/validation/PDGLD-60-autorizacion-categorias.md). No se
+declara cerrada la HU sin revisión independiente, CI y aceptación en pruebas.
+
+## Inscripción de equipos — PDGLD-62 / PDGLD-64
+
+El backend ofrece opciones, consulta e inscripción en `/api/team-enrollments`,
+con estado inicial `REGISTERED` (INSCRITO), alcance por club, alta atómica e
+idempotencia persistente. El [contrato para PDGLD-63](docs/architecture/team-enrollment.md)
+describe las modalidades de equipo existente/nuevo y los errores.
+La migración aditiva distingue categorías solicitadas de autorizadas; no las
+autoriza automáticamente. `npm run test:team-enrollments` ejecuta HTTP real y
+PostgreSQL local desechable, también incorporados en CI 15/17.
+La suite incluye solicitud → aprobación con selección de categorías → inscripción
+por servicios reales y rechazo de categorías no seleccionadas. Las pantallas de
+PDGLD-63 y la definición de activación siguen siendo dependencias separadas;
+no se habilita transición a ACTIVE.
 
 ## CI/CD
 

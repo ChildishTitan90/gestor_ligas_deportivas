@@ -20,6 +20,7 @@ export type ReviewSummary = {
 export type ReviewDetail = ReviewSummary & {
   uniformColors: string;
   categories: string[];
+  categoryOptions: { id: string; name: string; authorized: boolean }[];
   observations: string | null;
   allowedActions: ReviewAction[];
   history: ReviewHistoryEntry[];
@@ -34,7 +35,7 @@ export type ReviewDetail = ReviewSummary & {
 export interface ReviewApi {
   list(leagueId: string): Promise<ReviewSummary[]>;
   detail(id: string): Promise<ReviewDetail>;
-  review(id: string, action: ReviewAction, observations: string, expectedVersion: number): Promise<ReviewDetail>;
+  review(id: string, action: ReviewAction, observations: string, expectedVersion: number, authorizedCategoryIds?: readonly string[]): Promise<ReviewDetail>;
   signature(id: string): Promise<{ downloadUrl: string; expiresInSeconds: number }>;
 }
 export class ReviewApiError extends Error {

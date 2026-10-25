@@ -11,6 +11,8 @@ const summarySchema = z.object({
 }).refine(item => item.status !== "PENDING" || item.reviewPhase !== null);
 const detailSchema = summarySchema.safeExtend({
   uniformColors: z.string(), categories: z.array(z.string()), observations: z.string().nullable(),
+  categoryOptions: z.array(z.object({ id: z.uuid(), name: z.string().min(1), authorized: z.boolean() })).max(100)
+    .refine(items => new Set(items.map(item => item.id)).size === items.length),
   allowedActions: z.array(z.enum(["APPROVE", "REQUEST_CORRECTIONS"])),
   history: z.array(z.object({
     id: z.uuid(),
@@ -75,10 +77,10 @@ export function createReviewApi(request: typeof fetch = fetch): ReviewApi {
       if (!result.success) throw new ReviewApiError("invalid-response");
       return result.data;
     },
-    async review(id, action: ReviewAction, observations, expectedVersion) {
+    async review(id, action: ReviewAction, observations, expectedVersion, authorizedCategoryIds = []) {
       const response = await read(`/api/affiliations/${encodeURIComponent(id)}/review`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(action === "APPROVE" ? { decision: "APPROVE", expectedVersion } :
+        body: JSON.stringify(action === "APPROVE" ? { decision: "APPROVE", expectedVersion, authorizedCategoryIds } :
           { decision: "REQUEST_CORRECTIONS", observations: observations.trim(), expectedVersion }),
       });
       const saved = summarySchema.safeParse(response);

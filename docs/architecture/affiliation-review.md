@@ -1,5 +1,16 @@
 # PDGLD-60 — Revisión de afiliaciones
 
+Actualización de integración 25/10/2026: el PR #28 se recibió desde develop en
+la rama PDGLD-62/64, conservando este servicio y los contratos de corrección.
+Actualización posterior a PR #27: la aprobación requiere selección explícita de
+categorías solicitadas. En la misma transacción escribe
+`club_affiliation_categories.authorized_by` y `authorized_at` solo para las
+seleccionadas. La inscripción consume esas marcas y rechaza
+`CATEGORY_NOT_AUTHORIZED` si faltan. La bandeja permite seleccionar y confirmar
+el conjunto. Ver [decisión y comprobaciones](../validation/PDGLD-60-autorizacion-categorias.md).
+Consulta la [evidencia conjunta](../validation/PDGLD-62-PDGLD-64-integracion-pr28.md)
+para resultados actuales; las verificaciones anteriores se conservan como historial.
+
 Contrato para integrar la bandeja PDGLD-61. Implementación backend en esta rama;
 no representa cierre de HU01-02 ni validación del flujo de archivos de PDGLD-59.
 
@@ -14,7 +25,7 @@ no representa cierre de HU01-02 ni validación del flujo de archivos de PDGLD-59
 
 Cada resumen contiene id, referenceNumber, clubId, leagueId, seasonId, clubName,
 status, reviewPhase, observations, reviewedAt, version y seasonName.
-El detalle añade uniformColors, categoryIds, officers (arreglo por office),
+El detalle añade uniformColors, categoryIds, categoryOptions ({ id, name, authorized }), officers (arreglo por office),
 signedAffiliationFileId, categories (nombres), allowedActions e history. Las acciones
 se calculan con las mismas reglas de revisión de la escritura y no sustituyen la
 autorización de PATCH. Cada directivo incluye nombre y apellidos,
@@ -32,7 +43,7 @@ renderizan como texto y el historial se retira con el detalle al perder autoriza
 PATCH /api/affiliations/{id}/review, con JSON y Origin del mismo sitio:
 
 ```json
-{ "decision": "APPROVE", "expectedVersion": 0 }
+{ "decision": "APPROVE", "expectedVersion": 0, "authorizedCategoryIds": ["UUID-de-categoria-solicitada"] }
 ```
 
 o:
@@ -45,6 +56,16 @@ expectedVersion es el version obtenido al consultar el detalle. Nunca incrementa
 desde la UI suponiendo que la operación tuvo éxito. Observaciones obligatorias,
 recortadas y de 1 a 2000 caracteres. El servidor no acepta autor, fecha ni estado.
 Éxito 200 con resumen actualizado.
+
+`authorizedCategoryIds` es obligatorio para APPROVE: de 1 a 100 UUID únicos,
+normalizados a minúsculas y pertenecientes a esta solicitud y temporada. Una
+selección ausente, vacía o repetida devuelve VALIDATION_ERROR (400); una categoría
+ajena devuelve INVALID_CATEGORY_SELECTION (400). No se aceptan autor ni fecha.
+REQUEST_CORRECTIONS conserva su contrato y no autoriza categorías.
+La aprobación conserva todas las categorías solicitadas; las no elegidas quedan
+sin autorización. Se auditan el conjunto anterior, el elegido y responsable/fecha
+en el mismo evento AFFILIATION_APPROVE. Estado, versión, marcas e historial se
+confirman o revierten juntos. No hay autorización implícita para clientes antiguos.
 
 Se aplica el criterio vigente de HU01-02: asignación SECRETARY con clubs:APPROVE
 vigente y alcance suficiente en la misma concesión. El permiso no se deduce del

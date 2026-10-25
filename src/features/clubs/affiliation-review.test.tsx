@@ -8,11 +8,13 @@ import { AffiliationReviewView } from "./components/affiliation-review-workspace
 
 // Exclusivamente fixtures de pruebas: nunca importadas por la página real.
 const leagueId = "61000000-0000-4000-8000-000000000001";
+const categoryId = "61000000-0000-4000-8000-000000000040";
 const fixture: ReviewDetail = {
   id: "61000000-0000-4000-8000-000000000002", leagueId,
   referenceNumber: "TEST-61", clubName: "Club sintético", seasonName: "Temporada de prueba",
   status: "PENDING", reviewPhase: "AWAITING_REVIEW", uniformColors: "Azul sintético", version: 0,
   categories: ["Categoría de prueba"], observations: null, allowedActions: ["APPROVE", "REQUEST_CORRECTIONS"],
+  categoryOptions: [{ id: categoryId, name: "Categoría de prueba", authorized: false }],
   history: [],
   officers: [{ office: "PRESIDENT", firstName: "Persona sintética", paternalSurname: "Prueba", maternalSurname: "",
     signatureFileId: "61000000-0000-4000-8000-000000000030" }],
@@ -119,8 +121,30 @@ test("adaptador de firmas usa el endpoint privado y rechaza enlaces o vigencias 
 
 async function selected(overrides: Partial<ReviewApi> = {}) {
   const value = setup(overrides);
-  await value.controller.load(leagueId); await value.controller.open(fixture.id); return value;
+  await value.controller.load(leagueId); await value.controller.open(fixture.id);
+  value.controller.category(categoryId, true);
+  return value;
 }
+
+test("autorización exige selección explícita, congela confirmación y limpia al cambiar de detalle", async () => {
+  const { controller } = setup();
+  await controller.load(leagueId); await controller.open(fixture.id);
+  assert.deepEqual(controller.getSnapshot().selectedCategoryIds, []);
+  controller.category(leagueId, true);
+  await controller.submit("APPROVE");
+  assert.equal(controller.getSnapshot().confirming, false);
+  assert.match(html(controller), /Selecciona al menos una categoría/);
+  controller.category(categoryId, true);
+  await controller.submit("APPROVE");
+  assert.match(html(controller), /Se autorizarán estas categorías: Categoría de prueba/);
+  controller.category(categoryId, false);
+  assert.deepEqual(controller.getSnapshot().selectedCategoryIds, [categoryId]);
+  controller.cancel(); controller.category(categoryId, false);
+  assert.deepEqual(controller.getSnapshot().selectedCategoryIds, []);
+  controller.category(categoryId, true);
+  await controller.open(fixture.id);
+  assert.deepEqual(controller.getSnapshot().selectedCategoryIds, []);
+});
 
 test("consulta: carga, vacío, error y acceso denegado con datos privados retirados", async () => {
   let finish!: (items: []) => void;
@@ -217,12 +241,12 @@ test("adaptador usa rutas acordadas, PATCH JSON, cookies del origen y no-store",
       approved ? { ...fixture, status: "APPROVED", reviewPhase: null, version: 1 } : fixture);
   };
   const api = createReviewApi(request);
-  await api.list(leagueId); await api.detail(fixture.id); await api.review(fixture.id, "APPROVE", "  Nota  ", 0);
+  await api.list(leagueId); await api.detail(fixture.id); await api.review(fixture.id, "APPROVE", "  Nota  ", 0, [categoryId]);
   assert.equal(calls[0].path, `/api/affiliations?status=PENDING&leagueId=${leagueId}&page=1&pageSize=100`);
   assert.equal(calls[1].path, `/api/affiliations/${fixture.id}`);
   assert.equal(calls[2].path, `/api/affiliations/${fixture.id}/review`);
   assert.equal(calls[2].init?.method, "PATCH");
-  assert.equal(calls[2].init?.body, JSON.stringify({ decision: "APPROVE", expectedVersion: 0 }));
+  assert.equal(calls[2].init?.body, JSON.stringify({ decision: "APPROVE", expectedVersion: 0, authorizedCategoryIds: [categoryId] }));
   assert.equal(calls[3].path, `/api/affiliations/${fixture.id}`);
   for (const call of calls) { assert.equal(call.init?.cache, "no-store"); assert.equal(call.init?.credentials, "same-origin"); }
 });

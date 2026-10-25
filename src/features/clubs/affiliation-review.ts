@@ -2,8 +2,11 @@ import { z } from "zod";
 import { affiliationSubmissionSchema } from "./affiliation-submission";
 
 export const reviewVersionSchema = z.number().int().nonnegative().max(2147483646);
+export const authorizedCategoryIdsSchema = z.array(z.uuid().transform(value => value.toLowerCase()))
+  .min(1).max(100).refine(ids => new Set(ids).size === ids.length);
 export const affiliationReviewSchema = z.discriminatedUnion("decision", [
-  z.strictObject({ decision: z.literal("APPROVE"), expectedVersion: reviewVersionSchema }),
+  z.strictObject({ decision: z.literal("APPROVE"), expectedVersion: reviewVersionSchema,
+    authorizedCategoryIds: authorizedCategoryIdsSchema }),
   z.strictObject({ decision: z.literal("REQUEST_CORRECTIONS"), expectedVersion: reviewVersionSchema,
     observations: z.string().trim().min(1).max(2000) }),
 ]);
