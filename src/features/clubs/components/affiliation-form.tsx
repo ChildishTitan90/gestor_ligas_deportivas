@@ -52,11 +52,11 @@ export function AffiliationForm(props: AffiliationFormProps) {
   // Cambiar de cuenta, club o temporada descarta el estado anterior.
   const identity = context
     ? [
-        context.actorId,
-        context.clubId,
-        context.seasonId,
-        context.storageOrigin,
-      ].join(":")
+      context.actorId,
+      context.clubId,
+      context.seasonId,
+      context.storageOrigin,
+    ].join(":")
     : "capture-only";
 
   return <AffiliationFormContent key={identity} {...props} />;
@@ -454,7 +454,7 @@ function AffiliationFormContent({
                     }
                     className="size-5 shrink-0 accent-primary"
                   />
-                  <span className="break-words text-sm">
+                  <span className="wrap-break-word text-sm">
                     {category.name}
                   </span>
                 </label>
