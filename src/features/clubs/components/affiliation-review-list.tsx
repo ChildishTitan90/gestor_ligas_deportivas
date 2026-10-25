@@ -46,21 +46,21 @@ export function AffiliationReviewList({
         >
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 flex-1">
-              <h2 className="break-words text-lg font-semibold text-primary">
+              <h2 className="wrap-break-word text-lg font-semibold text-primary">
                 {item.clubName}
               </h2>
 
               <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
                 <div>
                   <dt className="text-muted">Folio</dt>
-                  <dd className="mt-1 break-words font-medium">
+                  <dd className="mt-1 wrap-break-word font-medium">
                     {item.referenceNumber}
                   </dd>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <dt className="text-muted">Temporada</dt>
-                  <dd className="mt-1 break-words">{item.seasonName}</dd>
+                  <dd className="mt-1 wrap-break-word">{item.seasonName}</dd>
                 </div>
 
                 <div>

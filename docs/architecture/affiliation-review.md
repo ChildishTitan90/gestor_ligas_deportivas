@@ -1,5 +1,15 @@
 # PDGLD-60 — Revisión de afiliaciones
 
+Actualización de integración 25/10/2026: el PR #28 se recibió desde develop en
+la rama PDGLD-62/64, conservando este servicio y los contratos de corrección.
+La aprobación de este documento cambia la afiliación; **no autoriza categorías
+individuales**. No escribe `club_affiliation_categories.authorized_by` ni
+`authorized_at`. La inscripción consume esas marcas y rechaza
+`CATEGORY_NOT_AUTHORIZED` si faltan. Checo coordina esa autorización y, si necesita
+selección visual, debe acordarla con Nick. No se introduce una aprobación alternativa.
+Consulta la [evidencia conjunta](../validation/PDGLD-62-PDGLD-64-integracion-pr28.md)
+para resultados actuales; las verificaciones anteriores se conservan como historial.
+
 Contrato para integrar la bandeja PDGLD-61. Implementación backend en esta rama;
 no representa cierre de HU01-02 ni validación del flujo de archivos de PDGLD-59.
 

@@ -53,13 +53,13 @@ export function AffiliationForm(props: AffiliationFormProps) {
   // Cambiar de cuenta, club o temporada descarta el estado anterior.
   const identity = context
     ? [
-        context.actorId,
-        context.clubId,
-        context.seasonId,
-        context.storageOrigin,
-        props.correction?.id ?? "new",
-        props.correction?.expectedVersion ?? "",
-      ].join(":")
+      context.actorId,
+      context.clubId,
+      context.seasonId,
+      context.storageOrigin,
+      props.correction?.id ?? "new",
+      props.correction?.expectedVersion ?? "",
+    ].join(":")
     : "capture-only";
 
   return <AffiliationFormContent key={identity} {...props} />;
@@ -393,7 +393,7 @@ function AffiliationFormContent({
         </p>
         {correction && <div className="mt-3 space-y-2 rounded-xl border border-border p-3">
           <p className="font-medium">Corregir solicitud · {correction.referenceNumber}</p>
-          <p className="whitespace-pre-wrap break-words">{correction.observations}</p>
+          <p className="whitespace-pre-wrap wrap-break-word">{correction.observations}</p>
           <p className="text-sm">El reenvío conserva el folio y el historial. Puedes conservar las firmas registradas o reemplazarlas.</p>
         </div>}
         <p className="mt-3 rounded-xl bg-soft p-3 text-sm leading-6">
@@ -466,7 +466,7 @@ function AffiliationFormContent({
                     }
                     className="size-5 shrink-0 accent-primary"
                   />
-                  <span className="break-words text-sm">
+                  <span className="wrap-break-word text-sm">
                     {category.name}
                   </span>
                 </label>
@@ -568,7 +568,7 @@ function AffiliationFormContent({
               ? correction ? "Correcciones enviadas" : "Solicitud registrada"
               : frozen
                 ? "Reintentar envío"
-              : correction ? "Reenviar correcciones" : submissionContext
+                : correction ? "Reenviar correcciones" : submissionContext
                   ? "Enviar solicitud"
                   : "Revisar datos"}
         </button>
