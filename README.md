@@ -61,6 +61,18 @@ y `npx --no-install prisma generate` al recibirla en local, conservando datos.
 El despliegue a Supabase requiere [revisión de seguridad de la tabla nueva](docs/architecture/affiliation-submission-security.md);
 el guard de producción sigue bloqueándolo hasta completar esa revisión.
 
+## Inscripción de equipos — PDGLD-62 / PDGLD-64
+
+El backend ofrece opciones, consulta e inscripción en `/api/team-enrollments`,
+con estado inicial `REGISTERED` (INSCRITO), alcance por club, alta atómica e
+idempotencia persistente. El [contrato para PDGLD-63](docs/architecture/team-enrollment.md)
+describe las modalidades de equipo existente/nuevo y los errores.
+La migración aditiva distingue categorías solicitadas de autorizadas; no las
+autoriza automáticamente. `npm run test:team-enrollments` ejecuta HTTP real y
+PostgreSQL local desechable, también incorporados en CI 15/17.
+La aprobación real de PDGLD-60, las pantallas de PDGLD-63 y la definición de
+activación siguen siendo dependencias separadas; no se habilita transición a ACTIVE.
+
 ## CI/CD
 
 El workflow `.github/workflows/ci-cd.yml` comprueba los PR y los cambios en `develop` y `main`: instalación reproducible, pruebas del pipeline, ESLint, compilación y reconstrucción de las migraciones en PostgreSQL 15 y 17. El resultado conjunto se llama **CI listo para integrar**.
