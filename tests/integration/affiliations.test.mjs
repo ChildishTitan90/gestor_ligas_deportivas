@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import pg from 'pg';
 import * as argon2 from 'argon2';
 import { Browser } from './auth.test.mjs';
+import { tsImport } from 'tsx/esm/api';
 
 /** Solo la base desechable creada por scripts/test-auth.mjs, nunca .env/Supabase. */
 export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
@@ -18,6 +19,7 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
   let grantExisted;
   let permissionId;
   let delegateRoleId;
+  const reviewGrants = [];
   try {
     const league = (await db.query('INSERT INTO sports_management.leagues(name) VALUES ($1) RETURNING id', [prefix])).rows[0].id;
     const otherLeague = (await db.query('INSERT INTO sports_management.leagues(name) VALUES ($1) RETURNING id', [`${prefix}-other`])).rows[0].id;
@@ -341,12 +343,254 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
         await assert.rejects(db.query(`INSERT INTO sports_management.club_affiliation_categories(affiliation_id,season_id,category_id)
           VALUES ($1,$2,$3)`, [submitted.id, unrelated.id, unrelated.categories[0]]), { code: '23503' });
       });
+      await t.test('PDGLD-60: revisión, correcciones, alcance y concurrencia por HTTP', async (r) => {
+        for (const [role, action, contextOnly] of [
+          ['SECRETARY', 'READ', false], ['SECRETARY', 'APPROVE', false],
+          ['CLUB_DELEGATE', 'READ', true], ['CLUB_DELEGATE', 'UPDATE', true],
+        ]) {
+          const roleId = (await db.query('SELECT id FROM sports_management.roles WHERE code=$1', [role])).rows[0].id;
+          const permId = (await db.query(`INSERT INTO sports_management.permissions(module,action) VALUES ('clubs',$1)
+            ON CONFLICT(module,action) DO UPDATE SET module=EXCLUDED.module RETURNING id`, [action])).rows[0].id;
+          const prior = (await db.query('SELECT context_only FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [roleId, permId])).rows[0];
+          reviewGrants.push({ roleId, permId, prior });
+          await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,$3)
+            ON CONFLICT(role_id,permission_id) DO UPDATE SET context_only=EXCLUDED.context_only`, [roleId, permId, contextOnly]);
+        }
+        const fresh = payload(await season());
+        const created = await (await post(actor.browser, fresh)).json();
+        const url = `/api/affiliations/${created.id}`;
+        const patch = (browser, suffix, data, headers = {}) => browser.request(`${url}/${suffix}`, {
+          method: 'PATCH', headers: { origin: baseUrl, 'content-type': 'application/json', ...headers }, body: JSON.stringify(data),
+        });
+        const approve = { decision: 'APPROVE', expectedVersion: 0 };
+        await r.test('listado paginado y detalle privados, sin acceso a otros clubes ni datos de storage', async () => {
+          const listing = await secretary.browser.request(`/api/affiliations?leagueId=${league}&pageSize=1`);
+          assert.equal(listing.status, 200);
+          assert.equal((await listing.json()).items.length, 1);
+          assert.equal((await actor.browser.request(`/api/affiliations?leagueId=${league}`)).status, 403);
+          assert.equal((await actor.browser.request(`/api/affiliations?leagueId=${league}&clubId=${clubId}`)).status, 200);
+          assert.equal((await foreignOwner.browser.request(url)).status, 403);
+          assert.equal((await new Browser(baseUrl).request(url)).status, 401);
+          const response = await secretary.browser.request(url);
+          assert.match(response.headers.get('cache-control'), /private.*no-store/);
+          const detail = await response.json();
+          assert.equal(detail.version, 0);
+          assert.equal(detail.reviewPhase, 'AWAITING_REVIEW');
+          assert.equal(detail.officers.length, 3);
+          assert.equal(typeof detail.seasonName, 'string');
+          assert.equal(detail.categories.length, 2);
+          assert.deepEqual(detail.allowedActions, ['APPROVE', 'REQUEST_CORRECTIONS']);
+          const delegateDetail = await (await actor.browser.request(url)).json();
+          assert.deepEqual(delegateDetail.allowedActions, []);
+          assert.equal(JSON.stringify(detail).includes('storage_key'), false);
+          assert.equal('submissionKey' in detail, false);
+        });
+        await r.test('deniega delegado, restringido, anónimo, origen inválido y payload inválido', async () => {
+          const before = await counts();
+          assert.equal((await patch(actor.browser, 'review', approve)).status, 403);
+          assert.equal((await patch(restricted.browser, 'review', approve)).status, 403);
+          assert.equal((await patch(new Browser(baseUrl), 'review', approve)).status, 401);
+          assert.equal((await patch(secretary.browser, 'review', approve, { origin: '' })).status, 403);
+          assert.equal((await patch(secretary.browser, 'review', { ...approve, status: 'APPROVED' })).status, 400);
+          assert.equal((await patch(secretary.browser, 'review', { decision: 'REQUEST_CORRECTIONS', expectedVersion: 0, observations: ' ' })).status, 400);
+          assert.deepEqual(await counts(), before);
+        });
+        await r.test('no combina secretario de otra liga ni permite autoaprobación con dos roles', async () => {
+          await db.query('UPDATE sports_management.user_roles SET league_id=$1 WHERE user_id=$2', [otherLeague, secretary.id]);
+          try { assert.equal((await patch(secretary.browser, 'review', approve)).status, 403); }
+          finally { await db.query('UPDATE sports_management.user_roles SET league_id=$1 WHERE user_id=$2', [league, secretary.id]); }
+          const extra = (await db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id)
+            SELECT $1,id,$2 FROM sports_management.roles WHERE code='SECRETARY' RETURNING id`, [actor.id, league])).rows[0].id;
+          try { assert.equal((await patch(actor.browser, 'review', approve)).status, 403); }
+          finally { await db.query('DELETE FROM sports_management.user_roles WHERE id=$1', [extra]); }
+        });
+        await r.test('revocar APPROVE impide revisar con una sesión existente', async () => {
+          const grant = reviewGrants.find((g, i) => i === 1);
+          await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [grant.roleId, grant.permId]);
+          try { assert.equal((await patch(secretary.browser, 'review', approve)).status, 403); }
+          finally { await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,false)', [grant.roleId, grant.permId]); }
+        });
+        await r.test('solicita correcciones manteniendo PENDING y exige reenvío antes de aprobar', async () => {
+          const response = await patch(secretary.browser, 'review', { decision: 'REQUEST_CORRECTIONS', expectedVersion: 0, observations: 'Aclarar colores del uniforme.' });
+          assert.equal(response.status, 200);
+          const result = await response.json();
+          assert.equal(result.status, 'PENDING');
+          assert.equal(result.reviewPhase, 'CORRECTIONS_REQUESTED');
+          assert.equal(result.version, 1);
+          assert.deepEqual(await (await patch(secretary.browser, 'review', { ...approve, expectedVersion: 1 })).json(), { code: 'CORRECTIONS_PENDING' });
+        });
+        await r.test('corrección desde la página propia funciona con UPDATE sin CREATE y protege datos ajenos', async () => {
+          const pageUrl = `/affiliations/${created.id}/correct`;
+          await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [delegateRoleId, permissionId]);
+          try {
+            const entryPage = await actor.browser.request('/affiliations/new');
+            assert.equal(entryPage.status, 200);
+            assert.ok((await entryPage.text()).includes(pageUrl));
+            const own = await actor.browser.request(pageUrl);
+            assert.equal(own.status, 200);
+            const markup = await own.text();
+            assert.match(markup, /Reenviar correcciones/);
+            assert.match(markup, /Aclarar colores del uniforme/);
+            assert.match(markup, /Nombre anual sintético/);
+            for (const denied of [foreignOwner.browser, secretary.browser]) {
+              const other = await denied.request(pageUrl);
+              assert.doesNotMatch(await other.text(), /Reenviar correcciones|Nombre anual sintético/);
+            }
+            assert.equal((await new Browser(baseUrl).request(pageUrl)).status, 307);
+            const update = reviewGrants[3];
+            assert.ok(update);
+            await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [update.roleId, update.permId]);
+            try {
+              const denied = await actor.browser.request(pageUrl);
+              assert.doesNotMatch(await denied.text(), /Reenviar correcciones|Nombre anual sintético/);
+              const upload = await actor.browser.request('/api/affiliations/signatures/prepare', { method: 'POST',
+                headers: { origin: baseUrl, 'content-type': 'application/json' },
+                body: JSON.stringify({ clubId, seasonId: fresh.seasonId, office: 'PRESIDENT', mimeType: 'image/png', sizeBytes: 100 }) });
+              assert.equal(upload.status, 403);
+              assert.equal((await patch(actor.browser, 'resubmit', { ...fresh, expectedVersion: 1 })).status, 403);
+            } finally {
+              await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [update.roleId, update.permId]);
+            }
+          } finally {
+            await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [delegateRoleId, permissionId]);
+          }
+        });
+        await r.test('corrección inválida o ajena no altera el agregado; reenvío conserva folio e historial', async () => {
+          const before = await counts();
+          const previousOfficers = (await db.query('SELECT office,person_id,signature_file_id FROM sports_management.club_officers WHERE affiliation_id=$1', [created.id])).rows;
+          assert.equal((await patch(foreignOwner.browser, 'resubmit', { ...fresh, expectedVersion: 1 })).status, 403);
+          assert.equal((await patch(actor.browser, 'resubmit', { ...fresh, expectedVersion: 1, categoryIds: [randomUUID()] })).status, 400);
+          const wrongSignature = await patch(actor.browser, 'resubmit', { ...fresh, expectedVersion: 1,
+            officers: { ...fresh.officers, PRESIDENT: { ...fresh.officers.PRESIDENT, signatureFileId: fresh.officers.SECRETARY.signatureFileId } } });
+          assert.deepEqual(await wrongSignature.json(), { code: 'INVALID_SIGNATURE' });
+          assert.deepEqual(await counts(), before);
+          const responses = await Promise.all([1, 2].map(() => patch(actor.browser, 'resubmit', { ...fresh, expectedVersion: 1, uniformColors: 'Blanco corregido' })));
+          assert.deepEqual(responses.map((x) => x.status).sort(), [200, 409]);
+          const detail = await (await actor.browser.request(url)).json();
+          assert.equal(detail.referenceNumber, created.referenceNumber);
+          assert.equal(detail.status, 'PENDING');
+          assert.equal(detail.version, 2);
+          assert.equal(detail.reviewPhase, 'AWAITING_REVIEW');
+          assert.equal(detail.uniformColors, 'Blanco corregido');
+          assert.equal(detail.submissionKey, fresh.submissionKey);
+          assert.equal(detail.officers.length, 3);
+          assert.equal(detail.history[0].observations, 'Aclarar colores del uniforme.');
+          assert.equal(detail.history.length, 2);
+          const change = (await db.query("SELECT previous_data,new_data FROM sports_management.audit_logs WHERE entity_id=$1 AND action='AFFILIATION_RESUBMIT'", [created.id])).rows[0];
+          assert.equal(change.previous_data.officers.length, 3);
+          for (const officer of previousOfficers) {
+            const snapshot = change.previous_data.officers.find(item => item.office === officer.office);
+            assert.equal(snapshot.personId, officer.person_id);
+            assert.equal(snapshot.signatureFileId, officer.signature_file_id);
+          }
+          assert.equal(change.new_data.officers.length, 3);
+          assert.equal(JSON.stringify(change).includes('Directivo sintético'), false);
+          assert.equal((await counts()).affiliations, before.affiliations);
+          assert.deepEqual(await (await patch(secretary.browser, 'review', approve)).json(), { code: 'STALE_AFFILIATION' });
+        });
+        await r.test('fallo al escribir historial revierte la aprobación', async () => {
+          await db.query(`CREATE FUNCTION sports_management.pdgld60_test_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN IF NEW.action='AFFILIATION_APPROVE' THEN RAISE EXCEPTION 'Fallo sintético'; END IF; RETURN NEW; END $$`);
+          await db.query('CREATE TRIGGER pdgld60_test_failure BEFORE INSERT ON sports_management.audit_logs FOR EACH ROW EXECUTE FUNCTION sports_management.pdgld60_test_failure()');
+          try {
+            assert.equal((await patch(secretary.browser, 'review', { ...approve, expectedVersion: 2 })).status, 503);
+            const detail = await (await secretary.browser.request(url)).json();
+            assert.equal(detail.status, 'PENDING');
+            assert.equal(detail.version, 2);
+          } finally {
+            await db.query('DROP TRIGGER pdgld60_test_failure ON sports_management.audit_logs');
+            await db.query('DROP FUNCTION sports_management.pdgld60_test_failure()');
+          }
+        });
+        await r.test('aprobación concurrente tiene un ganador y un solo evento; conserva club/equipos', async () => {
+          const before = await counts();
+          const responses = await Promise.all([1, 2, 3].map(() => patch(secretary.browser, 'review', { ...approve, expectedVersion: 2 })));
+          assert.deepEqual(responses.map((x) => x.status).sort(), [200, 409, 409]);
+          for (const response of responses.filter((x) => x.status === 409))
+            assert.deepEqual(await response.json(), { code: 'AFFILIATION_ALREADY_REVIEWED' });
+          const detail = await (await secretary.browser.request(url)).json();
+          assert.equal(detail.status, 'APPROVED');
+          assert.equal(detail.version, 3);
+          assert.equal(detail.history.filter((h) => h.action === 'AFFILIATION_APPROVE').length, 1);
+          assert.equal((await counts()).audits, before.audits + 1);
+          assert.equal((await counts()).teams, before.teams);
+          assert.equal((await db.query('SELECT name FROM sports_management.clubs WHERE id=$1', [clubId])).rows[0].name, 'Nombre original sintético');
+          assert.equal((await patch(actor.browser, 'resubmit', { ...fresh, expectedVersion: 3 })).status, 409);
+        });
+        await r.test('bandeja PDGLD-61 conectada: consulta, correcciones, reenvío, conflicto y aprobación', async () => {
+          const { createReviewApi } = await tsImport('../../src/features/clubs/affiliation-review-adapter.ts', import.meta.url);
+          const { createReviewController } = await tsImport('../../src/features/clubs/affiliation-review-controller.ts', import.meta.url);
+          const { resubmitAffiliationRequest } = await tsImport('../../src/features/clubs/resubmit-affiliation.client.ts', import.meta.url);
+          const nextPayload = payload(await season());
+          const nextResponse = await post(actor.browser, nextPayload);
+          assert.equal(nextResponse.status, 201);
+          const next = await nextResponse.json();
+          // El adaptador/controlador son los de producción; transporte HTTP real
+          // con cookies sintéticas. No sustituye clics/foco/hidratación en navegador.
+          const api = createReviewApi((path, init) => secretary.browser.request(String(path), {
+            ...init, headers: { ...init?.headers, ...(init?.method === 'PATCH' ? { origin: baseUrl } : {}) },
+          }));
+          const controller = createReviewController(api);
+          const page = await secretary.browser.request('/affiliations/review');
+          assert.equal(page.status, 200);
+          const pageMarkup = await page.text();
+          assert.match(pageMarkup, /Revisión de afiliaciones/);
+          assert.ok(pageMarkup.includes(league));
+          assert.equal(pageMarkup.includes(otherLeague), false);
+          await controller.load(league);
+          assert.equal(controller.getSnapshot().error, null);
+          assert.ok(controller.getSnapshot().items.some((item) => item.id === next.id));
+          await controller.open(next.id);
+          assert.equal(controller.getSnapshot().detail.version, 0);
+          controller.observations('Precisar colores del uniforme.');
+          await controller.submit('REQUEST_CORRECTIONS');
+          assert.equal(controller.getSnapshot().error, null);
+          assert.equal(controller.getSnapshot().detail.reviewPhase, 'CORRECTIONS_REQUESTED');
+          assert.deepEqual(controller.getSnapshot().detail.allowedActions, []);
+          async function resubmit(version) {
+            const outcome = await resubmitAffiliationRequest(next.id,
+              { ...nextPayload, expectedVersion: version, uniformColors: 'Blanco precisado' },
+              (path, init) => actor.browser.request(String(path), { ...init, headers: { ...init.headers, origin: baseUrl } }));
+            assert.equal(outcome.kind, 'confirmed');
+            assert.equal(outcome.result.version, version + 1);
+          }
+          await resubmit(1);
+          await controller.open(next.id);
+          assert.equal(controller.getSnapshot().detail.version, 2);
+          // Otra revisión entre abrir detalle y confirmar impide aprobar a ciegas.
+          await api.review(next.id, 'REQUEST_CORRECTIONS', 'Revisar nuevamente el uniforme.', 2);
+          await controller.submit('APPROVE'); await controller.confirmApproval();
+          assert.equal(controller.getSnapshot().error, null);
+          assert.equal(controller.getSnapshot().detail.reviewPhase, 'CORRECTIONS_REQUESTED');
+          assert.equal(controller.getSnapshot().detail.version, 3);
+          assert.match(controller.getSnapshot().message, /Otra persona ya revisó/);
+          await resubmit(3);
+          await controller.open(next.id);
+          await controller.submit('APPROVE'); await controller.confirmApproval();
+          assert.equal(controller.getSnapshot().error, null);
+          assert.equal(controller.getSnapshot().detail.status, 'APPROVED');
+          assert.equal(controller.getSnapshot().detail.reviewPhase, null);
+          assert.equal(controller.getSnapshot().detail.version, 5);
+          assert.deepEqual(controller.getSnapshot().detail.history.map((entry) => entry.action), [
+            'AFFILIATION_REQUEST_CORRECTIONS', 'AFFILIATION_RESUBMIT',
+            'AFFILIATION_REQUEST_CORRECTIONS', 'AFFILIATION_RESUBMIT', 'AFFILIATION_APPROVE',
+          ]);
+          assert.equal(controller.getSnapshot().detail.history[0].observations, 'Precisar colores del uniforme.');
+          assert.deepEqual(controller.getSnapshot().detail.allowedActions, []);
+          assert.equal(controller.getSnapshot().items.some((item) => item.id === next.id), false);
+          assert.match(controller.getSnapshot().message, /Aprobación confirmada/);
+        });
+      });
     });
   } catch (error) {
     // Identificadores de diagnóstico; nunca URL, SQL, parámetros ni mensaje de pg.
     console.error('[PDGLD-57 test]', error.code ?? error.name, error.constraint ?? '');
     throw error;
   } finally {
+    for (const { roleId, permId, prior } of reviewGrants) {
+      if (prior) await db.query('UPDATE sports_management.role_permissions SET context_only=$1 WHERE role_id=$2 AND permission_id=$3', [prior.context_only, roleId, permId]);
+      else await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [roleId, permId]);
+    }
     // No borrar historial: la base completa la elimina su runner al finalizar.
     if (delegateRoleId && permissionId && grantExisted) {
       await db.query('UPDATE sports_management.role_permissions SET context_only=$1 WHERE role_id=$2 AND permission_id=$3',

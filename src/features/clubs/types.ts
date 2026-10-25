@@ -18,6 +18,14 @@ export type AffiliationFormProps = {
   categories: readonly AffiliationCategoryOption[];
   initialValues?: AffiliationFormValues;
   submissionContext?: AffiliationSubmissionContext;
+  correction?: {
+    id: string;
+    submissionKey: string;
+    expectedVersion: number;
+    referenceNumber: string;
+    observations: string;
+    signatureFileIds: Partial<Record<"PRESIDENT" | "SECRETARY" | "TREASURER", string>>;
+  };
 };
 
 export type AffiliationFieldErrors = Record<string, string>;

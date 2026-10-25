@@ -54,12 +54,25 @@ El backend expone POST `/api/affiliations`: solicitud pendiente con folio único
 directivos, categorías e historial atómicos, autorización del delegado y reenvíos
 sin duplicar registros. Consulta el [contrato e integración con PDGLD-59](docs/architecture/affiliation-submission.md)
 y la [evidencia local](docs/validation/PDGLD-57-solicitud-afiliacion.md).
-El formulario de captura aún requiere la integración de firmas y envío de PDGLD-59.
+PDGLD-59 conecta `/affiliations/new` con las tres firmas privadas y el envío.
+Consulta [configuración y límites de Storage](docs/architecture/affiliation-signatures.md).
 Hay una migración aditiva nueva: aplicar `npx --no-install prisma migrate deploy`
 y `npx --no-install prisma generate` al recibirla en local, conservando datos.
 `npm run test:affiliations` valida el backend en una base temporal independiente.
 El despliegue a Supabase requiere [revisión de seguridad de la tabla nueva](docs/architecture/affiliation-submission-security.md);
-el guard de producción sigue bloqueándolo hasta completar esa revisión.
+el proceso de producción conserva sus comprobaciones de seguridad.
+
+## Revisión y correcciones — PDGLD-60
+
+`/affiliations/review` permite consultar ligas autorizadas, revisar directivos y
+firmas mediante enlaces temporales, pedir correcciones y aprobar con confirmación.
+El solicitante original puede reabrir la captura desde `/affiliations/new`, conservar
+el folio y reenviar mediante `/affiliations/{id}/correct`. El servidor comprueba
+permisos vigentes, contexto, versión y separación de funciones en cada operación.
+Consulta el [contrato](docs/architecture/affiliation-review.md) y la
+[evidencia de integración y pendientes](docs/validation/PDGLD-60-integracion-afiliaciones.md).
+El build local conserva el fallo de procesos CSS de Turbopack; no se declara
+cerrada la HU sin revisión independiente, CI y aceptación en el entorno de pruebas.
 
 ## CI/CD
 

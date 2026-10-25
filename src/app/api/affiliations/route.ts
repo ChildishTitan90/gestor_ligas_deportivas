@@ -2,9 +2,15 @@ import { NextResponse } from "next/server";
 import { AffiliationInputError, submitAffiliation } from "@/features/clubs/server/affiliation-service";
 import { AuthorizationError } from "@/server/auth/authorization";
 import { AuthAccessError } from "@/server/auth/session";
+import { listAffiliations } from "@/features/clubs/server/affiliation-review-service";
+import { affiliationResponse } from "@/features/clubs/server/affiliation-http";
 
 export const runtime = "nodejs";
 const headers = { "Cache-Control": "private, no-store" };
+
+export async function GET(request: Request) {
+  return affiliationResponse(() => listAffiliations(Object.fromEntries(new URL(request.url).searchParams)));
+}
 
 export async function POST(request: Request) {
   if (request.headers.get("origin") !== new URL(process.env.NEXTAUTH_URL ?? request.url).origin ||

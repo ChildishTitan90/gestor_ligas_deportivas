@@ -3,9 +3,9 @@
 ## Alcance y contrato
 
 RF01.1–RF01.5 y HU01-01 (PDGLD-10): servicio de alta y POST
-`/api/affiliations`. El formulario de captura PDGLD-58 se conserva; PDGLD-59
-integrará documentos privados, firmas, selección de contexto y envío desde UI.
-PDGLD-60 implementará aprobación/correcciones. No se crea una cuenta ni un club,
+`/api/affiliations`. PDGLD-59 conecta el formulario PDGLD-58 con firmas privadas,
+selección de contexto y envío desde `/affiliations/new`; ver affiliation-signatures.md.
+PDGLD-60 integra aprobación/correcciones; ver affiliation-review.md. No se crea una cuenta ni un club,
 no se modifica el estado operativo del club y no se inscriben equipos.
 
 El cuerpo JSON es `affiliationSubmissionSchema`, en

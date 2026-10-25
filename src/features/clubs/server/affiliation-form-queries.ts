@@ -6,8 +6,12 @@ import { requireOperationalUser } from "@/server/auth/session";
 import {
   AuthorizationError,
   getPermissionGrants,
+  assertPermission,
 } from "@/server/auth/authorization";
 import { assertSignatureUploadAccess } from "./signature-access";
+import { affiliationOfficeCodes, affiliationFormSchema } from "../schemas";
+import { getAffiliation, AffiliationReviewError } from "./affiliation-review-service";
+import type { AffiliationFormProps } from "../types";
 
 type ContextOption = {
   value: string;
@@ -47,12 +51,14 @@ export async function getAffiliationFormPageData(
   const actor = await requireOperationalUser();
 
   return getPrisma().$transaction(async (tx) => {
-    const grants = await getPermissionGrants(
+    const creationGrants = await getPermissionGrants(
       tx,
       actor.id,
       "clubs",
       "CREATE",
     );
+    const updateGrants = await getPermissionGrants(tx, actor.id, "clubs", "UPDATE");
+    const grants = [...creationGrants, ...updateGrants];
 
     const delegate = await tx.roles.findUniqueOrThrow({
       where: { code: "CLUB_DELEGATE" },
@@ -106,7 +112,7 @@ export async function getAffiliationFormPageData(
       orderBy: { start_date: "desc" },
     });
 
-    const options: ContextOption[] = clubs.flatMap((club) =>
+    const allOptions: ContextOption[] = clubs.flatMap((club) =>
       seasons
         .filter((season) => season.league_id === club.league_id)
         .map((season) => ({
@@ -124,11 +130,22 @@ export async function getAffiliationFormPageData(
         season_id: { in: seasons.map((season) => season.id) },
       },
       select: {
+        id: true,
         club_id: true,
         season_id: true,
         reference_number: true,
         status: true,
+        requested_by: true,
+        review_reason: true,
       },
+    });
+
+    const options = allOptions.filter(option => {
+      const previous = existing.find(item => item.club_id === option.clubId && item.season_id === option.seasonId);
+      const canCreate = creationGrants.some(grant => grant.roleId === delegate.id && grant.clubId === option.clubId);
+      const canUpdate = updateGrants.some(grant => grant.roleId === delegate.id && grant.clubId === option.clubId);
+      return canCreate || (canUpdate && previous?.requested_by === actor.id &&
+        previous.status === "PENDING" && !!previous.review_reason);
     });
 
     let selected: ContextOption | undefined;
@@ -155,6 +172,9 @@ export async function getAffiliationFormPageData(
       }
     } else {
       selected =
+        options.find(option => existing.some(item => item.club_id === option.clubId &&
+          item.season_id === option.seasonId && item.requested_by === actor.id &&
+          item.status === "PENDING" && !!item.review_reason)) ??
         options.find(
           (option) =>
             !existing.some(
@@ -192,8 +212,10 @@ export async function getAffiliationFormPageData(
         selected,
         categories: [],
         existingAffiliation: {
+          id: previous.id,
           referenceNumber: previous.reference_number,
           status: previous.status,
+          canCorrect: previous.requested_by === actor.id && previous.status === "PENDING" && !!previous.review_reason,
         },
         submissionContext: null,
       };
@@ -239,6 +261,40 @@ export async function getAffiliationFormPageData(
         seasonId: selected.seasonId,
         storageOrigin: readStorageOrigin(),
       },
+    };
+  });
+}
+
+/** Reutiliza el detalle autorizado y verifica que la captura conserve esa versión. */
+export async function getAffiliationCorrectionFormPageData(id: string): Promise<AffiliationFormProps> {
+  const actor = await requireOperationalUser();
+  const detail = await getAffiliation(id);
+  if (!detail.submissionKey || detail.reviewPhase !== "CORRECTIONS_REQUESTED") throw new AuthorizationError();
+  return getPrisma().$transaction(async tx => {
+    await assertSignatureUploadAccess(tx, actor.id, { clubId: detail.clubId, seasonId: detail.seasonId });
+    await assertPermission(tx, actor.id, { module: "clubs", action: "READ",
+      context: { clubId: detail.clubId, seasonId: detail.seasonId } });
+    const current = await tx.club_affiliations.findUniqueOrThrow({ where: { id },
+      select: { review_version: true, requested_by: true, status: true, review_reason: true } });
+    if (current.requested_by !== actor.id || current.status !== "PENDING" || !current.review_reason)
+      throw new AuthorizationError();
+    if (current.review_version !== detail.version) throw new AffiliationReviewError("STALE_AFFILIATION", 409);
+    const categories = await tx.season_categories.findMany({ where: { season_id: detail.seasonId },
+      select: { category_id: true, categories: { select: { name: true } } }, orderBy: { hierarchy_order: "asc" } });
+    const officers = Object.fromEntries(affiliationOfficeCodes.map(office => {
+      const person = detail.officers.find(item => item.office === office);
+      return [office, { firstName: person?.firstName ?? "", paternalSurname: person?.paternalSurname ?? "",
+        maternalSurname: person?.maternalSurname ?? "" }];
+    }));
+    const initialValues = affiliationFormSchema.parse({ clubName: detail.clubName,
+      uniformColors: detail.uniformColors ?? "", categoryIds: detail.categoryIds, officers });
+    const signatureFileIds = Object.fromEntries(detail.officers.filter(person => person.signatureFileId)
+      .map(person => [person.office, person.signatureFileId!])) as NonNullable<AffiliationFormProps["correction"]>["signatureFileIds"];
+    return {
+      categories: categories.map(item => ({ id: item.category_id, name: item.categories.name })), initialValues,
+      submissionContext: { actorId: actor.id, clubId: detail.clubId, seasonId: detail.seasonId, storageOrigin: readStorageOrigin() },
+      correction: { id, submissionKey: detail.submissionKey!, expectedVersion: detail.version,
+        referenceNumber: detail.referenceNumber, observations: detail.observations ?? "", signatureFileIds },
     };
   });
 }

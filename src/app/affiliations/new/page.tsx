@@ -111,6 +111,11 @@ export default async function NewAffiliationPage({
                 <p className="mt-2">
                   Folio: {data.existingAffiliation.referenceNumber}
                 </p>
+                {data.existingAffiliation.canCorrect && <a
+                  href={`/affiliations/${data.existingAffiliation.id}/correct`}
+                  className="mt-3 inline-block rounded-xl border border-border px-5 py-3 font-semibold">
+                  Consultar observaciones y corregir solicitud
+                </a>}
                 <p className="mt-2">
                   Puedes seleccionar otra temporada disponible.
                 </p>

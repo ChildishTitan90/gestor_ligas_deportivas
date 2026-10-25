@@ -35,10 +35,11 @@
     "ci:guard-migrations": "node scripts/ci/guard-migrations.mjs",
     "ci:database": "node scripts/ci/verify-database.mjs",
     "test:account-form": "node --import tsx --test src/features/accounts/form-input.test.ts src/features/accounts/account-form.test.tsx",
-    "test:affiliation-review": "node --import tsx --test src/features/clubs/affiliation-review.test.tsx",
+    "test:affiliation-review": "node --import tsx --test src/features/clubs/affiliation-review.test.tsx src/features/clubs/resubmit-affiliation.client.test.tsx",
     "test:affiliation-input": "node --import tsx --test src/features/clubs/affiliation-submission.test.ts src/features/clubs/schemas.test.ts",
     "test:affiliations": "node scripts/test-auth.mjs --affiliations",
-    "test:signatures": "node --conditions=react-server --import tsx --test src/features/clubs/server/signature-validation.test.ts src/features/clubs/server/signature-upload-ticket.test.ts src/features/clubs/server/signature-binding.test.ts tests/integration/signature-stored-content.test.ts src/features/clubs/upload-signature.client.test.ts src/features/clubs/submit-affiliation.client.test.ts src/features/clubs/affiliation-feedback.test.ts"
+    "test:signatures": "node --conditions=react-server --import tsx --test src/features/clubs/server/signature-validation.test.ts src/features/clubs/server/signature-upload-ticket.test.ts src/features/clubs/server/signature-binding.test.ts tests/integration/signature-stored-content.test.ts src/features/clubs/upload-signature.client.test.ts src/features/clubs/submit-affiliation.client.test.ts src/features/clubs/affiliation-feedback.test.ts scripts/verification/signature-download-check.test.ts",
+    "verify:signature-download": "node --conditions=react-server --import tsx scripts/verify-signature-download.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",
