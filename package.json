@@ -35,6 +35,7 @@
     "ci:guard-migrations": "node scripts/ci/guard-migrations.mjs",
     "ci:database": "node scripts/ci/verify-database.mjs",
     "test:account-form": "node --import tsx --test src/features/accounts/form-input.test.ts src/features/accounts/account-form.test.tsx",
+    "test:affiliation-review": "node --import tsx --test src/features/clubs/affiliation-review.test.tsx",
     "test:affiliation-input": "node --import tsx --test src/features/clubs/affiliation-submission.test.ts src/features/clubs/schemas.test.ts",
     "test:affiliations": "node scripts/test-auth.mjs --affiliations"
   },

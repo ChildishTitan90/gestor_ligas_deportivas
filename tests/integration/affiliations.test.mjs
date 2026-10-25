@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import pg from 'pg';
 import * as argon2 from 'argon2';
 import { Browser } from './auth.test.mjs';
+import { tsImport } from 'tsx/esm/api';
 
 /** Solo la base desechable creada por scripts/test-auth.mjs, nunca .env/Supabase. */
 export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
@@ -278,6 +279,11 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           assert.equal(detail.version, 0);
           assert.equal(detail.reviewPhase, 'AWAITING_REVIEW');
           assert.equal(detail.officers.length, 3);
+          assert.equal(typeof detail.seasonName, 'string');
+          assert.equal(detail.categories.length, 2);
+          assert.deepEqual(detail.allowedActions, ['APPROVE', 'REQUEST_CORRECTIONS']);
+          const delegateDetail = await (await actor.browser.request(url)).json();
+          assert.deepEqual(delegateDetail.allowedActions, []);
           assert.equal(JSON.stringify(detail).includes('storage_key'), false);
           assert.equal('submissionKey' in detail, false);
         });
@@ -363,6 +369,65 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           assert.equal((await counts()).teams, before.teams);
           assert.equal((await db.query('SELECT name FROM sports_management.clubs WHERE id=$1', [clubId])).rows[0].name, 'Nombre original sintético');
           assert.equal((await patch(actor.browser, 'resubmit', { ...fresh, expectedVersion: 3 })).status, 409);
+        });
+        await r.test('bandeja PDGLD-61 conectada: consulta, correcciones, reenvío, conflicto y aprobación', async () => {
+          const { createReviewApi } = await tsImport('../../src/features/clubs/affiliation-review-adapter.ts', import.meta.url);
+          const { createReviewController } = await tsImport('../../src/features/clubs/affiliation-review-controller.ts', import.meta.url);
+          const nextPayload = payload(await season());
+          const nextResponse = await post(actor.browser, nextPayload);
+          assert.equal(nextResponse.status, 201);
+          const next = await nextResponse.json();
+          const nextUrl = `/api/affiliations/${next.id}`;
+          // El adaptador/controlador son los de producción; transporte HTTP real
+          // con cookies sintéticas. No sustituye clics/foco/hidratación en navegador.
+          const api = createReviewApi((path, init) => secretary.browser.request(String(path), {
+            ...init, headers: { ...init?.headers, ...(init?.method === 'PATCH' ? { origin: baseUrl } : {}) },
+          }));
+          const controller = createReviewController(api);
+          const page = await secretary.browser.request('/affiliations/review');
+          assert.equal(page.status, 200);
+          assert.match(await page.text(), /Revisión de afiliaciones/);
+          await controller.load(league);
+          assert.equal(controller.getSnapshot().error, null);
+          assert.ok(controller.getSnapshot().items.some((item) => item.id === next.id));
+          await controller.open(next.id);
+          assert.equal(controller.getSnapshot().detail.version, 0);
+          controller.observations('Precisar colores del uniforme.');
+          await controller.submit('REQUEST_CORRECTIONS');
+          assert.equal(controller.getSnapshot().error, null);
+          assert.equal(controller.getSnapshot().detail.reviewPhase, 'CORRECTIONS_REQUESTED');
+          assert.deepEqual(controller.getSnapshot().detail.allowedActions, []);
+          async function resubmit(version) {
+            const response = await actor.browser.request(`${nextUrl}/resubmit`, { method: 'PATCH',
+              headers: { origin: baseUrl, 'content-type': 'application/json' },
+              body: JSON.stringify({ ...nextPayload, expectedVersion: version, uniformColors: 'Blanco precisado' }) });
+            assert.equal(response.status, 200);
+          }
+          await resubmit(1);
+          await controller.open(next.id);
+          assert.equal(controller.getSnapshot().detail.version, 2);
+          // Otra revisión entre abrir detalle y confirmar impide aprobar a ciegas.
+          await api.review(next.id, 'REQUEST_CORRECTIONS', 'Revisar nuevamente el uniforme.', 2);
+          await controller.submit('APPROVE'); await controller.confirmApproval();
+          assert.equal(controller.getSnapshot().error, null);
+          assert.equal(controller.getSnapshot().detail.reviewPhase, 'CORRECTIONS_REQUESTED');
+          assert.equal(controller.getSnapshot().detail.version, 3);
+          assert.match(controller.getSnapshot().message, /Otra persona ya revisó/);
+          await resubmit(3);
+          await controller.open(next.id);
+          await controller.submit('APPROVE'); await controller.confirmApproval();
+          assert.equal(controller.getSnapshot().error, null);
+          assert.equal(controller.getSnapshot().detail.status, 'APPROVED');
+          assert.equal(controller.getSnapshot().detail.reviewPhase, null);
+          assert.equal(controller.getSnapshot().detail.version, 5);
+          assert.deepEqual(controller.getSnapshot().detail.history.map((entry) => entry.action), [
+            'AFFILIATION_REQUEST_CORRECTIONS', 'AFFILIATION_RESUBMIT',
+            'AFFILIATION_REQUEST_CORRECTIONS', 'AFFILIATION_RESUBMIT', 'AFFILIATION_APPROVE',
+          ]);
+          assert.equal(controller.getSnapshot().detail.history[0].observations, 'Precisar colores del uniforme.');
+          assert.deepEqual(controller.getSnapshot().detail.allowedActions, []);
+          assert.equal(controller.getSnapshot().items.some((item) => item.id === next.id), false);
+          assert.match(controller.getSnapshot().message, /Aprobación confirmada/);
         });
       });
     });

@@ -13,13 +13,19 @@ no representa cierre de HU01-02 ni validación del flujo de archivos de PDGLD-59
   Todos los resultados son privados y no se almacenan en caché.
 
 Cada resumen contiene id, referenceNumber, clubId, leagueId, seasonId, clubName,
-status, reviewPhase, observations, reviewedAt y version.
+status, reviewPhase, observations, reviewedAt, version y seasonName.
 El detalle añade uniformColors, categoryIds, officers (arreglo por office),
-signedAffiliationFileId e history. Cada directivo incluye nombre y apellidos,
+signedAffiliationFileId, categories (nombres), allowedActions e history. Las acciones
+se calculan con las mismas reglas de revisión de la escritura y no sustituyen la
+autorización de PATCH. Cada directivo incluye nombre y apellidos,
 signatureFileId y supportFileId. Solo el solicitante recibe submissionKey.
 Los archivos se representan por identificador, nunca storage_key ni URL pública.
 Su carga/descarga privada y validación del contenido pertenecen a PDGLD-59.
 El historial contiene id, action, occurredAt, actorId y observations.
+La bandeja presenta acción, fecha y observaciones del historial autorizado, en orden
+cronológico y con zona America/Mexico_City. Su adaptador descarta actorId del modelo
+de presentación; no expone identificadores de usuarios en la vista. Los motivos se
+renderizan como texto y el historial se retira con el detalle al perder autorización.
 
 ## Revisión y concurrencia
 
@@ -76,7 +82,7 @@ El conflicto no devuelve datos del estado actual: se consulta nuevamente el deta
 
 Correcciones solicitadas conserva status=PENDING, review_reason, reviewer y fecha.
 reviewPhase se deriva: PENDING sin motivo es AWAITING_REVIEW; con motivo es
-CORRECTIONS_REQUESTED. APPROVED/REJECTED se muestran como tales; no se implementa
+CORRECTIONS_REQUESTED. Para APPROVED/REJECTED, reviewPhase es null; no se implementa
 rechazo definitivo ni nuevas transiciones.
 
 PATCH /api/affiliations/{id}/resubmit recibe el contrato completo de envío de
@@ -122,3 +128,32 @@ Build pendiente: el reintento sigue fallando al crear el proceso CSS de Turbopac
 El comando también emitió un aviso de seguridad de Next.js; no se verificó el advisory
 ni se actualizaron dependencias en este ticket. No declarar la compilación aprobada.
 Falta integración con PDGLD-59/61, revisión independiente y evidencia en CI.
+
+Actualización 24/10/2026: la bandeja PDGLD-61 ya consume estos endpoints en esta
+rama. Pasaron 18 pruebas de interfaz/controlador/adaptador y 24 resultados de
+integración HTTP/PostgreSQL (incluidos contenedores de pruebas). El recorrido real
+del adaptador cubre consulta, correcciones, reenvío, conflicto de versión y
+aprobación; no equivale a una prueba de clics en navegador. También pasaron lint,
+typecheck y las seis pruebas de configuración de conexión de PDGLD-73.
+El build sigue detenido por el proceso CSS de Turbopack con Node 24.21.0.
+Se conservan las dependencias actuales por indicación del usuario. Quedan pendientes
+PDGLD-59, validación en navegador, revisión independiente, CI y compilación exitosa.
+
+Actualización posterior del 24/10/2026: Víctor autorizó Node 24.22.1 LTS. Se instaló
+correctamente (npm 11.19.1) y test:affiliations volvió a completar 24 resultados
+aprobados, cero fallos, con limpieza de la base temporal. El primer arranque de
+Next.js falló y el segundo completó la suite. El build sigue fallando al iniciar
+el proceso CSS de Turbopack; la actualización de Node no corrigió ese fallo.
+No se actualizaron dependencias npm del proyecto.
+
+Verificación del historial visible, 24/10/2026: pasaron lint, typecheck y las 20
+pruebas de test:affiliation-review. Se comprobó el orden correcciones/reenvío/
+aprobación, el estado vacío, el escape de observaciones, el rechazo de un historial
+inválido y la retirada del detalle privado tras 401/403. test:affiliations completó
+24 resultados aprobados, cero fallos, contra PostgreSQL temporal, incluyendo la
+conservación de los cinco eventos reales de dos rondas de corrección y la aprobación
+en el adaptador/controlador. El primer arranque de Next.js falló; el reintento pasó.
+No se repitió el build, cuyo fallo CSS sigue pendiente; no se modificó su configuración.
+Esta comprobación no cubre clics, foco e hidratación en navegador, documentos privados
+de PDGLD-59, CI remoto, despliegue ni revisión independiente. Los cambios locales
+todavía deben consolidarse en commit; hay una integración de develop en curso.
