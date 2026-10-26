@@ -50,6 +50,12 @@ jobs:
         run: npm run ci:guard-migrations
       - name: Probar los controles del pipeline
         run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:affiliation-input && npm run test:affiliation-review
+      - name: Probar interfaz de inscripción y actividad de sesión sin base
+        run: npm run test:team-registration
+      - name: Probar inscripción en Chrome con datos sintéticos
+        run: npm run test:team-registration-browser
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
       - name: Probar firmas de afiliación
         run: npm run test:signatures
       - name: Revisar el código

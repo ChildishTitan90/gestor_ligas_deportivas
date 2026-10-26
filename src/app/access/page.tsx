@@ -45,6 +45,7 @@ export default async function AccessPage() {
               Tu sesión está activa. Consulta las funciones autorizadas para tus ámbitos de participación.
             </p>
             <ActionLink href="/futbol" variant="secondary" className="mt-6 w-full">Ver portal de fútbol</ActionLink>
+            <ActionLink href="/teams/registrations" variant="secondary" className="mt-3 w-full">Inscripción y consulta de equipos</ActionLink>
             <CreateAccountLink />
           </div>
         </section>

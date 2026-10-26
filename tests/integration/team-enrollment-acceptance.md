@@ -1,42 +1,32 @@
-# Aceptación pendiente — PDGLD-64
+# Estado de aceptación — PDGLD-12 / PDGLD-64 / PDGLD-63
 
-Actualización 25/10/2026, tras recibir el PR #28 desde develop.
+Revisión documental del 26/10/2026 sobre el código integrado de develop.
 
-La suite `npm run test:team-enrollments` ejecuta la solicitud real del delegado,
-consulta el detalle con la sesión de Secretaría y usa su versión vigente para
-aprobar por el endpoint real. Verifica actor, versión e historial, y comprueba que
-un equipo previamente REGISTERED no se active automáticamente.
+`npm run test:team-enrollments` contiene un recorrido HTTP real con PostgreSQL
+temporal: solicitud del delegado, detalle vigente, aprobación de Secretaría con
+`expectedVersion` y `authorizedCategoryIds`, opciones autorizadas e inscripción
+REGISTERED. Comprueba que una categoría no seleccionada sea rechazada y que la
+aprobación no active equipos previos. Los otros escenarios conservan fixtures
+explícitos separados para alcance, concurrencia, rollback e idempotencia.
 
-El servicio recibido no escribe autorización individual de categorías. Por eso
-la inscripción del recorrido real termina en `CATEGORY_NOT_AUTHORIZED`, con
-opciones de categorías vacías y sin efectos parciales. **No se declara aprobado
-el recorrido completo solicitud → aprobación/autorización → inscripción.**
+La autorización individual que faltaba en la revisión del 25/10 ya está incorporada
+en el código y las pruebas actuales. Esto describe el alcance de la suite, no
+certifica su ejecución ni una base compartida. Esta continuación de PDGLD-63 no
+ha ejecutado pruebas con base ni modificado servicios.
 
-Los positivos de inscripción utilizan otra temporada con un fixture explícito de
-afiliación aprobada y categoría autorizada. No completan ni sustituyen la
-autorización real pendiente; no hay UPDATE SQL de aprobación en el recorrido real.
+La suite HTTP no abre un navegador ni verifica los controles de PDGLD-63.
+`npm run test:team-registration` prueba presentación y adaptador con simulación.
+`npm run test:team-registration-browser` utiliza Chrome y React DOM reales con
+negocio sintético; verifica foco, modal y aislamiento por usuario. No arranca Next
+ni realiza el recorrido con autenticación real.
 
-Cuando Checo integre la autorización individual acordada, completar por servicios reales:
+Para aceptar las vistas falta un recorrido en el entorno de pruebas con sesión y
+backend preparados por el equipo: navegación, selección dependiente, inscripción
+existente/nueva según capacidad explícita, errores, doble envío, recuperación con
+cuerpo/clave originales y consulta de historial. Los contratos todavía pendientes
+(capacidad de creación, catálogos con nombres y verificación/conciliación) están
+especificados en `docs/design/team-registration.md`; no se inventan endpoints.
 
-1. Acceder como delegado autorizado y enviar solicitud de afiliación con firmas
-   válidas. Verificar PENDING y ausencia de equipos/inscripciones automáticos.
-2. Como delegado, intentar aprobar y comprobar denegación sin cambios.
-3. Como secretario autorizado de esa liga, aprobar y autorizar categorías mediante
-   el contrato acordado por Checo; obtener siempre expectedVersion del detalle
-   vigente y verificar responsable, fecha e historial, sin activar equipos. Una
-   selección visual se acordará con Nick si hace falta; no se inventa en este PR.
-4. Mantener las pruebas de aprobación concurrente y rollback de PDGLD-60 y ampliar
-   el recorrido a la autorización individual; conservar auditoría coherente.
-5. Como delegado, obtener opciones, inscribir equipo y comprobar REGISTERED,
-   unicidad por temporada, permisos y auditoría mínima.
-6. Repetir inscripción con la misma clave ante fallo de red y confirmar el mismo
-   resultado sin duplicar equipos ni eventos.
-
-Al integrar PDGLD-63, comprobar por navegador selección dependiente de club,
-equipo, temporada, categoría y grupo; modo nuevo/existente excluyente; guardado
-de clave/captura en reintentos; mensajes de error, doble envío y consulta del
-historial. Este recorrido visual no forma parte de las pruebas HTTP de backend.
-
-Activación a ACTIVE: pendiente de definir con profesor/Liga. No intentar completar
-ese criterio mediante cambios SQL en un entorno compartido. La suite no contiene
-ninguna ruta de demostración ni aprobación falsa.
+Activación a ACTIVE: pendiente de definición con profesor/Liga. Mostrar ACTIVE no
+implementa su transición. El cierre requiere revisión de otra persona, CI y
+evidencia de aceptación; no se deduce de terminar subtareas o hacer merge.

@@ -1,4 +1,4 @@
-/** Presentación de inscripciones; no define el futuro contrato HTTP de PDGLD-62. */
+/** Presentación de inscripciones, separada del contrato HTTP de PDGLD-62. */
 export type TeamRegistrationStatus = "REGISTERED" | "ACTIVE" | "WITHDRAWN";
 
 export type TeamRegistrationItem = {
@@ -25,7 +25,7 @@ export type TeamRegistrationFormOptions = {
   })[];
 };
 
-/** Captura validada para un callback local. No es el JSON del futuro POST. */
+/** Captura validada para un callback local. No es el JSON HTTP: el adaptador lo convierte a team.mode. */
 export type TeamRegistrationSubmission = {
   clubId: string;
   seasonId: string;
@@ -37,7 +37,7 @@ export type TeamRegistrationField = "clubId" | "seasonId" | "teamMode" | "teamId
 
 /** Resultado interno del integrador, no DTO HTTP. confirmed exige persistencia comprobada. */
 export type TeamRegistrationResult =
-  | { kind: "confirmed"; teamId: string; seasonTeamId: string; status: "REGISTERED" }
-  | { kind: "correctable"; fieldErrors?: Partial<Record<TeamRegistrationField, string>> }
-  | { kind: "unconfirmed" };
+  | { kind: "confirmed"; teamId: string; seasonTeamId: string; status: TeamRegistrationStatus; replayed?: boolean }
+  | { kind: "correctable"; fieldErrors?: Partial<Record<TeamRegistrationField, string>>; message?: string }
+  | { kind: "unconfirmed"; retryAllowed?: boolean; message?: string };
 export type TeamRegistrationSubmit = (capture: TeamRegistrationSubmission) => Promise<TeamRegistrationResult>;

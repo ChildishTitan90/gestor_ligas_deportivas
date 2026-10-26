@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { isTeamRegistrationPreview, TEAM_REGISTRATION_PREVIEW_PATH } from "../../lib/development-preview";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TeamRegistrationFormView } from "./components/team-registration-form";
@@ -241,4 +242,15 @@ test("sin equipos existentes conserva Crear equipo y permite enviar en modo nuev
   controller.change("teamMode", "new"); controller.change("teamName", "Equipo nuevo sintético"); chooseGroup(controller);
   assert.doesNotMatch(render(controller), /<button[^>]*disabled=""/);
   await controller.submit(); assert.equal(writes, 1);
+});
+
+
+test("preview solo habilitada en desarrollo para su ruta exacta", () => {
+  assert.equal(isTeamRegistrationPreview(TEAM_REGISTRATION_PREVIEW_PATH, "development"), true);
+  for (const environment of ["production", "test", undefined]) {
+    assert.equal(isTeamRegistrationPreview(TEAM_REGISTRATION_PREVIEW_PATH, environment), false);
+  }
+  for (const path of ["/", "/access", "/affiliations/review", "/dev/team-registration/other", null]) {
+    assert.equal(isTeamRegistrationPreview(path, "development"), false);
+  }
 });
