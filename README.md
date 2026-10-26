@@ -80,6 +80,17 @@ declara cerrada la HU sin revisión independiente, CI y aceptación en pruebas.
 
 ## Inscripción de equipos — PDGLD-62 / PDGLD-64
 
+Actualización 26/10/2026: `/api/team-enrollments/options` informa capacidades por
+club y `/catalogs` permite filtros e historial con READ sin CREATE. El listado
+incluye nombres de temporada. Una operación incierta se consulta por GET a
+`/operations/{enrollmentKey}`; cancelar la intención deja una marca persistente
+que impide peticiones tardías y nunca elimina una inscripción confirmada.
+El adaptador reutilizable tiene pruebas en `npm run test:team-enrollment-client`.
+La migración aditiva de operaciones requiere revisión de su plan de producción;
+el CD conserva el bloqueo. Las vistas de Nick todavía no están disponibles:
+el recorrido desde la página real y el cierre de HU01-03 siguen pendientes.
+Ver [aceptación actual](tests/integration/team-enrollment-acceptance.md).
+
 El backend ofrece opciones, consulta e inscripción en `/api/team-enrollments`,
 con estado inicial `REGISTERED` (INSCRITO), alcance por club, alta atómica e
 idempotencia persistente. El [contrato para PDGLD-63](docs/architecture/team-enrollment.md)

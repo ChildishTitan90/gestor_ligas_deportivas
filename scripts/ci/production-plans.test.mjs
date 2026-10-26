@@ -7,8 +7,17 @@ import { AFFILIATION_PLAN, assertProductionPlan } from './production-plans.mjs';
 
 const directory = fileURLToPath(new URL('../../prisma/migrations/', import.meta.url));
 const readSql = name => readFileSync(`${directory}/${name}/migration.sql`, 'utf8');
-const migrations = readMigrations(directory);
+const allMigrations = readMigrations(directory);
+const operationsMigration = '20261026010000_pdgld64_enrollment_operations';
+// Los casos del plan aprobado PDGLD-57 conservan sus entradas originales.
+// La tabla nueva NO amplía la excepción de despliegue: se verifica aparte.
+const migrations = new Map([...allMigrations].filter(([name]) => name !== operationsMigration));
 const applied = new Set(['0_init']);
+
+test('operaciones de inscripción quedan bloqueadas para CD hasta revisar su plan de producción', () => {
+  assert.ok(allMigrations.has(operationsMigration));
+  assert.throws(() => assertProductionPlan(allMigrations, applied, readSql), /plan de seguridad/);
+});
 
 test('autoriza únicamente la migración PDGLD-57 exacta con su protección posterior', () => {
   assert.deepEqual(assertProductionPlan(migrations, applied, readSql), { pendingCreation: true });

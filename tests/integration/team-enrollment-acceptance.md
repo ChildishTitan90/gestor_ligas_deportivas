@@ -1,42 +1,65 @@
-# Aceptación pendiente — PDGLD-64
+# Aceptación HU01-03 / PDGLD-62/63/64
 
-Actualización 25/10/2026, tras recibir el PR #28 desde develop.
+Actualizado el 26/10/2026. El PR #29 de Checo ya está en develop: la autorización
+explícita de categorías está disponible y se usa en el recorrido HTTP real.
 
-La suite `npm run test:team-enrollments` ejecuta la solicitud real del delegado,
-consulta el detalle con la sesión de Secretaría y usa su versión vigente para
-aprobar por el endpoint real. Verifica actor, versión e historial, y comprueba que
-un equipo previamente REGISTERED no se active automáticamente.
+## Evidencia disponible
 
-El servicio recibido no escribe autorización individual de categorías. Por eso
-la inscripción del recorrido real termina en `CATEGORY_NOT_AUTHORIZED`, con
-opciones de categorías vacías y sin efectos parciales. **No se declara aprobado
-el recorrido completo solicitud → aprobación/autorización → inscripción.**
+`npm run test:team-enrollments` usa sesiones NextAuth de delegado y Secretaría y
+PostgreSQL desechable. Solicita por POST real, comprueba rechazo mientras PENDING,
+obtiene expectedVersion del detalle vigente, aprueba una selección explícita por
+PATCH y crea una inscripción REGISTERED por POST. Rechaza la categoría no elegida.
+Los únicos fixtures del recorrido preparan identidades, contexto y metadatos de
+firmas sintéticas; no actualizan aprobación/autorización para fingir ese éxito.
+Los escenarios aislados restantes conservan sus fixtures explícitos separados.
 
-Los positivos de inscripción utilizan otra temporada con un fixture explícito de
-afiliación aprobada y categoría autorizada. No completan ni sustituyen la
-autorización real pendiente; no hay UPDATE SQL de aprobación en el recorrido real.
+También cubre:
 
-Cuando Checo integre la autorización individual acordada, completar por servicios reales:
+- Equipos nuevos y existentes; varias participaciones del club y una por equipo/temporada.
+- Capacidad CREATE contextual, denegación y prohibición de mezclar roles/clubes.
+- READ sin CREATE, catálogos de temporadas cerradas/sin afiliación, nombres y paginación.
+- Clubes ajenos, sesión restringida y revocaciones con la misma sesión.
+- Rollback, clave repetida con contenido distinto y auditoría sin duplicados.
+- Acuse perdido tras confirmación y recuperación por GET; mismo cuerpo/clave en reintento.
+- Adaptador de recuperación reinicializado con el pendiente conservado y HTTP real.
+- Cancelación persistente, petición tardía y carrera entre cancelación e inscripción.
+- Migración con una inscripción legada, sin cambiar filas anteriores ni auditoría.
+- RLS/ACL con marcadores de Supabase simulados en PostgreSQL local; nunca Supabase real.
 
-1. Acceder como delegado autorizado y enviar solicitud de afiliación con firmas
-   válidas. Verificar PENDING y ausencia de equipos/inscripciones automáticos.
-2. Como delegado, intentar aprobar y comprobar denegación sin cambios.
-3. Como secretario autorizado de esa liga, aprobar y autorizar categorías mediante
-   el contrato acordado por Checo; obtener siempre expectedVersion del detalle
-   vigente y verificar responsable, fecha e historial, sin activar equipos. Una
-   selección visual se acordará con Nick si hace falta; no se inventa en este PR.
-4. Mantener las pruebas de aprobación concurrente y rollback de PDGLD-60 y ampliar
-   el recorrido a la autorización individual; conservar auditoría coherente.
-5. Como delegado, obtener opciones, inscribir equipo y comprobar REGISTERED,
-   unicidad por temporada, permisos y auditoría mínima.
-6. Repetir inscripción con la misma clave ante fallo de red y confirmar el mismo
-   resultado sin duplicar equipos ni eventos.
+`test:team-enrollment-client` cubre almacenamiento por usuario/club/operación,
+normalización, recarga del adaptador, conservación ante red/404/503/401/403,
+cancelación confirmada y falta de capacidad. No es una prueba de las vistas de Nick.
 
-Al integrar PDGLD-63, comprobar por navegador selección dependiente de club,
-equipo, temporada, categoría y grupo; modo nuevo/existente excluyente; guardado
-de clave/captura en reintentos; mensajes de error, doble envío y consulta del
-historial. Este recorrido visual no forma parte de las pruebas HTTP de backend.
+## Recorrido pendiente desde la página real
 
-Activación a ACTIVE: pendiente de definir con profesor/Liga. No intentar completar
-ese criterio mediante cambios SQL en un entorno compartido. La suite no contiene
-ninguna ruta de demostración ni aprobación falsa.
+Víctor confirmó que PDGLD-63 y sus 55 pruebas permanecen en la computadora de Nick.
+No existen esas vistas en develop ni en las referencias remotas revisadas. No se
+creó otra pantalla para simular haber recibido su trabajo.
+
+Integración y validación pendientes sobre esa entrega:
+
+1. Incorporarla sin reemplazar su navegación, foco, accesibilidad ni pruebas.
+2. Consumir capabilities del club seleccionado y mantener equipo nuevo deshabilitado
+   ante carga pendiente, ausencia/denegación de capacidad o respuesta de otro club.
+3. Cargar consulta/historial desde catalogs con READ y mostrar seasonName del listado.
+4. Integrar el adaptador de recuperación con su controlador y quitar el bloqueo
+   local anterior solo al verificar CONFIRMED/CANCELLED. Abandonar edición conserva
+   la recuperación; cancelar llama al servidor. No comprobar silenciosamente con POST.
+5. En navegador, iniciar sesión real como delegado y registrar solicitud; cambiar
+   a Secretaría, obtener detalle vigente, seleccionar categorías y aprobar; volver
+   al delegado e inscribir equipo nuevo y existente. Comprobar REGISTERED.
+6. Recorrer capacidad permitida/denegada, READ sin CREATE, temporada cerrada con
+   nombres, clubes ajenos, pendiente/no autorizada, duplicado y estados accesibles.
+7. Perder deliberadamente un acuse después del commit; recargar la página y recuperar
+   por GET. Verificar misma clave/contenido, cancelación concurrente/tardía y auditoría.
+8. Adjuntar evidencia por versión/entorno y revisión independiente.
+
+**Este recorrido de navegador no se ejecutó: la integración completa de HU01-03
+permanece pendiente.** No atribuirlo a las pruebas HTTP, al reinicio del adaptador
+ni al recorrido de Chrome con negocio simulado que reportó Nick.
+
+ACTIVE continúa pendiente de definición de negocio. El ajuste delegado/subdelegado
+corresponde a Sprint 2. El plan de producción de la tabla nueva debe revisarse antes
+de desplegar; no se modifica Supabase para probar esta entrega.
+
+Contrato, respuestas y recuperación: [team-enrollment.md](../../docs/architecture/team-enrollment.md).

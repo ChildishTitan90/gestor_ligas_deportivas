@@ -1,221 +1,267 @@
-# Inscripción de equipos — PDGLD-62 / contrato para PDGLD-63
+# Inscripción de equipos — contrato PDGLD-62/63/64
 
-## Actualización de integración PDGLD-60 (25/10/2026)
+Actualizado el 26/10/2026. Base de integración: `origin/develop` en `b99730c`
+(PR #27 y #29 integrados). El trabajo visual de Nick permanece en su computadora;
+no está disponible en las referencias remotas revisadas. Esta entrega prepara
+backend, recuperación reutilizable y pruebas; **no acredita la página de PDGLD-63**.
 
-La aprobación ahora recibe `authorizedCategoryIds` (selección explícita no vacía
-de categorías solicitadas), obtenidos de `categoryOptions` del detalle.
-Secretaría selecciona y confirma en la bandeja; el servidor verifica pertenencia,
-permiso, ámbito y versión y escribe responsable/fecha junto con aprobación e
-historial. Solo las elegidas aparecen en las opciones de inscripción. El primer
-recorrido de `test:team-enrollments` ejecuta solicitud → aprobación/autorización →
-inscripción real, sin sustituir aprobación por SQL. También comprueba el rechazo
-de una categoría no elegida. Los apartados siguientes describen la entrega
-original y sus pendientes históricos; este apartado actualiza el pendiente de
-autorización. Los fixtures restantes aíslan las demás reglas de inscripción.
-Ver [evidencia PDGLD-60](../validation/PDGLD-60-autorizacion-categorias.md).
+## Permisos y reglas
 
-## Alcance confirmado y dependencias
+La sesión NextAuth debe estar operativa. Las escrituras vuelven a exigir
+`clubs:CREATE` en una asignación vigente `CLUB_DELEGATE` del club seleccionado.
+Se conservan los permisos existentes: no hay permiso nuevo ni autorización por
+nombre del rol solamente. No se mezcla CREATE de un rol con el alcance de otro.
+Equipo nuevo y equipo existente usan esta misma política actual.
 
-Revisados PDGLD-12, PDGLD-62, PDGLD-64 y PDGLD-11 en Jira el 24/10/2026.
-Un delegado inscribe equipos de su club; cada equipo conserva su identidad en
-`teams` y cada participación anual tiene su propio `season_teams.id`. Varias
-participaciones del club son válidas; dos participaciones del mismo equipo en la
-misma temporada no lo son, incluso con categorías o grupos diferentes.
+Consultar exige `clubs:READ` en el contexto vigente; no requiere CREATE ni una
+afiliación actualmente aprobada. La política compartida conserva clubes activos,
+ligas activas y vigencia de asignaciones. No se amplía esa política incidentalmente.
 
-Se implementan inscripción `REGISTERED` (texto de interfaz **INSCRITO**), opciones
-y consulta. No se implementan las pantallas de PDGLD-63, ni aprobación de
-afiliación, activación de equipos, finanzas, jugadores o franquicias.
+Crear exige además temporada de fútbol abierta de la liga, afiliación APPROVED,
+categoría con `authorized_by` y `authorized_at`, grupo de esa categoría/temporada
+y equipo del propio club. La capacidad de escribir no sustituye estos requisitos.
+El primer estado es REGISTERED/INSCRITO. No se implementa ACTIVE, bajas,
+finanzas, jugadores ni cambios de delegado/subdelegado.
 
-Actualización 25/10/2026: se incorporó localmente `origin/develop` en `a9c6810`
-(PR #28). PDGLD-60 ya expone consulta, aprobación, correcciones y reenvío reales.
-Se conserva su versión de revisión y su integración con captura y firmas.
-La aprobación todavía no registra autorización individual de categorías; esa
-dependencia impide dar por completo el recorrido hasta inscripción.
+Cada identidad `teams.id` puede participar una sola vez por temporada, incluso
+con grupo/categoría distintos. Otra temporada conserva el equipo y crea otra
+participación `season_teams.id`. No se deduplica por nombre.
 
-## Categorías solicitadas y autorizadas
+## Rutas para Nick
 
-`club_affiliation_categories` conservaba únicamente la solicitud. Se agregan
-`authorized_by` y `authorized_at`, ambos opcionales y obligatoriamente juntos.
-**No se autoriza ninguna fila por migración ni por aprobar el estado global.**
-El servicio exige afiliación `APPROVED` y autorización explícita de la categoría
-de esa temporada. `clubs.status=ACTIVE` es una condición operativa de alcance,
-no una aprobación.
+Todas devuelven JSON privado y `Cache-Control: private, no-store`. GET rechaza
+parámetros desconocidos o repetidos. POST exige Origin del mismo origen de
+NEXTAUTH_URL, no cross-site, JSON y hasta 8 KiB. El actor siempre viene de la sesión.
 
-El contrato real recibido es `GET /api/affiliations/{id}` y
-`PATCH /api/affiliations/{id}/review` con
-`{ decision: "APPROVE", expectedVersion: detalle.version }`. Verifica Secretaría,
-`clubs:APPROVE`, alcance, separación de funciones, estado y versión; aprueba y
-audita la afiliación. **No escribe** `authorized_by`/`authorized_at` ni recibe una
-selección de categorías autorizadas. La categoría solicitada sigue sin autorización.
+### Opciones de inscripción
 
-Checo coordina la autorización individual de categorías y su contrato real. Si
-necesita selección en pantalla, debe acordarla con Nick. No se agrega una selección,
-una aprobación alternativa ni un backfill en esta integración. La inscripción
-solo **consume** las dos marcas, conserva `CATEGORY_NOT_AUTHORIZED` si faltan y
-mantiene vacías las opciones de categorías no autorizadas.
-
-PDGLD-64 ejecuta solicitud y aprobación reales con sesiones de delegado y secretario,
-leyendo `expectedVersion` del detalle vigente. Comprueba el rechazo posterior por
-categoría no autorizada y que aprobar no activa equipos previamente REGISTERED.
-Los positivos de inscripción usan otra temporada con fixtures explícitamente
-autorizados; no equivalen a haber completado la autorización real pendiente.
-
-## HTTP para Nick
-
-Sesión NextAuth 4 operativa, respuesta JSON y `Cache-Control: private, no-store` en
-todas las rutas. Nunca conservar resultados privados en caché compartida. Las
-escrituras requieren `Origin` igual al origen de `NEXTAUTH_URL`, no cross-site,
-`Content-Type: application/json` y cuerpo de hasta 8 KiB.
-
-### Opciones
-
-`GET /api/team-enrollments/options` devuelve:
-
-```json
-{ "clubs": [{ "id": "clubs.id", "name": "Club", "leagueId": "leagues.id" }],
-  "teams": [], "seasons": [], "categories": [], "groups": [] }
-```
-
-Requiere `clubs:CREATE` y `clubs:READ` en la misma asignación vigente
-`CLUB_DELEGATE`, con club concreto. No combina rol de un club con permiso de otro.
-
-Agregar `?clubId=<UUID>` carga equipos y temporadas de fútbol de esa liga que no
-estén cerradas. Agregar también `&seasonId=<UUID>` carga categorías autorizadas y
-sus grupos. Sin afiliación aprobada, con categoría solo solicitada o con temporada
-cerrada, esas opciones están vacías. Una temporada de otra liga es error.
-
-Las estructuras de las listas son:
-
-- `teams`: `{ id: teams.id, clubId, name, referenceNumber, enrolledSeasonIds: UUID[] }`.
-- `seasons`: `{ id: seasons.id, name, status }`.
-- `categories`: `{ id: categories.id, seasonCategoryId: season_categories.id, seasonId, name }`.
-- `groups`: `{ id: groups.id, name, categoryId: categories.id, seasonId }`.
-
-La UI excluye equipos con la temporada seleccionada en `enrolledSeasonIds`. El
-servidor vuelve a comprobar todos los vínculos al enviar. Las opciones de un club
-ajeno son 403. Cambiar club/temporada exige recargar las opciones dependientes.
-
-### Inscribir
-
-`POST /api/team-enrollments`:
+`GET /api/team-enrollments/options[?clubId=UUID&seasonId=UUID]`
 
 ```json
 {
-  "enrollmentKey": "UUID estable generado para este envío",
-  "clubId": "clubs.id",
-  "seasonId": "seasons.id",
-  "categoryId": "categories.id; no season_categories.id",
-  "groupId": "groups.id",
-  "team": { "mode": "existing", "teamId": "teams.id; no season_teams.id" }
+  "clubs": [{ "id": "11111111-1111-4111-8111-111111111111", "name": "Club Morelia", "leagueId": "22222222-2222-4222-8222-222222222222" }],
+  "capabilities": {
+    "clubId": "11111111-1111-4111-8111-111111111111",
+    "canEnroll": true,
+    "canCreateTeam": true
+  },
+  "teams": [], "seasons": [], "categories": [], "groups": [],
+  "nextClubAfter": null, "nextSeasonAfter": null, "nextTeamAfter": null
 }
 ```
 
-Para equipo nuevo, sustituir **todo** `team` por
-`{ "mode": "new", "name": "Nombre del equipo" }`. Nombre de 1–200 caracteres
-tras recortar espacios; límite técnico, no reglamentario. No se admiten campos de
-ambas modalidades juntos. El servidor genera `teams.id` y su folio `TEAM-<UUID>`;
-no deduplica equipos por nombre. Para otra temporada se reutiliza el `teamId`
-devuelto, eligiendo `existing`; no reenviar `new` para representar el mismo equipo.
+Sin club seleccionado, capabilities tiene clubId=null y ambos booleanos false.
+Con club, los booleanos se calculan por el autorizador real dentro de la
+transacción. READ sin CREATE devuelve 200 y false; no bloquea los filtros.
+La UI solo habilita equipo nuevo con ambos booleanos true y el mismo club actual.
+Ausencia, carga pendiente, denegación y respuesta atrasada de otro club mantienen
+la acción deshabilitada. `enrollmentCreationAllowed` ofrece esta comprobación.
+Los booleanos describen permiso, incluso si todavía falta aprobación/categoría.
 
-201 al crear; 200 al recuperar un envío idéntico:
+- clubs: `{ id, name, leagueId }`, autorizados por READ. Seleccionar un club no
+  convierte la lista en un catálogo de clubes ajenos ni pierde el resto de opciones.
+- teams: `{ id, clubId, name, referenceNumber, enrolledSeasonIds }` del club.
+- seasons: `{ id, name, status }`, fútbol y liga del club; excluye CLOSED.
+- categories: `{ id, seasonCategoryId, seasonId, name }`, solo autorizadas
+  explícitamente en la afiliación aprobada de la temporada seleccionada.
+- groups: `{ id, name, categoryId, seasonId }`, de las categorías anteriores.
+
+clubId carga equipos/temporadas; seasonId requiere clubId y carga categorías/grupos.
+Sin aprobación o con temporada cerrada las categorías quedan vacías.
+Cambiar contexto invalida las opciones dependientes en la UI. Excluir equipos cuya
+lista enrolledSeasonIds contenga la temporada actual; POST vuelve a comprobarlo.
+
+Paginación: `limit` 1–100 (predeterminado 100), `clubAfter`, `seasonAfter`, `teamAfter`.
+UUID ascendente en los tres catálogos; cada cursor avanza solo su colección.
+Con seasonId se consulta esa temporada concreta y se ignora seasonAfter.
+Categorías/grupos se acotan a la selección aprobada de esa afiliación (máximo
+100 categorías por el contrato de solicitud); los grupos conservan nombre/id.
+
+### Catálogos de consulta e historial
+
+`GET /api/team-enrollments/catalogs[?clubId=UUID&seasonId=UUID]`
+
+Misma forma de respuesta y paginación de clubes/temporadas. Incluye temporadas
+CLOSED y temporadas sin afiliación del club. No exige aprobación ni CREATE.
+No devuelve opciones de inscripción: teams/categories/groups quedan vacíos;
+nextTeamAfter es null. Los nombres de equipo/categoría/grupo del historial vienen
+en cada registro del listado, no se buscan en catálogos de inscripción vigentes.
+
+`GET /api/team-enrollments?clubId=UUID[&seasonId=UUID&limit=50&after=UUID]`
+
+READ por club, límite 1–100 (predeterminado 50), UUID ascendente, respuesta
+`{ items, nextAfter }`. nextAfter=null al terminar. Cada registro incluye:
 
 ```json
-{ "id": "season_teams.id", "teamId": "teams.id", "clubId": "clubs.id",
-  "seasonId": "seasons.id", "categoryId": "categories.id", "groupId": "groups.id",
-  "status": "REGISTERED", "replayed": false }
+{
+  "id": "33333333-3333-4333-8333-333333333333",
+  "teamId": "44444444-4444-4444-8444-444444444444",
+  "teamName": "Morelia Juvenil", "teamReferenceNumber": "TEAM-folio",
+  "clubId": "11111111-1111-4111-8111-111111111111",
+  "seasonId": "55555555-5555-4555-8555-555555555555", "seasonName": "Temporada 2026",
+  "categoryId": "66666666-6666-4666-8666-666666666666", "categoryName": "Juvenil",
+  "groupId": "77777777-7777-4777-8777-777777777777", "groupName": "Grupo A",
+  "status": "REGISTERED"
+}
 ```
 
-`replayed` es `true` en 200. El estado devuelto es el vigente del registro; no es
-una orden de cambiarlo. Nunca enviar estado, actor, aprobador, folio ni liga como
-campos de autoridad: el contrato estricto los rechaza. `clubId` es una selección
-que se comprueba contra la asignación del servidor, no autoridad del cliente.
+Los UUID son identificadores, no etiquetas habituales de presentación.
+No se devuelven claves de reintento, huellas, actores, sesiones, firmas ni personas.
 
-Conservar clave y captura normalizada ante red incierta/503 hasta recuperar el
-resultado. Una misma clave con otros datos da 409. Una nueva intención usa otra
-clave; dos claves distintas con `new` representan equipos distintos aunque el
-nombre sea igual. La UI debe mantener el mismo envío para todos sus reintentos.
-La protección persiste en PostgreSQL y funciona entre procesos/reinicios.
+### Inscribir o reintentar explícitamente
 
-### Consultar
+`POST /api/team-enrollments`
 
-`GET /api/team-enrollments?clubId=<UUID>` exige `clubs:READ` vigente para ese club;
-permite roles administrativos cuyo permiso cubra el contexto. Filtros opcionales:
-`seasonId`, `limit` (1–100, predeterminado 50) y `after` (último id de la página).
-Orden por UUID ascendente, paginación estable sin contar datos de otros clubes.
-Incluye historial de temporadas cerradas; no depende de afiliación aprobada actual.
+```json
+{
+  "enrollmentKey": "88888888-8888-4888-8888-888888888888",
+  "clubId": "11111111-1111-4111-8111-111111111111",
+  "seasonId": "55555555-5555-4555-8555-555555555555",
+  "categoryId": "66666666-6666-4666-8666-666666666666",
+  "groupId": "77777777-7777-4777-8777-777777777777",
+  "team": { "mode": "new", "name": "Morelia Juvenil" }
+}
+```
 
-Respuesta `{ items, nextAfter }`; `nextAfter` es `null` al terminar. Cada elemento:
-`{ id, teamId, teamName, teamReferenceNumber, clubId, seasonId, categoryId,
-categoryName, groupId, groupName, status }`. Solo DTOs mínimos; no huellas,
-claves de reintento, actores, firmas, sesiones ni datos de personas.
+Para reutilizar, sustituir todo team por `{ "mode": "existing", "teamId": "teams.id" }`.
+No mezclar modalidades; categoryId es categories.id, no season_categories.id.
+Nombre nuevo: 1–200 caracteres tras trim; el servidor genera el folio TEAM-UUID.
 
-### Errores
+201 al crear; 200 al recuperar idéntica intención. La respuesta conserva
+`{ id, teamId, clubId, seasonId, categoryId, groupId, status, replayed }`.
+replayed=true en recuperación. El estado es el vigente, no una orden de activación.
+La misma clave y contenido distinto produce 409 IDEMPOTENCY_CONFLICT.
+Una clave cancelada produce 409 OPERATION_CANCELLED. No cambiar la clave para
+sortear una respuesta incierta: dos claves new representan dos equipos distintos.
 
-Siempre `{ "code": "CODIGO" }`, sin SQL, conexiones ni contenido de la captura.
-Parámetros desconocidos o repetidos en GET se rechazan.
+### Consultar resultado sin escribir
 
-| HTTP | code | Tratamiento de UI |
-| --- | --- | --- |
-| 401 | `UNAUTHENTICATED` | Solicitar acceso |
-| 403 | `PASSWORD_CHANGE_REQUIRED` | Completar cambio de contraseña |
-| 403 | `FORBIDDEN` | Sin permiso o club fuera del alcance |
-| 403 | `INVALID_ORIGIN` | Revisar origen del envío |
-| 400 | `INVALID_PAYLOAD`, `VALIDATION_ERROR` | Corregir captura/formato |
-| 400 | `INVALID_CONTEXT` | Recargar equipos, temporada, categorías y grupos |
-| 409 | `AFFILIATION_NOT_APPROVED` | Esperar revisión real de afiliación |
-| 409 | `CATEGORY_NOT_AUTHORIZED` | Categoría sin autorización explícita |
-| 409 | `SEASON_CLOSED` | No permite inscripción nueva |
-| 409 | `TEAM_ALREADY_ENROLLED` | Mostrar inscripción existente; no cambiar grupo |
-| 409 | `IDEMPOTENCY_CONFLICT` | No reutilizar clave para otra intención |
-| 413 | `PAYLOAD_TOO_LARGE` | Reducir cuerpo al contrato |
-| 503 | `SERVICE_UNAVAILABLE` | Conservar captura y clave para reintentar |
+`GET /api/team-enrollments/operations/{enrollmentKey}?clubId=UUID`
 
-## Transacción, concurrencia, auditoría y migración
+READ vigente del club y actor autenticado. La clave es privada por actor: otra
+persona del mismo club no obtiene ese resultado. Ejemplo:
 
-La autenticación consulta la sesión real. En cada transacción se reutiliza el
-bloqueo compartido del motor de permisos; se exige `clubs:CREATE` de la propia
-asignación de delegado. Temporada, club, categoría, afiliación, autorización y
-grupo se comprueban en servidor con bloqueos de fila. El equipo debe ser del club.
+```json
+{
+  "enrollmentKey": "88888888-8888-4888-8888-888888888888",
+  "clubId": "11111111-1111-4111-8111-111111111111",
+  "outcome": "UNRESOLVED",
+  "enrollment": null
+}
+```
 
-Bloqueos advisory transaccionales serializan clave por actor y equipo/temporada.
-Las restricciones existentes `UNIQUE(team_id,season_id)` y FK compuestas siguen
-siendo la garantía final de pertenencia y duplicados. Se agrega unicidad de
-`(enrolled_by,enrollment_key)` y una huella SHA-256 de la captura canónica en
-`season_teams`; las filas históricas conservan esos campos nulos. No se utiliza
-estado en memoria. Crear equipo, inscripción y auditoría es una sola transacción.
+- CONFIRMED: enrollment contiene el resultado con replayed=true.
+- CANCELLED: enrollment=null; la cancelación persistida impide un POST tardío.
+- UNRESOLVED: enrollment=null; no consta aún un resultado definitivo. **No prueba
+  que una petición en vuelo o tardía no pueda aplicarse.**
 
-El baseline no tenía auditoría en `season_teams`. Un trigger nuevo registra un
-evento mínimo por INSERT/UPDATE/DELETE, con actor, fecha, motivo y vínculos/estado,
-sin nombre, clave ni huella. La función tiene `search_path` fijo y ejecución
-pública revocada. Se conserva la inmutabilidad de `audit_logs`. No se agrega otro
-evento manual ni se sobrescribe historial anual.
+La consulta solo lee y toma el bloqueo transaccional de la clave. No crea una
+operación ni una inscripción. Un listado vacío, 404 o recarga no son cancelación.
 
-La migración nueva `20261025010000_pdgld62_team_enrollment` es aditiva, no crea
-tablas ni modifica baseline/RLS. Para recibirla, seguir `docs/migraciones.md` con
-`migrate deploy` y `generate` en Docker local. El 25/10/2026 se aplicaron las
-migraciones pendientes en `gestor_ligas_dev` de `localhost:5433`, tras verificar
-el destino: los conteos de clubes, equipos, inscripciones, afiliaciones y auditoría
-se conservaron. También se reconstruyen en bases de prueba desechables. No se
-modificó Supabase ni se editaron migraciones compartidas.
+### Cancelar la intención
 
-En Supabase conserva las políticas/ACL existentes de `season_teams` y
-`club_affiliation_categories` (esta última sin acceso a roles API). No concede
-privilegios ni cambia RLS en Docker. Deben conservarse los controles actuales del
-despliegue manual y revisarse los cambios junto con PDGLD-60 antes de producción.
+`POST /api/team-enrollments/operations/{enrollmentKey}/cancel`
 
-## Activación propuesta, sin implementar
+Recibe el mismo cuerpo normalizado del POST, incluida la misma clave (debe coincidir
+con la ruta). Usa READ del club para permitir recuperar/detener la intención propia
+si se retiró CREATE. No concede permiso para inscribir ni modifica equipos.
 
-**INSCRITO** registra la participación; **ACTIVO** habilita para competir.
-La propuesta es una operación explícita por equipo de Secretaría con su permiso,
-responsable, fecha y motivo. Aprobar la afiliación no activa equipos. Se proponen
-afiliación aprobada en esa temporada, categoría habilitada y grupo válido como
-verificaciones. Falta validar con profesor/Liga autoridad y reglas definitivas,
-si pago y mínimo de jugadores son condiciones, y el alcance de las transiciones.
-No hay endpoint a ACTIVE, rechazos, bajas, suspensiones ni reversibilidad nuevos.
+Devuelve 200 con la forma de consulta anterior:
 
-La convocatoria local `convocatoria-liga-municipal-2024-2025-1.pdf` se consultó en
-Downloads. Define fechas/cuotas/restricciones de ingreso y obligaciones de esa
-temporada, incluyendo mínimo de jugadores, pero no define la transición del
-sistema a ACTIVO. No se convierten esos valores en reglas universales ni se
-implementan módulos adicionales. La autorización expresa de categorías permite
-que la revisión de cada temporada determine qué participación está habilitada.
+- CANCELLED: marca definitiva creada o recuperada. Cualquier POST posterior con
+  esa clave se rechaza, aunque la petición se hubiera enviado antes y llegue tarde.
+- CONFIRMED: la inscripción ganó; se devuelve y se conserva. Cancelar la captura
+  no la elimina, no la da de baja ni agrega otro evento de inscripción.
+
+Se serializa por `(actor, enrollmentKey)` con el mismo advisory lock que POST.
+Si la inscripción falla y revierte, cancelar puede ganar después. Si cancelar
+falla o su acuse se pierde, conservar el pendiente y volver a consultar/cancelar.
+Cambiar el contenido de una clave persistida mantiene el conflicto.
+
+## Procedimiento del cliente, pendiente de conectar a las vistas de Nick
+
+`createEnrollmentRecovery(actorId, localStorage)` en
+`src/features/clubs/team-enrollment-recovery.client.ts` es un adaptador reutilizable,
+no una pantalla nueva. Al recibir PDGLD-63 se debe integrar con su controlador:
+
+1. Normalizar captura y generar una única enrollmentKey para la intención.
+2. `remember(input)` antes de enviar. Si falla el almacenamiento, no enviar.
+3. `retry(input)` solo ante envío/reintento explícito; siempre mismo cuerpo y clave.
+4. Red perdida, timeout, 503, 401/403, conflicto o acuse inválido conservan el
+   pendiente. Mostrar el motivo seguro, acceso/reconsulta y cancelación explícita;
+   no anunciar fracaso definitivo ni crear otra intención para ocultar el problema.
+5. Al recargar, crear el adaptador con el ID de la sesión vigente y ejecutar
+   `pending(clubId)`. `check(input)` hace únicamente GET. UNRESOLVED conserva el bloqueo.
+6. `abandon(input)` abandona edición conservando la recuperación. `cancel(input)`
+   pide cancelación persistente. Deshabilitar nuevos envíos mientras el resultado
+   siga incierto. No borrar almacenamiento como forma de cancelar.
+7. Solo un acuse válido CONFIRMED/CANCELLED limpia el pendiente correspondiente.
+   Si pendingCleanup=true, el resultado es definitivo pero falló la limpieza local:
+   mostrarlo y volver a consultar para limpiar; no reenviar con otra clave.
+
+Almacena únicamente versión, clave, club/temporada/categoría/grupo y equipo (ID o
+nombre necesario para reintentar). Claves de almacenamiento separadas por usuario,
+club y operación; conserva varios pendientes sin sobrescribirlos. Sin contraseña,
+token, cookie, sesión, firmas ni datos de personas. Al cambiar de usuario, retirar
+su presentación y reconstruir el adaptador para la nueva sesión; no borrar una
+operación incierta del usuario anterior. No hay caducidad automática del pendiente.
+
+La UI también debe conservar su navegación, foco y accesibilidad existentes y
+reemplazar cualquier bloqueo local anterior por este procedimiento. La recepción
+y adaptación de las 55 pruebas de Nick siguen pendientes; estas nueve pruebas del
+adaptador no se presentan como validación de sus vistas.
+
+## Categorías: contrato real recibido de Checo
+
+GET `/api/affiliations/{id}` devuelve categoryOptions y version. Secretaría envía
+PATCH `/api/affiliations/{id}/review` con `{ decision: "APPROVE",
+expectedVersion: detalle.version, authorizedCategoryIds: [categoría seleccionada] }`.
+El servidor valida selección no vacía de las solicitadas, permiso/ámbito/versión,
+registra responsable/fecha y audita junto con la aprobación. Inscripción consume
+esas marcas; ninguna migración autoriza categorías ni se aprueban implícitamente
+todas las solicitadas. Categoría no elegida mantiene CATEGORY_NOT_AUTHORIZED.
+Ver [evidencia de Checo](../validation/PDGLD-60-autorizacion-categorias.md).
+
+## Persistencia, migraciones y producción
+
+La migración compartida `20261025010000_pdgld62_team_enrollment` permanece intacta.
+La nueva `20261026010000_pdgld64_enrollment_operations` agrega una tabla de resultados
+finales y la unicidad `(actor_id, enrollment_key)`. Guarda huella SHA-256, club,
+resultado, vínculo opcional a inscripción y fecha, sin copiar cuerpos completos.
+Migra claves previamente confirmadas desde season_teams sin cambiar sus registros,
+categorías ni auditoría. Las filas legadas sin metadatos siguen sin clave inventada.
+
+Las operaciones son inmutables; no se actualizan ni eliminan para reutilizar una
+clave. No purgar marcas CANCELLED: una petición tardía podría volver a aplicarse.
+Crear equipo, inscripción, evento mínimo y resultado CONFIRMED es ACID. Cancelar
+crea solo su marca y un evento TEAM_ENROLLMENT_CANCEL sin nombre, clave ni huella;
+repetirlo no duplica eventos. UNIQUE y FK de inscripción conservan duplicados/ámbito.
+
+Para recibir en Docker local: verificar primero el destino y ejecutar
+`prisma migrate deploy` y `prisma generate`, conforme a [migraciones](../migraciones.md).
+Esta validación reconstruye bases desechables; no actualiza gestor_ligas_dev ni Supabase.
+
+La tabla nueva revoca PUBLIC; con los cinco marcadores de Supabase habilita RLS y
+revoca anon/authenticated/service_role, sin políticas de clientes. Marcadores
+parciales abortan antes de crear objetos; Docker conserva RLS deshabilitado.
+Se requiere revisar ACL/políticas para el rol Prisma de servidor con privilegio
+mínimo, sin conceder acceso a roles de API ni BYPASSRLS para resolverlo.
+**El CD conserva su bloqueo a esta creación de tabla hasta aprobar el plan de
+producción**; no se amplió su excepción por checksum. No desplegar esta entrega
+mediante un bypass del control. Las pruebas simulan RLS/ACL solo en PostgreSQL local.
+
+## Errores y alcance de aceptación
+
+Errores `{ code }` sin SQL/conexiones/captura. Se conservan 401 UNAUTHENTICATED,
+403 PASSWORD_CHANGE_REQUIRED/FORBIDDEN/INVALID_ORIGIN, 400 VALIDATION_ERROR/
+INVALID_CONTEXT/INVALID_PAYLOAD, 413 PAYLOAD_TOO_LARGE, 409 AFFILIATION_NOT_APPROVED/
+CATEGORY_NOT_AUTHORIZED/SEASON_CLOSED/TEAM_ALREADY_ENROLLED/IDEMPOTENCY_CONFLICT,
+503 SERVICE_UNAVAILABLE. Se agrega 409 OPERATION_CANCELLED; consultar el resultado
+para obtener el acuse definitivo antes de retirar el pendiente del cliente.
+
+La prueba HTTP real cubre solicitud → aprobación/autorización explícita → inscripción,
+recuperación/cancelación, concurrencia e historial. Usa firmas sintéticas preparadas
+como fixtures y Storage aislado; no demuestra carga real de firmas ni el recorrido
+completo desde la página de inscripción. ACTIVE conserva su definición de negocio
+pendiente con profesor/Liga; pago/mínimo de jugadores no se agregan como reglas.
+Antecedentes: [entrega original](../validation/PDGLD-62-PDGLD-64-inscripcion.md).

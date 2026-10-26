@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   try {
     const body = await readEnrollmentBody(request);
     if (body instanceof Response) return body;
-    const result = await enrollTeam(body);
+    const result = await enrollTeam(body, request.headers.get("x-expected-actor-id") ?? undefined);
     return NextResponse.json(result, { status: result.replayed ? 200 : 201, headers: enrollmentHeaders });
   } catch (error) { return enrollmentFailure(error); }
 }
