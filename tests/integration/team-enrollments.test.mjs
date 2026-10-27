@@ -11,7 +11,7 @@ import { verifyEnrollmentOperationMigration } from './team-enrollment-migration.
 /** HTTP real y PostgreSQL desechable. El primer recorrido solicita, aprueba
  * seleccionando una categoría e inscribe con servicios reales. Los demás
  * escenarios aislados conservan sus fixtures autorizados separados. */
-export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }) {
+export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, preview = false }) {
   const target = new URL(databaseUrl);
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(target.hostname));
   assert.match(target.pathname, /^\/pdgld48_test_[a-f0-9]{16}$/);
@@ -23,6 +23,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
   let roleId;
   try {
     await test('PDGLD-64: migración recupera claves legadas sin cambiar inscripciones, categorías ni auditoría',
+      { skip: preview && 'El SQL original se verifica en la suite Docker; Preview ya tiene marcadores Supabase.' },
       () => verifyEnrollmentOperationMigration(databaseUrl));
     const league = (await db.query('INSERT INTO sports_management.leagues(name) VALUES ($1) RETURNING id', [`PD62-${randomUUID()}`])).rows[0].id;
     const foreignLeague = (await db.query('INSERT INTO sports_management.leagues(name) VALUES ($1) RETURNING id', [`PD62-other-${randomUUID()}`])).rows[0].id;
@@ -660,7 +661,8 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
           await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [roleId, permission]);
         }
       });
-      await t.test('seguridad de operaciones: Docker sin RLS, Supabase simulado con RLS y API sin ACL', async () => {
+      await t.test('seguridad de operaciones: Docker sin RLS, Supabase simulado con RLS y API sin ACL',
+        { skip: preview && 'Cubierto por verify-production-security; este recorrido exige RLS activo.' }, async () => {
         const sql = readFileSync(new URL('../../prisma/migrations/20261026010000_pdgld64_enrollment_operations/migration.sql', import.meta.url), 'utf8');
         const targetGuard = sql.match(/DO \$target\$[\s\S]*?\$target\$;/)[0];
         const security = sql.match(/DO \$security\$[\s\S]*?\$security\$;/)[0];

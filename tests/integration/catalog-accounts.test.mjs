@@ -9,7 +9,7 @@ import { tsImport } from 'tsx/esm/api';
 import { Browser } from './auth.test.mjs';
 
 /** RF22 real, antes de las suites con concesiones aisladas, en la base del harness. */
-export async function runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl }) {
+export async function runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl, onAdministrator }) {
   const target = new URL(databaseUrl);
   assert.ok(['postgres:', 'postgresql:'].includes(target.protocol));
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(target.hostname));
@@ -123,6 +123,7 @@ export async function runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl }
         clubs.push((await db.query('INSERT INTO sports_management.clubs(league_id,reference_number,name) VALUES ($1,$2,$3) RETURNING id',
           [leagueId, randomUUID(), 'Club sintético RF22'])).rows[0].id);
       const admin = await fixture('SUPERADMIN');
+      if (onAdministrator) await onAdministrator(admin);
       const scoped = await fixture('SUPERADMIN', leagueA);
       const clubScoped = await fixture('SUPERADMIN', leagueA, clubs[0]);
 

@@ -120,6 +120,8 @@ jobs:
         run: npm run test:auth
       - name: Probar inscripción de equipos, alcance y concurrencia
         run: npm run test:team-enrollments
+      - name: Probar Preview con rol limitado, RLS, afiliaciones y operaciones por HTTP
+        run: npm run test:preview-runtime
       - name: Probar seed, integridad, rollback e idempotencia
         run: npm run test:seed -- --existing
 
