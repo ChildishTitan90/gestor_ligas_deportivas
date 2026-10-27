@@ -14,7 +14,7 @@ export function registrationChoices(options: TeamRegistrationFormOptions, draft:
   const category = season?.categories.find(item => item.id === draft.categoryId);
   return { club, season, category, seasons: club?.seasons ?? [], teams: season?.teams ?? [],
     categories: season?.categories ?? [], groups: category?.groups ?? [],
-    hasRequiredOptions: !!season && !!season.categories.length &&
+    hasRequiredOptions: !!season && season.canEnroll && !!season.categories.length &&
       (category ? category.groups.length > 0 : season.categories.some(item => item.groups.length > 0)) &&
       (draft.teamMode === "new" ? season.canCreateTeam : season.teams.length > 0) };
 }
@@ -35,8 +35,8 @@ export function createTeamRegistrationFormController(initialOptions: TeamRegistr
   let onSubmit = initialSubmit;
   let lastCapture: TeamRegistrationSubmission | null = null;
   let epoch = 0;
-  let state = { retryAvailable: false, options, draft: emptyDraft(), errors: {} as TeamRegistrationErrors, submitting: false,
-    outcome: "idle" as "idle" | "confirmed" | "unconfirmed", message: "" };
+  let state = { pendingCleanup: false, retryAvailable: false, options, draft: emptyDraft(), errors: {} as TeamRegistrationErrors, submitting: false,
+    outcome: "idle" as "idle" | "confirmed" | "cancelled" | "unconfirmed", message: "" };
   const listeners = new Set<() => void>();
   function publish(patch: Partial<typeof state>) { state = { ...state, ...patch }; listeners.forEach(fn => fn()); }
   function change(field: TeamRegistrationField, value: string) {
@@ -56,6 +56,7 @@ export function createTeamRegistrationFormController(initialOptions: TeamRegistr
     const { club, season, category, groups, teams } = registrationChoices(options, draft);
     const errors: TeamRegistrationErrors = {};
     if (!club) errors.clubId = "Selecciona un club disponible.";
+    if (season && !season.canEnroll) errors.seasonId = "No tienes permiso para inscribir en este club.";
     if (!season) errors.seasonId = "Selecciona una temporada disponible para el club.";
     if (draft.teamMode === "new") {
       if (!season?.canCreateTeam) errors.teamMode = "La creación de equipos no está disponible en este ámbito.";
@@ -78,26 +79,35 @@ export function createTeamRegistrationFormController(initialOptions: TeamRegistr
     try {
       const result = await onSubmit(capture);
       if (version !== epoch) return;
-      if (result?.kind === "confirmed" && ["REGISTERED", "ACTIVE", "WITHDRAWN"].includes(result.status) &&
-        (result.status === "REGISTERED" || result.replayed === true) &&
-        typeof result.teamId === "string" && result.teamId.trim() &&
-        typeof result.seasonTeamId === "string" && result.seasonTeamId.trim() &&
-        (capture.team.kind === "new" || result.teamId === capture.team.id)) {
-        const label = { REGISTERED: "Inscrito", ACTIVE: "Activo", WITHDRAWN: "Retirado" }[result.status];
-        publish({ outcome: "confirmed", message: `${result.replayed ? "Envío recuperado" : "Inscripción confirmada"} como «${label}».` });
-      } else if (result?.kind === "correctable") {
-        publish({ outcome: "idle", options, draft: reconcile(options, state.draft), errors: result.fieldErrors ?? {},
-          message: result.message ?? "La inscripción no se creó. Revisa los datos y corrige los campos señalados antes de intentar nuevamente." });
-      } else { unconfirmed(result?.kind === "unconfirmed" && result.retryAllowed === true, result?.kind === "unconfirmed" ? result.message : undefined); }
+      settle(result);
     } catch { if (version === epoch) unconfirmed(); }
     finally { if (version === epoch) publish({ submitting: false }); }
   }
+  function settle(result: import("./team-registration-model").TeamRegistrationResult) {
+    if (result.kind === "confirmed" && ["REGISTERED", "ACTIVE", "WITHDRAWN"].includes(result.status) &&
+      (result.status === "REGISTERED" || result.replayed === true) && result.teamId?.trim() && result.seasonTeamId?.trim() &&
+      (lastCapture?.team.kind !== "existing" || result.teamId === lastCapture.team.id)) {
+      const label = { REGISTERED: "Inscrito", ACTIVE: "Activo", WITHDRAWN: "Retirado" }[result.status];
+      publish({ outcome: "confirmed", retryAvailable: false, pendingCleanup: result.pendingCleanup === true,
+        message: `${result.replayed ? "Envío recuperado" : "Inscripción confirmada"} como «${label}».${result.pendingCleanup ? " Falta limpiar la copia local; vuelve a consultar antes de iniciar otra inscripción." : ""}` });
+    } else if (result.kind === "cancelled") {
+      publish({ outcome: "cancelled", retryAvailable: false, pendingCleanup: result.pendingCleanup === true,
+        message: `Cancelación confirmada por el servidor. La clave no podrá inscribirse.${result.pendingCleanup ? " Falta limpiar la copia local; vuelve a consultar." : ""}` });
+    } else if (result.kind === "correctable") {
+      publish({ outcome: "idle", draft: reconcile(options, state.draft), errors: result.fieldErrors ?? {},
+        message: result.message ?? "La inscripción no se creó. Revisa los datos y corrige los campos señalados antes de intentar nuevamente." });
+    } else {
+      publish({ outcome: "unconfirmed", retryAvailable: result.kind === "unconfirmed" && result.retryAllowed === true,
+        message: result.kind === "unconfirmed" && result.message ? result.message : "No se pudo confirmar la inscripción. Conservamos cuerpo y clave; consulta el resultado antes de iniciar otra." });
+    }
+  }
   return {
+    settle,
     conceal() {
       ++epoch; lastCapture = null; options = { clubs: [] };
-      publish({ options, draft: emptyDraft(), errors: {}, submitting: false, outcome: "unconfirmed", retryAvailable: false, message: "" });
+      publish({ pendingCleanup: false, options, draft: emptyDraft(), errors: {}, submitting: false, outcome: "unconfirmed", retryAvailable: false, message: "" });
     },
-    begin() { ++epoch; lastCapture = null; options = { clubs: [] }; publish({ options, draft: emptyDraft(), errors: {}, submitting: false, outcome: "idle", retryAvailable: false, message: "" }); },
+    begin() { ++epoch; lastCapture = null; options = { clubs: [] }; publish({ pendingCleanup: false, options, draft: emptyDraft(), errors: {}, submitting: false, outcome: "idle", retryAvailable: false, message: "" }); },
     getSnapshot: () => state,
     subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
     configure(nextOptions: TeamRegistrationFormOptions, nextSubmit: TeamRegistrationSubmit) {
@@ -113,12 +123,12 @@ export function createTeamRegistrationFormController(initialOptions: TeamRegistr
     restore(capture: TeamRegistrationSubmission) {
       if (state.submitting) return;
       lastCapture = capture;
-      publish({ draft: { clubId: capture.clubId, seasonId: capture.seasonId, categoryId: capture.categoryId, groupId: capture.groupId,
+      publish({ pendingCleanup: false, draft: { clubId: capture.clubId, seasonId: capture.seasonId, categoryId: capture.categoryId, groupId: capture.groupId,
         teamMode: capture.team.kind, teamId: capture.team.kind === "existing" ? capture.team.id : "",
         teamName: capture.team.kind === "new" ? capture.team.name : "" }, outcome: "unconfirmed", retryAvailable: true,
         message: "Hay un envío sin confirmar. Conservamos su captura y clave; recupera el resultado antes de iniciar otro." });
     },
-    reset() { if (!state.submitting && state.outcome === "confirmed") publish({ draft: emptyDraft(), outcome: "idle", message: "", errors: {} }); },
+    reset() { if (!state.submitting && ["confirmed", "cancelled"].includes(state.outcome) && !state.pendingCleanup) publish({ draft: emptyDraft(), outcome: "idle", message: "", errors: {}, pendingCleanup: false }); },
     retry: () => submit(true),
     change, submit: () => submit(),
   };

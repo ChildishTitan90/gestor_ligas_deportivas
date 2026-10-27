@@ -23,9 +23,12 @@ ni realiza el recorrido con autenticación real.
 Para aceptar las vistas falta un recorrido en el entorno de pruebas con sesión y
 backend preparados por el equipo: navegación, selección dependiente, inscripción
 existente/nueva según capacidad explícita, errores, doble envío, recuperación con
-cuerpo/clave originales y consulta de historial. Los contratos todavía pendientes
-(capacidad de creación, catálogos con nombres y verificación/conciliación) están
-especificados en `docs/design/team-registration.md`; no se inventan endpoints.
+cuerpo/clave originales y consulta de historial. El contrato está publicado en PR #31 (9eb5373), todavía fuera de develop al
+revisar esta entrega. La interfaz se adapta a capacidades, catálogos, seasonName,
+consulta/cancelación e identidad esperada de esa revisión. El recorrido real
+requiere primero integrar ese backend y confirmar PostgreSQL/Storage aislados.
+Ver `docs/validation/PDGLD-63-recorrido-integrado.md`; no se han ejecutado sus
+escrituras ni se acredita aceptación por las pruebas con negocio simulado.
 
 Activación a ACTIVE: pendiente de definición con profesor/Liga. Mostrar ACTIVE no
 implementa su transición. El cierre requiere revisión de otra persona, CI y

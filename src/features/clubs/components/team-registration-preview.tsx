@@ -8,18 +8,18 @@ import type { TeamRegistrationFormOptions, TeamRegistrationItem, TeamRegistratio
 // Datos exclusivamente sintéticos de esta preview, sin imports desde páginas reales.
 const demoOptions: TeamRegistrationFormOptions = { clubs: [
   { id: "demo-club-a", name: "DEMO Club A", seasons: [
-    { id: "demo-season-2026", name: "DEMO Temporada 2026", canCreateTeam: true,
+    { id: "demo-season-2026", name: "DEMO Temporada 2026", canEnroll: true, canCreateTeam: true,
       teams: [{ id: "demo-team-a", name: "DEMO Equipo A" }, { id: "demo-team-b", name: "DEMO Equipo B" }],
       categories: [
         { id: "demo-category-a", name: "DEMO Categoría A", groups: [{ id: "demo-group-a1", name: "DEMO Grupo A1" }, { id: "demo-group-a2", name: "DEMO Grupo A2" }] },
         { id: "demo-category-b", name: "DEMO Categoría B", groups: [{ id: "demo-group-b", name: "DEMO Grupo B" }] },
       ] },
-    { id: "demo-season-2025", name: "DEMO Temporada 2025", canCreateTeam: false,
+    { id: "demo-season-2025", name: "DEMO Temporada 2025", canEnroll: true, canCreateTeam: false,
       teams: [{ id: "demo-team-a", name: "DEMO Equipo A" }],
       categories: [{ id: "demo-category-past", name: "DEMO Categoría histórica", groups: [{ id: "demo-group-past", name: "DEMO Grupo histórico" }] }] },
   ] },
   { id: "demo-club-b", name: "DEMO Club B", seasons: [
-    { id: "demo-season-2026", name: "DEMO Temporada 2026", canCreateTeam: true,
+    { id: "demo-season-2026", name: "DEMO Temporada 2026", canEnroll: true, canCreateTeam: true,
       teams: [{ id: "demo-team-c", name: "DEMO Equipo C" }],
       categories: [{ id: "demo-category-c", name: "DEMO Categoría C", groups: [{ id: "demo-group-c", name: "DEMO Grupo C" }] }] },
   ] },
@@ -42,7 +42,7 @@ function optionsFor(scenario: Scenario): TeamRegistrationFormOptions {
   if (scenario === "empty") return { clubs: [] };
   return { clubs: demoOptions.clubs.map(club => ({ ...club, seasons: club.seasons.map(season => ({
     ...season,
-    canCreateTeam: scenario === "no-teams" ? true : scenario === "no-create" ? false : season.canCreateTeam,
+    canEnroll: true, canCreateTeam: scenario === "no-teams" ? true : scenario === "no-create" ? false : season.canCreateTeam,
     teams: scenario === "no-teams" ? [] : season.teams,
     categories: scenario === "no-categories" ? [] : season.categories.map(category => ({ ...category,
       groups: scenario === "no-groups" ? [] : category.groups })),

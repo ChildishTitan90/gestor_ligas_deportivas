@@ -28,8 +28,18 @@ export function TeamRegistrationWorkspaceView({ controller }: { controller: Regi
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const noticeRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (state.optionsError || state.closeError) noticeRef.current?.focus(); }, [state.optionsError, state.closeError]);
+  const queryRequested = useRef(false);
+  const queryNotice = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (queryRequested.current && !state.listLoading && (state.listed || state.listError)) {
+      queryNotice.current?.focus(); queryRequested.current = false;
+    }
+  }, [state.listLoading, state.listed, state.listError]);
+  const operationNotice = useRef<HTMLParagraphElement>(null);
+  useEffect(() => { if (state.operationMessage && !state.operationBusy) operationNotice.current?.focus(); }, [state.operationMessage, state.operationBusy]);
   function query(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    queryRequested.current = true;
     const data = new FormData(event.currentTarget);
     void controller.list(String(data.get("clubId") ?? "").trim(), String(data.get("seasonId") ?? "").trim());
   }
@@ -39,27 +49,44 @@ export function TeamRegistrationWorkspaceView({ controller }: { controller: Regi
       <button className={button} type="button" disabled={state.loading} onClick={() => void controller.initialize()}>{state.formClosed ? "Retomar envío pendiente" : "Volver a consultar opciones"}</button>
     </div>}
     <button type="button" className={button} disabled={state.loading || state.blocked || state.formClosed} onClick={() => void controller.reloadOptions()}>Actualizar opciones</button>
-    <p className="text-sm text-muted">Por ahora puedes inscribir equipos existentes disponibles para tu club.</p>
-    {state.formVisible && <TeamRegistrationFormView controller={controller.form} disabled={state.loading || !!state.optionsError}
+    <p className="text-sm text-muted">Las opciones para inscribir y crear equipos dependen de la autorización vigente del club seleccionado.</p>
+    {state.formVisible && <TeamRegistrationFormView controller={controller.form} disabled={state.loading || !!state.optionsError || state.operationBusy}
       onContextChange={(clubId, seasonId) => void controller.context(clubId, seasonId)} />}
-    {state.formVisible && <ClosePending controller={controller} />}
+    {state.formVisible && <PendingOperations controller={controller} />}
+    {state.operationBusy && <p role="status">Consultando o cancelando la intención…</p>}
+    {state.operationMessage && <p ref={operationNotice} tabIndex={-1} role="status">{state.operationMessage}</p>}
+    {state.cancelConfirm && <CancellationDialog controller={controller} />}
     {state.closeConfirm && <ClosePendingDialog controller={controller} />}
     {state.closeError && <p ref={noticeRef} tabIndex={-1} role="alert">{state.closeError}</p>}
     <section aria-labelledby="registration-query-title" className="space-y-4 rounded-3xl border border-border p-5 sm:p-8">
       <h2 id="registration-query-title" className="text-xl font-semibold text-primary">Consultar inscripciones e historial</h2>
-      <p className="text-sm text-muted">Usa el identificador de un club de tu ámbito. El servidor comprueba el permiso de consulta, también para temporadas cerradas. Deja la temporada vacía para consultar todo el historial.</p>
-      <form onSubmit={query} className="space-y-4" aria-busy={state.listLoading}>
-        <div><label htmlFor="registration-query-club">Identificador del club *</label>
-          <input key={`club-${state.listClubId}`} id="registration-query-club" name="clubId" defaultValue={state.listClubId} required pattern="[0-9a-fA-F-]{36}" disabled={state.listLoading} className={input} /></div>
-        <div><label htmlFor="registration-query-season">Identificador de temporada (opcional)</label>
-          <input key={`season-${state.listSeasonId}`} id="registration-query-season" name="seasonId" defaultValue={state.listSeasonId} pattern="[0-9a-fA-F-]{36}" disabled={state.listLoading} className={input} /></div>
-        <button className={button} disabled={state.listLoading}>Consultar inscripciones</button>
+      <p className="text-sm text-muted">Selecciona un club autorizado y, si lo necesitas, una temporada. Todas las temporadas incluye el historial cerrado. Un listado vacío no resuelve un envío pendiente.</p>
+      {state.catalogLoading && <p role="status">Cargando catálogos autorizados…</p>}
+      {state.catalogError && <div role="alert"><p>{state.catalogError}</p><button type="button" className={button} onClick={() => void controller.queryCatalogs()}>Volver a consultar catálogos</button></div>}
+      {!state.catalogLoading && !state.catalogError && !state.queryClubs.length && <p>No hay clubes disponibles para consultar en tu ámbito.</p>}
+      <form onSubmit={query} className="space-y-4" aria-busy={state.listLoading || state.catalogLoading}>
+        <div><label htmlFor="registration-query-club">Club *</label>
+          <select id="registration-query-club" name="clubId" value={state.queryClubId} required
+            disabled={state.catalogLoading || state.listLoading || !!state.catalogError} className={input}
+            onChange={event => void controller.queryCatalogs(event.target.value, "")}>
+            <option value="">Selecciona un club</option>
+            {state.queryClubs.map(club => <option key={club.id} value={club.id}>{club.name}</option>)}
+          </select></div>
+        <div><label htmlFor="registration-query-season">Temporada</label>
+          <select id="registration-query-season" name="seasonId" value={state.querySeasonId}
+            disabled={state.catalogLoading || state.listLoading || !state.queryClubId || !!state.catalogError} className={input}
+            onChange={event => void controller.queryCatalogs(state.queryClubId, event.target.value)}>
+            <option value="">Todas las temporadas</option>
+            {state.querySeasons.map(season => <option key={season.id} value={season.id}>{season.name}</option>)}
+          </select></div>
+        <button className={button} disabled={state.listLoading || state.catalogLoading || !state.queryClubId || !!state.catalogError}>Consultar inscripciones</button>
       </form>
       {state.listLoading && <p role="status">Cargando inscripciones…</p>}
-      {state.listError && <p role="alert">{state.listError}</p>}
+      {state.listError && <p ref={queryNotice} tabIndex={-1} role="alert">{state.listError}</p>}
+      {!state.listLoading && !state.listError && state.listed && <p ref={queryNotice} tabIndex={-1} role="status">{state.items.length} inscripciones cargadas para la consulta seleccionada.</p>}
       {!state.listLoading && !state.listError && state.listed && <TeamRegistrationList items={state.items} />}
       {state.nextAfter && !state.listError && <button type="button" className={button} disabled={state.listLoading}
-        onClick={() => void controller.list(state.listClubId, state.listSeasonId, true)}>Cargar más inscripciones</button>}
+        onClick={() => { queryRequested.current = true; void controller.list(state.listClubId, state.listSeasonId, true); }}>Cargar más inscripciones</button>}
     </section>
     <nav aria-label="Acceso a la cuenta" className="flex flex-wrap gap-3">
       <ActionLink href="/login" variant="secondary">Iniciar sesión</ActionLink>
@@ -68,10 +95,17 @@ export function TeamRegistrationWorkspaceView({ controller }: { controller: Regi
   </div>;
 }
 
-function ClosePending({ controller }: { controller: RegistrationWorkspaceController }) {
+function PendingOperations({ controller }: { controller: RegistrationWorkspaceController }) {
   const state = useSyncExternalStore(controller.form.subscribe, controller.form.getSnapshot, controller.form.getSnapshot);
-  return state.outcome === "unconfirmed" ? <button type="button" className={button} disabled={state.submitting}
-    onClick={() => controller.requestClose()}>Cerrar formulario…</button> : null;
+  const workspace = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+  const disabled = state.submitting || workspace.operationBusy || workspace.loading || workspace.closeBusy;
+  return state.outcome === "unconfirmed" || state.pendingCleanup ? <div className="flex flex-wrap gap-3" aria-label="Resolver envío pendiente">
+    <button type="button" className={button} disabled={disabled} onClick={() => void controller.checkOperation()}>Consultar resultado del envío</button>
+    {state.outcome === "unconfirmed" && <>
+      <button type="button" className={button} disabled={disabled} onClick={() => controller.requestCancellation()}>Cancelar intención…</button>
+      <button type="button" className={button} disabled={disabled} onClick={() => controller.requestClose()}>Cerrar formulario…</button>
+    </>}
+  </div> : null;
 }
 
 /** El modal nativo mantiene el foco y vuelve inerte el resto de la página. */
@@ -96,5 +130,24 @@ function ClosePendingDialog({ controller }: { controller: RegistrationWorkspaceC
     <p id="close-pending-warning">Cerrar o descartar este formulario solo lo oculta. Conservaremos el cuerpo y la clave del envío pendiente en esta pestaña, también al recargar. No cancela la operación ni confirma su resultado. No podrás iniciar otra inscripción hasta resolverlo.</p>
     <button ref={keepRef} type="button" className={button} disabled={state.closeBusy} onClick={() => controller.cancelClose()}>Seguir en el formulario</button>
     <button type="button" className={button} disabled={state.closeBusy} onClick={() => void controller.confirmClose()}>Cerrar y conservar pendiente</button>
+  </dialog>;
+}
+
+function CancellationDialog({ controller }: { controller: RegistrationWorkspaceController }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const trigger = document.activeElement;
+    dialogRef.current?.showModal(); keepRef.current?.focus();
+    const dialog = dialogRef.current;
+    return () => { dialog?.close(); if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus(); };
+  }, []);
+  return <dialog ref={dialogRef} role="alertdialog" aria-modal="true" aria-labelledby="cancel-operation-title" aria-describedby="cancel-operation-warning"
+    onCancel={event => { event.preventDefault(); controller.dismissCancellation(); }}
+    className="m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg space-y-3 overflow-y-auto rounded-xl border border-border bg-surface p-5 text-primary backdrop:bg-black/40">
+    <h2 id="cancel-operation-title">¿Cancelar la intención de inscripción?</h2>
+    <p id="cancel-operation-warning">Esta acción pide al servidor detener la intención. Si la inscripción ya se confirmó, se conservará. Hasta recibir CONFIRMED o CANCELLED mantendremos el cuerpo y la clave. Cerrar el formulario no realiza esta cancelación.</p>
+    <button ref={keepRef} type="button" className={button} onClick={() => controller.dismissCancellation()}>Seguir consultando</button>
+    <button type="button" className={button} onClick={() => void controller.confirmCancellation()}>Confirmar cancelación de intención</button>
   </dialog>;
 }

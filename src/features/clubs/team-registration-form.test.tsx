@@ -9,18 +9,18 @@ import type { TeamRegistrationFormOptions, TeamRegistrationSubmission, TeamRegis
 // Exclusivamente fixtures de pruebas; no hay páginas reales ni peticiones HTTP.
 const options: TeamRegistrationFormOptions = { clubs: [
   { id: "club-a", name: "Club sintético A", seasons: [
-    { id: "season-2026", name: "Temporada sintética 2026", canCreateTeam: true,
+    { id: "season-2026", name: "Temporada sintética 2026", canEnroll: true, canCreateTeam: true,
       teams: [{ id: "team-a", name: "Equipo sintético A" }], categories: [
         { id: "category-a", name: "Categoría sintética A", groups: [{ id: "group-a", name: "Grupo sintético A" }] },
         { id: "category-b", name: "Categoría sintética B", groups: [{ id: "group-b", name: "Grupo sintético B" }] },
       ] },
-    { id: "season-2025", name: "Temporada sintética 2025", canCreateTeam: false,
+    { id: "season-2025", name: "Temporada sintética 2025", canEnroll: true, canCreateTeam: false,
       teams: [{ id: "team-a", name: "Equipo sintético A" }], categories: [
         { id: "category-history", name: "Categoría histórica", groups: [{ id: "group-history", name: "Grupo histórico" }] },
       ] },
   ] },
   { id: "club-b", name: "Club sintético B", seasons: [
-    { id: "season-2026", name: "Temporada sintética 2026", canCreateTeam: false,
+    { id: "season-2026", name: "Temporada sintética 2026", canEnroll: true, canCreateTeam: false,
       teams: [{ id: "team-b", name: "Equipo sintético B" }], categories: [
         { id: "category-b", name: "Categoría sintética B", groups: [{ id: "group-b", name: "Grupo sintético B" }] },
       ] },
@@ -110,7 +110,7 @@ test("crear equipo depende de la capacidad recibida y se revoca al actualizar op
   const { controller, calls } = setup(); chooseScope(controller); controller.change("teamMode", "new");
   controller.change("teamName", "Nuevo"); chooseGroup(controller);
   const revoked: TeamRegistrationFormOptions = { clubs: options.clubs.map(club => ({ ...club,
-    seasons: club.seasons.map(season => ({ ...season, canCreateTeam: false })) })) };
+    seasons: club.seasons.map(season => ({ ...season, canEnroll: true, canCreateTeam: false })) })) };
   controller.configure(revoked, async capture => { calls.push(capture); return confirmed; });
   assert.equal(controller.getSnapshot().draft.teamMode, "existing");
   assert.equal(controller.getSnapshot().draft.teamName, "");
@@ -170,7 +170,7 @@ test("resultado incierto bloquea cambios y envíos incluso tras actualizar opcio
   controller.configure({ clubs: [] }, async () => { writes++; return confirmed; });
   await controller.submit();
   assert.equal(writes, 1); assert.deepEqual(controller.getSnapshot().draft, capture);
-  assert.match(render(controller), /El envío está bloqueado: verifica su estado/);
+  assert.match(render(controller), /Conservamos cuerpo y clave; consulta el resultado/);
   assert.match(render(controller), /<button[^>]*disabled=""/);
 });
 

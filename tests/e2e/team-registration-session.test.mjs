@@ -22,17 +22,21 @@ test("foco de formulario y modal; cambio de usuario oculta respuestas tardías",
       const id = n => '00000000-0000-4000-8000-' + String(n).padStart(12,'0');
       const a = id(90), b = id(91);
       let currentUser = a, changeUser, late, lateSignal, delayList = false;
-      const posts = [];
+      const posts = [];const cancellations=[];const checks=[];
       const pending = { enrollmentKey:id(100), clubId:id(1), seasonId:id(2), categoryId:id(3), groupId:id(4), team:{mode:'new',name:'PRIVATE-CAPTURE-A'} };
       const stored = JSON.stringify(pending);
       sessionStorage.setItem('team-enrollment:pending:'+a,stored);
-      const options = user => ({ clubs:[{id:user===a?id(1):id(11),name:user===a?'CLUB-A':'CLUB-B',leagueId:id(9)}],
+      const options = user => ({ capabilities:{clubId:user===a?id(1):id(11),canEnroll:true,canCreateTeam:true},nextClubAfter:null,nextSeasonAfter:null,nextTeamAfter:null,clubs:[{id:user===a?id(1):id(11),name:user===a?'CLUB-A':'CLUB-B',leagueId:id(9)}],
         seasons:[{id:id(2),name:'SYNTHETIC-SEASON',status:'OPEN'}],teams:[],categories:[],groups:[] });
       const json = value => new Response(JSON.stringify(value),{status:200});
       window.fetch = async (path,init) => {
         if(path==='/api/auth/session') return json({user:{id:currentUser,mustChangePassword:false}});
+        if(String(path).includes('/operations/')) {
+          if(String(path).endsWith('/cancel')) {cancellations.push({path,init});return json({enrollmentKey:pending.enrollmentKey,clubId:pending.clubId,outcome:'CANCELLED',enrollment:null});}
+          checks.push({path,init});return json({enrollmentKey:pending.enrollmentKey,clubId:pending.clubId,outcome:'UNRESOLVED',enrollment:null});
+        }
         if(init?.method==='POST') {posts.push({user:currentUser,body:init.body});throw Error('Unexpected POST');}
-        if(String(path).startsWith('/api/team-enrollments/options')) return json(options(currentUser));
+        if(String(path).startsWith('/api/team-enrollments/options') || String(path).startsWith('/api/team-enrollments/catalogs')) return json(options(currentUser));
         if(String(path).startsWith('/api/team-enrollments?')) {
           if(delayList && currentUser===a) {lateSignal=init.signal; return new Promise(resolve=>{late=resolve;});}
           return json({items:[],nextAfter:null});
@@ -45,7 +49,7 @@ test("foco de formulario y modal; cambio de usuario oculta respuestas tardías",
       window.testDone=(async()=>{
         let root=createRoot(document.getElementById('root'));
         let finish;
-        const formOptions={clubs:[{id:id(1),name:'SYNTHETIC',seasons:[{id:id(2),name:'SYNTHETIC',canCreateTeam:false,
+        const formOptions={clubs:[{id:id(1),name:'SYNTHETIC',seasons:[{id:id(2),name:'SYNTHETIC',canEnroll:true,canCreateTeam:false,
           teams:[{id:id(5),name:'SYNTHETIC'}],categories:[{id:id(3),name:'SYNTHETIC',groups:[{id:id(4),name:'SYNTHETIC'}]}]}]}]};
         const formController=createTeamRegistrationFormController(formOptions,()=>new Promise(resolve=>{finish=resolve;}));
         flushSync(()=>root.render(<TeamRegistrationFormView controller={formController}/>));
@@ -83,13 +87,13 @@ test("foco de formulario y modal; cambio de usuario oculta respuestas tardías",
         check(document.activeElement===discard,'Cancel did not restore trigger focus');
         check(sessionStorage.getItem('team-enrollment:pending:'+a)===stored,'Cancel removed pending');
         delayList=true;
-        const club=document.getElementById('registration-query-club');club.value=id(1);club.form.requestSubmit();
+        const club=document.getElementById('registration-query-club');club.form.requestSubmit();
         await wait(()=>!!late);
         currentUser=b;flushSync(()=>changeUser(b));
         check(document.getElementById('stable-parent')===parent,'Parent was unmounted');
         check(!document.querySelector('input[name="teamName"]'),'Previous capture still visible');
         await wait(()=>lateSignal.aborted);
-        late(json({items:[{id:id(7),teamId:id(5),teamName:'PRIVATE-LATE-A',teamReferenceNumber:'SYNTHETIC',clubId:id(1),seasonId:id(2),categoryId:id(3),categoryName:'SYNTHETIC',groupId:id(4),groupName:'SYNTHETIC',status:'REGISTERED'}],nextAfter:null}));
+        late(json({items:[{id:id(7),teamId:id(5),teamName:'PRIVATE-LATE-A',teamReferenceNumber:'SYNTHETIC',clubId:id(1),seasonId:id(2),categoryId:id(3),categoryName:'SYNTHETIC',groupId:id(4),groupName:'SYNTHETIC',seasonName:'SYNTHETIC-SEASON',status:'REGISTERED'}],nextAfter:null}));
         await wait(()=>document.body.textContent.includes('CLUB-B'));
         await new Promise(r=>setTimeout(r,40));
         check(!document.body.textContent.includes('PRIVATE-LATE-A'),'Late response leaked');
@@ -113,7 +117,22 @@ test("foco de formulario y modal; cambio de usuario oculta respuestas tardías",
         root.unmount();root=createRoot(document.getElementById('root'));flushSync(()=>root.render(<Parent/>));
         await wait(()=>document.querySelector('input[name="teamName"]')?.value==='PRIVATE-CAPTURE-A');
         check(sessionStorage.getItem('team-enrollment:pending:'+a)===stored,'Remount lost pending');
-        check(posts.length===0,'Discard sent a POST');
+        Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Consultar resultado del envío').click();
+        await wait(()=>checks.length===1 && document.activeElement?.textContent.includes('UNRESOLVED'));
+        check(sessionStorage.getItem('team-enrollment:pending:'+a)===stored,'UNRESOLVED removed pending');
+        check(new Headers(checks[0].init.headers).get('X-Expected-Actor-Id')===a,'Missing expected actor in check');
+        const cancelButton=Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Cancelar intención…');
+        cancelButton.focus();cancelButton.click();await wait(()=>document.querySelector('dialog')?.open);
+        check(document.activeElement.textContent==='Seguir consultando','Unsafe cancellation focus');
+        document.querySelector('dialog').dispatchEvent(new Event('cancel',{cancelable:true}));
+        await wait(()=>!document.querySelector('dialog'));check(document.activeElement===cancelButton,'Cancel dialog lost trigger focus');
+        cancelButton.click();await wait(()=>document.querySelector('dialog')?.open);
+        Array.from(document.querySelectorAll('dialog button')).find(button=>button.textContent==='Confirmar cancelación de intención').click();
+        await wait(()=>cancellations.length===1 && document.activeElement?.textContent.includes('Cancelación confirmada'));
+        check(cancellations[0].init.body===stored,'Cancellation changed pending body');
+        check(new Headers(cancellations[0].init.headers).get('X-Expected-Actor-Id')===a,'Missing expected actor in cancel');
+        check(sessionStorage.getItem('team-enrollment:pending:'+a)===null,'CANCELLED did not resolve pending');
+        check(posts.length===0,'Close or check sent an enrollment POST');
         root.unmount();return {parentPreserved:true,oldReadAborted:true,lateResponseHidden:true,pendingPreserved:true,posts:posts.length};
       })();
     ` }, plugins: [{ name: "synthetic-navigation", setup(plugin) {

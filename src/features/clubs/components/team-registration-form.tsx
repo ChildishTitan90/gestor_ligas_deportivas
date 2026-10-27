@@ -28,7 +28,7 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
     const target = firstError ? formRef.current?.elements.namedItem(firstError) : null;
     if (target instanceof HTMLElement) target.focus();
     else if (state.message) messageRef.current?.focus();
-    else if (previousOutcome.current === "confirmed" && state.outcome === "idle") {
+    else if (["confirmed", "cancelled"].includes(previousOutcome.current) && state.outcome === "idle") {
       const clubControl = formRef.current?.elements.namedItem("clubId");
       if (clubControl instanceof HTMLElement) clubControl.focus();
     }
@@ -66,8 +66,8 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
     </header>
     {!options.clubs.length && <p>No hay clubes disponibles para inscribir equipos en tu ámbito.</p>}
     {!!Object.keys(errors).length && <p role="alert" className="text-danger">Revisa los campos señalados.</p>}
-    {state.message && <p ref={messageRef} tabIndex={-1} role={state.outcome === "confirmed" ? "status" : "alert"}
-      className={state.outcome === "confirmed" ? "text-primary" : "text-danger"}>{state.message}</p>}
+    {state.message && <p ref={messageRef} tabIndex={-1} role={["confirmed", "cancelled"].includes(state.outcome) ? "status" : "alert"}
+      className={["confirmed", "cancelled"].includes(state.outcome) ? "text-primary" : "text-danger"}>{state.message}</p>}
     <div className="grid gap-5 sm:grid-cols-2">
       {select("clubId", "Club", options.clubs, !options.clubs.length)}
       {select("seasonId", "Temporada", seasons, !club || !seasons.length)}
@@ -85,6 +85,7 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
       {select("categoryId", "Categoría", categories, !season || !categories.length)}
       {select("groupId", "Grupo", groups, !category || !groups.length)}
     </div>
+    {season && !season.canEnroll && <p role="status">El servidor no habilita inscripciones para este club. Puedes consultar su historial y resolver tus envíos pendientes.</p>}
     {season && draft.teamMode === "existing" && !teams.length && <p className="text-sm text-muted">No hay equipos existentes disponibles para esta selección.</p>}
     {club && !seasons.length && <p className="text-sm text-muted">No hay temporadas disponibles para este club.</p>}
     {season && !categories.length && <p className="text-sm text-muted">No hay categorías disponibles para esta temporada.</p>}
@@ -94,8 +95,8 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
       className="min-h-12 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-surface hover:bg-primary-hover disabled:opacity-50">
       {submitting ? "Enviando inscripción…" : "Inscribir equipo"}
     </button>
-    {state.retryAvailable && <button type="button" className={controlClass} disabled={disabled || submitting} onClick={() => void controller.retry()}>Recuperar resultado con el mismo envío</button>}
-    {state.outcome === "confirmed" && <button type="button" className={controlClass} onClick={() => { controller.reset(); onContextChange?.("", ""); }}>Iniciar otra inscripción</button>}
+    {state.retryAvailable && <button type="button" className={controlClass} disabled={disabled || submitting || !season?.canEnroll} onClick={() => void controller.retry()}>Recuperar resultado con el mismo envío</button>}
+    {["confirmed", "cancelled"].includes(state.outcome) && !state.pendingCleanup && <button type="button" className={controlClass} onClick={() => { controller.reset(); onContextChange?.("", ""); }}>Iniciar otra inscripción</button>}
     {submitting && <p role="status">Espera mientras se procesa el envío.</p>}
   </form>;
 }
