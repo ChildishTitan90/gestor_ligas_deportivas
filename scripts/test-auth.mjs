@@ -333,6 +333,11 @@ try {
     'Next.js no quedó disponible para las pruebas locales.',
   ]);
   console.error(safeMessages.has(error.message) ? error.message : `No se completó la fase: ${stage}.`);
+  if (process.argv.includes('--preview') && [
+    'Destino de provisión de Preview no autorizado', 'No se reconoce la instalación de pruebas',
+    'La provisión exige RLS activo en todas las tablas', 'El rol de Preview debe ser limitado y sin membresías',
+    'Preview no debe ser propietario ni tener CREATE', 'Preview tiene acceso al ledger de Prisma',
+  ].includes(error.message)) console.error(`Fixture de Preview: ${error.message}.`);
   process.exitCode = 1;
 } finally {
   try { await cleanup(); } catch {

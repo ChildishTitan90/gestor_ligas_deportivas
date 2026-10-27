@@ -139,6 +139,15 @@ rollback, concurrencia, idempotencia, bloqueos sin UPDATE real y ledger denegado
 Los dos casos que parten de Docker sin RLS permanecen en sus suites originales
 y se omiten únicamente en el recorrido que exige RLS.
 
+La conexión efectiva del cliente de fixtures se valida antes de escribir: host
+loopback, puerto 5432/5433, propietario postgres y nombre aleatorio exacto creado
+por el harness. SQL exige también el marcador y que la base temporal pertenezca
+a la sesión. No se usa inet_server_addr() para deducir localhost: en Docker o
+un puerto reenviado devuelve la interfaz del servidor, distinta del host usado
+por el cliente. La ruta remota mantiene el proyecto fijo, CA/TLS, propietario y
+base postgres de pruebas. test:ci incluye rechazos de hosts externos, sockets,
+puertos, bases y roles ajenos antes de mutar los fixtures.
+
 El workflow incorpora estas comprobaciones en PostgreSQL temporal 15/17. Véase
 [la evidencia local y los pendientes remotos](../validation/PDGLD-64-despliegue-preview.md).
 

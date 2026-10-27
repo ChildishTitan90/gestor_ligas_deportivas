@@ -32,7 +32,7 @@ El plan de mantenimiento de ambientes no contiene ni cambia contraseñas.
 
 | Control | Resultado |
 | --- | --- |
-| npm run test:ci | 24 pruebas correctas |
+| npm run test:ci | 26 pruebas correctas, incluidas las guardas de transporte del fixture añadidas tras el PR #33 |
 | verify-production-security.mjs | PDGLD-57 y PDGLD-64 correctos; SQL original, Docker, marcadores parciales, defaults, PUBLIC, herencia, tabla/columna y reintento aplicado |
 | npm run test:preview-runtime | 64 correctas, 0 fallos; 2 casos Docker omitidos solo en esta variante con RLS |
 | Autorizador real bajo rol limitado | 1 prueba adicional correcta: 28 concesiones de SUPERADMIN y 28 acciones en el resumen real, con RLS activo |
@@ -78,6 +78,28 @@ local ajeno `docs/validation/PDGLD-63-borrador-integracion.patch`.
 No se hicieron commits, push, merge ni cambios en secretos/Vercel/Jira.
 
 ## Pendientes por ambiente
+
+Seguimiento del PR #33 (27/10/2026): la ejecución
+[40464004185](https://github.com/ChildishTitan90/gestor_ligas_deportivas/actions/runs/40464004185)
+del commit f34805f falló en PostgreSQL 15 y 17 durante la provisión del fixture
+de Preview. Las migraciones y las pruebas previas pasaron. Los logs de ambos
+servicios contienen `Destino de provisión de Preview no autorizado`; el check
+conjunto falló por esos jobs, y producción quedó omitida como corresponde a PR.
+
+La guarda confundía inet_server_addr() con el host del cliente: el servidor
+Docker recibe por su interfaz interna. La corrección valida los parámetros
+efectivos de pg en el harness antes de escribir y conserva las comprobaciones
+SQL de marcador, nombre temporal y propietario. La conexión remota continúa
+fijada al proyecto de pruebas y no se modifica ningún control de despliegue.
+El runner comunica ahora los errores conocidos de la guarda sin imprimir SQL
+ni conexiones.
+
+Se reprodujo el rechazo del código original del PR en PostgreSQL 17.6 mediante
+un reenvío 127.0.0.1:5433 → 127.0.0.2:55464. En la misma base y transporte, el
+plan corregido pasó dos provisiones. No se reemplazó el transporte por una
+simulación SQL ni se modificaron las funciones de PostgreSQL. Docker Desktop
+sigue sin estar disponible: la matriz real 15/17 debe repetirse en GitHub tras
+publicar esta corrección al mismo PR. No se hizo commit/push automáticamente.
 
 - **CI:** publicar los cambios por el flujo de revisión del equipo y ejecutar la
   matriz completa PostgreSQL 15/17 con el check CI listo para integrar. La

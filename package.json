@@ -22,7 +22,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit --incremental false",
     "postinstall": "prisma generate",
-    "test:ci": "node --test scripts/ci/migration-helpers.test.mjs scripts/ci/production-plans.test.mjs scripts/preview/connection.test.mjs",
+    "test:ci": "node --test scripts/ci/migration-helpers.test.mjs scripts/ci/production-plans.test.mjs scripts/ci/preview-fixture-target.test.mjs scripts/preview/connection.test.mjs",
     "test:preview-runtime": "node scripts/test-auth.mjs --preview",
     "preview:maintain": "node scripts/preview/maintain.mjs",
     "test:database-config": "node --conditions=react-server --import tsx --test src/server/db/connection-options.test.ts",

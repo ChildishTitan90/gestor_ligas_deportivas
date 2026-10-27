@@ -65,8 +65,13 @@ BEGIN
   ) THEN RAISE EXCEPTION 'No se reconoce la instalación de pruebas'; END IF;
   IF current_user NOT IN ('postgres','supabase_admin') OR NOT (
     current_database()='postgres' OR (current_database() ~ '^pdgld48_test_[a-f0-9]{16}$'
-      AND inet_server_addr() IN ('127.0.0.1'::inet,'::1'::inet))
+      AND position(${literal(PREVIEW_MARKER)} IN db_note)>0
+      AND EXISTS(SELECT 1 FROM pg_database WHERE datname=current_database() AND datdba=session_user::regrole))
   ) THEN RAISE EXCEPTION 'Destino de provisión de Preview no autorizado'; END IF;
+  -- En fixtures, el harness verifica el destino loopback del cliente antes de
+  -- escribir. inet_server_addr() es la interfaz del servidor (interna en Docker),
+  -- no el host al que se conectó el cliente. El comando remoto sigue fijado al
+  -- proyecto de pruebas, TLS, propietario y base postgres.
   IF EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='sports_management' AND c.relkind IN ('r','p') AND NOT c.relrowsecurity)
   THEN RAISE EXCEPTION 'La provisión exige RLS activo en todas las tablas'; END IF;
