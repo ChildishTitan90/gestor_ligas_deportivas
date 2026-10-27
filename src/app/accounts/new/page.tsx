@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AccountHeader } from "@/components/layout/account-header";
+import { ActionLink } from "@/components/ui/action-link";
 import { getCurrentAccount } from "@/features/auth/server/account-presentation";
 import { AccountForm } from "@/features/accounts/components/account-form";
 import { getAccountFormData } from "@/features/accounts/server/queries";
@@ -22,6 +23,7 @@ export default async function NewAccountPage() {
   return <>
     <AccountHeader account={current.account} />
     <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-10 sm:px-10">
+    <ActionLink href="/access" variant="secondary" className="mb-6">Volver al panel</ActionLink>
     <section className="rounded-3xl border border-border bg-surface p-5 sm:p-8">
       <h1 className="text-2xl font-semibold text-primary">Crear cuenta</h1>
       {data ? <><p className="mt-3 text-sm leading-6 text-muted">Alta administrativa de usuarios autorizados. La nueva cuenta deberá cambiar su contraseña temporal al ingresar.</p><AccountForm {...data} /></> :

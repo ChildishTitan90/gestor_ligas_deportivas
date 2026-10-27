@@ -36,6 +36,25 @@ function setup(overrides: Partial<ReviewApi> = {}) {
 function html(controller: ReturnType<typeof createReviewController>) {
   return renderToStaticMarkup(<AffiliationReviewView controller={controller} leagues={[{ id: leagueId, name: "Liga sintética" }]} />);
 }
+
+test("Secretaría vuelve a consultar aprobadas y abre su detalle sin ofrecer otra aprobación", async () => {
+  const approved: ReviewDetail = { ...fixture, status: "APPROVED", reviewPhase: null, allowedActions: [] };
+  const paths: string[] = [];
+  const api = createReviewApi(async path => {
+    paths.push(String(path));
+    return Response.json(String(path).includes("?") ? { items: [approved], page: 1, pageSize: 100, hasMore: false } : approved);
+  });
+  const controller = createReviewController(api);
+  await controller.load(leagueId, "APPROVED");
+  assert.match(paths[0], /status=APPROVED/);
+  assert.equal(controller.getSnapshot().status, "APPROVED");
+  assert.match(html(controller), /Afiliaciones aprobadas/);
+  await controller.open(fixture.id);
+  assert.match(html(controller), /Categorías autorizadas/);
+  assert.doesNotMatch(html(controller), />Aprobar solicitud</);
+  const mixed = createReviewApi(async () => Response.json({ items: [fixture], page: 1, pageSize: 100, hasMore: false }));
+  await assert.rejects(mixed.list(leagueId, "APPROVED"), /invalid-response/);
+});
 test("historial conserva correcciones, reenvío y aprobación, escapa observaciones y se retira al perder acceso", async () => {
   const history: ReviewDetail["history"] = [
     { id: "61000000-0000-4000-8000-000000000010", action: "AFFILIATION_REQUEST_CORRECTIONS",

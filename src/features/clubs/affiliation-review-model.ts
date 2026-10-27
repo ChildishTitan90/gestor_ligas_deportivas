@@ -33,7 +33,7 @@ export type ReviewDetail = ReviewSummary & {
   }[];
 };
 export interface ReviewApi {
-  list(leagueId: string): Promise<ReviewSummary[]>;
+  list(leagueId: string, status?: ReviewSummary["status"]): Promise<ReviewSummary[]>;
   detail(id: string): Promise<ReviewDetail>;
   review(id: string, action: ReviewAction, observations: string, expectedVersion: number, authorizedCategoryIds?: readonly string[]): Promise<ReviewDetail>;
   signature(id: string): Promise<{ downloadUrl: string; expiresInSeconds: number }>;

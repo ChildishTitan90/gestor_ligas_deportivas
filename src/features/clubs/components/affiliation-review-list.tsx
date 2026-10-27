@@ -5,8 +5,8 @@ export type AffiliationReviewItem = {
   referenceNumber: string;
   clubName: string;
   seasonName: string;
-  status: "PENDING";
-  reviewPhase: "AWAITING_REVIEW" | "CORRECTIONS_REQUESTED";
+  status: "PENDING" | "APPROVED";
+  reviewPhase: "AWAITING_REVIEW" | "CORRECTIONS_REQUESTED" | null;
   detailHref: string;
 };
 
@@ -14,21 +14,22 @@ type AffiliationReviewListProps = {
   items: readonly AffiliationReviewItem[];
   onSelect?: (id: string) => void;
   disabled?: boolean;
+  status?: "PENDING" | "APPROVED";
 };
 
 const phaseLabels = {
   AWAITING_REVIEW: "Pendiente de revisión",
   CORRECTIONS_REQUESTED: "Correcciones solicitadas",
-} satisfies Record<AffiliationReviewItem["reviewPhase"], string>;
+} satisfies Record<Exclude<AffiliationReviewItem["reviewPhase"], null>, string>;
 
 export function AffiliationReviewList({
-  items, onSelect, disabled = false,
+  items, onSelect, disabled = false, status = "PENDING",
 }: AffiliationReviewListProps) {
   if (items.length === 0) {
     return (
       <div className="rounded-2xl border border-border bg-surface p-6">
         <p className="font-medium text-primary">
-          No hay solicitudes pendientes de revisión.
+          {status === "APPROVED" ? "No hay afiliaciones aprobadas en esta consulta." : "No hay solicitudes pendientes de revisión."}
         </p>
         <p className="mt-2 text-sm leading-6 text-muted">
           Aquí aparecerán las solicitudes del ámbito consultado.
@@ -38,7 +39,7 @@ export function AffiliationReviewList({
   }
 
   return (
-    <ul aria-label="Solicitudes pendientes de afiliación" className="space-y-4">
+    <ul aria-label={status === "APPROVED" ? "Afiliaciones aprobadas" : "Solicitudes pendientes de afiliación"} className="space-y-4">
       {items.map((item) => (
         <li
           key={item.id}
@@ -65,14 +66,14 @@ export function AffiliationReviewList({
 
                 <div>
                   <dt className="text-muted">Estado de aprobación</dt>
-                  <dd className="mt-1">Pendiente</dd>
+                  <dd className="mt-1">{item.status === "APPROVED" ? "Aprobada" : "Pendiente"}</dd>
                 </div>
 
                 <div>
                   <dt className="text-muted">Fase de revisión</dt>
                   <dd className="mt-1">
                     <span className="inline-block rounded-lg bg-soft px-3 py-1 font-medium text-primary">
-                      {phaseLabels[item.reviewPhase]}
+                      {item.reviewPhase ? phaseLabels[item.reviewPhase] : "No aplica"}
                     </span>
                   </dd>
                 </div>
