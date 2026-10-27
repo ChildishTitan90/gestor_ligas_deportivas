@@ -9,23 +9,26 @@ import type { TeamRegistrationSubmission } from "./team-registration-model";
 // Todos los datos y respuestas son sintéticos. No red, sesiones ni base reales.
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const capture: TeamRegistrationSubmission = { clubId: id(1), seasonId: id(2), categoryId: id(3), groupId: id(4), team: { kind: "existing", id: id(5) } };
-const options = { clubs: [{ id: id(1), name: "Club sintético", leagueId: id(9) }],
+const options = { capabilities: { clubId: id(1), canEnroll: true, canCreateTeam: true },
+  nextClubAfter: null, nextSeasonAfter: null, nextTeamAfter: null, clubs: [{ id: id(1), name: "Club sintético", leagueId: id(9) }],
   seasons: [{ id: id(2), name: "Temporada sintética", status: "OPEN" }],
   teams: [{ id: id(5), clubId: id(1), name: "Equipo sintético", referenceNumber: "SYNTHETIC", enrolledSeasonIds: [] as string[] }],
   categories: [{ id: id(3), name: "Categoría sintética", seasonId: id(2), seasonCategoryId: id(6) }],
   groups: [{ id: id(4), name: "Grupo sintético", categoryId: id(3), seasonId: id(2) }] };
 const receipt = { id: id(7), teamId: id(5), clubId: id(1), seasonId: id(2), categoryId: id(3), groupId: id(4), status: "REGISTERED", replayed: false };
-const item = { ...receipt, teamName: "Equipo sintético", teamReferenceNumber: "SYNTHETIC", categoryName: "Categoría sintética", groupName: "Grupo sintético" };
+const item = { ...receipt, seasonName: "Temporada sintética", teamName: "Equipo sintético", teamReferenceNumber: "SYNTHETIC", categoryName: "Categoría sintética", groupName: "Grupo sintético" };
 function memory() {
   const data = new Map<string, string>();
   return { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); }, removeItem: (key: string) => { data.delete(key); } };
 }
-function setup(respond: (path: string, init?: RequestInit) => Promise<Response> | Response, store = memory()) {
+function setup(respond: (path: string, init?: RequestInit) => Promise<Response> | Response, store = memory(), catalogRespond?: (path: string, init?: RequestInit) => Response | Promise<Response>) {
   const calls: { path: string; init?: RequestInit }[] = [];
   let keys = 0;
   let session: () => Response | Promise<Response> = () => response({ user: { id: id(90), mustChangePassword: false } });
   const fetcher = (async (path, init) => { if (String(path) === "/api/auth/session") return session();
-    calls.push({ path: String(path), init }); return respond(String(path), init); }) as typeof fetch;
+    calls.push({ path: String(path), init });
+    if (String(path).startsWith("/api/team-enrollments/catalogs")) return catalogRespond ? catalogRespond(String(path), init) : response({ ...options, teams: [], categories: [], groups: [] });
+    return respond(String(path), init); }) as typeof fetch;
   return { api: createEnrollmentApi(fetcher, store, "synthetic-user", id(90), () => id(100 + ++keys)), calls, store, keys: () => keys,
     setSession: (next: () => Response | Promise<Response>) => { session = next; } };
 }
@@ -70,11 +73,11 @@ test("cambiar cuenta después de comprobar la sesión no reasigna el POST ni pie
   assert.equal(s.api.pending(), null);
 });
 
-test("opciones reales dependientes: excluye equipos inscritos y grupos ajenos; nunca infiere creación", async () => {
+test("opciones reales dependientes: excluye equipos inscritos y grupos ajenos; consume capacidad del club seleccionado", async () => {
   const s = setup(() => response(options));
   const data = await s.api.options(id(1), id(2));
   assert.equal(s.calls[0].path, `/api/team-enrollments/options?clubId=${id(1)}&seasonId=${id(2)}`);
-  assert.equal(registrationOptions(data, id(1), id(2)).clubs[0].seasons[0].canCreateTeam, false);
+  assert.equal(registrationOptions(data, id(1), id(2)).clubs[0].seasons[0].canCreateTeam, true);
   data.teams[0].enrolledSeasonIds.push(id(2));
   data.groups.push({ ...options.groups[0], id: id(30), seasonId: id(31) });
   const season = registrationOptions(data, id(1), id(2)).clubs[0].seasons[0];
@@ -85,7 +88,7 @@ test("opciones reales dependientes: excluye equipos inscritos y grupos ajenos; n
 test("201 confirma creación y 200 recupera el estado vigente sin activarlo", async () => {
   for (const status of ["REGISTERED", "ACTIVE", "WITHDRAWN"]) {
     const s = setup(() => response({ ...receipt, replayed: true, status }));
-    assert.deepEqual(await s.api.submit(capture), { kind: "confirmed", teamId: id(5), seasonTeamId: id(7), replayed: true, status });
+    assert.deepEqual(await s.api.submit(capture), { kind: "confirmed", teamId: id(5), seasonTeamId: id(7), replayed: true, status, pendingCleanup: false });
     assert.equal(s.api.pending(), null);
   }
   const s = setup(() => response(receipt, 201));
@@ -124,10 +127,10 @@ test("respuestas incoherentes/ilegibles nunca anuncian éxito ni descartan el pe
   assert.equal((await s.api.submit(capture)).kind, "unconfirmed");
 });
 
-test("errores confirmados 400/409/413 permiten corregir; conflicto de clave conserva bloqueo", async () => {
+test("errores 400/409/413 conservan pendiente hasta un resultado definitivo; conflicto de clave conserva bloqueo", async () => {
   for (const [code, http] of [["VALIDATION_ERROR", 400], ["INVALID_CONTEXT", 400], ["TEAM_ALREADY_ENROLLED", 409], ["CATEGORY_NOT_AUTHORIZED", 409], ["AFFILIATION_NOT_APPROVED", 409], ["SEASON_CLOSED", 409], ["PAYLOAD_TOO_LARGE", 413]] as const) {
     const s = setup(() => response({ code }, http));
-    assert.equal((await s.api.submit(capture)).kind, "correctable"); assert.equal(s.api.pending(), null);
+    assert.equal((await s.api.submit(capture)).kind, "unconfirmed"); assert.ok(s.api.pending());
   }
   const s = setup(() => response({ code: "IDEMPOTENCY_CONFLICT" }, 409));
   assert.equal((await s.api.submit(capture)).kind, "unconfirmed"); assert.ok(s.api.pending());
@@ -145,8 +148,8 @@ test("listado mapea identidades, paginación e historial sin inventar nombres", 
   const result = await s.api.list(id(1), "", id(6));
   assert.equal(s.calls[0].path, `/api/team-enrollments?clubId=${id(1)}&after=${id(6)}`);
   assert.equal(result.items[0].seasonTeamId, id(7)); assert.equal(result.items[0].teamId, id(5));
-  assert.equal(result.items[0].seasonName, `Temporada (ID): ${id(2)}`); assert.equal(result.nextAfter, id(7));
-  assert.equal((await s.api.list(id(1), "", "", options.seasons)).items[0].seasonName, "Temporada sintética");
+  assert.equal(result.items[0].seasonName, "Temporada sintética"); assert.equal(result.nextAfter, id(7));
+  assert.equal((await s.api.list(id(1), "", "")).items[0].seasonName, "Temporada sintética");
 });
 
 test("lecturas 401/403/404 y formatos inesperados producen error, nunca lista ficticia", async () => {
@@ -165,7 +168,7 @@ test("workspace carga opciones/listado simulados y renderiza acceso denegado sep
   assert.match(renderToStaticMarkup(<TeamRegistrationWorkspaceView controller={c} />), /Cargando opciones/);
   await c.initialize(); c.form.change("clubId", id(1)); await c.context(id(1), "");
   c.form.change("seasonId", id(2)); await c.context(id(1), id(2));
-  assert.equal(c.form.getSnapshot().options.clubs[0].seasons[0].canCreateTeam, false);
+  assert.equal(c.form.getSnapshot().options.clubs[0].seasons[0].canCreateTeam, true);
   assert.match(renderToStaticMarkup(<TeamRegistrationWorkspaceView controller={c} />), /Equipo sintético/);
   c.dispose();
   const denied = createRegistrationWorkspace(setup(() => response({ code: "FORBIDDEN" }, 403)).api);
@@ -411,4 +414,182 @@ test("401/403 del primer POST conserva la clave, oculta campos y exige nueva com
     assert.equal(c.form.getSnapshot().draft.teamId, ""); await c.form.retry();
     assert.equal(s.calls.filter(call => call.init?.method === "POST").length, 1); c.dispose();
   }
+});
+
+
+test("capacidades ausentes, false o de otro club nunca habilitan inscripción/creación", () => {
+  for (const capabilities of [undefined, { clubId: id(11), canEnroll: true, canCreateTeam: true },
+    { clubId: id(1), canEnroll: false, canCreateTeam: true }, { clubId: null, canEnroll: false, canCreateTeam: false }]) {
+    const season = registrationOptions({ ...options, capabilities }, id(1), id(2)).clubs[0].seasons[0];
+    assert.equal(season.canEnroll, false); assert.equal(season.canCreateTeam, false);
+  }
+  const season = registrationOptions({ ...options, capabilities: { clubId: id(1), canEnroll: true, canCreateTeam: false } }, id(1), id(2)).clubs[0].seasons[0];
+  assert.equal(season.canEnroll, true); assert.equal(season.canCreateTeam, false);
+});
+
+test("catálogos autorizados cargan todas las páginas de clubes/temporadas y conservan CLOSED", async () => {
+  const s = setup(() => response(options), memory(), path => {
+    const query = new URL(path, "https://synthetic.test").searchParams;
+    return response({ ...options, clubs: query.has("clubAfter") ? [{ id: id(11), name: "Otro club", leagueId: id(9) }] : options.clubs,
+      seasons: query.has("seasonAfter") ? [{ id: id(12), name: "Temporada cerrada", status: "CLOSED" }] : options.seasons,
+      teams: [], categories: [], groups: [], nextClubAfter: query.has("clubAfter") ? null : id(1),
+      nextSeasonAfter: query.has("seasonAfter") ? null : id(2) });
+  });
+  const data = await s.api.catalogs(id(1));
+  assert.equal(data.clubs.length, 2); assert.equal(data.seasons.length, 2);
+  assert.equal(data.seasons[1].name, "Temporada cerrada");
+  assert.ok(s.calls.every(call => call.path.startsWith("/api/team-enrollments/catalogs?")));
+  assert.ok(s.calls.some(call => call.path.includes("clubAfter=")));
+  assert.ok(s.calls.some(call => call.path.includes("seasonAfter=")));
+});
+
+test("paginación repetida o capacidades que cambian abortan la lectura", async () => {
+  for (const change of [false, true]) {
+    const s = setup(path => response({ ...options, nextTeamAfter: id(5),
+      ...(change && path.includes("teamAfter") ? { capabilities: { clubId: id(11), canEnroll: true, canCreateTeam: true } } : {}) }));
+    await assert.rejects(s.api.options(id(1), id(2)));
+  }
+});
+
+test("historial usa seasonName del listado, nunca el nombre de opciones vigentes", async () => {
+  const s = setup(() => response({ items: [{ ...item, seasonName: "Histórico oficial" }], nextAfter: null }));
+  assert.equal((await s.api.list(id(1), "", "")).items[0].seasonName, "Histórico oficial");
+  const invalid = setup(() => response({ items: [{ ...item, seasonName: undefined }], nextAfter: null }));
+  await assert.rejects(invalid.api.list(id(1)));
+});
+
+const operation = (outcome: "UNRESOLVED" | "CONFIRMED" | "CANCELLED") => ({ enrollmentKey: id(101), clubId: id(1), outcome,
+  enrollment: outcome === "CONFIRMED" ? { ...receipt, replayed: true } : null });
+
+test("GET de operación no escribe: UNRESOLVED conserva JSON y clave; CONFIRMED resuelve", async () => {
+  const store = memory(); await setup(() => response({}, 503), store).api.submit(capture);
+  const stored = store.getItem("synthetic-user"); let outcome: "UNRESOLVED" | "CONFIRMED" = "UNRESOLVED";
+  const s = setup(() => response(operation(outcome)), store);
+  assert.equal((await s.api.check()).kind, "unconfirmed");
+  assert.equal(store.getItem("synthetic-user"), stored); assert.equal(s.keys(), 0);
+  assert.equal(s.calls[0].path, `/api/team-enrollments/operations/${id(101)}?clubId=${id(1)}`);
+  assert.equal(s.calls[0].init?.method, "GET"); assert.equal(s.calls[0].init?.body, undefined);
+  assert.equal(new Headers(s.calls[0].init?.headers).get("X-Expected-Actor-Id"), id(90));
+  outcome = "CONFIRMED"; assert.equal((await s.api.check()).kind, "confirmed"); assert.equal(s.api.pending(), null);
+});
+
+test("cancelar usa POST con cuerpo/clave originales y actor esperado; CANCELLED/CONFIRMED son definitivos", async () => {
+  for (const outcome of ["CANCELLED", "CONFIRMED"] as const) {
+    const store = memory(); const first = setup(() => response({}, 503), store); await first.api.submit(capture);
+    const s = setup(() => response(operation(outcome)), store); const result = await s.api.cancel();
+    assert.equal(result.kind, outcome === "CANCELLED" ? "cancelled" : "confirmed");
+    assert.equal(s.calls[0].path, `/api/team-enrollments/operations/${id(101)}/cancel`);
+    assert.equal(s.calls[0].init?.method, "POST"); assert.equal(s.calls[0].init?.body, first.calls[0].init?.body);
+    assert.equal(new Headers(s.calls[0].init?.headers).get("X-Expected-Actor-Id"), id(90));
+    assert.equal(s.api.pending(), null); assert.equal(s.keys(), 0);
+  }
+});
+
+test("respuestas desconocidas, 404/409/503 o red perdida en consulta/cancelación conservan el pendiente", async () => {
+  for (const action of ["check", "cancel"] as const) for (const failure of ["network", "invalid", "wrong-club", "wrong-key", "bad-enrollment", 404, 409, 503]) {
+    const store = memory(); await setup(() => response({}, 503), store).api.submit(capture);
+    const stored = store.getItem("synthetic-user");
+    const s = setup(() => {
+      if (failure === "network") throw new Error("Synthetic offline");
+      if (typeof failure === "number") return response({ code: "OPERATION_CANCELLED" }, failure);
+      if (failure === "wrong-club") return response({ ...operation("CANCELLED"), clubId: id(11) });
+      if (failure === "wrong-key") return response({ ...operation("CANCELLED"), enrollmentKey: id(111) });
+      if (failure === "bad-enrollment") return response({ ...operation("CONFIRMED"), enrollment: { ...receipt, teamId: id(55), replayed: true } });
+      return response({ ...operation("UNRESOLVED"), outcome: "UNKNOWN" });
+    }, store);
+    assert.equal((await s.api[action]()).kind, "unconfirmed"); assert.equal(store.getItem("synthetic-user"), stored); assert.equal(s.keys(), 0);
+  }
+});
+
+test("401/403 o cambio de actor en operaciones conservan pendiente y no permiten enviarlo con otra identidad", async () => {
+  for (const action of ["check", "cancel"] as const) {
+    const store = memory(); await setup(() => response({}, 503), store).api.submit(capture);
+    const stored = store.getItem("synthetic-user");
+    const s = setup(() => response({ code: "FORBIDDEN" }, 403), store);
+    await assert.rejects(s.api[action]()); assert.equal(store.getItem("synthetic-user"), stored);
+    s.setSession(() => response({ user: { id: id(91) } }));
+    const count = s.calls.length; await assert.rejects(s.api[action]()); assert.equal(s.calls.length, count);
+    assert.equal(store.getItem("synthetic-user"), stored);
+  }
+});
+
+test("respuesta tardía de consulta/cancelación tras stop no limpia cuerpo ni clave", async () => {
+  for (const action of ["check", "cancel"] as const) {
+    const store = memory(); await setup(() => response({}, 503), store).api.submit(capture);
+    let done!: (value: Response) => void; let signal: AbortSignal | null | undefined;
+    const s = setup((_path, init) => { signal = init?.signal; return new Promise(resolve => { done = resolve; }); }, store);
+    const resolving = s.api[action](); while (!done) await new Promise(resolve => setImmediate(resolve));
+    s.api.stop(); assert.equal(signal?.aborted, true); done(response(operation("CANCELLED")));
+    assert.equal((await resolving).kind, "unconfirmed"); assert.ok(s.api.pending());
+  }
+});
+
+test("workspace permite consulta/cancelación con READ aunque CREATE haya sido revocado", async () => {
+  const store = memory(); await setup(() => response({}, 503), store).api.submit(capture);
+  const s = setup((path, init) => response(path.includes("options") ? { ...options, capabilities: { clubId: id(1), canEnroll: false, canCreateTeam: false } } :
+    path.includes("operations") ? operation(init?.method === "POST" ? "CANCELLED" : "UNRESOLVED") : { items: [], nextAfter: null }), store);
+  const c = createRegistrationWorkspace(s.api); await c.initialize();
+  await c.form.retry(); assert.equal(s.calls.filter(call => call.init?.method === "POST").length, 0);
+  await c.checkOperation(); assert.ok(s.api.pending());
+  await c.confirmCancellation(); assert.ok(s.api.pending());
+  c.requestCancellation(); await c.confirmCancellation();
+  assert.equal(c.form.getSnapshot().outcome, "cancelled"); assert.equal(s.api.pending(), null);
+  assert.match(renderToStaticMarkup(<TeamRegistrationWorkspaceView controller={c} />), /Iniciar otra inscripción/); c.dispose();
+});
+
+test("acuse definitivo con fallo de limpieza mantiene bloqueo y solo nueva consulta permite limpiar", async () => {
+  const store = memory(); await setup(() => response({}, 503), store).api.submit(capture);
+  const remove = store.removeItem; store.removeItem = () => { throw new Error("Synthetic storage denied"); };
+  const s = setup(path => response(path.includes("options") ? options : path.includes("operations") ? operation("CANCELLED") : { items: [], nextAfter: null }), store);
+  const c = createRegistrationWorkspace(s.api); await c.initialize(); await c.checkOperation();
+  assert.equal(c.form.getSnapshot().outcome, "cancelled"); assert.equal(c.form.getSnapshot().pendingCleanup, true);
+  assert.ok(s.api.pending()); c.form.reset(); assert.equal(c.form.getSnapshot().outcome, "cancelled");
+  assert.doesNotMatch(renderToStaticMarkup(<TeamRegistrationWorkspaceView controller={c} />), /Iniciar otra inscripción/);
+  store.removeItem = remove; await c.checkOperation();
+  assert.equal(c.form.getSnapshot().pendingCleanup, false); assert.equal(s.api.pending(), null); c.form.reset();
+  assert.equal(c.form.getSnapshot().outcome, "idle"); c.dispose();
+});
+
+
+test("cambiar filtro cancela el listado anterior y oculta su respuesta tardía", async () => {
+  let finish!: (value: Response) => void; let signal: AbortSignal | null | undefined;
+  const s = setup((_path, init) => { signal = init?.signal; return new Promise(resolve => { finish = resolve; }); });
+  const c = createRegistrationWorkspace(s.api);
+  const old = c.list(id(1)); while (!finish) await new Promise(resolve => setImmediate(resolve));
+  await c.queryCatalogs(id(1), id(2));
+  assert.equal(signal?.aborted, true);
+  finish(response({ items: [item], nextAfter: null })); await old;
+  assert.deepEqual(c.getSnapshot().items, []); assert.equal(c.getSnapshot().listed, false);
+  assert.equal(c.getSnapshot().querySeasonId, id(2)); c.dispose();
+});
+
+test("catálogo tardío no reemplaza el filtro nuevo y dispose aborta la lectura", async () => {
+  let finish!: (value: Response) => void; let signal: AbortSignal | null | undefined;
+  const s = setup(() => response(options), memory(), (path, init) => {
+    if (path.includes(`clubId=${id(1)}`)) { signal = init?.signal; return new Promise(resolve => { finish = resolve; }); }
+    return response({ ...options, clubs: [{ id: id(11), name: "Otro club", leagueId: id(9) }], seasons: [] });
+  });
+  const c = createRegistrationWorkspace(s.api); const old = c.queryCatalogs(id(1));
+  while (!finish) await new Promise(resolve => setImmediate(resolve));
+  await c.queryCatalogs(id(11)); assert.equal(signal?.aborted, true);
+  finish(response(options)); await old;
+  assert.equal(c.getSnapshot().queryClubId, id(11)); assert.equal(c.getSnapshot().queryClubs[0].name, "Otro club");
+  const pendingRead = c.queryCatalogs(id(1));
+  await new Promise(resolve => setImmediate(resolve)); c.dispose(); assert.equal(signal?.aborted, true);
+  finish(response(options)); await pendingRead;
+  assert.equal(c.getSnapshot().queryClubs.length, 0);
+});
+
+test("cancelación pendiente bloquea doble solicitud y una respuesta incierta conserva cuerpo", async () => {
+  const store = memory(); await setup(() => response({}, 503), store).api.submit(capture);
+  const stored = store.getItem("synthetic-user"); let finish!: (value: Response) => void;
+  const s = setup((path, init) => path.includes("operations") && init?.method === "POST" ? new Promise(resolve => { finish = resolve; }) :
+    response(path.includes("options") ? options : { items: [], nextAfter: null }), store);
+  const c = createRegistrationWorkspace(s.api); await c.initialize(); c.requestCancellation();
+  const cancelling = c.confirmCancellation(); await c.confirmCancellation(); await c.checkOperation(); await c.form.retry();
+  while (!finish) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(s.calls.filter(call => call.path.endsWith("/cancel")).length, 1);
+  finish(response({}, 503)); await cancelling;
+  assert.equal(store.getItem("synthetic-user"), stored); assert.equal(c.form.getSnapshot().outcome, "unconfirmed");
+  assert.equal(s.keys(), 0); c.dispose();
 });

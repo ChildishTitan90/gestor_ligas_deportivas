@@ -18,6 +18,7 @@ export type TeamRegistrationOption = { id: string; name: string };
 export type TeamRegistrationFormOptions = {
   clubs: readonly (TeamRegistrationOption & {
     seasons: readonly (TeamRegistrationOption & {
+      canEnroll: boolean;
       canCreateTeam: boolean;
       teams: readonly TeamRegistrationOption[];
       categories: readonly (TeamRegistrationOption & { groups: readonly TeamRegistrationOption[] })[];
@@ -37,7 +38,8 @@ export type TeamRegistrationField = "clubId" | "seasonId" | "teamMode" | "teamId
 
 /** Resultado interno del integrador, no DTO HTTP. confirmed exige persistencia comprobada. */
 export type TeamRegistrationResult =
-  | { kind: "confirmed"; teamId: string; seasonTeamId: string; status: TeamRegistrationStatus; replayed?: boolean }
+  | { kind: "confirmed"; teamId: string; seasonTeamId: string; status: TeamRegistrationStatus; replayed?: boolean; pendingCleanup?: boolean }
+  | { kind: "cancelled"; pendingCleanup?: boolean }
   | { kind: "correctable"; fieldErrors?: Partial<Record<TeamRegistrationField, string>>; message?: string }
-  | { kind: "unconfirmed"; retryAllowed?: boolean; message?: string };
+  | { kind: "unconfirmed"; retryAllowed?: boolean; message?: string; pendingCleanup?: boolean };
 export type TeamRegistrationSubmit = (capture: TeamRegistrationSubmission) => Promise<TeamRegistrationResult>;

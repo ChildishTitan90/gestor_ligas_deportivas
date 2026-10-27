@@ -32,27 +32,30 @@ cancelación confirmada y falta de capacidad. No es una prueba de las vistas de 
 
 ## Recorrido pendiente desde la página real
 
-Víctor confirmó que PDGLD-63 y sus 55 pruebas permanecen en la computadora de Nick.
-No existen esas vistas en develop ni en las referencias remotas revisadas. No se
-creó otra pantalla para simular haber recibido su trabajo.
+Esta rama combina la interfaz de PDGLD-63 del commit be2052a con el backend
+integrado en develop por el PR #31 (19599e9, incluida la protección de identidad
+de a05df7b). Se conservan navegación, foco, accesibilidad y pruebas de la interfaz.
+Consume capabilities del club seleccionado, catalogs para consulta, seasonName y
+consulta/cancelación de operaciones con X-Expected-Actor-Id del propietario.
+Conserva cuerpo y clave hasta CONFIRMED/CANCELLED; cerrar no cancela la operación.
+El adaptador de recuperación de Víctor y sus pruebas también se conservan.
 
-Integración y validación pendientes sobre esa entrega:
+`npm run test:team-registration` prueba presentación y adaptador con simulación.
+`npm run test:team-registration-browser` utiliza Chrome y React DOM reales con
+negocio sintético; verifica foco, modal y aislamiento por usuario. No arranca Next
+ni realiza el recorrido con autenticación real.
 
-1. Incorporarla sin reemplazar su navegación, foco, accesibilidad ni pruebas.
-2. Consumir capabilities del club seleccionado y mantener equipo nuevo deshabilitado
-   ante carga pendiente, ausencia/denegación de capacidad o respuesta de otro club.
-3. Cargar consulta/historial desde catalogs con READ y mostrar seasonName del listado.
-4. Integrar el adaptador de recuperación con su controlador y quitar el bloqueo
-   local anterior solo al verificar CONFIRMED/CANCELLED. Abandonar edición conserva
-   la recuperación; cancelar llama al servidor. No comprobar silenciosamente con POST.
-5. En navegador, iniciar sesión real como delegado y registrar solicitud; cambiar
+Validación integrada pendiente, con PostgreSQL y Storage exclusivos confirmados:
+ver [procedimiento](../../docs/validation/PDGLD-63-recorrido-integrado.md).
+
+1. En navegador, iniciar sesión real como delegado y registrar solicitud; cambiar
    a Secretaría, obtener detalle vigente, seleccionar categorías y aprobar; volver
    al delegado e inscribir equipo nuevo y existente. Comprobar REGISTERED.
-6. Recorrer capacidad permitida/denegada, READ sin CREATE, temporada cerrada con
+2. Recorrer capacidad permitida/denegada, READ sin CREATE, temporada cerrada con
    nombres, clubes ajenos, pendiente/no autorizada, duplicado y estados accesibles.
-7. Perder deliberadamente un acuse después del commit; recargar la página y recuperar
+3. Perder deliberadamente un acuse después del commit; recargar la página y recuperar
    por GET. Verificar misma clave/contenido, cancelación concurrente/tardía y auditoría.
-8. Adjuntar evidencia por versión/entorno y revisión independiente.
+4. Adjuntar evidencia por versión/entorno y revisión independiente.
 
 **Este recorrido de navegador no se ejecutó: la integración completa de HU01-03
 permanece pendiente.** No atribuirlo a las pruebas HTTP, al reinicio del adaptador
