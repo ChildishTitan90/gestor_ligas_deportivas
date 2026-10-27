@@ -89,8 +89,8 @@ export function TeamRegistrationWorkspaceView({ controller }: { controller: Regi
         onClick={() => { queryRequested.current = true; void controller.list(state.listClubId, state.listSeasonId, true); }}>Cargar más inscripciones</button>}
     </section>
     <nav aria-label="Acceso a la cuenta" className="flex flex-wrap gap-3">
-      <ActionLink href="/login" variant="secondary">Iniciar sesión</ActionLink>
-      <ActionLink href="/change-password" variant="secondary">Cambiar contraseña</ActionLink>
+      <ActionLink href="/access" variant="secondary">Mi panel</ActionLink>
+      <ActionLink href="/futbol" variant="secondary">Portal de fútbol</ActionLink>
     </nav>
   </div>;
 }

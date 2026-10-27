@@ -364,6 +364,13 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
         });
         const approve = { decision: 'APPROVE', expectedVersion: 0, authorizedCategoryIds: [fresh.categoryIds[0]] };
         await r.test('listado paginado y detalle privados, sin acceso a otros clubes ni datos de storage', async () => {
+          for (const [browser, review, capture] of [[secretary.browser, true, false], [actor.browser, false, true]]) {
+            const panel = await browser.request('/access');
+            assert.equal(panel.status, 200);
+            const markup = await panel.text();
+            assert.equal(markup.includes('href="/affiliations/review"'), review);
+            assert.equal(markup.includes('href="/affiliations/new"'), capture);
+          }
           const listing = await secretary.browser.request(`/api/affiliations?leagueId=${league}&pageSize=1`);
           assert.equal(listing.status, 200);
           assert.equal((await listing.json()).items.length, 1);
@@ -433,6 +440,9 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           const pageUrl = `/affiliations/${created.id}/correct`;
           await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [delegateRoleId, permissionId]);
           try {
+            const panel = await actor.browser.request('/access');
+            assert.equal(panel.status, 200);
+            assert.ok((await panel.text()).includes('href="/affiliations/new"'));
             const entryPage = await actor.browser.request('/affiliations/new');
             assert.equal(entryPage.status, 200);
             assert.ok((await entryPage.text()).includes(pageUrl));
@@ -525,6 +535,14 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           const detail = await (await secretary.browser.request(url)).json();
           assert.equal(detail.status, 'APPROVED');
           assert.equal(detail.version, 3);
+          const { createReviewApi } = await tsImport('../../src/features/clubs/affiliation-review-adapter.ts', import.meta.url);
+          const reviewApi = createReviewApi((path, init) => secretary.browser.request(String(path), init));
+          assert.ok((await reviewApi.list(league, 'APPROVED')).some(item => item.id === created.id));
+          const approvedPage = await actor.browser.request(`/affiliations/new?context=${clubId}:${fresh.seasonId}`);
+          const approvedMarkup = await approvedPage.text();
+          assert.match(approvedMarkup, /Aprobada/);
+          assert.ok(approvedMarkup.includes('href="/teams/registrations"'));
+          assert.ok(approvedMarkup.includes('href="/access"'));
           assert.equal(detail.history.filter((h) => h.action === 'AFFILIATION_APPROVE').length, 1);
           assert.deepEqual(detail.categoryOptions.filter(c => c.authorized).map(c => c.id), winningIds);
           const authorization = (await db.query('SELECT category_id,authorized_by,authorized_at FROM sports_management.club_affiliation_categories WHERE affiliation_id=$1 AND authorized_by IS NOT NULL', [created.id])).rows;

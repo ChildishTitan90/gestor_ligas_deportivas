@@ -21,6 +21,17 @@ type ContextOption = {
   seasonName: string;
 };
 
+/** Navegación de captura; UPDATE también permite llegar a correcciones sin CREATE. */
+export async function canAccessAffiliationCapture() {
+  const actor = await requireOperationalUser();
+  return getPrisma().$transaction(async tx => {
+    const creation = await getPermissionGrants(tx, actor.id, "clubs", "CREATE");
+    const update = await getPermissionGrants(tx, actor.id, "clubs", "UPDATE");
+    const delegate = await tx.roles.findUniqueOrThrow({ where: { code: "CLUB_DELEGATE" }, select: { id: true } });
+    return [...creation, ...update].some(grant => grant.roleId === delegate.id && grant.clubId !== null);
+  });
+}
+
 function readStorageOrigin(): string {
   const value = process.env.SUPABASE_URL;
 

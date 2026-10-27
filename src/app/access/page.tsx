@@ -1,4 +1,6 @@
 import { CreateAccountLink } from "@/features/accounts/components/create-account-link";
+import { AffiliationReviewLink } from "@/features/clubs/components/affiliation-review-link";
+import { AffiliationCaptureLink } from "@/features/clubs/components/affiliation-capture-link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AuthAccessError } from "@/server/auth/session";
@@ -46,6 +48,8 @@ export default async function AccessPage() {
             </p>
             <ActionLink href="/futbol" variant="secondary" className="mt-6 w-full">Ver portal de fútbol</ActionLink>
             <ActionLink href="/teams/registrations" variant="secondary" className="mt-3 w-full">Inscripción y consulta de equipos</ActionLink>
+            <AffiliationReviewLink />
+            <AffiliationCaptureLink />
             <CreateAccountLink />
           </div>
         </section>

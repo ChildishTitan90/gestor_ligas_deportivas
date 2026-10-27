@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ReviewApiError, type ReviewApi, type ReviewAction, type ReviewDetail, type ReviewSummary } from "./affiliation-review-model";
 
 export type ReviewState = {
-  leagueId: string; items: ReviewSummary[]; detail: ReviewDetail | null;
+  leagueId: string; status: ReviewSummary["status"]; items: ReviewSummary[]; detail: ReviewDetail | null;
   loading: boolean; detailLoading: boolean; submitting: boolean;
   loaded: boolean; confirming: boolean; observations: string; fieldError: string;
   selectedCategoryIds: string[]; categoryError: string;
@@ -10,7 +10,7 @@ export type ReviewState = {
   downloading: boolean; download: { fileId: string; url: string; expiresAt: number } | null;
 };
 export function createReviewController(api: ReviewApi) {
-  let state: ReviewState = { leagueId: "", items: [], detail: null, loading: false,
+  let state: ReviewState = { leagueId: "", status: "PENDING", items: [], detail: null, loading: false,
     detailLoading: false, submitting: false, loaded: false, confirming: false,
     observations: "", fieldError: "", selectedCategoryIds: [], categoryError: "", error: null, errorContext: "list", message: "", downloading: false, download: null };
   const listeners = new Set<() => void>();
@@ -22,15 +22,15 @@ export function createReviewController(api: ReviewApi) {
     update({ error: kind, errorContext, confirming: false, download: null, ...(kind === "forbidden" || kind === "unauthenticated" ?
       { detail: null, items: [], observations: "", selectedCategoryIds: [], categoryError: "" } : {}) });
   }
-  async function load(leagueId: string) {
+  async function load(leagueId: string, status: ReviewSummary["status"] = "PENDING") {
     if (state.submitting) return;
     const token = ++generation;
-    update({ leagueId, items: [], detail: null, loaded: false, loading: true, detailLoading: false,
+    update({ leagueId, status, items: [], detail: null, loaded: false, loading: true, detailLoading: false,
       error: null, message: "", confirming: false, observations: "", fieldError: "", selectedCategoryIds: [], categoryError: "", download: null, downloading: false });
     if (!z.uuid().safeParse(leagueId).success) {
       update({ loading: false, fieldError: "Escribe un identificador de liga válido." }); return;
     }
-    try { const items = await api.list(leagueId); if (token === generation) update({ items, loaded: true }); }
+    try { const items = await api.list(leagueId, status); if (token === generation) update({ items, loaded: true }); }
     catch (error) { if (token === generation) fail(error, "list"); }
     finally { if (token === generation) update({ loading: false }); }
   }
@@ -69,7 +69,7 @@ export function createReviewController(api: ReviewApi) {
         "Aprobación confirmada por el servidor." : "Solicitud de correcciones confirmada por el servidor." });
       // Una escritura confirmada requiere volver a consultar la bandeja.
       errorContext = "list";
-      update({ items: await api.list(state.leagueId) });
+      update({ items: await api.list(state.leagueId, state.status) });
     } catch (error) {
       if (error instanceof ReviewApiError && error.kind === "conflict") {
         update({ detail: null, items: [], selectedCategoryIds: [], message: "Otra persona ya revisó esta solicitud. Consultando el resultado actual…" });
@@ -78,7 +78,7 @@ export function createReviewController(api: ReviewApi) {
           const result = await api.detail(detail.id);
           if (result.leagueId !== state.leagueId) throw new ReviewApiError("invalid-response");
           refreshContext = "list";
-          const items = await api.list(state.leagueId);
+          const items = await api.list(state.leagueId, state.status);
           update({ detail: result, items, observations: "", message: "Otra persona ya revisó esta solicitud. Se muestra el resultado actual del servidor." });
         } catch (refreshError) { fail(refreshError, refreshContext); }
       } else { fail(error, errorContext); }

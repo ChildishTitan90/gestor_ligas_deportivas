@@ -45,18 +45,18 @@ export function createReviewApi(request: typeof fetch = fetch): ReviewApi {
     return result.data;
   }
   return {
-    async list(leagueId) {
+    async list(leagueId, status = "PENDING") {
       if (!z.uuid().safeParse(leagueId).success) throw new ReviewApiError("invalid-response");
       const items: ReviewSummary[] = [];
       const ids = new Set<string>();
       for (let page = 1; page <= 10000; page++) {
-        const value = await read(`/api/affiliations?${new URLSearchParams({ status: "PENDING", leagueId, page: String(page), pageSize: "100" })}`);
+        const value = await read(`/api/affiliations?${new URLSearchParams({ status, leagueId, page: String(page), pageSize: "100" })}`);
         const result = z.object({ items: z.array(summarySchema).max(100), page: z.literal(page),
           pageSize: z.literal(100), hasMore: z.boolean() }).safeParse(value);
         if (!result.success || (result.data.hasMore && result.data.items.length !== 100))
           throw new ReviewApiError("invalid-response");
         for (const item of result.data.items) {
-          if (item.leagueId !== leagueId || item.status !== "PENDING" || ids.has(item.id))
+          if (item.leagueId !== leagueId || item.status !== status || ids.has(item.id))
             throw new ReviewApiError("invalid-response");
           ids.add(item.id); items.push(item);
         }
