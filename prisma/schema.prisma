@@ -394,6 +394,7 @@ model club_team_changes {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model clubs {
+  team_enrollment_operations team_enrollment_operations[]
   id                                             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   league_id                                      String               @db.Uuid
   reference_number                               String               @unique
@@ -1707,6 +1708,7 @@ model season_categories {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model season_teams {
+  team_enrollment_operation team_enrollment_operations?
   id                                                   String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   season_id                                            String                           @db.Uuid
   team_id                                              String                           @db.Uuid
@@ -1933,6 +1935,24 @@ model team_withdrawals {
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model team_enrollment_operations {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actor_id       String        @db.Uuid
+  enrollment_key String        @db.Uuid
+  club_id        String        @db.Uuid
+  fingerprint    String?       @db.VarChar(64)
+  outcome        String
+  enrollment_id  String?       @unique @db.Uuid
+  finalized_at   DateTime      @default(now()) @db.Timestamptz(6)
+  users          users         @relation(fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clubs          clubs         @relation(fields: [club_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  season_teams   season_teams? @relation(fields: [enrollment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([actor_id, enrollment_key])
+  @@index([club_id])
+  @@schema("sports_management")
+}
+
 model teams {
   id                                                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   club_id                                                String              @db.Uuid
@@ -1977,6 +1997,7 @@ model user_roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
+  team_enrollment_operations team_enrollment_operations[]
   authorized_affiliation_categories club_affiliation_categories[]
   enrolled_season_teams season_teams[]
   id                                                                       String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

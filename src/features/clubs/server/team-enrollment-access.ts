@@ -5,9 +5,14 @@ import { assertPermission, AuthorizationError, getPermissionGrants } from "@/ser
 export class TeamEnrollmentError extends Error {
   constructor(public readonly code: "VALIDATION_ERROR" | "INVALID_CONTEXT" |
     "AFFILIATION_NOT_APPROVED" | "CATEGORY_NOT_AUTHORIZED" | "SEASON_CLOSED" |
-    "TEAM_ALREADY_ENROLLED" | "IDEMPOTENCY_CONFLICT", public readonly status = 400) {
+    "TEAM_ALREADY_ENROLLED" | "IDEMPOTENCY_CONFLICT" | "OPERATION_CANCELLED", public readonly status = 400) {
     super(code);
   }
+}
+
+/** Precondición de identidad de la vista, nunca una elección de actor/autoridad. */
+export function assertEnrollmentActor(actorId: string, expectedActorId?: string) {
+  if (expectedActorId !== undefined && expectedActorId.toLowerCase() !== actorId) throw new AuthorizationError();
 }
 
 export async function assertEnrollmentDelegate(tx: Prisma.TransactionClient, actorId: string, clubId: string) {
@@ -20,14 +25,37 @@ export async function assertEnrollmentDelegate(tx: Prisma.TransactionClient, act
   if (!grants.some((grant) => grant.roleId === role.id && grant.clubId === clubId)) throw new AuthorizationError();
 }
 
-export async function getEnrollmentClubIds(tx: Prisma.TransactionClient, actorId: string) {
-  const create = await getPermissionGrants(tx, actorId, "clubs", "CREATE");
-  const read = await getPermissionGrants(tx, actorId, "clubs", "READ");
-  const role = await tx.roles.findUniqueOrThrow({ where: { code: "CLUB_DELEGATE" }, select: { id: true } });
-  const ids = [...new Set(create.filter((grant) => grant.roleId === role.id && grant.clubId &&
-    read.some((item) => item.assignmentId === grant.assignmentId)).map((grant) => grant.clubId!))];
-  if (!ids.length) throw new AuthorizationError();
-  return ids;
+export async function canEnrollForClub(tx: Prisma.TransactionClient, actorId: string, clubId: string) {
+  try {
+    await assertEnrollmentDelegate(tx, actorId, clubId);
+    return true;
+  } catch (error) {
+    if (error instanceof AuthorizationError) return false;
+    throw error;
+  }
+}
+
+export async function readableEnrollmentClubs(tx: Prisma.TransactionClient, actorId: string,
+  input: { clubId?: string; clubAfter?: string; limit: number }) {
+  const grants = await getPermissionGrants(tx, actorId, "clubs", "READ");
+  const unrestricted = grants.some(grant => !grant.contextOnly && !grant.clubId && !grant.leagueId);
+  const scopes = grants.flatMap((grant): Prisma.clubsWhereInput[] => {
+    if (grant.clubId) return [{ id: grant.clubId, ...(grant.leagueId ? { league_id: grant.leagueId } : {}) }];
+    if (grant.leagueId) return [{ league_id: grant.leagueId }];
+    return grant.contextOnly ? [] : [{}];
+  });
+  if (!scopes.length) throw new AuthorizationError();
+  if (input.clubId) await assertPermission(tx, actorId, {
+    module: "clubs", action: "READ", context: { clubId: input.clubId },
+  });
+  const rows = await tx.clubs.findMany({ where: { AND: [unrestricted ? {} : { OR: scopes },
+    { status: "ACTIVE", leagues: { is_active: true } },
+    ...(input.clubAfter ? [{ id: { gt: input.clubAfter } }] : [])] },
+    select: { id: true, name: true, league_id: true }, orderBy: { id: "asc" }, take: input.limit + 1 });
+  const selectedClub = input.clubId ? await tx.clubs.findUnique({ where: { id: input.clubId },
+    select: { id: true, name: true, league_id: true } }) : null;
+  return { clubs: rows.slice(0, input.limit), selectedClub,
+    nextClubAfter: rows.length > input.limit ? rows[input.limit - 1].id : null };
 }
 
 export async function lockEnrollmentSeason(tx: Prisma.TransactionClient, clubId: string, seasonId: string) {
