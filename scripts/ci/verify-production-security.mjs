@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
-import { AFFILIATION_PLAN, assertProductionCreationAccess, assertAffiliationProductionSecurity } from './production-plans.mjs';
+import { AFFILIATION_PLAN, ENROLLMENT_PLAN, assertProductionCreationAccess, assertAffiliationProductionSecurity,
+  assertEnrollmentProductionSecurity, assertAppliedProductionSecurity } from './production-plans.mjs';
 
 /** Solo fixtures transaccionales; también admite PostgreSQL embebido en la revisión. */
 export async function verifyProductionSecurity(client) {
@@ -57,6 +58,66 @@ export async function verifyProductionSecurity(client) {
  }
 }
 
+export async function verifyEnrollmentProductionSecurity(client) {
+  const sql = readFileSync(new URL(`../../prisma/migrations/${ENROLLMENT_PLAN.migration}/migration.sql`, import.meta.url), 'utf8')
+    .replace(/^BEGIN;\s*/, '').replace(/COMMIT;\s*$/, ''); // Solo envoltura del fixture, original intacto.
+  try {
+    await client.query('BEGIN');
+    const rls = async () => (await client.query("SELECT relrowsecurity FROM pg_class WHERE oid='sports_management.team_enrollment_operations'::regclass")).rows[0].relrowsecurity;
+    assert.equal(await rls(), false, 'Docker conserva la tabla sin RLS.');
+    await client.query('DROP TABLE sports_management.team_enrollment_operations; DROP FUNCTION sports_management.guard_team_enrollment_operation()');
+    await client.query('SAVEPOINT target');
+    await client.query(sql);
+    assert.equal(await rls(), false, 'El SQL original conserva Docker sin RLS.');
+    await client.query('ROLLBACK TO SAVEPOINT target');
+    for (const markers of ['CREATE SCHEMA auth', 'CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role',
+      'CREATE SCHEMA auth; CREATE SCHEMA storage; CREATE ROLE anon; CREATE ROLE authenticated']) {
+      await client.query(markers);
+      await assert.rejects(assertProductionCreationAccess(client), /Supabase/);
+      await assert.rejects(client.query(sql), /Marcadores parciales/);
+      await client.query('ROLLBACK TO SAVEPOINT target');
+    }
+    await client.query('CREATE SCHEMA auth; CREATE SCHEMA storage; CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS; CREATE ROLE preview_api_parent;');
+    await client.query('GRANT preview_api_parent TO authenticated');
+    await assertProductionCreationAccess(client);
+    await client.query('ALTER DEFAULT PRIVILEGES FOR ROLE preview_api_parent IN SCHEMA sports_management GRANT SELECT ON TABLES TO anon');
+    await assertProductionCreationAccess(client); // Defaults de otro creador no son efectivos.
+    await client.query('ALTER DEFAULT PRIVILEGES FOR ROLE preview_api_parent IN SCHEMA sports_management REVOKE SELECT ON TABLES FROM anon');
+    await client.query('GRANT postgres TO anon');
+    await assert.rejects(assertProductionCreationAccess(client), /DEFAULT PRIVILEGES/);
+    await client.query('REVOKE postgres FROM anon');
+    for (const scope of ['', 'IN SCHEMA sports_management']) {
+      for (const role of ['PUBLIC', 'anon', 'authenticated', 'service_role', 'preview_api_parent']) {
+        await client.query(`ALTER DEFAULT PRIVILEGES ${scope} GRANT SELECT ON TABLES TO ${role}`);
+        await assert.rejects(assertProductionCreationAccess(client), /DEFAULT PRIVILEGES/);
+        await client.query(`ALTER DEFAULT PRIVILEGES ${scope} REVOKE SELECT ON TABLES FROM ${role}`);
+      }
+    }
+    await assertProductionCreationAccess(client);
+    await client.query(sql);
+    assert.equal(await rls(), true);
+    await assertEnrollmentProductionSecurity(client);
+    // La misma comprobación que ejecuta el CD antes/después, también sin pendientes.
+    await assertAppliedProductionSecurity(client, new Set([ENROLLMENT_PLAN.migration]));
+    for (const role of ['PUBLIC', 'anon', 'authenticated', 'service_role', 'preview_api_parent']) {
+      for (const privilege of ['SELECT', 'UPDATE (id)', 'SELECT (outcome)', 'INSERT (actor_id)', 'REFERENCES (id)']) {
+        await client.query(`GRANT ${privilege} ON sports_management.team_enrollment_operations TO ${role}`);
+        await assert.rejects(assertAppliedProductionSecurity(client, new Set([ENROLLMENT_PLAN.migration])), /expuesta/);
+        await client.query(`REVOKE ${privilege} ON sports_management.team_enrollment_operations FROM ${role}`);
+      }
+    }
+    for (const role of ['anon', 'authenticated', 'service_role']) {
+      await client.query('SAVEPOINT denied_operation');
+      await client.query(`SET LOCAL ROLE ${role}`);
+      await assert.rejects(client.query('SELECT * FROM sports_management.team_enrollment_operations'), { code: '42501' });
+      await client.query('ROLLBACK TO SAVEPOINT denied_operation');
+    }
+    await client.query('ALTER TABLE sports_management.team_enrollment_operations DISABLE ROW LEVEL SECURITY');
+    await assert.rejects(assertEnrollmentProductionSecurity(client), /RLS/);
+    console.log('PDGLD-64: SQL original, Docker, marcadores parciales, defaults globales/PUBLIC/heredados y ACL de tabla/columna comprobados.');
+  } finally { await client.query('ROLLBACK'); }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
  // Solo la base desechable del servicio PostgreSQL de CI. No carga archivos .env.
  assert.equal(process.env.CI, 'true');
@@ -71,6 +132,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
  try {
    await client.connect();
    await verifyProductionSecurity(client);
+   await verifyEnrollmentProductionSecurity(client);
  } catch (error) {
    // Solo identificadores seguros: no registrar conexiones, SQL o parámetros.
    console.error('Falló la prueba de seguridad de producción:', error.code ?? error.name);

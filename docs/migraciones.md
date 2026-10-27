@@ -150,6 +150,11 @@ Si estás a mitad de trabajo en una rama, primero guarda tus cambios y coordina 
 
 ## 5. Aplicar cambios a Supabase
 
+Para la base **de pruebas** loaztwwpwsaqzdtdtvvj, usar el
+[procedimiento protegido de Preview](architecture/preview-runtime.md): conexión
+propietaria y CA de pruebas, check, migrate deploy, status/diff y provisión SQL
+separada. El workflow de main continúa destinado exclusivamente a producción.
+
 El baseline ya está registrado en la base Supabase actual, destinada a producción. El workflow de [CI/CD](ci-cd.md) utiliza este comando para aplicar migraciones futuras:
 
 ```powershell

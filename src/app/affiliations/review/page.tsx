@@ -38,7 +38,9 @@ export default async function AffiliationReviewPage() {
           </h1>
 
           <p className="mt-3 text-sm leading-6 text-muted">
-            Consulta y revisión de solicitudes de afiliación de clubes.
+            Selecciona la liga y consulta las afiliaciones pendientes o aprobadas.
+            Abre una solicitud para revisar sus datos, observaciones y la sección
+            «Directivos y firmas privadas».
           </p>
 
           <AffiliationReviewWorkspace leagues={leagues} />

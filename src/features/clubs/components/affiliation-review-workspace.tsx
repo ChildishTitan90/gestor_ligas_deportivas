@@ -48,8 +48,9 @@ export function AffiliationReviewView({ controller, leagues = [] }: { controller
   }, [controller, state.download]);
   function query(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const leagueId = String(new FormData(event.currentTarget).get("leagueId") ?? "").trim();
-    void controller.load(leagueId);
+    const values = new FormData(event.currentTarget);
+    const leagueId = String(values.get("leagueId") ?? "").trim();
+    void controller.load(leagueId, values.get("status") === "APPROVED" ? "APPROVED" : "PENDING");
   }
   function corrections(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -75,20 +76,26 @@ export function AffiliationReviewView({ controller, leagues = [] }: { controller
         {leagues.map(league => <option key={league.id} value={league.id}>{league.name}</option>)}
       </select>
       {!leagues.length && <p>No tienes ligas disponibles para consultar esta bandeja.</p>}
-      <button type="submit" disabled={busy || !leagues.length} className={buttonClass}>Consultar pendientes</button>
+      <label htmlFor={`${prefix}-status`} className="block text-sm font-medium">Estado de la afiliación</label>
+      <select id={`${prefix}-status`} name="status" defaultValue="PENDING" disabled={busy}
+        className="min-h-12 w-full rounded-xl border border-border bg-surface px-3.5 py-3">
+        <option value="PENDING">Pendientes de revisión</option>
+        <option value="APPROVED">Aprobadas</option>
+      </select>
+      <button type="submit" disabled={busy || !leagues.length} className={buttonClass}>Consultar afiliaciones</button>
     </form>
     {state.fieldError && <p id={`${prefix}-field-error`} role="alert" className="text-danger">{state.fieldError}</p>}
     {state.message && <p role="status" className="rounded-xl bg-soft p-4">{state.message}</p>}
     {state.error && <div role="alert" className="rounded-xl border border-danger/25 bg-danger-surface p-4 text-danger">
       <p>{errorMessage}</p>
       {state.error === "unauthenticated" ? <ActionLink href="/login" className="mt-3">Iniciar sesión</ActionLink> :
-        <button type="button" disabled={busy} onClick={() => void controller.load(state.leagueId)} className={`${buttonClass} mt-3`}>Volver a consultar</button>}
+        <button type="button" disabled={busy} onClick={() => void controller.load(state.leagueId, state.status)} className={`${buttonClass} mt-3`}>Volver a consultar</button>}
     </div>}
     {state.loading && <p role="status">Cargando solicitudes…</p>}
     {!state.loading && !state.error && state.loaded && <AffiliationReviewList
-      disabled={busy} onSelect={id => void controller.open(id)}
-      items={state.items.filter(item => item.status === "PENDING" && item.reviewPhase !== null).map(item => ({
-        ...item, status: "PENDING" as const, reviewPhase: item.reviewPhase!, detailHref: "#affiliation-detail",
+      disabled={busy} status={state.status} onSelect={id => void controller.open(id)}
+      items={state.items.map(item => ({
+        ...item, detailHref: "#affiliation-detail",
       }))} />}
     {state.detailLoading && <p role="status">Cargando detalle…</p>}
     {detail && <section id="affiliation-detail" aria-labelledby={`${prefix}-detail-title`} aria-busy={state.submitting}

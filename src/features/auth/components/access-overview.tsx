@@ -13,7 +13,7 @@ export function AccessOverview({ scopes }: { scopes: AccessOverviewScope[] }) {
   return (
     <section aria-labelledby="permissions-title" className="rounded-3xl border border-border bg-surface p-6 sm:p-8">
       <h2 id="permissions-title" className="text-xl font-semibold text-primary">Tus funciones</h2>
-      <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Estos son tus permisos vigentes. Las herramientas de gestión se incorporarán a este panel conforme estén disponibles.</p>
+      <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Estos son tus permisos vigentes. Las etiquetas son informativas; usa los botones del panel para abrir las herramientas disponibles.</p>
       <div className="mt-6 space-y-8">
         {scopes.map((scope, index) => (
           <section key={`${scope.title}-${scope.description}`} aria-labelledby={`scope-${index}-title`} className="border-t border-border pt-6">

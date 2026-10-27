@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
 import pg from 'pg';
 import { assertAppliedHistory, productionConnection, readMigrations, redact } from './migration-helpers.mjs';
-import { AFFILIATION_PLAN, readProductionPlan, assertProductionCreationAccess, assertAffiliationProductionSecurity } from './production-plans.mjs';
+import { readProductionPlan, assertProductionCreationAccess, assertAppliedProductionSecurity } from './production-plans.mjs';
 
 const { Client } = pg;
 let client, directory, certificatePath, connection;
@@ -23,7 +23,7 @@ function prisma(args) {
 async function securityState() {
   const tables = (await client.query("SELECT c.relname,c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='sports_management' AND c.relkind IN ('r','p') ORDER BY c.relname")).rows;
   if (!tables.length || tables.some(table => !table.relrowsecurity)) throw new Error('Hay tablas de producción sin RLS. Configura y revisa su seguridad antes del despliegue.');
-  const access = (await client.query("SELECT rolname,has_table_privilege(rolname,'public._prisma_migrations','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS exposed FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role')")).rows;
+  const access = (await client.query("SELECT rolname,(has_table_privilege(rolname,'public._prisma_migrations','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR has_any_column_privilege(rolname,'public._prisma_migrations','SELECT,INSERT,UPDATE,REFERENCES')) AS exposed FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role')")).rows;
   if (access.length !== 3 || access.some(role => role.exposed)) throw new Error('Los roles de API tienen acceso al historial de migraciones. Revísalo antes de desplegar.');
 }
 
@@ -55,14 +55,14 @@ try {
   const applied = assertAppliedHistory(await history(), migrations);
   await securityState();
   const plan = readProductionPlan(migrationsPath, migrations, applied);
-  if (plan.pendingCreation) await assertProductionCreationAccess(client);
-  if (applied.has(AFFILIATION_PLAN.migration)) await assertAffiliationProductionSecurity(client);
+  if (plan.pendingCreation || plan.pendingEnrollmentCreation) await assertProductionCreationAccess(client);
+  await assertAppliedProductionSecurity(client, applied);
   console.log(`Historial verificado; ${migrations.size - applied.size} migraciones pendientes.`);
   prisma(['migrate', 'deploy']);
   await securityState();
   const finalApplied = assertAppliedHistory(await history(), migrations);
   if (finalApplied.size !== migrations.size) throw new Error('Quedan migraciones sin aplicar.');
-  if (finalApplied.has(AFFILIATION_PLAN.migration)) await assertAffiliationProductionSecurity(client);
+  await assertAppliedProductionSecurity(client, finalApplied);
   prisma(['migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code']);
   prisma(['migrate', 'status']);
   console.log('Despliegue de migraciones terminado; historial, modelos y RLS verificados.');

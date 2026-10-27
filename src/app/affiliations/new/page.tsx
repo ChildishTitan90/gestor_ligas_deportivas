@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AccountHeader } from "@/components/layout/account-header";
+import { ActionLink } from "@/components/ui/action-link";
 import { getCurrentAccount } from
   "@/features/auth/server/account-presentation";
 import { AffiliationForm } from
@@ -55,8 +56,9 @@ export default async function NewAffiliationPage({
       <AccountHeader account={current.account} />
 
       <main className="mx-auto w-full max-w-5xl flex-1 space-y-6 px-6 py-10 sm:px-10">
+        <ActionLink href="/access" variant="secondary">Volver al panel</ActionLink>
         <h1 className="text-2xl font-semibold text-primary">
-          Solicitar afiliación
+          Mis solicitudes de afiliación
         </h1>
 
         {!data ? (
@@ -111,11 +113,17 @@ export default async function NewAffiliationPage({
                 <p className="mt-2">
                   Folio: {data.existingAffiliation.referenceNumber}
                 </p>
+                <p className="mt-2">Estado: {data.existingAffiliation.status === "APPROVED" ? "Aprobada" :
+                  data.existingAffiliation.status === "REJECTED" ? "Rechazada" : "Pendiente de revisión"}.</p>
+                {data.existingAffiliation.canCorrect && <p className="mt-2">Secretaría solicitó correcciones. Consulta sus observaciones, actualiza los datos y reenvía la misma solicitud.</p>}
                 {data.existingAffiliation.canCorrect && <a
                   href={`/affiliations/${data.existingAffiliation.id}/correct`}
                   className="mt-3 inline-block rounded-xl border border-border px-5 py-3 font-semibold">
                   Consultar observaciones y corregir solicitud
                 </a>}
+                {data.existingAffiliation.status === "APPROVED" && <ActionLink href="/teams/registrations" variant="secondary" className="mt-3">
+                  Inscribir o consultar equipos
+                </ActionLink>}
                 <p className="mt-2">
                   Puedes seleccionar otra temporada disponible.
                 </p>

@@ -1,5 +1,12 @@
 # Entorno compartido de pruebas — PDGLD-73
 
+Actualización de preparación, 27/10/2026: la provisión original necesita los
+permisos de bloqueo y las operaciones de afiliación/inscripción posteriores.
+El [plan de mantenimiento de Preview](architecture/preview-runtime.md) incluye
+un comando protegido para migraciones originales y provisión por operación.
+Su aplicación remota y recorrido en navegador siguen pendientes; los datos que
+siguen describen la comprobación histórica del 22/10.
+
 Estado al 22/10/2026. Base de referencia: `origin/develop` d109223, con PR #22.
 Este documento acompaña el soporte de CA para la aplicación; no confirma que el
 nuevo código esté publicado ni que el recorrido del equipo ya esté aceptado.

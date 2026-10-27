@@ -2,6 +2,11 @@
 
 CI revisa el código y las migraciones antes de integrar cambios. CD aplica las migraciones revisadas a Supabase cuando el administrador inicia una liberación.
 
+La corrección de PDGLD-64 añade su [plan exacto de producción y pruebas de Preview](architecture/preview-runtime.md).
+Después de integrarla y liberarla a main, iniciar una ejecución manual nueva con
+deploy_production; reejecutar #92 usa su código anterior. Preview se mantiene con
+un procedimiento separado, no mediante el workflow de producción.
+
 ## Estado actual
 
 - El flujo y sus controles están preparados localmente. Todavía no se han publicado en GitHub ni guardado en un commit de esta tarea.
