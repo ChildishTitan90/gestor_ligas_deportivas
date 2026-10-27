@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { getCsrfToken } from "next-auth/react";
+import { isTeamRegistrationPreview } from "@/lib/development-preview";
 
 const ACTIVITY_INTERVAL_MS = 15_000;
 const activityEvents = ["pointerdown", "click", "keydown", "wheel", "touchstart", "input"] as const;
@@ -16,6 +16,9 @@ export function SessionActivity() {
   const lastSessionState = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
+    // Preview sintética local: no iniciar lecturas ni actividad de sesión.
+    // La página usa la misma guarda y responde 404 fuera de development.
+    if (isTeamRegistrationPreview(pathname, process.env.NODE_ENV)) return;
     let stopped = false;
     let busy = false;
     let expiresAt = 0;
@@ -36,8 +39,14 @@ export function SessionActivity() {
         let init: RequestInit = {};
         if (activity) {
           lastActivitySent = Date.now();
-          const csrfToken = await getCsrfToken();
-          if (!csrfToken) throw new Error("SESSION_UNAVAILABLE");
+          // Compartir la cancelación del efecto también con la lectura CSRF.
+          const csrfResponse = await fetch("/api/auth/csrf", {
+            credentials: "same-origin", cache: "no-store", signal: controller.signal,
+          });
+          if (!csrfResponse.ok) throw new Error("SESSION_UNAVAILABLE");
+          const { csrfToken } = await csrfResponse.json();
+          if (stopped) return;
+          if (typeof csrfToken !== "string" || !csrfToken) throw new Error("SESSION_UNAVAILABLE");
           // Mantener el contrato de develop: NextAuth verifica CSRF y emite la cookie.
           init = { method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ csrfToken, data: { action: "activity" } }) };

@@ -99,7 +99,7 @@ async function stopServer() {
   server = undefined;
 }
 
-async function startServer() {
+async function startServer(retriedSecurityReminder = false) {
   server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', new URL(baseUrl).port], {
     cwd: root, env: childEnv, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -116,18 +116,34 @@ async function startServer() {
       }
     });
   } else server.stdout.resume();
-  server.stderr.resume();
+  // Next 16.4 detiene el primer arranque de un agente ante un aviso de
+  // seguridad y permite repetir el mismo comando. Cada reinicio de sesión
+  // es un proceso nuevo: reconocer solo ese aviso, sin silenciar la política
+  // ni tratar otros errores de arranque como un reintento exitoso.
+  let securityReminder = false;
+  let startupTail = '';
+  const detectReminder = (chunk) => {
+    startupTail = (startupTail + chunk.toString()).slice(-2048);
+    if (/SecurityFatalError|This command stopped to show the upgrade recommendation/.test(startupTail)) securityReminder = true;
+  };
+  server.stdout.on('data', detectReminder);
+  server.stderr.on('data', detectReminder);
   let failed = false;
   server.once('error', () => { failed = true; });
   serverExited = new Promise((resolve) => server.once('exit', resolve));
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    if (failed || server.exitCode !== null || server.signalCode !== null) break;
+    if (failed || securityReminder || server.exitCode !== null || server.signalCode !== null) break;
     try {
       const response = await fetch(`${baseUrl}/api/auth/csrf`, { signal: AbortSignal.timeout(10_000) });
       if (response.ok && typeof (await response.json()).csrfToken === 'string') return;
     } catch { /* Compilación/inicio aún en curso. */ }
     await delay(500);
+  }
+  if (securityReminder && !retriedSecurityReminder) {
+    console.warn('Next.js mostró un aviso de seguridad; repitiendo una vez el arranque según su contrato. Revisar la actualización indicada.');
+    await stopServer();
+    return startServer(true);
   }
   throw new Error('Next.js no quedó disponible para las pruebas locales.');
 }
@@ -161,8 +177,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--authorization', '--benchmark-options', '--affiliations'].includes(arg)))
-    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --authorization | --benchmark-options | --affiliations].');
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments'].includes(arg)))
+    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments].');
   if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
   }
@@ -181,6 +197,12 @@ try {
     NEXT_TELEMETRY_DISABLED: '1', AUTH_TEST_RUN: '1', AUTH_IDLE_TIMEOUT_MINUTES: '30',
     AUTH_MAX_FAILED_ATTEMPTS: '5', AUTH_LOCKOUT_MINUTES: '15', NODE_ENV: 'development' };
   delete childEnv.NEXTAUTH_URL_INTERNAL;
+  // Las suites automatizadas nunca usan el Storage real configurado en .env.
+  // La demostración manual conserva su configuración explícita.
+  if (!process.argv.includes('--demo')) {
+    childEnv.SUPABASE_URL = 'https://storage.example.test';
+    childEnv.SUPABASE_STORAGE_SERVER_KEY = 'test-only-no-real-storage';
+  }
   if (process.argv.includes('--benchmark-options')) {
     childEnv.ACCOUNT_OPTIONS_METRICS = '1';
     childEnv.NODE_OPTIONS = `${childEnv.NODE_OPTIONS ?? ''} --import=${new URL('../tests/integration/account-options-metrics.mjs', import.meta.url).href}`.trim();
@@ -188,23 +210,42 @@ try {
   stage = 'aplicación de migraciones en base temporal';
   console.log('PDGLD-48: preparando PostgreSQL temporal y servidor local.');
   await command(['node_modules/prisma/build/index.js', 'migrate', 'deploy'], childEnv);
-  if (process.argv.includes('--affiliations')) {
-    stage = 'comparación de migraciones y esquema PDGLD-57';
-    await command(['node_modules/prisma/build/index.js', 'migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code'], childEnv);
+  if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments')) {
+    stage = 'comparación de migraciones y esquema';
+    await command(['node_modules/prisma/build/index.js', 'migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code'], childEnv, true);
   }
   stage = 'inicio de Next.js';
   await startServer();
-  if (process.argv.includes('--demo')) {
+  if (process.argv.includes('--demo') || process.argv.includes('--affiliation-demo')) {
     stage = 'carga de datos sintéticos';
     const client = new pg.Client({ connectionString: databaseUrl });
     await client.connect();
-    try { await createAuthFixtures(client); } finally { await client.end(); }
+    try {
+      const users = await createAuthFixtures(client);
+      if (process.argv.includes('--affiliation-demo')) {
+        const { prepareAffiliationReviewDemo } = await import('../tests/integration/affiliation-review-demo.mjs');
+        const demo = await prepareAffiliationReviewDemo(client, databaseUrl, users);
+        console.log(`PDGLD-60: contexto sintético preparado; solicitud ${demo.affiliationId}.`);
+      }
+    } finally { await client.end(); }
     console.log(`Demostración local: ${baseUrl}/login`);
     console.log('Usa los datos sintéticos documentados. Enter o Ctrl+C detiene el servidor y elimina esta base temporal.');
     await new Promise((resolve) => {
+      const finish = () => {
+        process.stdin.removeListener('data', finish);
+        process.stdin.removeListener('end', finish);
+        process.stdin.pause();
+        resolve();
+      };
+      if (process.stdin.readableEnded) { resolve(); return; }
+      process.stdin.once('data', finish);
+      process.stdin.once('end', finish);
       process.stdin.resume();
-      process.stdin.once('data', () => { process.stdin.pause(); resolve(); });
     });
+  } else if (process.argv.includes('--team-enrollments')) {
+    stage = 'pruebas HTTP de inscripción PDGLD-62/64';
+    const { runTeamEnrollmentIntegrationSuite } = await import('../tests/integration/team-enrollments.test.mjs');
+    await runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl });
   } else if (process.argv.includes('--affiliations')) {
     stage = 'pruebas HTTP de afiliación PDGLD-57';
     const { runAffiliationIntegrationSuite } = await import('../tests/integration/affiliations.test.mjs');
@@ -253,7 +294,7 @@ try {
     'Las pruebas solo aceptan PostgreSQL loopback en puertos 5432/5433.',
     'DIRECT_URL contiene parámetros no permitidos para pruebas locales.',
     'Detén el servidor npm run dev antes de ejecutar estas pruebas.',
-    'Uso: node scripts/test-auth.mjs [--demo | --authorization | --benchmark-options | --affiliations].',
+    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments].',
     'Next.js no quedó disponible para las pruebas locales.',
   ]);
   console.error(safeMessages.has(error.message) ? error.message : `No se completó la fase: ${stage}.`);

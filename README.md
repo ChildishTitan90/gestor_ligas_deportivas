@@ -54,12 +54,54 @@ El backend expone POST `/api/affiliations`: solicitud pendiente con folio único
 directivos, categorías e historial atómicos, autorización del delegado y reenvíos
 sin duplicar registros. Consulta el [contrato e integración con PDGLD-59](docs/architecture/affiliation-submission.md)
 y la [evidencia local](docs/validation/PDGLD-57-solicitud-afiliacion.md).
-El formulario de captura aún requiere la integración de firmas y envío de PDGLD-59.
+PDGLD-59 conecta `/affiliations/new` con las tres firmas privadas y el envío.
+Consulta [configuración y límites de Storage](docs/architecture/affiliation-signatures.md).
 Hay una migración aditiva nueva: aplicar `npx --no-install prisma migrate deploy`
 y `npx --no-install prisma generate` al recibirla en local, conservando datos.
 `npm run test:affiliations` valida el backend en una base temporal independiente.
 El despliegue a Supabase requiere [revisión de seguridad de la tabla nueva](docs/architecture/affiliation-submission-security.md);
-el guard de producción sigue bloqueándolo hasta completar esa revisión.
+el proceso de producción conserva sus comprobaciones de seguridad.
+
+## Revisión y correcciones — PDGLD-60
+
+`/affiliations/review` permite consultar ligas autorizadas, revisar directivos y
+firmas mediante enlaces temporales, pedir correcciones y aprobar con confirmación.
+El solicitante original puede reabrir la captura desde `/affiliations/new`, conservar
+el folio y reenviar mediante `/affiliations/{id}/correct`. El servidor comprueba
+permisos vigentes, contexto, versión y separación de funciones en cada operación.
+Consulta el [contrato](docs/architecture/affiliation-review.md) y la
+[evidencia de integración y pendientes](docs/validation/PDGLD-60-integracion-afiliaciones.md).
+La integración local con PDGLD-62/64 compila con Next 16.4.3. Secretaría selecciona
+explícitamente las categorías solicitadas que autoriza al aprobar; el servidor
+registra responsable/fecha y conjunto autorizado en la misma transacción. Solo
+esas categorías permiten inscribir equipos. Consulta la
+[decisión y evidencia actual](docs/validation/PDGLD-60-autorizacion-categorias.md). No se
+declara cerrada la HU sin revisión independiente, CI y aceptación en pruebas.
+
+## Inscripción de equipos — PDGLD-62 / PDGLD-64
+
+Actualización 26/10/2026: `/api/team-enrollments/options` informa capacidades por
+club y `/catalogs` permite filtros e historial con READ sin CREATE. El listado
+incluye nombres de temporada. Una operación incierta se consulta por GET a
+`/operations/{enrollmentKey}`; cancelar la intención deja una marca persistente
+que impide peticiones tardías y nunca elimina una inscripción confirmada.
+El adaptador reutilizable tiene pruebas en `npm run test:team-enrollment-client`.
+La migración aditiva de operaciones requiere revisión de su plan de producción;
+el CD conserva el bloqueo. Las vistas de Nick todavía no están disponibles:
+el recorrido desde la página real y el cierre de HU01-03 siguen pendientes.
+Ver [aceptación actual](tests/integration/team-enrollment-acceptance.md).
+
+El backend ofrece opciones, consulta e inscripción en `/api/team-enrollments`,
+con estado inicial `REGISTERED` (INSCRITO), alcance por club, alta atómica e
+idempotencia persistente. El [contrato para PDGLD-63](docs/architecture/team-enrollment.md)
+describe las modalidades de equipo existente/nuevo y los errores.
+La migración aditiva distingue categorías solicitadas de autorizadas; no las
+autoriza automáticamente. `npm run test:team-enrollments` ejecuta HTTP real y
+PostgreSQL local desechable, también incorporados en CI 15/17.
+La suite incluye solicitud → aprobación con selección de categorías → inscripción
+por servicios reales y rechazo de categorías no seleccionadas. Las pantallas de
+PDGLD-63 y la definición de activación siguen siendo dependencias separadas;
+no se habilita transición a ACTIVE.
 
 ## CI/CD
 

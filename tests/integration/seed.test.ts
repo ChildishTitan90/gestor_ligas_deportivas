@@ -71,9 +71,11 @@ async function snapshot(client: pg.Client): Promise<Snapshot> {
     WHERE table_schema = 'sports_management' AND table_type = 'BASE TABLE'
     ORDER BY table_name
   `);
-  assert.equal(tables.length, 97, 'La base debe conservar las 96 tablas iniciales y añadir la tabla de categorías de afiliación.');
+  assert.equal(tables.length, 98, 'La base debe conservar las 96 tablas iniciales y añadir categorías de afiliación y operaciones de inscripción.');
   assert.ok(tables.some(({ table_name }) => table_name === 'club_affiliation_categories'),
     'Debe existir la tabla de categorías de afiliación de PDGLD-57.');
+  assert.ok(tables.some(({ table_name }) => table_name === 'team_enrollment_operations'),
+    'Debe existir la tabla de recuperación de inscripciones de PDGLD-64.');
   const result: Snapshot = {};
   for (const { table_name: tableName } of tables) {
     assert.match(tableName, /^[a-z_]+$/, 'Los identificadores SQL deben pertenecer al esquema.');
@@ -208,7 +210,7 @@ test('seed en PostgreSQL temporal: atomicidad, identidad, dos ejecuciones, integ
     assert.equal(baseline.audit_logs.length, 0);
     evidence(t, 'baseline', baseline);
 
-    await t.test('un fallo en el último INSERT revierte datos y auditoría de las 97 tablas', async () => {
+    await t.test('un fallo en el último INSERT revierte datos y auditoría de todas las tablas', async () => {
       try {
         await installFailureTrigger(client);
         await seedCli(1);
@@ -254,7 +256,7 @@ test('seed en PostgreSQL temporal: atomicidad, identidad, dos ejecuciones, integ
 
     await seedCli();
     const second = await snapshot(client);
-    assert.deepEqual(second, first, 'La segunda ejecución debe preservar cantidades, UUID, relaciones y eventos de las 97 tablas.');
+    assert.deepEqual(second, first, 'La segunda ejecución debe preservar cantidades, UUID, relaciones y eventos de todas las tablas.');
     evidence(t, 'segunda ejecución CLI', second);
 
     await t.test('nombres iguales en otras ligas, temporadas y categorías conservan su contexto', async () => {

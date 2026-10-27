@@ -49,7 +49,17 @@ jobs:
       - name: Comprobar la integridad de las migraciones
         run: npm run ci:guard-migrations
       - name: Probar los controles del pipeline
-        run: npm run test:ci && npm run test:account-form && npm run test:affiliation-input
+        run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:affiliation-input && npm run test:affiliation-review
+      - name: Probar interfaz de inscripción y actividad de sesión sin base
+        run: npm run test:team-registration
+      - name: Probar inscripción en Chrome con datos sintéticos
+        run: npm run test:team-registration-browser
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - name: Probar firmas de afiliación
+        run: npm run test:signatures
+      - name: Probar recuperación de inscripciones y capacidades del cliente
+        run: npm run test:team-enrollment-client
       - name: Revisar el código
         run: npm run lint
       - name: Compilar la aplicación
@@ -108,6 +118,8 @@ jobs:
         run: node scripts/ci/verify-production-security.mjs
       - name: Probar autenticación, autorización y cuentas con base temporal local
         run: npm run test:auth
+      - name: Probar inscripción de equipos, alcance y concurrencia
+        run: npm run test:team-enrollments
       - name: Probar seed, integridad, rollback e idempotencia
         run: npm run test:seed -- --existing
 
