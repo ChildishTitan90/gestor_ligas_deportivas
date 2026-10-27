@@ -70,7 +70,8 @@ export function createEnrollmentRecovery(actorId: string, storage: PendingStorag
     let body: unknown;
     try {
       response = await fetcher(url, { method: action === "check" ? "GET" : "POST", credentials: "same-origin", cache: "no-store",
-        ...(action === "check" ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }),
+        headers: { "X-Expected-Actor-Id": actor, ...(action === "check" ? {} : { "Content-Type": "application/json" }) },
+        ...(action === "check" ? {} : { body: JSON.stringify(input) }),
         signal: AbortSignal.timeout(30_000) });
       body = await response.json();
     } catch { return { outcome: "UNRESOLVED", code: "UNCONFIRMED" }; }

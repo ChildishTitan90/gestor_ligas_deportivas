@@ -147,7 +147,7 @@ export function createEnrollmentApi(fetcher: typeof fetch, storage: Storage, sto
       } catch { return { kind: "unconfirmed", message: "No se pudo conservar la clave de envío. Este intento no se envió; verifica el almacenamiento y cualquier envío anterior antes de continuar." }; }
       try {
         const response = await fetcher("/api/team-enrollments", { method: "POST", credentials: "same-origin", cache: "no-store",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+          headers: { "Content-Type": "application/json", "X-Expected-Actor-Id": ownerId }, body: JSON.stringify(payload) });
         assertActive(version);
         if (response.status === 401 || response.status === 403) throw new EnrollmentReadError(response.status === 401 ? "UNAUTHENTICATED" : "FORBIDDEN", response.status);
         const data = await response.json();

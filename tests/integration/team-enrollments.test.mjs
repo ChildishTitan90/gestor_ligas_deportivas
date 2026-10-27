@@ -378,6 +378,80 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
         assert.equal((await (await recover(actor.browser, fresh, { 'x-expected-actor-id': actor.id })).json()).outcome, 'UNRESOLVED');
         assert.equal((await db.query('SELECT count(*)::int n FROM sports_management.team_enrollment_operations WHERE enrollment_key=$1', [fresh.enrollmentKey])).rows[0].n, 0);
       });
+      await t.test('los dos adaptadores reales rechazan el cambio a otro delegado autorizado sin escrituras ni pérdida del pendiente', async () => {
+        const { createEnrollmentRecovery } = await tsImport('../../src/features/clubs/team-enrollment-recovery.client.ts', import.meta.url);
+        const { createEnrollmentApi } = await tsImport('../../src/features/clubs/team-registration-adapter.ts', import.meta.url);
+        // Las dos sesiones tienen READ/CREATE vigentes sobre el mismo club.
+        for (const account of [actor, peer]) {
+          const response = await account.browser.request(`/api/team-enrollments/options?clubId=${clubId}`);
+          assert.equal(response.status, 200);
+          assert.equal((await response.json()).capabilities.canEnroll, true);
+        }
+        const memory = () => {
+          const values = new Map();
+          return { get length() { return values.size; }, key: index => [...values.keys()][index] ?? null,
+            getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+        };
+        const state = async (key) => ({ ...await counts(),
+          operations: (await db.query('SELECT count(*)::int n FROM sports_management.team_enrollment_operations WHERE enrollment_key=$1', [key])).rows[0].n,
+          audits: (await db.query("SELECT count(*)::int n FROM sports_management.audit_logs WHERE table_name IN ('season_teams','team_enrollment_operations')")).rows[0].n });
+        for (const action of ['retry', 'check', 'cancel']) {
+          const fresh = payload();
+          const storage = memory();
+          let current = actor.browser;
+          const statuses = [];
+          const recovery = createEnrollmentRecovery(actor.id, storage, async (url, init) => {
+            const response = await current.request(url, { ...init, headers: { ...init.headers, origin: baseUrl } });
+            statuses.push(response.status);
+            return response;
+          });
+          const pending = recovery.remember(fresh);
+          const saved = storage.getItem(storage.key(0));
+          const before = await state(fresh.enrollmentKey);
+          current = peer.browser;
+          assert.deepEqual(await recovery[action](pending), { outcome: 'UNRESOLVED', code: 'FORBIDDEN' });
+          assert.deepEqual(statuses, [403]);
+          assert.deepEqual(await state(fresh.enrollmentKey), before);
+          assert.equal(storage.getItem(storage.key(0)), saved);
+          assert.equal(createEnrollmentRecovery(peer.id, storage).pending(clubId).length, 0);
+          current = actor.browser;
+          const resumed = await (action === 'retry' ? recovery.retry(pending) : recovery.cancel(pending));
+          assert.equal(resumed.outcome, action === 'retry' ? 'CONFIRMED' : 'CANCELLED');
+          assert.equal(storage.length, 0);
+          const operation = (await db.query('SELECT actor_id FROM sports_management.team_enrollment_operations WHERE enrollment_key=$1', [fresh.enrollmentKey])).rows;
+          assert.deepEqual(operation, [{ actor_id: actor.id }]);
+        }
+        const fresh = payload();
+        const capture = { clubId, seasonId: fresh.seasonId, categoryId: fresh.categoryId, groupId: fresh.groupId,
+          team: { kind: 'new', name: fresh.team.name } };
+        const storage = memory();
+        const storageKey = `team-enrollment:pending:${actor.id}`;
+        let current = actor.browser;
+        let switchAfterSession = true;
+        const statuses = [];
+        const api = createEnrollmentApi(async (url, init) => {
+          const response = await current.request(url, { ...init, headers: { ...init.headers, origin: baseUrl } });
+          if (url === '/api/auth/session') {
+            // El GET comprobó A, pero el siguiente POST ya recibe la cookie de B.
+            if (switchAfterSession) current = peer.browser;
+          } else statuses.push(response.status);
+          return response;
+        }, storage, storageKey, actor.id, () => fresh.enrollmentKey);
+        const before = await state(fresh.enrollmentKey);
+        await assert.rejects(api.submit(capture), { code: 'FORBIDDEN', status: 403 });
+        assert.deepEqual(statuses, [403]);
+        assert.deepEqual(await state(fresh.enrollmentKey), before);
+        const saved = storage.getItem(storageKey);
+        assert.ok(saved);
+        assert.equal(api.pending().enrollmentKey, fresh.enrollmentKey);
+        current = actor.browser;
+        switchAfterSession = false;
+        assert.equal((await api.submit(capture)).kind, 'confirmed');
+        assert.deepEqual(statuses, [403, 201]);
+        assert.equal(storage.getItem(storageKey), null);
+        const operation = (await db.query('SELECT actor_id FROM sports_management.team_enrollment_operations WHERE enrollment_key=$1', [fresh.enrollmentKey])).rows;
+        assert.deepEqual(operation, [{ actor_id: actor.id }]);
+      });
       await t.test('recuperación y cancelación exigen sesión, alcance y contrato; nunca revelan operaciones ajenas', async () => {
         const fresh = payload();
         assert.equal((await recover(new Browser(baseUrl), fresh)).status, 401);

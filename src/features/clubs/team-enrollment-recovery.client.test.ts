@@ -22,6 +22,33 @@ function fetcher(handler: (url: string, init: RequestInit) => Response | Promise
   return (async (url, init = {}) => handler(String(url), init)) as typeof fetch;
 }
 
+test("cada operación conserva la identidad del dueño tras cambiar la cuenta activa y mantiene el pendiente", async () => {
+  for (const action of ["retry", "check", "cancel"] as const) {
+    const storage = new MemoryStorage();
+    const body = input();
+    let sessionActor = randomUUID();
+    const owner = createEnrollmentRecovery(actorId.toUpperCase(), storage, fetcher((_url, init) => {
+      const headers = new Headers(init.headers);
+      assert.equal(headers.get("x-expected-actor-id"), actorId);
+      assert.equal(init.credentials, "same-origin");
+      assert.equal(init.cache, "no-store");
+      assert.equal(init.method, action === "check" ? "GET" : "POST");
+      assert.equal(headers.get("content-type"), action === "check" ? null : "application/json");
+      if (sessionActor !== actorId) return Response.json({ code: "FORBIDDEN" }, { status: 403 });
+      return action === "retry" ? Response.json({ ...result(body), replayed: false }, { status: 201 })
+        : Response.json({ enrollmentKey: body.enrollmentKey, clubId: body.clubId, outcome: "CANCELLED", enrollment: null });
+    }));
+    owner.remember(body);
+    const saved = storage.getItem(storage.key(0)!);
+    assert.deepEqual(await owner[action](body), { outcome: "UNRESOLVED", code: "FORBIDDEN" });
+    assert.equal(storage.getItem(storage.key(0)!), saved);
+    assert.equal(createEnrollmentRecovery(sessionActor, storage).pending(body.clubId).length, 0);
+    sessionActor = actorId;
+    assert.equal((await owner[action](body)).outcome, action === "retry" ? "CONFIRMED" : "CANCELLED");
+    assert.equal(storage.length, 0);
+  }
+});
+
 test("capacidad solo habilita el club seleccionado ante autorización explícita vigente", () => {
   const clubId = randomUUID();
   const allowed = { capabilities: { clubId, canEnroll: true, canCreateTeam: true } };
