@@ -42,7 +42,35 @@ test("POST JSON exacto: team.mode excluyente, categoryId y clave estable", async
   assert.deepEqual(JSON.parse(String(s.calls[0].init?.body)), { enrollmentKey: id(101), clubId: id(1), seasonId: id(2), categoryId: id(3), groupId: id(4), team: { mode: "new", name: "Equipo sintético" } });
   assert.equal(s.calls[0].init?.credentials, "same-origin");
   assert.equal(s.calls[0].init?.cache, "no-store");
-  assert.equal(new Headers(s.calls[0].init?.headers).get("X-Expected-Actor-Id"), id(90));
+  assert.equal(new Headers(s.calls[0].init?.headers).get("x-expected-actor-id"), id(90));
+});
+
+test("cambiar cuenta después de comprobar la sesión no reasigna el POST ni pierde el pendiente", async () => {
+  let currentUser = id(90);
+  let writes = 0;
+  const s = setup((_path, init) => {
+    const expectedActor = new Headers(init?.headers).get("x-expected-actor-id");
+    assert.equal(expectedActor, id(90));
+    if (currentUser !== expectedActor) return response({ code: "FORBIDDEN" }, 403);
+    writes++;
+    return response(receipt, 201);
+  });
+  s.setSession(() => {
+    const checked = response({ user: { id: currentUser, mustChangePassword: false } });
+    currentUser = id(91);
+    return checked;
+  });
+  await assert.rejects(s.api.submit(capture), { code: "FORBIDDEN", status: 403 });
+  assert.equal(writes, 0);
+  const saved = s.api.pending();
+  assert.ok(saved);
+  currentUser = id(90);
+  s.setSession(() => response({ user: { id: currentUser, mustChangePassword: false } }));
+  assert.equal((await s.api.submit(capture)).kind, "confirmed");
+  assert.equal(s.calls[1].init?.body, s.calls[0].init?.body);
+  assert.equal(s.keys(), 1);
+  assert.equal(writes, 1);
+  assert.equal(s.api.pending(), null);
 });
 
 test("opciones reales dependientes: excluye equipos inscritos y grupos ajenos; consume capacidad del club seleccionado", async () => {

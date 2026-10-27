@@ -45,6 +45,7 @@
     "test:affiliation-input": "node --import tsx --test src/features/clubs/affiliation-submission.test.ts src/features/clubs/schemas.test.ts",
     "test:affiliations": "node scripts/test-auth.mjs --affiliations",
     "test:team-enrollments": "node scripts/test-auth.mjs --team-enrollments",
+    "test:team-enrollment-client": "node --import tsx --test src/features/clubs/team-enrollment-recovery.client.test.ts",
     "test:signatures": "node --conditions=react-server --import tsx --test src/features/clubs/server/signature-validation.test.ts src/features/clubs/server/signature-upload-ticket.test.ts src/features/clubs/server/signature-binding.test.ts tests/integration/signature-stored-content.test.ts src/features/clubs/upload-signature.client.test.ts src/features/clubs/submit-affiliation.client.test.ts src/features/clubs/affiliation-feedback.test.ts scripts/verification/signature-download-check.test.ts",
     "verify:signature-download": "node --conditions=react-server --import tsx scripts/verify-signature-download.ts"
   },

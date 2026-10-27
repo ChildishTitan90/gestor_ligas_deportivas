@@ -9,8 +9,9 @@ Las pruebas de Chrome de esta entrega siguen usando negocio simulado.
 El responsable debe confirmar y registrar, sin contraseñas ni conexiones completas:
 
 1. Revisión que combina PDGLD-63 con [PR #31](https://github.com/ChildishTitan90/gestor_ligas_deportivas/pull/31),
-   contrato revisado en 9eb5373. Actualmente origin/develop está en b99730c y no
-   contiene esos endpoints/migración. No validar contra una mezcla de contratos.
+   interfaz be2052a y backend integrado en develop por 19599e9, incluida la
+   revisión a05df7b. Registrar el SHA resultante cuando se confirme este merge;
+   no validar contra una mezcla de contratos.
 2. PostgreSQL desechable y aislado, en loopback, con base exclusiva de esta prueba,
    nombre inequívoco aleatorio, puerto y versión identificados. No usar
    gestor_ligas_dev, bases del equipo ni Supabase. Confirmar que puede descartarse.

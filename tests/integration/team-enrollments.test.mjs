@@ -3,7 +3,10 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import pg from 'pg';
 import * as argon2 from 'argon2';
+import { tsImport } from 'tsx/esm/api';
+import { readFileSync } from 'node:fs';
 import { Browser } from './auth.test.mjs';
+import { verifyEnrollmentOperationMigration } from './team-enrollment-migration.mjs';
 
 /** HTTP real y PostgreSQL desechable. El primer recorrido solicita, aprueba
  * seleccionando una categoría e inscribe con servicios reales. Los demás
@@ -19,6 +22,8 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
   const savedGrants = [];
   let roleId;
   try {
+    await test('PDGLD-64: migración recupera claves legadas sin cambiar inscripciones, categorías ni auditoría',
+      () => verifyEnrollmentOperationMigration(databaseUrl));
     const league = (await db.query('INSERT INTO sports_management.leagues(name) VALUES ($1) RETURNING id', [`PD62-${randomUUID()}`])).rows[0].id;
     const foreignLeague = (await db.query('INSERT INTO sports_management.leagues(name) VALUES ($1) RETURNING id', [`PD62-other-${randomUUID()}`])).rows[0].id;
     const sport = (await db.query("SELECT id FROM sports_management.sports WHERE code='SOCCER'")).rows[0].id;
@@ -40,6 +45,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
       return { id, browser };
     }
     const actor = await user('CLUB_DELEGATE', clubId);
+    const peer = await user('CLUB_DELEGATE', clubId);
     const restricted = await user('CLUB_DELEGATE', clubId, true);
     const ordinary = await user('PLAYER');
     const secretary = await user('SECRETARY');
@@ -64,11 +70,11 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
     }
     async function season(leagueId = league) {
       const id = (await db.query(`INSERT INTO sports_management.seasons(league_id,sport_id,name,start_date,end_date)
-        VALUES ($1,$2,$3,'2026-01-01','2026-12-31') RETURNING id`, [leagueId, sport, randomUUID()])).rows[0].id;
+        VALUES ($1,$2,$3,'2026-01-01','2026-12-31') RETURNING id`, [leagueId, sport, `Temporada sintética ${randomUUID().slice(0, 8)}`])).rows[0].id;
       const rule = (await db.query('INSERT INTO sports_management.competition_rules(season_id,version_number) VALUES ($1,1) RETURNING id', [id])).rows[0].id;
       const categories = [];
       for (let index = 0; index < 2; index++) {
-        const categoryId = (await db.query('INSERT INTO sports_management.categories(league_id,sport_id,name) VALUES ($1,$2,$3) RETURNING id', [leagueId, sport, randomUUID()])).rows[0].id;
+        const categoryId = (await db.query('INSERT INTO sports_management.categories(league_id,sport_id,name) VALUES ($1,$2,$3) RETURNING id', [leagueId, sport, `Categoría ${index + 1} ${randomUUID().slice(0, 8)}`])).rows[0].id;
         const sc = (await db.query(`INSERT INTO sports_management.season_categories(season_id,category_id,competition_rule_id,hierarchy_order,type,age_cutoff_date)
           VALUES ($1,$2,$3,$4,'OPEN','2026-01-01') RETURNING id`, [id, categoryId, rule, index + 1])).rows[0].id;
         const groups = [];
@@ -82,6 +88,11 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
     const nextSeason = await season();
     const reviewContext = await season();
     const post = (browser, body, headers = {}) => browser.request('/api/team-enrollments', {
+      method: 'POST', headers: { origin: baseUrl, 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
+    });
+    const operationPath = (body) => `/api/team-enrollments/operations/${body.enrollmentKey}`;
+    const recover = (browser, body, headers = {}) => browser.request(`${operationPath(body)}?clubId=${body.clubId}`, { headers });
+    const cancel = (browser, body, headers = {}) => browser.request(`${operationPath(body)}/cancel`, {
       method: 'POST', headers: { origin: baseUrl, 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
     });
     const payload = (ctx = context, extra = {}) => ({ enrollmentKey: randomUUID(), clubId, seasonId: ctx.id,
@@ -251,6 +262,213 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
         await deny(actor.browser, { ...body, team: { mode: 'new', name: 'Otro nombre' } }, 409, 'IDEMPOTENCY_CONFLICT');
         await deny(actor.browser, { ...body, groupId: context.categories[0].groups[1] }, 409, 'IDEMPOTENCY_CONFLICT');
       });
+      await t.test('respuesta perdida: GET recupera el resultado sin inscribir y una nueva sesión conserva la clave', async () => {
+        const fresh = payload();
+        const before = await counts();
+        const initial = await recover(actor.browser, fresh);
+        assert.equal(initial.status, 200);
+        assert.deepEqual(await initial.json(), { enrollmentKey: fresh.enrollmentKey, clubId, outcome: 'UNRESOLVED', enrollment: null });
+        assert.deepEqual(await counts(), before);
+        // El servidor confirma; el cliente pierde deliberadamente el acuse.
+        assert.equal((await post(actor.browser, fresh)).status, 201);
+        const reloaded = new Browser(baseUrl);
+        reloaded.cookies = new Map(actor.browser.cookies);
+        const confirmed = await recover(reloaded, fresh);
+        assert.equal(confirmed.status, 200);
+        assert.match(confirmed.headers.get('cache-control'), /private.*no-store/);
+        const receipt = await confirmed.json();
+        assert.equal(receipt.outcome, 'CONFIRMED');
+        const replay = await post(reloaded, fresh);
+        assert.equal(replay.status, 200);
+        assert.deepEqual(await replay.json(), receipt.enrollment);
+        const after = await counts();
+        assert.deepEqual(after, { teams: before.teams + 1, enrollments: before.enrollments + 1, audits: before.audits + 1 });
+        const cancellation = await cancel(reloaded, fresh);
+        assert.equal(cancellation.status, 200);
+        assert.equal((await cancellation.json()).outcome, 'CONFIRMED');
+        assert.deepEqual(await counts(), after);
+        assert.equal((await recover(peer.browser, fresh)).status, 200);
+        assert.equal((await (await recover(peer.browser, fresh)).json()).outcome, 'UNRESOLVED');
+      });
+      await t.test('adaptador del cliente con HTTP real: pérdida de respuesta y reinicio conservan la misma operación', async () => {
+        const { createEnrollmentRecovery } = await tsImport('../../src/features/clubs/team-enrollment-recovery.client.ts', import.meta.url);
+        const values = new Map();
+        const storage = { get length() { return values.size; }, key: index => [...values.keys()][index] ?? null,
+          getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+        const fresh = payload();
+        const before = await counts();
+        const lost = createEnrollmentRecovery(actor.id, storage, async (url, init) => {
+          const response = await actor.browser.request(url, { ...init, headers: { ...init.headers, origin: baseUrl } });
+          assert.equal(response.status, 201);
+          throw new TypeError('Acuse perdido deliberadamente');
+        });
+        assert.equal((await lost.retry(fresh)).outcome, 'UNRESOLVED');
+        assert.equal(values.size, 1);
+        const requests = [];
+        const resumed = createEnrollmentRecovery(actor.id, storage, async (url, init) => {
+          requests.push(init.method);
+          return actor.browser.request(url, init);
+        });
+        const [pending] = resumed.pending(clubId);
+        assert.equal(pending.enrollmentKey, fresh.enrollmentKey);
+        assert.equal((await resumed.check(pending)).outcome, 'CONFIRMED');
+        assert.deepEqual(requests, ['GET']);
+        assert.equal(values.size, 0);
+        assert.deepEqual(await counts(), { teams: before.teams + 1, enrollments: before.enrollments + 1, audits: before.audits + 1 });
+      });
+      await t.test('cancelación persistente: impide solicitudes tardías, es idempotente y no duplica auditoría', async () => {
+        const fresh = payload();
+        const before = await counts();
+        const cancelled = await cancel(actor.browser, fresh);
+        assert.equal(cancelled.status, 200);
+        assert.deepEqual(await cancelled.json(), { enrollmentKey: fresh.enrollmentKey, clubId, outcome: 'CANCELLED', enrollment: null });
+        assert.equal((await cancel(actor.browser, fresh)).status, 200);
+        await deny(actor.browser, fresh, 409, 'OPERATION_CANCELLED');
+        await deny(actor.browser, { ...fresh, team: { mode: 'new', name: 'Cambio posterior' } }, 409, 'IDEMPOTENCY_CONFLICT');
+        assert.equal((await cancel(actor.browser, { ...fresh, groupId: context.categories[0].groups[1] })).status, 409);
+        assert.deepEqual(await counts(), before);
+        const operation = (await db.query('SELECT id FROM sports_management.team_enrollment_operations WHERE actor_id=$1 AND enrollment_key=$2', [actor.id, fresh.enrollmentKey])).rows[0];
+        const audit = (await db.query("SELECT * FROM sports_management.audit_logs WHERE table_name='team_enrollment_operations' AND entity_id=$1", [operation.id])).rows;
+        assert.equal(audit.length, 1);
+        assert.equal(audit[0].action, 'TEAM_ENROLLMENT_CANCEL');
+        assert.equal(JSON.stringify(audit).includes(fresh.enrollmentKey), false);
+        assert.equal(JSON.stringify(audit).includes(fresh.team.name), false);
+        await assert.rejects(db.query('DELETE FROM sports_management.team_enrollment_operations WHERE id=$1', [operation.id]), { code: 'P0001' });
+        await assert.rejects(db.query("UPDATE sports_management.team_enrollment_operations SET outcome='CANCELLED' WHERE id=$1", [operation.id]), { code: 'P0001' });
+      });
+      await t.test('cancelación y envío concurrentes tienen un único resultado definitivo', async () => {
+        for (let index = 0; index < 3; index++) {
+          const fresh = payload();
+          const before = await counts();
+          const [sent, stopped] = await Promise.all([post(actor.browser, fresh), cancel(actor.browser, fresh)]);
+          assert.equal(stopped.status, 200);
+          const outcome = (await stopped.json()).outcome;
+          assert.equal(sent.status, outcome === 'CONFIRMED' ? 201 : 409);
+          assert.equal((await (await recover(actor.browser, fresh)).json()).outcome, outcome);
+          assert.equal((await post(actor.browser, fresh)).status, outcome === 'CONFIRMED' ? 200 : 409);
+          const delta = outcome === 'CONFIRMED' ? 1 : 0;
+          assert.deepEqual(await counts(), { teams: before.teams + delta, enrollments: before.enrollments + delta, audits: before.audits + delta });
+        }
+      });
+      await t.test('una clave antigua sin cuerpo se recupera o cancela; contexto obsoleto no impide detener la intención propia', async () => {
+        const fresh = payload();
+        const reference = { clubId, enrollmentKey: fresh.enrollmentKey };
+        const before = await counts();
+        assert.equal((await cancel(actor.browser, reference)).status, 200);
+        assert.equal((await (await recover(actor.browser, reference)).json()).outcome, 'CANCELLED');
+        await deny(actor.browser, fresh, 409, 'OPERATION_CANCELLED');
+        await deny(actor.browser, { ...fresh, team: { mode: 'new', name: 'Otra captura' } }, 409, 'OPERATION_CANCELLED');
+        assert.deepEqual(await counts(), before);
+        const stale = payload(context, { seasonId: randomUUID() });
+        assert.equal((await cancel(actor.browser, stale)).status, 200);
+        await deny(actor.browser, stale, 409, 'OPERATION_CANCELLED');
+        const existing = await cancel(actor.browser, { clubId, enrollmentKey: body.enrollmentKey });
+        assert.equal(existing.status, 200);
+        assert.equal((await existing.json()).outcome, 'CONFIRMED');
+        assert.deepEqual(await counts(), before);
+      });
+      await t.test('la precondición de identidad impide enviar o cancelar una intención tras cambiar de cuenta', async () => {
+        const fresh = payload();
+        const before = await counts();
+        const headers = { 'x-expected-actor-id': peer.id };
+        assert.equal((await post(actor.browser, fresh, headers)).status, 403);
+        assert.equal((await cancel(actor.browser, fresh, headers)).status, 403);
+        assert.equal((await recover(actor.browser, fresh, headers)).status, 403);
+        assert.deepEqual(await counts(), before);
+        assert.equal((await (await recover(actor.browser, fresh, { 'x-expected-actor-id': actor.id })).json()).outcome, 'UNRESOLVED');
+        assert.equal((await db.query('SELECT count(*)::int n FROM sports_management.team_enrollment_operations WHERE enrollment_key=$1', [fresh.enrollmentKey])).rows[0].n, 0);
+      });
+      await t.test('los dos adaptadores reales rechazan el cambio a otro delegado autorizado sin escrituras ni pérdida del pendiente', async () => {
+        const { createEnrollmentRecovery } = await tsImport('../../src/features/clubs/team-enrollment-recovery.client.ts', import.meta.url);
+        const { createEnrollmentApi } = await tsImport('../../src/features/clubs/team-registration-adapter.ts', import.meta.url);
+        // Las dos sesiones tienen READ/CREATE vigentes sobre el mismo club.
+        for (const account of [actor, peer]) {
+          const response = await account.browser.request(`/api/team-enrollments/options?clubId=${clubId}`);
+          assert.equal(response.status, 200);
+          assert.equal((await response.json()).capabilities.canEnroll, true);
+        }
+        const memory = () => {
+          const values = new Map();
+          return { get length() { return values.size; }, key: index => [...values.keys()][index] ?? null,
+            getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
+        };
+        const state = async (key) => ({ ...await counts(),
+          operations: (await db.query('SELECT count(*)::int n FROM sports_management.team_enrollment_operations WHERE enrollment_key=$1', [key])).rows[0].n,
+          audits: (await db.query("SELECT count(*)::int n FROM sports_management.audit_logs WHERE table_name IN ('season_teams','team_enrollment_operations')")).rows[0].n });
+        for (const action of ['retry', 'check', 'cancel']) {
+          const fresh = payload();
+          const storage = memory();
+          let current = actor.browser;
+          const statuses = [];
+          const recovery = createEnrollmentRecovery(actor.id, storage, async (url, init) => {
+            const response = await current.request(url, { ...init, headers: { ...init.headers, origin: baseUrl } });
+            statuses.push(response.status);
+            return response;
+          });
+          const pending = recovery.remember(fresh);
+          const saved = storage.getItem(storage.key(0));
+          const before = await state(fresh.enrollmentKey);
+          current = peer.browser;
+          assert.deepEqual(await recovery[action](pending), { outcome: 'UNRESOLVED', code: 'FORBIDDEN' });
+          assert.deepEqual(statuses, [403]);
+          assert.deepEqual(await state(fresh.enrollmentKey), before);
+          assert.equal(storage.getItem(storage.key(0)), saved);
+          assert.equal(createEnrollmentRecovery(peer.id, storage).pending(clubId).length, 0);
+          current = actor.browser;
+          const resumed = await (action === 'retry' ? recovery.retry(pending) : recovery.cancel(pending));
+          assert.equal(resumed.outcome, action === 'retry' ? 'CONFIRMED' : 'CANCELLED');
+          assert.equal(storage.length, 0);
+          const operation = (await db.query('SELECT actor_id FROM sports_management.team_enrollment_operations WHERE enrollment_key=$1', [fresh.enrollmentKey])).rows;
+          assert.deepEqual(operation, [{ actor_id: actor.id }]);
+        }
+        const fresh = payload();
+        const capture = { clubId, seasonId: fresh.seasonId, categoryId: fresh.categoryId, groupId: fresh.groupId,
+          team: { kind: 'new', name: fresh.team.name } };
+        const storage = memory();
+        const storageKey = `team-enrollment:pending:${actor.id}`;
+        let current = actor.browser;
+        let switchAfterSession = true;
+        const statuses = [];
+        const api = createEnrollmentApi(async (url, init) => {
+          const response = await current.request(url, { ...init, headers: { ...init.headers, origin: baseUrl } });
+          if (url === '/api/auth/session') {
+            // El GET comprobó A, pero el siguiente POST ya recibe la cookie de B.
+            if (switchAfterSession) current = peer.browser;
+          } else statuses.push(response.status);
+          return response;
+        }, storage, storageKey, actor.id, () => fresh.enrollmentKey);
+        const before = await state(fresh.enrollmentKey);
+        await assert.rejects(api.submit(capture), { code: 'FORBIDDEN', status: 403 });
+        assert.deepEqual(statuses, [403]);
+        assert.deepEqual(await state(fresh.enrollmentKey), before);
+        const saved = storage.getItem(storageKey);
+        assert.ok(saved);
+        assert.equal(api.pending().enrollmentKey, fresh.enrollmentKey);
+        current = actor.browser;
+        switchAfterSession = false;
+        assert.equal((await api.submit(capture)).kind, 'confirmed');
+        assert.deepEqual(statuses, [403, 201]);
+        assert.equal(storage.getItem(storageKey), null);
+        const operation = (await db.query('SELECT actor_id FROM sports_management.team_enrollment_operations WHERE enrollment_key=$1', [fresh.enrollmentKey])).rows;
+        assert.deepEqual(operation, [{ actor_id: actor.id }]);
+      });
+      await t.test('recuperación y cancelación exigen sesión, alcance y contrato; nunca revelan operaciones ajenas', async () => {
+        const fresh = payload();
+        assert.equal((await recover(new Browser(baseUrl), fresh)).status, 401);
+        assert.equal((await cancel(new Browser(baseUrl), fresh)).status, 401);
+        for (const browser of [restricted.browser, ordinary.browser]) {
+          assert.equal((await recover(browser, fresh)).status, 403);
+          assert.equal((await cancel(browser, fresh)).status, 403);
+        }
+        assert.equal((await recover(actor.browser, { ...fresh, clubId: otherClub })).status, 403);
+        assert.equal((await cancel(actor.browser, { ...fresh, clubId: otherClub })).status, 403);
+        assert.equal((await actor.browser.request(`${operationPath(fresh)}?clubId=${clubId}&enrollmentKey=${body.enrollmentKey}`)).status, 400);
+        assert.equal((await actor.browser.request(`${operationPath(fresh)}?clubId=${clubId}&clubId=${clubId}`)).status, 400);
+        assert.equal((await actor.browser.request(`${operationPath(fresh)}/cancel`, { method: 'POST', headers: {
+          origin: 'https://other.example.test', 'content-type': 'application/json' }, body: JSON.stringify(fresh) })).status, 403);
+        assert.equal((await actor.browser.request(`${operationPath(fresh)}/cancel`, { method: 'POST', headers: {
+          origin: baseUrl, 'content-type': 'application/json' }, body: JSON.stringify(body) })).status, 400);
+      });
       await t.test('varios equipos del mismo club, sin activar ni sobrescribir inscripciones', async () => {
         const response = await post(actor.browser, payload());
         assert.equal(response.status, 201);
@@ -296,6 +514,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
         assert.deepEqual((await base.json()).clubs.map((c) => c.id), [clubId]);
         const options = await (await actor.browser.request(`/api/team-enrollments/options?clubId=${clubId}&seasonId=${context.id}`)).json();
         assert.equal(options.categories.length, 1);
+        assert.deepEqual(options.capabilities, { clubId, canEnroll: true, canCreateTeam: true });
         assert.equal(options.categories[0].id, context.categories[0].id);
         assert.equal(options.groups.length, 2);
         assert.ok(options.teams.find((team) => team.id === first.teamId).enrolledSeasonIds.includes(nextSeason.id));
@@ -318,7 +537,16 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
         await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [roleId, permission]);
         try {
           await deny(actor.browser, body, 403, 'FORBIDDEN');
-          assert.equal((await actor.browser.request('/api/team-enrollments/options')).status, 403);
+          const options = await actor.browser.request(`/api/team-enrollments/options?clubId=${clubId}`);
+          assert.equal(options.status, 200);
+          assert.deepEqual((await options.json()).capabilities, { clubId, canEnroll: false, canCreateTeam: false });
+          const catalog = await actor.browser.request(`/api/team-enrollments/catalogs?clubId=${clubId}`);
+          assert.equal(catalog.status, 200);
+          assert.ok((await catalog.json()).seasons.length);
+          assert.equal((await actor.browser.request(`/api/team-enrollments?clubId=${clubId}`)).status, 200);
+          // READ puede recuperar un resultado propio aunque CREATE se haya retirado.
+          assert.equal((await (await recover(actor.browser, body)).json()).outcome, 'CONFIRMED');
+          assert.equal((await (await cancel(actor.browser, payload())).json()).outcome, 'CANCELLED');
         } finally { await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [roleId, permission]); }
         const readPermission = savedGrants.find((g) => g.action === 'READ').permission;
         await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [roleId, readPermission]);
@@ -335,6 +563,25 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
         await db.query("UPDATE sports_management.clubs SET status='SUSPENDED' WHERE id=$1", [clubId]);
         try { await deny(actor.browser, body, 403, 'FORBIDDEN'); }
         finally { await db.query("UPDATE sports_management.clubs SET status='ACTIVE' WHERE id=$1", [clubId]); }
+      });
+      await t.test('no mezcla CREATE de Secretaría ni de otro club con una asignación de delegado sin CREATE', async () => {
+        const permission = savedGrants.find(g => g.roleId === roleId && g.action === 'CREATE').permission;
+        await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [roleId, permission]);
+        const extra = (await db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id)
+          VALUES ($1,$2,$3,$4) RETURNING id`, [actor.id, secretaryRoleId, league, otherClub])).rows[0].id;
+        try {
+          const response = await actor.browser.request(`/api/team-enrollments/options?clubId=${clubId}`);
+          assert.equal(response.status, 200);
+          assert.equal((await response.json()).capabilities.canCreateTeam, false);
+          await deny(actor.browser, payload(), 403, 'FORBIDDEN');
+          // Ni siquiera CREATE del mismo club, pero de otro rol, sustituye la concesión del delegado.
+          await db.query('UPDATE sports_management.user_roles SET club_id=$1 WHERE id=$2', [clubId, extra]);
+          assert.equal((await (await actor.browser.request(`/api/team-enrollments/options?clubId=${clubId}`)).json()).capabilities.canCreateTeam, false);
+          await deny(actor.browser, payload(), 403, 'FORBIDDEN');
+        } finally {
+          await db.query('DELETE FROM sports_management.user_roles WHERE id=$1', [extra]);
+          await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [roleId, permission]);
+        }
       });
       await t.test('fallo de auditoría revierte el equipo nuevo y la inscripción; permite reintentar', async () => {
         const fresh = payload();
@@ -374,9 +621,90 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl }
         assert.deepEqual(await counts(), before);
         const options = await (await actor.browser.request(`/api/team-enrollments/options?clubId=${clubId}&seasonId=${context.id}`)).json();
         assert.deepEqual(options.categories, []);
+        assert.equal(options.seasons.length, 0);
+        const historical = await actor.browser.request(`/api/team-enrollments/catalogs?clubId=${clubId}&seasonId=${context.id}`);
+        assert.equal(historical.status, 200);
+        const catalogs = await historical.json();
+        assert.deepEqual(catalogs.seasons.map(s => s.id), [context.id]);
+        assert.equal(catalogs.seasons[0].status, 'CLOSED');
         const listed = await actor.browser.request(`/api/team-enrollments?clubId=${clubId}&seasonId=${context.id}`);
         assert.equal(listed.status, 200);
-        assert.ok((await listed.json()).items.every((item) => item.status === 'REGISTERED'));
+        const rows = (await listed.json()).items;
+        assert.ok(rows.every((item) => item.status === 'REGISTERED'));
+        assert.ok(rows.every((item) => item.seasonName === catalogs.seasons[0].name && item.teamName && item.categoryName && item.groupName));
+      });
+      await t.test('catálogos READ incluyen temporadas cerradas y sin afiliación; filtros paginados sin CREATE', async () => {
+        const permission = savedGrants.find(g => g.roleId === roleId && g.action === 'CREATE').permission;
+        await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [roleId, permission]);
+        const noAffiliation = await season();
+        try {
+          const seen = [];
+          let after = '';
+          do {
+            const response = await actor.browser.request(`/api/team-enrollments/catalogs?clubId=${clubId}&limit=1${after ? `&seasonAfter=${after}` : ''}`);
+            assert.equal(response.status, 200);
+            const page = await response.json();
+            assert.equal(page.capabilities.canEnroll, false);
+            assert.equal(page.capabilities.canCreateTeam, false);
+            seen.push(...page.seasons);
+            after = page.nextSeasonAfter;
+          } while (after);
+          assert.equal(new Set(seen.map(s => s.id)).size, seen.length);
+          assert.ok(seen.some(s => s.id === context.id && s.status === 'CLOSED'));
+          assert.ok(seen.some(s => s.id === noAffiliation.id));
+          assert.equal(seen.some(s => s.id === elsewhere.id), false);
+          assert.equal((await actor.browser.request(`/api/team-enrollments/catalogs?clubId=${otherClub}`)).status, 403);
+          assert.equal((await actor.browser.request(`/api/team-enrollments/catalogs?clubId=${clubId}&limit=101`)).status, 400);
+          assert.equal((await actor.browser.request(`/api/team-enrollments?clubId=${clubId}&seasonId=${context.id}`)).status, 200);
+        } finally {
+          await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [roleId, permission]);
+        }
+      });
+      await t.test('seguridad de operaciones: Docker sin RLS, Supabase simulado con RLS y API sin ACL', async () => {
+        const sql = readFileSync(new URL('../../prisma/migrations/20261026010000_pdgld64_enrollment_operations/migration.sql', import.meta.url), 'utf8');
+        const targetGuard = sql.match(/DO \$target\$[\s\S]*?\$target\$;/)[0];
+        const security = sql.match(/DO \$security\$[\s\S]*?\$security\$;/)[0];
+        const rls = async () => (await db.query("SELECT relrowsecurity FROM pg_class WHERE oid='sports_management.team_enrollment_operations'::regclass")).rows[0].relrowsecurity;
+        assert.equal(await rls(), false);
+        await db.query('BEGIN');
+        try {
+          await db.query('CREATE SCHEMA auth');
+          await db.query('SAVEPOINT partial_markers');
+          await assert.rejects(db.query(targetGuard), /Marcadores parciales/);
+          await db.query('ROLLBACK TO SAVEPOINT partial_markers');
+          await db.query('CREATE SCHEMA storage; CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;');
+          await db.query('GRANT USAGE ON SCHEMA sports_management TO anon,authenticated,service_role');
+          await db.query('GRANT SELECT,INSERT ON sports_management.team_enrollment_operations TO anon,authenticated,service_role');
+          await db.query(targetGuard);
+          await db.query(security);
+          assert.equal(await rls(), true);
+          for (const role of ['anon', 'authenticated', 'service_role']) {
+            assert.equal((await db.query("SELECT has_table_privilege($1, 'sports_management.team_enrollment_operations','SELECT,INSERT,UPDATE,DELETE') allowed", [role])).rows[0].allowed, false);
+            await db.query('SAVEPOINT denied_api');
+            await db.query(`SET LOCAL ROLE ${role}`);
+            await assert.rejects(db.query('SELECT * FROM sports_management.team_enrollment_operations'), { code: '42501' });
+            await db.query('ROLLBACK TO SAVEPOINT denied_api');
+          }
+        } finally { await db.query('ROLLBACK'); }
+        assert.equal(await rls(), false);
+      });
+      await t.test('READ global pagina clubes y resuelve la selección aunque esté fuera de la primera página', async () => {
+        await db.query('UPDATE sports_management.user_roles SET league_id=NULL WHERE user_id=$1', [secretary.id]);
+        try {
+          const firstPage = await (await secretary.browser.request('/api/team-enrollments/catalogs?limit=1')).json();
+          assert.equal(firstPage.clubs.length, 1);
+          assert.ok(firstPage.nextClubAfter);
+          const selectedClub = [clubId, otherClub, foreignClub].find(id => id !== firstPage.clubs[0].id);
+          const selected = await secretary.browser.request(`/api/team-enrollments/catalogs?clubId=${selectedClub}&limit=1`);
+          assert.equal(selected.status, 200);
+          const options = await selected.json();
+          assert.equal(options.clubs[0].id, firstPage.clubs[0].id);
+          assert.equal(options.capabilities.clubId, selectedClub);
+          assert.equal(options.capabilities.canCreateTeam, false);
+          assert.ok(options.seasons.length);
+          const secondPage = await (await secretary.browser.request(`/api/team-enrollments/catalogs?limit=1&clubAfter=${firstPage.nextClubAfter}`)).json();
+          assert.notEqual(secondPage.clubs[0].id, firstPage.clubs[0].id);
+        } finally { await db.query('UPDATE sports_management.user_roles SET league_id=$1 WHERE user_id=$2', [league, secretary.id]); }
       });
     });
   } finally {

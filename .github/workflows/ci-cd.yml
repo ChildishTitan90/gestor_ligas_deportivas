@@ -58,6 +58,8 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Probar firmas de afiliación
         run: npm run test:signatures
+      - name: Probar recuperación de inscripciones y capacidades del cliente
+        run: npm run test:team-enrollment-client
       - name: Revisar el código
         run: npm run lint
       - name: Compilar la aplicación

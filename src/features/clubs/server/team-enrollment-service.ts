@@ -1,44 +1,35 @@
 import "server-only";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "@/server/auth/session";
-import { teamEnrollmentSchema, canonicalTeamEnrollment } from "../team-enrollment";
-import { assertEnrollmentDelegate, lockEnrollmentCategory, lockEnrollmentSeason, TeamEnrollmentError } from "./team-enrollment-access";
+import { teamEnrollmentSchema } from "../team-enrollment";
+import { assertEnrollmentActor, assertEnrollmentDelegate, lockEnrollmentCategory, lockEnrollmentSeason, TeamEnrollmentError } from "./team-enrollment-access";
 
-const enrollmentSelect = {
-  id: true, team_id: true, club_id: true, season_id: true, group_id: true, status: true,
-  groups: { select: { season_categories: { select: { category_id: true } } } },
-} satisfies Prisma.season_teamsSelect;
+import { enrollmentFingerprint, enrollmentResult, enrollmentSelect, findEnrollmentOperation, lockEnrollmentOperation } from "./team-enrollment-record";
 
-type EnrollmentRow = Prisma.season_teamsGetPayload<{ select: typeof enrollmentSelect }>;
-function result(row: EnrollmentRow, replayed: boolean) {
-  return { id: row.id, teamId: row.team_id, clubId: row.club_id, seasonId: row.season_id,
-    categoryId: row.groups.season_categories.category_id, groupId: row.group_id, status: row.status, replayed };
-}
-
-export async function enrollTeam(input: unknown) {
+export async function enrollTeam(input: unknown, expectedActorId?: string) {
   const actor = await requireOperationalUser();
+  assertEnrollmentActor(actor.id, expectedActorId);
   const parsed = teamEnrollmentSchema.safeParse(input);
   if (!parsed.success) throw new TeamEnrollmentError("VALIDATION_ERROR");
   const data = parsed.data;
-  const fingerprint = createHash("sha256").update(canonicalTeamEnrollment(data)).digest("hex");
+  const fingerprint = enrollmentFingerprint(data);
 
   try {
     return await getPrisma().$transaction(async (tx) => {
       await assertEnrollmentDelegate(tx, actor.id, data.clubId);
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`PDGLD-62:key:${actor.id}:${data.enrollmentKey}`}, 0))::text`;
-      const season = await lockEnrollmentSeason(tx, data.clubId, data.seasonId);
-      const prior = await tx.season_teams.findUnique({
-        where: { enrolled_by_enrollment_key: { enrolled_by: actor.id, enrollment_key: data.enrollmentKey } },
-        select: { ...enrollmentSelect, enrollment_hash: true },
-      });
+      await lockEnrollmentOperation(tx, actor.id, data.enrollmentKey);
+      const prior = await findEnrollmentOperation(tx, actor.id, data.enrollmentKey);
       if (prior) {
-        if (prior.enrollment_hash !== fingerprint) throw new TeamEnrollmentError("IDEMPOTENCY_CONFLICT", 409);
+        if ((prior.fingerprint && prior.fingerprint !== fingerprint) || prior.club_id !== data.clubId) throw new TeamEnrollmentError("IDEMPOTENCY_CONFLICT", 409);
+        if (prior.outcome === "CANCELLED") throw new TeamEnrollmentError("OPERATION_CANCELLED", 409);
         // Recuperar un resultado confirmado no escribe ni vuelve a habilitarlo.
         // Se exigen sesión, permiso y club vigentes incluso en este caso.
-        return result(prior, true);
+        if (!prior.season_teams) throw new Error("Invalid enrollment operation");
+        return enrollmentResult(prior.season_teams, true);
       }
+      const season = await lockEnrollmentSeason(tx, data.clubId, data.seasonId);
       if (season.status === "CLOSED") throw new TeamEnrollmentError("SEASON_CLOSED", 409);
       await lockEnrollmentCategory(tx, data);
       await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true),
@@ -65,8 +56,10 @@ export async function enrollTeam(input: unknown) {
           enrollment_key: data.enrollmentKey, enrollment_hash: fingerprint },
         select: enrollmentSelect,
       });
+      await tx.team_enrollment_operations.create({ data: { actor_id: actor.id, enrollment_key: data.enrollmentKey,
+        club_id: data.clubId, fingerprint, outcome: "CONFIRMED", enrollment_id: enrollment.id } });
       // El trigger de inscripción registra un solo evento, también dentro de ACID.
-      return result(enrollment, false);
+      return enrollmentResult(enrollment, false);
     }, { timeout: 15_000 });
   } catch (error) {
     // La restricción UNIQUE es la última defensa aunque escriba otro proceso.
