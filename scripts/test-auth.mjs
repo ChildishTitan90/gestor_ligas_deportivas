@@ -77,6 +77,7 @@ const databaseName = `pdgld48_test_${randomBytes(8).toString('hex')}`;
 let childEnv;
 let baseUrl;
 const accountOptionMetrics = [];
+let previewRoles = [];
 
 async function stopServer() {
   if (!server || server.exitCode !== null || server.signalCode !== null) return;
@@ -159,6 +160,11 @@ async function cleanup() {
         await admin.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()', [databaseName]);
         await admin.query(`DROP DATABASE "${databaseName}"`);
         databaseCreated = false;
+        for (const role of previewRoles) {
+          if (!['anon','authenticated','service_role','gestor_ligas_preview'].includes(role)) throw new Error('Rol temporal no válido.');
+          await admin.query(`DROP ROLE "${role}"`);
+        }
+        previewRoles = [];
       }
     } finally {
       if (admin) await admin.end();
@@ -177,8 +183,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments'].includes(arg)))
-    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments].');
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview'].includes(arg)))
+    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview].');
   if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
   }
@@ -210,6 +216,20 @@ try {
   stage = 'aplicación de migraciones en base temporal';
   console.log('PDGLD-48: preparando PostgreSQL temporal y servidor local.');
   await command(['node_modules/prisma/build/index.js', 'migrate', 'deploy'], childEnv);
+  if (process.argv.includes('--preview')) {
+    stage = 'provisión del runtime limitado con RLS';
+    const { preparePreviewRuntime } = await import('../tests/integration/preview-runtime.mjs');
+    const fixture = new pg.Client({ connectionString: databaseUrl });
+    await fixture.connect();
+    const runtimePassword = randomBytes(32).toString('base64url');
+    try { previewRoles = await preparePreviewRuntime(fixture, databaseName, runtimePassword); }
+    finally { await fixture.end(); }
+    const runtimeUrl = new URL(databaseUrl);
+    runtimeUrl.username = 'gestor_ligas_preview';
+    runtimeUrl.password = runtimePassword;
+    childEnv.DATABASE_URL = runtimeUrl.href;
+    delete childEnv.DATABASE_CA_CERT;
+  }
   if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments')) {
     stage = 'comparación de migraciones y esquema';
     await command(['node_modules/prisma/build/index.js', 'migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code'], childEnv, true);
@@ -242,6 +262,21 @@ try {
       process.stdin.once('end', finish);
       process.stdin.resume();
     });
+  } else if (process.argv.includes('--preview')) {
+    stage = 'HTTP de afiliaciones, correcciones e inscripciones con rol limitado y RLS';
+    const { runCatalogAccountIntegrationSuite } = await import('../tests/integration/catalog-accounts.test.mjs');
+    await runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl, onAdministrator: async actor => {
+      await command(['--conditions=react-server', '--import', 'tsx', '--test', 'tests/integration/preview-authorization.test.ts'],
+        { ...childEnv, PREVIEW_TEST_ACTOR: actor.id }, true);
+    } });
+    const { runAffiliationIntegrationSuite } = await import('../tests/integration/affiliations.test.mjs');
+    await runAffiliationIntegrationSuite({ databaseUrl, baseUrl });
+    const { runTeamEnrollmentIntegrationSuite } = await import('../tests/integration/team-enrollments.test.mjs');
+    await runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, preview: true });
+    const { verifyPreviewRuntime } = await import('../tests/integration/preview-runtime.mjs');
+    const fixture = new pg.Client({ connectionString: databaseUrl });
+    await fixture.connect();
+    try { await verifyPreviewRuntime(fixture); } finally { await fixture.end(); }
   } else if (process.argv.includes('--team-enrollments')) {
     stage = 'pruebas HTTP de inscripción PDGLD-62/64';
     const { runTeamEnrollmentIntegrationSuite } = await import('../tests/integration/team-enrollments.test.mjs');
@@ -294,10 +329,15 @@ try {
     'Las pruebas solo aceptan PostgreSQL loopback en puertos 5432/5433.',
     'DIRECT_URL contiene parámetros no permitidos para pruebas locales.',
     'Detén el servidor npm run dev antes de ejecutar estas pruebas.',
-    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments].',
+    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview].',
     'Next.js no quedó disponible para las pruebas locales.',
   ]);
   console.error(safeMessages.has(error.message) ? error.message : `No se completó la fase: ${stage}.`);
+  if (process.argv.includes('--preview') && [
+    'Destino de provisión de Preview no autorizado', 'No se reconoce la instalación de pruebas',
+    'La provisión exige RLS activo en todas las tablas', 'El rol de Preview debe ser limitado y sin membresías',
+    'Preview no debe ser propietario ni tener CREATE', 'Preview tiene acceso al ledger de Prisma',
+  ].includes(error.message)) console.error(`Fixture de Preview: ${error.message}.`);
   process.exitCode = 1;
 } finally {
   try { await cleanup(); } catch {
