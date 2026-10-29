@@ -183,8 +183,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview'].includes(arg)))
-    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview].');
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--competitions'].includes(arg)))
+    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --competitions].');
   if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
   }
@@ -230,7 +230,7 @@ try {
     childEnv.DATABASE_URL = runtimeUrl.href;
     delete childEnv.DATABASE_CA_CERT;
   }
-  if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments')) {
+  if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments') || process.argv.includes('--competitions')) {
     stage = 'comparación de migraciones y esquema';
     await command(['node_modules/prisma/build/index.js', 'migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code'], childEnv, true);
   }
@@ -277,6 +277,10 @@ try {
     const fixture = new pg.Client({ connectionString: databaseUrl });
     await fixture.connect();
     try { await verifyPreviewRuntime(fixture); } finally { await fixture.end(); }
+  } else if (process.argv.includes('--competitions')) {
+    stage = 'configuración de temporadas';
+    const { runSeasonIntegrationSuite } = await import('../tests/integration/seasons.test.mjs');
+    await runSeasonIntegrationSuite({ databaseUrl, baseUrl });
   } else if (process.argv.includes('--team-enrollments')) {
     stage = 'pruebas HTTP de inscripción PDGLD-62/64';
     const { runTeamEnrollmentIntegrationSuite } = await import('../tests/integration/team-enrollments.test.mjs');
@@ -329,7 +333,7 @@ try {
     'Las pruebas solo aceptan PostgreSQL loopback en puertos 5432/5433.',
     'DIRECT_URL contiene parámetros no permitidos para pruebas locales.',
     'Detén el servidor npm run dev antes de ejecutar estas pruebas.',
-    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview].',
+    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --competitions].',
     'Next.js no quedó disponible para las pruebas locales.',
   ]);
   console.error(safeMessages.has(error.message) ? error.message : `No se completó la fase: ${stage}.`);

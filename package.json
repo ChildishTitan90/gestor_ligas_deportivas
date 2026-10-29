@@ -16,6 +16,7 @@
     "fsevents": false
   },
   "scripts": {
+    "test:competitions": "node scripts/test-auth.mjs --competitions",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

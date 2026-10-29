@@ -1,4 +1,5 @@
 import { CreateAccountLink } from "@/features/accounts/components/create-account-link";
+import { SeasonsLink } from "@/features/competitions/components/seasons-link";
 import { AffiliationReviewLink } from "@/features/clubs/components/affiliation-review-link";
 import { AffiliationCaptureLink } from "@/features/clubs/components/affiliation-capture-link";
 import type { Metadata } from "next";
@@ -50,6 +51,7 @@ export default async function AccessPage() {
             <ActionLink href="/teams/registrations" variant="secondary" className="mt-3 w-full">Inscripción y consulta de equipos</ActionLink>
             <AffiliationReviewLink />
             <AffiliationCaptureLink />
+            <SeasonsLink />
             <CreateAccountLink />
           </div>
         </section>

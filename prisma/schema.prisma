@@ -1689,7 +1689,8 @@ model season_categories {
   type                  String
   minimum_age           Int?
   maximum_age           Int?
-  age_cutoff_date       DateTime                @db.Date
+  age_cutoff_date       DateTime?               @db.Date
+  eligibility_pending   Boolean                 @default(false)
   competition_stages    competition_stages[]
   document_requirements document_requirements[]
   groups                groups[]
