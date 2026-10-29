@@ -6,6 +6,7 @@ import { Browser } from './auth.test.mjs';
 import { createAuthFixtures, fixturePassword } from './auth-fixtures.mjs';
 import { runRuleDraftTests } from './competition-rules.test.mjs';
 import { runCategoryTests } from './competition-categories.test.mjs';
+import { runGroupTests } from './competition-groups.test.mjs';
 
 export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl }) {
   const target = new URL(databaseUrl);
@@ -85,6 +86,7 @@ export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl }) {
       });
       await runRuleDraftTests({ t, db, baseUrl, admin, reader, league, other });
       await runCategoryTests({ t, db, baseUrl, admin, reader, league, other });
+      await runGroupTests({ t, db, baseUrl, admin, reader, league, other });
       await t.test('revocar CREATE invalida un formulario ya abierto', async () => {
         await db.query(`DELETE FROM sports_management.role_permissions rp USING sports_management.roles r,sports_management.permissions p
           WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code='SUPERADMIN' AND p.module='competitions' AND p.action='CREATE'`);

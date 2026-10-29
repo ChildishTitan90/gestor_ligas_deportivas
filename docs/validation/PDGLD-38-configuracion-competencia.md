@@ -62,7 +62,18 @@ La reconstrucción desde
 migraciones y su comparación con Prisma no detectaron diferencias. Las pruebas
 de inscripción conservan datos legados y el historial de otra temporada.
 
-## Siguiente trabajo de PDGLD-94/95/96
+## Cuarto incremento: grupos vacíos (29/10/2026)
+
+Alta, consulta, renombrado y eliminación segura de grupos vacíos mediante servicios
+y HTTP. Se comprueba temporada/participación, permisos vigentes, versión, cierre,
+referencias y auditoría. Sin vistas nuevas ni migraciones adicionales. No se
+declara completada la configuración de formatos o distribución de equipos.
+`test:competitions`: 29 resultados aprobados, reconstrucción/migrate diff sin
+diferencias; lint, typecheck y build aprobados. CI remoto no ejecutado.
+Contrato: [grupos](../architecture/competition-groups.md).
+Guía y tabla para coordinar con Vic: [integración de vistas](../design/PDGLD-95-datos-integracion-vic.md).
+
+## Trabajo restante
 
 - Edición de categorías/participaciones; validación y aprobación de convocatoria
   y parámetros versionados. No aplicar automáticamente propuestas DRAFT.

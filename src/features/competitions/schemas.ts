@@ -33,3 +33,8 @@ export const associateCategorySchema = z.strictObject({
   hierarchyOrder: z.number().int().positive(), type: z.enum(["OPEN", "YOUTH", "VETERANS"]),
   reason: z.string().trim().min(1).max(1000),
 });
+
+const groupVersion = { expectedSeasonVersion: z.number().int().positive(), reason: z.string().trim().min(1).max(1000) };
+export const groupCreateSchema = z.strictObject({ ...groupVersion, name: z.string().trim().min(1).max(120) });
+export const groupRenameSchema = groupCreateSchema.extend({ groupId: z.uuid() });
+export const groupDeleteSchema = z.strictObject({ ...groupVersion, groupId: z.uuid() });
