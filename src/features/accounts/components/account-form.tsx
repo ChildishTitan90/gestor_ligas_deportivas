@@ -148,7 +148,7 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
         {feedback("club")}
         <p className="text-sm text-muted">Se muestran hasta 100 clubes activos de la liga. El registro inicial permite habilitar al delegado; no implica afiliación aprobada ni inscripción de equipos.</p>
       </div>}
-      <button type="submit" disabled={loading || !roles.length || (!global && !league)} className="min-h-12 w-full rounded-xl bg-primary px-5 py-3 font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">{busy ? "Creando cuenta…" : "Crear cuenta"}</button>
+      <button type="submit" disabled={loading || !roles.length || (!global && !league)} className="min-h-12 w-full rounded-xl primary-action px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">{busy ? "Creando cuenta…" : "Crear cuenta"}</button>
     </fieldset>
     <p role="status" className="text-sm text-muted">{busy ? "Esperando confirmación del servidor…" : uncertain ? "El envío quedó detenido para evitar un alta repetida. Verifica el resultado antes de abrir un nuevo formulario." : "Se necesita conexión para crear la cuenta. La contraseña se limpia después de cada envío."}</p>
   </form>;

@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { LoginForm } from "@/features/auth/components/login-form";
 import { getAuthSession } from "@/server/auth/session";
 import { ActionLink } from "@/components/ui/action-link";
+import { ThemeSelector } from "@/components/ui/theme-selector";
 
 export const metadata: Metadata = { title: "Iniciar sesión" };
 
@@ -17,6 +18,7 @@ export default async function LoginPage() {
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-6xl flex-col justify-center px-6 py-10 sm:px-10 lg:py-16">
+      <div className="mb-6 flex justify-end"><ThemeSelector /></div>
       <div className="grid items-center gap-10 lg:grid-cols-[1fr_0.95fr] lg:gap-20">
         <section aria-labelledby="welcome-title" className="max-w-lg">
           <p className="mb-5 flex items-center gap-3 text-xs font-semibold tracking-[0.15em] text-primary uppercase">

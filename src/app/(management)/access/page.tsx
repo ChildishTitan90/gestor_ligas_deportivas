@@ -1,12 +1,7 @@
-import { CreateAccountLink } from "@/features/accounts/components/create-account-link";
-import { AffiliationReviewLink } from "@/features/clubs/components/affiliation-review-link";
-import { AffiliationCaptureLink } from "@/features/clubs/components/affiliation-capture-link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AuthAccessError } from "@/server/auth/session";
 import { getCurrentAccount } from "@/features/auth/server/account-presentation";
-import { AccountHeader } from "@/components/layout/account-header";
-import { ActionLink } from "@/components/ui/action-link";
 import { AccessOverview } from "@/features/auth/components/access-overview";
 import { getAccessOverview } from "@/features/auth/server/access-overview";
 import { AuthorizationError } from "@/server/auth/authorization";
@@ -14,7 +9,7 @@ import { AuthorizationError } from "@/server/auth/authorization";
 export const metadata: Metadata = { title: "Acceso a la liga" };
 
 export default async function AccessPage() {
-  const current = await getCurrentAccount({ includeAssignments: true });
+  const current = await getCurrentAccount();
 
   if (!current) redirect("/login");
   if (current.mustChangePassword) redirect("/change-password");
@@ -29,10 +24,7 @@ export default async function AccessPage() {
   }
 
   return (
-    <>
-    <AccountHeader account={current.account} />
-    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10 sm:px-10">
-      <div className="grid items-start gap-6 lg:grid-cols-[0.7fr_1.3fr]">
+      <div className="grid items-start gap-6 xl:grid-cols-[0.7fr_1.3fr]">
         <section aria-labelledby="access-title" className="overflow-hidden rounded-3xl border border-border bg-surface shadow-sm">
           <div className="h-1 bg-accent" />
           <div className="p-6 sm:p-9">
@@ -46,16 +38,9 @@ export default async function AccessPage() {
             <p className="mt-4 text-sm leading-7 text-muted">
               Tu sesión está activa. Consulta las funciones autorizadas para tus ámbitos de participación.
             </p>
-            <ActionLink href="/futbol" variant="secondary" className="mt-6 w-full">Ver portal de fútbol</ActionLink>
-            <ActionLink href="/teams/registrations" variant="secondary" className="mt-3 w-full">Inscripción y consulta de equipos</ActionLink>
-            <AffiliationReviewLink />
-            <AffiliationCaptureLink />
-            <CreateAccountLink />
           </div>
         </section>
         <AccessOverview scopes={scopes} />
       </div>
-    </main>
-    </>
   );
 }

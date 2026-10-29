@@ -52,6 +52,7 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
   };
   const browser = new Browser(base.origin);
   const anonymous = new Browser(base.origin);
+  const navigation = (content: string) => content.match(/<nav\b[^>]*aria-label="Gestión de la liga"[\s\S]*?<\/nav>/)?.[0] ?? "";
   const scopeA = `Liga privada A ${suffix}`;
   const scopeB = `Liga privada B ${suffix}`;
   const clubName = `Club privado ${suffix}`;
@@ -126,7 +127,18 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
       assert.ok(header.includes("Mi panel"));
       assert.ok(header.includes("Portal público"));
       assert.ok(header.indexOf("Mi panel") < header.indexOf("Portal público"));
-      assert.equal((content.match(/>Cerrar sesión</g) ?? []).length, 1);
+      assert.equal((content.match(/>Cerrar sesión</g) ?? []).length, 2);
+      const sidebar = content.match(/<aside\b[\s\S]*?<\/aside>/)?.[0] ?? "";
+      assert.ok(sidebar.includes("Cerrar sesión"));
+      assert.ok(header.includes("Cerrar sesión"));
+      assert.ok(header.includes("Ocultar menú de gestión") && header.includes('aria-expanded="true"'));
+      assert.equal((content.match(/<header\b/g) ?? []).length, 1);
+      assert.equal((content.match(/<main\b/g) ?? []).length, 1);
+      const menu = navigation(content);
+      assert.ok(menu.includes('href="/access"') && menu.includes('aria-current="page"'));
+      assert.ok(menu.includes('href="/affiliations/review"'));
+      for (const path of ["/accounts/new", "/affiliations/new", "/teams/registrations"])
+        assert.ok(!menu.includes(`href="${path}"`), "La navegación anunció un acceso sin capacidad o contexto disponible.");
       assert.ok(content.includes(scopeA) && content.includes(clubName) && content.includes("Consultar") && content.includes("Actualizar"));
       assert.ok(content.includes("restringido"));
       const serialized = JSON.stringify(scopes);
@@ -135,6 +147,44 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
       const login = await browser.request("/login");
       assert.equal(login.status, 307);
       assert.equal(new URL(login.headers.get("location")!, base).pathname, "/access");
+    });
+
+    await t.test("las pantallas de gestión comparten sidebar, un solo encabezado y sus URL directas", async () => {
+      for (const path of ["/access", "/accounts/new", "/affiliations/new", "/affiliations/review", "/teams/registrations"]) {
+        const page = await browser.request(path);
+        assert.equal(page.status, 200, path);
+        const content = await page.text();
+        assert.ok(navigation(content).includes('href="/access"'), path);
+        assert.equal((content.match(/<header\b/g) ?? []).length, 1, path);
+        assert.equal((content.match(/<main\b/g) ?? []).length, 1, path);
+        assert.equal((content.match(/>Cerrar sesión</g) ?? []).length, 2, path);
+        if (path === "/affiliations/review") {
+          const selected = navigation(content).match(/<a\b[^>]*aria-current="page"[^>]*>/)?.[0] ?? "";
+          assert.ok(selected.includes('href="/affiliations/review"'));
+        }
+      }
+      for (const path of ["/", "/futbol"]) {
+        const page = await browser.request(path);
+        assert.equal(navigation(await page.text()), "", "El portal público conserva su estructura propia.");
+      }
+    });
+
+    await t.test("el acceso a equipos reutiliza los clubes consultables y no mezcla ámbitos de roles distintos", async () => {
+      const ownClub = await db.clubs.create({ data: { league_id: leagueA.id, name: `Club autorizado ${suffix}`,
+        reference_number: `navigation-own-${suffix}` } });
+      try {
+        const page = await browser.request("/access");
+        assert.equal(page.status, 200);
+        assert.ok(navigation(await page.text()).includes('href="/teams/registrations"'));
+        const foreign = await browser.request(`/api/team-enrollments/catalogs?clubId=${club.id}`);
+        assert.equal(foreign.status, 403, "Mostrar el enlace no concede lectura en el club del otro rol.");
+        await db.clubs.update({ where: { id: ownClub.id }, data: { status: "SUSPENDED" } });
+        const updated = await browser.request("/access");
+        assert.equal(updated.status, 200);
+        assert.ok(!navigation(await updated.text()).includes('href="/teams/registrations"'));
+      } finally {
+        await db.clubs.update({ where: { id: ownClub.id }, data: { status: "SUSPENDED" } });
+      }
     });
 
     await t.test("la presentación conserva todos los ámbitos sin conceder permisos ni ampliar la sesión", async () => {
@@ -199,6 +249,8 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
       page = await browser.request("/access");
       assert.equal(page.status, 200);
       content = await page.text();
+      assert.ok(!navigation(content).includes('href="/affiliations/review"'));
+      assert.ok(!navigation(content).includes('href="/teams/registrations"'));
       const overview = await db.$transaction((tx) => readAccessOverview(tx, actor.id));
       assert.ok(!overview.some((scope) => scope.title === scopeA) && content.includes(clubName));
       await write((tx) => tx.user_roles.updateMany({ where: { user_id: actor.id, role_id: roleId("PLAYER") }, data: { starts_at: new Date(Date.now() + 3_600_000) } }));
@@ -206,6 +258,7 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
       assert.equal(page.status, 200);
       const futureContent = await page.text();
       assert.ok(futureContent.includes("Tu cuenta todavía no tiene funciones habilitadas."));
+      assert.equal((navigation(futureContent).match(/<a\b/g) ?? []).length, 1, "Sin capacidades solo debe quedar Mi panel.");
       const header = futureContent.match(/<header\b[\s\S]*?<\/header>/)?.[0] ?? "";
       assert.ok(!header.includes("Jugador") && !header.includes(clubName));
     });

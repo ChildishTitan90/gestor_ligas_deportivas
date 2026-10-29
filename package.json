@@ -40,6 +40,8 @@
     "test:team-registration-form": "node --import tsx --test src/features/clubs/team-registration-form.test.tsx",
     "test:team-registration-http": "node --import tsx --test src/features/clubs/team-registration-http.test.tsx",
     "test:session-activity": "node --import tsx --test src/features/auth/components/session-activity.test.mjs",
+    "test:management-navigation": "node --test src/features/auth/client/sign-out.client.test.mjs",
+    "test:theme": "node --import tsx --test src/lib/theme.test.ts",
     "test:team-registration": "npm run test:team-registration-form && npm run test:team-registration-list && npm run test:team-registration-http && npm run test:session-activity",
     "test:team-registration-browser": "node --test tests/e2e/team-registration-session.test.mjs",
     "test:team-registration-list": "node --import tsx --test src/features/clubs/team-registration-list.test.tsx",

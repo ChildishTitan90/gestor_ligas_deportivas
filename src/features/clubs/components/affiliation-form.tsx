@@ -45,7 +45,7 @@ const inputClass =
   "mt-2 min-h-12 w-full rounded-xl border border-border bg-surface px-3.5 py-3 text-base focus:border-primary";
 
 const buttonClass =
-  "min-h-12 rounded-xl bg-primary px-5 py-3 font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60";
+  "min-h-12 rounded-xl primary-action px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-60";
 
 export function AffiliationForm(props: AffiliationFormProps) {
   const context = props.submissionContext;

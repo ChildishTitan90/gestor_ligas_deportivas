@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ComponentProps } from "react";
 
 const variants = {
-  primary: "bg-primary text-surface hover:bg-primary-hover",
+  primary: "primary-action",
   secondary: "border border-border bg-surface text-primary hover:bg-background",
 };
 

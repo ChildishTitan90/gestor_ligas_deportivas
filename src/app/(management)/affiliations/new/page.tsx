@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { AccountHeader } from "@/components/layout/account-header";
 import { ActionLink } from "@/components/ui/action-link";
 import { getCurrentAccount } from
   "@/features/auth/server/account-presentation";
@@ -44,18 +43,13 @@ export default async function NewAffiliationPage({
     unavailable = !(error instanceof AuthorizationError);
   }
 
-  const current = await getCurrentAccount({
-    includeAssignments: true,
-  });
+  const current = await getCurrentAccount();
 
   if (!current) redirect("/login");
   if (current.mustChangePassword) redirect("/change-password");
 
   return (
-    <>
-      <AccountHeader account={current.account} />
-
-      <main className="mx-auto w-full max-w-5xl flex-1 space-y-6 px-6 py-10 sm:px-10">
+      <div className="mx-auto w-full max-w-5xl space-y-6">
         <ActionLink href="/access" variant="secondary">Volver al panel</ActionLink>
         <h1 className="text-2xl font-semibold text-primary">
           Mis solicitudes de afiliación
@@ -99,7 +93,7 @@ export default async function NewAffiliationPage({
 
               <button
                 type="submit"
-                className="min-h-12 rounded-xl bg-primary px-5 py-3 font-semibold text-white"
+                className="min-h-12 rounded-xl primary-action px-5 py-3 font-semibold"
               >
                 Abrir selección
               </button>
@@ -162,7 +156,6 @@ export default async function NewAffiliationPage({
             ) : null}
           </>
         )}
-      </main>
-    </>
+      </div>
   );
 }

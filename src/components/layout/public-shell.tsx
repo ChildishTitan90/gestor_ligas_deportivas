@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { ActionLink } from "@/components/ui/action-link";
+import { ThemeSelector } from "@/components/ui/theme-selector";
 import { AccountMenu } from "@/features/auth/components/account-menu";
 import type { CurrentAccount } from "@/features/auth/types";
 
@@ -25,9 +26,11 @@ export function PublicShell({
             {football ? "Liga Municipal de Fútbol" : "Gestor de Ligas Deportivas"}
             <span className="block text-xs font-normal text-muted sm:text-sm">{football ? "Morelia" : "Nuestra comunidad deportiva"}</span>
           </Link>
-          {current ? <AccountMenu username={current.account.username} initials={current.account.initials}
+          <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+            {current ? <AccountMenu username={current.account.username} initials={current.account.initials}
             mustChangePassword={current.mustChangePassword} publicView />
-            : <ActionLink href="/login" className="shrink-0">Iniciar sesión</ActionLink>}
+            : <><ThemeSelector /><ActionLink href="/login" className="shrink-0">Iniciar sesión</ActionLink></>}
+          </div>
         </div>
       </header>
       <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-10 sm:px-10 sm:py-14">

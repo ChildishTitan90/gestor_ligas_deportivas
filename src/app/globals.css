@@ -13,6 +13,14 @@
   --color-soft: var(--soft);
   --color-danger: var(--danger);
   --color-danger-surface: var(--danger-surface);
+  --color-action: var(--action);
+  --color-action-hover: var(--action-hover);
+  --color-on-action: var(--on-action);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-overlay: var(--overlay);
+  --color-positive: var(--positive);
+  --color-positive-surface: var(--positive-surface);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -31,4 +39,115 @@ body {
 ::selection {
   background: var(--soft);
   color: var(--primary);
+}
+
+/* Colores semánticos directos: el relleno principal no depende de que el
+   servidor de desarrollo regenere utilidades al incorporar nuevos tokens. */
+.primary-action {
+  background-color: var(--action);
+  color: var(--on-action);
+}
+
+.primary-action:hover:not(:disabled),
+.group:hover .primary-action {
+  background-color: var(--action-hover);
+}
+
+.management-sidebar {
+  background-color: var(--sidebar);
+  color: var(--sidebar-foreground);
+  border-right: 1px solid var(--sidebar-border);
+}
+
+.management-sidebar :focus-visible {
+  outline-color: var(--sidebar-foreground);
+}
+
+.sidebar-link:hover,
+.sidebar-link[aria-current="page"],
+.sidebar-brand-mark {
+  background-color: var(--sidebar-active);
+}
+
+.sidebar-link {
+  color: var(--sidebar-foreground);
+}
+
+.sidebar-divider {
+  border-color: var(--sidebar-border);
+}
+
+.sidebar-muted {
+  color: color-mix(in srgb, var(--sidebar-foreground) 75%, transparent);
+}
+
+.management-overlay {
+  background-color: color-mix(in srgb, var(--overlay) 50%, transparent);
+}
+
+.management-brand-row,
+.management-header-row,
+.management-footer-row {
+  min-height: 4rem;
+  box-sizing: border-box;
+}
+
+.management-brand-row {
+  padding-block: 0.5rem;
+}
+
+@media (min-width: 64rem) {
+  .management-brand-row,
+  .management-header-row,
+  .management-footer-row {
+    min-height: 5rem;
+  }
+
+  .management-brand-row { padding-block: 1rem; }
+}
+
+.theme-switch-track {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 3.75rem;
+  height: 2rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background-color: var(--soft);
+}
+
+.theme-switch-track[data-checked="true"] {
+  background-color: var(--action);
+  border-color: var(--action);
+}
+
+.theme-switch-moon,
+.theme-switch-sun {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.theme-switch-moon { left: 7px; color: var(--on-action); }
+.theme-switch-sun { right: 7px; color: var(--primary); }
+
+.theme-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background-color: var(--primary);
+  transition: transform 160ms ease;
+}
+
+.theme-switch-track[data-checked="true"] .theme-switch-thumb {
+  transform: translateX(1.75rem);
+  background-color: var(--on-action);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-switch-thumb { transition: none; }
 }

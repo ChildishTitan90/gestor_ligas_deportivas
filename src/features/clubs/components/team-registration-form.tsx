@@ -92,7 +92,7 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
     {season && categories.length > 0 && (category ? !groups.length : !categories.some(item => item.groups.length > 0)) &&
       <p className="text-sm text-muted">No hay grupos disponibles para {category ? "la categoría seleccionada" : "las categorías de esta temporada"}.</p>}
     <button type="submit" disabled={locked || !hasRequiredOptions}
-      className="min-h-12 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-surface hover:bg-primary-hover disabled:opacity-50">
+      className="min-h-12 rounded-xl primary-action px-5 py-3 text-sm font-semibold disabled:opacity-50">
       {submitting ? "Enviando inscripción…" : "Inscribir equipo"}
     </button>
     {state.retryAvailable && <button type="button" className={controlClass} disabled={disabled || submitting || !season?.canEnroll} onClick={() => void controller.retry()}>Recuperar resultado con el mismo envío</button>}

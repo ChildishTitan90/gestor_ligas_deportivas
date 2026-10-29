@@ -186,7 +186,7 @@ export function LoginForm() {
         <button
           type="submit"
           disabled={!isOnline || isSubmitting}
-          className="mt-1 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-surface transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-70"
+          className="mt-1 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl primary-action px-5 py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-70"
         >
           {isSubmitting && <span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-surface/40 border-t-surface motion-reduce:animate-none" />}
           {isSubmitting ? "Verificando acceso…" : "Iniciar sesión"}

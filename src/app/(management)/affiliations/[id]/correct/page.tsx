@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { AccountHeader } from "@/components/layout/account-header";
 import { ActionLink } from "@/components/ui/action-link";
 import { AffiliationForm } from "@/features/clubs/components/affiliation-form";
 import { getAffiliationCorrectionFormPageData } from "@/features/clubs/server/affiliation-form-queries";
@@ -21,15 +20,12 @@ export default async function CorrectAffiliationPage({ params }: { params: Promi
     if (error instanceof AuthorizationError || error instanceof AffiliationReviewError)
       message = "La solicitud no está disponible para corregirla o ya cambió. Consulta su estado actual.";
   }
-  const current = await getCurrentAccount({ includeAssignments: true });
+  const current = await getCurrentAccount();
   if (!current) redirect("/login");
   if (current.mustChangePassword) redirect("/change-password");
-  return <>
-    <AccountHeader account={current.account} />
-    <main className="mx-auto w-full max-w-5xl flex-1 space-y-6 px-6 py-10 sm:px-10">
+  return <div className="mx-auto w-full max-w-5xl space-y-6">
       <ActionLink href="/affiliations/new" variant="secondary">Volver a mis solicitudes</ActionLink>
       <h1 className="text-2xl font-semibold text-primary">Corregir solicitud de afiliación</h1>
       {data ? <AffiliationForm {...data} /> : <p role="alert">{message}</p>}
-    </main>
-  </>;
+  </div>;
 }
