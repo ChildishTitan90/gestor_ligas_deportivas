@@ -106,7 +106,7 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         await new Browser(baseUrl).assertAccess(401, 'UNAUTHENTICATED');
         const login = await new Browser(baseUrl).request('/login');
         assert.equal(login.status, 200, 'La pantalla de acceso debe compilar y responder.');
-        assert.match(await login.text(), /Correo electrónico/);
+        assert.match(await login.text(), /Usuario o correo electrónico/);
       });
 
       await t.test('correo sin distinguir mayúsculas autentica y expone solo UUID/estado', async () => {
@@ -123,6 +123,20 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
           assert.match(cookie, /;\s*HttpOnly(?:;|$)/i);
           assert.match(cookie, /;\s*SameSite=Lax(?:;|$)/i);
           assert.match(cookie, /;\s*Path=\/(?:;|$)/i);
+        }
+      });
+
+      await t.test('usuario y correo resuelven la misma cuenta sin distinguir mayúsculas ni interpretar comodines', async () => {
+        const browser = new Browser(baseUrl);
+        assert.equal((await browser.login(' PDGLD48_OPERATIONAL ', fixturePassword)).searchParams.has('error'), false);
+        assertPublicIdentity(await browser.session(), fixtures.operational.id, false);
+        const underscore = new Browser(baseUrl);
+        assert.equal((await underscore.login('pdgld48_underscore', fixturePassword)).searchParams.has('error'), false);
+        assertPublicIdentity(await underscore.session(), fixtures.underscore.id, false);
+        for (const username of ['pdgld48_operativ_', 'pdgld48_%']) {
+          const denied = new Browser(baseUrl);
+          assert.equal((await denied.login(username, fixturePassword)).searchParams.get('error'), 'CredentialsSignin');
+          assert.equal((await denied.session()).user, undefined);
         }
       });
 
@@ -143,11 +157,11 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         await browser.assertAccess(200);
       });
 
-      await t.test('errores genéricos para cuenta ausente, deshabilitada, bloqueada o hash inválido', async () => {
+      await t.test('errores genéricos para cuenta ausente, deshabilitada o hash inválido', async () => {
         const attempts = [
           [fixtures.operational.email, 'incorrecta'], ['ausente@example.test', fixturePassword],
           ['operativ_@example.test', fixturePassword], ['%@example.test', fixturePassword],
-          [fixtures.inactive.email, fixturePassword], [fixtures.locked.email, fixturePassword],
+          [fixtures.inactive.email, fixturePassword],
           [fixtures.unknownHash.email, fixturePassword], [fixtures.corruptHash.email, fixturePassword],
           [undefined, fixturePassword], [fixtures.operational.email, undefined],
           ['correo-invalido', fixturePassword], [fixtures.operational.email, ''],
@@ -160,6 +174,14 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
           assert.equal((await browser.session()).user, undefined, 'El rechazo no debe crear una identidad.');
           await browser.assertAccess(401, 'UNAUTHENTICATED');
         }
+      });
+
+      await t.test('el bloqueo vigente devuelve solo política y tiempo restante, sin crear sesión', async () => {
+        const browser = new Browser(baseUrl);
+        const result = await browser.login(fixtures.locked.email, fixturePassword);
+        assert.match(result.searchParams.get('error'), /^LOGIN_LOCKED_5_(?:[1-9]|1[0-5])$/);
+        assert.equal((await browser.session()).user, undefined);
+        await browser.assertAccess(401, 'UNAUTHENTICATED');
       });
 
       await t.test('CSRF ausente impide autenticar incluso con credenciales correctas', async () => {
@@ -212,9 +234,10 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
 
       await t.test('cinco fallos simultáneos se conservan y bloquean sin prolongar el bloqueo', async () => {
         const account = fixtures.concurrent;
-        const results = await Promise.all(Array.from({ length: 5 }, () =>
-          new Browser(baseUrl).login(account.email, 'incorrecta')));
-        for (const result of results) assert.equal(result.searchParams.get('error'), 'CredentialsSignin');
+        const results = await Promise.all(Array.from({ length: 5 }, (_, index) =>
+          new Browser(baseUrl).login(index % 2 ? 'pdgld48_concurrent' : account.email, 'incorrecta')));
+        assert.equal(results.filter(result => result.searchParams.get('error') === 'CredentialsSignin').length, 4);
+        assert.equal(results.filter(result => /^LOGIN_LOCKED_5_15$/.test(result.searchParams.get('error'))).length, 1);
         const state = async () => (await client.query(
           'SELECT failed_login_attempts, locked_until FROM sports_management.users WHERE id = $1',
           [account.id],
@@ -229,7 +252,7 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         assert.equal((await audit()).filter((action) => action === 'LOGIN_FAILED').length, 5);
         assert.equal((await audit()).filter((action) => action === 'BLOCK').length, 1);
         const browser = new Browser(baseUrl);
-        assert.equal((await browser.login(account.email, fixturePassword)).searchParams.get('error'), 'CredentialsSignin');
+        assert.match((await browser.login(account.email, fixturePassword)).searchParams.get('error'), /^LOGIN_LOCKED_5_(?:[1-9]|1[0-5])$/);
         assert.deepEqual(await state(), locked, 'Un intento durante el bloqueo no altera su vencimiento.');
         assert.equal((await audit()).filter((action) => action === 'BLOCK').length, 1);
         assert.equal((await audit()).filter((action) => action === 'LOGIN_FAILED').length, 6);
@@ -285,7 +308,8 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
             assert.deepEqual(await state(), { failed_login_attempts: i, locked_until: null });
           }
           const start = Date.now();
-          await new Browser(baseUrl).login(account.email, 'incorrecta');
+          const blocked = await new Browser(baseUrl).login(account.email, 'incorrecta');
+          assert.equal(blocked.searchParams.get('error'), 'LOGIN_LOCKED_3_2');
           const locked = await state();
           assert.equal(locked.failed_login_attempts, 3);
           assert.ok(locked.locked_until.getTime() >= start + 120_000);
