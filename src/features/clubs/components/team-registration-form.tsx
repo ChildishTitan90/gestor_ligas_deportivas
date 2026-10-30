@@ -3,6 +3,8 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { createTeamRegistrationFormController, registrationChoices, type TeamRegistrationField, type TeamRegistrationFormController } from "../team-registration-form-controller";
 import type { TeamRegistrationFormOptions, TeamRegistrationOption, TeamRegistrationSubmit } from "../team-registration-model";
+import { SelectField } from "@/components/ui/select-field";
+import { focusFormControl } from "@/components/ui/focus-form-control";
 
 const controlClass = "mt-2 min-h-12 w-full rounded-xl border border-border bg-surface px-3.5 py-3 text-base focus:border-primary disabled:opacity-50";
 
@@ -25,12 +27,10 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
   useEffect(() => {
     if (disabled || submitting) return;
     const firstError = Object.keys(errors)[0];
-    const target = firstError ? formRef.current?.elements.namedItem(firstError) : null;
-    if (target instanceof HTMLElement) target.focus();
-    else if (state.message) messageRef.current?.focus();
-    else if (["confirmed", "cancelled"].includes(previousOutcome.current) && state.outcome === "idle") {
-      const clubControl = formRef.current?.elements.namedItem("clubId");
-      if (clubControl instanceof HTMLElement) clubControl.focus();
+    const focused = firstError && focusFormControl(formRef.current, firstError);
+    if (!focused && state.message) messageRef.current?.focus();
+    else if (!focused && ["confirmed", "cancelled"].includes(previousOutcome.current) && state.outcome === "idle") {
+      focusFormControl(formRef.current, "clubId");
     }
     previousOutcome.current = state.outcome;
   }, [disabled, submitting, errors, state.message, state.outcome]);
@@ -46,15 +46,13 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
     items: readonly TeamRegistrationOption[], disabled = false) {
     return <div>
       <label htmlFor={`${prefix}-${field}`} className="text-sm font-medium">{label} *</label>
-      <select id={`${prefix}-${field}`} name={field} value={draft[field]} required disabled={disabled || locked}
-        onChange={event => {
-          controller.change(field, event.target.value);
+      <SelectField id={`${prefix}-${field}`} name={field} value={draft[field]} required disabled={disabled || locked}
+        onValueChange={value => {
+          controller.change(field, value);
           if (field === "clubId" || field === "seasonId") { const next = controller.getSnapshot().draft; onContextChange?.(next.clubId, next.seasonId); }
         }} aria-invalid={!!errors[field]}
-        aria-describedby={errors[field] ? `${prefix}-${field}-error` : undefined} className={controlClass}>
-        <option value="">Selecciona una opción</option>
-        {items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select>
+        aria-describedby={errors[field] ? `${prefix}-${field}-error` : undefined} className="mt-2"
+        options={items.map(item => ({ value: item.id, label: item.name }))} />
       {error(field)}
     </div>;
   }
