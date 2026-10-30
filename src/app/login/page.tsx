@@ -42,7 +42,7 @@ export default async function LoginPage() {
           <div className="p-6 sm:p-9">
             <p className="mb-2 text-xs font-semibold tracking-widest text-muted uppercase">Acceso a la liga</p>
             <h2 id="login-title" className="text-2xl font-semibold tracking-tight">Iniciar sesión</h2>
-            <p className="mt-2 mb-7 text-sm leading-6 text-muted">Usa el correo y la contraseña de tu cuenta.</p>
+            <p className="mt-2 mb-7 text-sm leading-6 text-muted">Usa tu usuario o correo y la contraseña de tu cuenta.</p>
             <LoginForm />
             <ActionLink href="/futbol" variant="secondary" className="mt-4 w-full">Continuar como espectador</ActionLink>
             <p className="mt-7 border-t border-border pt-5 text-sm leading-6 text-muted">
