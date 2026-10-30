@@ -2,10 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { build } from "esbuild";
 import { createServer } from "node:http";
-import { spawn } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { launchChrome } from "./chrome-session.mjs";
+import { readFile } from "node:fs/promises";
 
 // React DOM real en Chrome headless; red y datos de negocio exclusivamente sintéticos.
 // No inicia Next, importa servicios de servidor ni contacta una base de datos.
@@ -275,24 +273,12 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
     else { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><link rel="stylesheet" href="/controls.css"><div id="root"></div><script src="/bundle.js"></script>'); }
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  const profile = await mkdtemp(join(tmpdir(), "pdgld63-browser-"));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const chrome = spawn(process.env.CHROME_BIN ?? (process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "google-chrome"), [
-    "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=0", `--user-data-dir=${profile}`, origin,
-  ], { stdio: ["ignore", "ignore", "pipe"] });
+  let browser;
   let socket;
   try {
-    const endpoint = await new Promise((resolve, reject) => {
-      let stderr = "";
-      chrome.once("error", reject); chrome.once("exit", code => reject(new Error(`Chrome exited: ${code}`)));
-      chrome.stderr.on("data", chunk => { stderr += chunk; const match = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/); if (match) resolve(match[1]); });
-    });
-    const base = new URL(endpoint); const listUrl = `http://${base.host}/json/list`;
-    let page;
-    for (let n = 0; n < 100 && !page; n++) { page = (await (await fetch(listUrl)).json()).find(target => target.url.startsWith(origin)); if (!page) await new Promise(resolve => setTimeout(resolve, 20)); }
-    assert.ok(page, "Missing synthetic page");
-    socket = new WebSocket(page.webSocketDebuggerUrl);
-    await new Promise((resolve, reject) => { socket.addEventListener("open", resolve, { once: true }); socket.addEventListener("error", reject, { once: true }); });
+    browser = await launchChrome(origin);
+    socket = browser.socket;
     let commandId = 0;
     const evaluate = () => new Promise((resolve, reject) => {
       const id = ++commandId;
@@ -311,5 +297,5 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
         await new Promise(resolve => setTimeout(resolve, 100)); }
     }
     assert.deepEqual(result, { parentPreserved: true, oldReadAborted: true, lateResponseHidden: true, pendingPreserved: true, posts: 0 });
-  } finally { socket?.close(); chrome.kill(); await new Promise(resolve => server.close(resolve)); }
+  } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
 });
