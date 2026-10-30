@@ -70,19 +70,23 @@ export async function lockEnrollmentSeason(tx: Prisma.TransactionClient, clubId:
 }
 
 export async function lockEnrollmentCategory(tx: Prisma.TransactionClient,
-  data: { clubId: string; seasonId: string; categoryId: string; groupId: string }) {
+  data: { clubId: string; seasonId: string; categoryId: string; groupId?: string }) {
   const affiliation = await tx.$queryRaw<{ id: string; status: string }[]>`
     SELECT id, status FROM sports_management.club_affiliations
     WHERE club_id = ${data.clubId}::uuid AND season_id = ${data.seasonId}::uuid FOR SHARE
   `;
   if (affiliation[0]?.status !== "APPROVED") throw new TeamEnrollmentError("AFFILIATION_NOT_APPROVED", 409);
-  const category = await tx.$queryRaw<{ id: string }[]>`
-    SELECT g.id FROM sports_management.groups g
-    JOIN sports_management.season_categories sc ON sc.id = g.season_category_id AND sc.season_id = g.season_id
+  const category = await tx.$queryRaw<{ id: string | null; participation: string; mode: string }[]>`
+    SELECT g.id, sc.id AS participation, sc.competition_format AS mode FROM sports_management.season_categories sc
+    LEFT JOIN sports_management.groups g ON sc.id = g.season_category_id AND sc.season_id = g.season_id
     JOIN sports_management.categories c ON c.id = sc.category_id
     JOIN sports_management.seasons s ON s.id = sc.season_id AND s.league_id = c.league_id AND s.sport_id = c.sport_id
-    WHERE g.id = ${data.groupId}::uuid AND g.season_id = ${data.seasonId}::uuid
-      AND c.id = ${data.categoryId}::uuid FOR SHARE OF g, sc, c
+    WHERE sc.season_id = ${data.seasonId}::uuid
+      AND ((sc.competition_format = 'LEGACY_GROUPS' AND g.id = ${data.groupId ?? null}::uuid)
+        OR (sc.competition_format = 'GENERAL_TABLE' AND g.name = 'General'
+          AND (${data.groupId ?? null}::uuid IS NULL OR g.id = ${data.groupId ?? null}::uuid))
+        OR (sc.competition_format = 'GROUP_STAGE' AND ${data.groupId ?? null}::uuid IS NULL))
+      AND c.id = ${data.categoryId}::uuid FOR SHARE OF sc, c
   `;
   if (!category.length) throw new TeamEnrollmentError("INVALID_CONTEXT");
   const authorization = await tx.$queryRaw<{ category_id: string }[]>`
@@ -92,4 +96,6 @@ export async function lockEnrollmentCategory(tx: Prisma.TransactionClient,
     FOR SHARE
   `;
   if (!authorization.length) throw new TeamEnrollmentError("CATEGORY_NOT_AUTHORIZED", 409);
+  return { groupId: category[0].mode === "GROUP_STAGE" ? null : category[0].id,
+    participationId: category[0].participation };
 }

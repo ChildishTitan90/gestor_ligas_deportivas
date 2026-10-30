@@ -1680,6 +1680,7 @@ model season_breaks {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model season_categories {
+  season_teams          season_teams[]
   club_affiliation_categories club_affiliation_categories[]
   id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   season_id             String                  @db.Uuid
@@ -1691,6 +1692,7 @@ model season_categories {
   maximum_age           Int?
   age_cutoff_date       DateTime?               @db.Date
   eligibility_pending   Boolean                 @default(false)
+  competition_format    String                  @default("LEGACY_GROUPS")
   competition_stages    competition_stages[]
   document_requirements document_requirements[]
   groups                groups[]
@@ -1709,12 +1711,14 @@ model season_categories {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model season_teams {
+  season_category_id                                   String?                          @db.Uuid
+  season_categories                                    season_categories?               @relation(fields: [season_category_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction, map: "enrollment_category_season_fk")
   team_enrollment_operation team_enrollment_operations?
   id                                                   String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   season_id                                            String                           @db.Uuid
   team_id                                              String                           @db.Uuid
   club_id                                              String                           @db.Uuid
-  group_id                                             String                           @db.Uuid
+  group_id                                             String?                          @db.Uuid
   status                                               String                           @default("REGISTERED")
   enrolled_by                                          String?                          @db.Uuid
   enrolled_at                                          DateTime?                        @db.Timestamptz(6)
@@ -1738,7 +1742,7 @@ model season_teams {
   sanctions                                            sanctions[]
   season_awards                                        season_awards[]
   club_affiliations                                    club_affiliations                @relation(fields: [club_id, season_id], references: [club_id, season_id], onDelete: NoAction, onUpdate: NoAction)
-  groups                                               groups                           @relation(fields: [group_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  groups                                               groups?                          @relation(fields: [group_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
   teams                                                teams                            @relation(fields: [team_id, club_id], references: [id, club_id], onDelete: NoAction, onUpdate: NoAction)
   standing_entries                                     standing_entries[]
   team_byes                                            team_byes[]
@@ -1751,6 +1755,7 @@ model season_teams {
   @@unique([enrolled_by, enrollment_key])
   @@index([club_id, season_id], map: "fk_season_teams_club_id_season_id_fkey")
   @@index([group_id, season_id], map: "fk_season_teams_group_id_season_id_fkey")
+  @@index([season_category_id, season_id])
   @@index([team_id, club_id], map: "fk_season_teams_team_id_club_id_fkey")
   @@schema("sports_management")
 }

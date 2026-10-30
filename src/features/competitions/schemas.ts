@@ -35,6 +35,11 @@ export const associateCategorySchema = z.strictObject({
 });
 
 const groupVersion = { expectedSeasonVersion: z.number().int().positive(), reason: z.string().trim().min(1).max(1000) };
+export const seasonEditSchema = z.strictObject({ ...groupVersion,
+  name: z.string().trim().min(1).max(160), startDate: z.iso.date(), endDate: z.iso.date(),
+}).refine(data => data.endDate >= data.startDate, { path: ["endDate"], message: "Fechas inválidas." });
 export const groupCreateSchema = z.strictObject({ ...groupVersion, name: z.string().trim().min(1).max(120) });
 export const groupRenameSchema = groupCreateSchema.extend({ groupId: z.uuid() });
 export const groupDeleteSchema = z.strictObject({ ...groupVersion, groupId: z.uuid() });
+export const generalTableSchema = z.strictObject({ ...groupVersion, format: z.enum(["GENERAL_TABLE", "GROUP_STAGE"]) });
+export const distributionSchema = z.strictObject({ ...groupVersion, enrollmentId: z.uuid(), groupId: z.uuid() });

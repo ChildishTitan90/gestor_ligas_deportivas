@@ -50,10 +50,10 @@ export async function listSeasonCategories(seasonId: string) {
     await assertPermission(tx, actor.id, { module: "competitions", action: "READ", context: { seasonId } });
     const items = await tx.season_categories.findMany({ where: { season_id: seasonId },
       select: { id: true, category_id: true, competition_rule_id: true, hierarchy_order: true, type: true,
-        eligibility_pending: true, age_cutoff_date: true, minimum_age: true, maximum_age: true,
+        competition_format: true, eligibility_pending: true, age_cutoff_date: true, minimum_age: true, maximum_age: true,
         categories: { select: { name: true } } }, orderBy: [{ hierarchy_order: "asc" }, { id: "asc" }] });
     return { items: items.map(item => ({ id: item.id, categoryId: item.category_id, name: item.categories.name,
-      ruleId: item.competition_rule_id, hierarchyOrder: item.hierarchy_order, type: item.type,
+      ruleId: item.competition_rule_id, hierarchyOrder: item.hierarchy_order, type: item.type, format: item.competition_format,
       eligibilityPending: item.eligibility_pending, ageCutoffDate: item.age_cutoff_date?.toISOString().slice(0, 10) ?? null,
       minimumAge: item.minimum_age, maximumAge: item.maximum_age })) };
   });

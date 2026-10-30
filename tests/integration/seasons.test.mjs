@@ -7,6 +7,7 @@ import { createAuthFixtures, fixturePassword } from './auth-fixtures.mjs';
 import { runRuleDraftTests } from './competition-rules.test.mjs';
 import { runCategoryTests } from './competition-categories.test.mjs';
 import { runGroupTests } from './competition-groups.test.mjs';
+import { runGeneralTableTests } from './competition-general-table.test.mjs';
 
 export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl }) {
   const target = new URL(databaseUrl);
@@ -87,6 +88,27 @@ export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl }) {
       await runRuleDraftTests({ t, db, baseUrl, admin, reader, league, other });
       await runCategoryTests({ t, db, baseUrl, admin, reader, league, other });
       await runGroupTests({ t, db, baseUrl, admin, reader, league, other });
+      await runGeneralTableTests({ t, db, baseUrl, admin, reader, league, users });
+      await t.test('temporadas: edición autorizada, versiones, calendario utilizado y cierre', async () => {
+        const sport = (await db.query("SELECT id FROM sports_management.sports WHERE code='SOCCER'")).rows[0].id;
+        const season = (await db.query("INSERT INTO sports_management.seasons(league_id,sport_id,name,start_date,end_date) VALUES($1,$2,'Edición prueba','2026-01-01','2026-12-31') RETURNING id",[league,sport])).rows[0].id;
+        const path = `/api/competitions/seasons/${season}`;
+        const payload = {name:'Edición corregida',startDate:'2026-01-01',endDate:'2026-12-31',expectedSeasonVersion:1,reason:'Corregir configuración sintética'};
+        const patch = (data,browser=admin) => browser.request(path,{method:'PATCH',headers:{origin:baseUrl,'content-type':'application/json'},body:JSON.stringify(data)});
+        assert.equal((await patch(payload,reader)).status,403);
+        assert.equal((await patch({...payload,endDate:'2025-01-01'})).status,400);
+        assert.equal((await patch({...payload,status:'CLOSED'})).status,400);
+        const responses = await Promise.all([patch(payload),patch({...payload,name:'Cambio simultáneo'})]);
+        assert.deepEqual(responses.map(response=>response.status).sort(),[200,409]);
+        assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.audit_logs WHERE table_name='seasons' AND entity_id=$1 AND action='UPDATE'",[season])).rows[0].n,1);
+        await db.query("INSERT INTO sports_management.matchdays(season_id,number,start_date,end_date) VALUES($1,1,'2026-02-01','2026-02-02')",[season]);
+        const protectedDates = await patch({...payload,expectedSeasonVersion:2,startDate:'2026-02-01'});
+        assert.equal(protectedDates.status,409); assert.equal((await protectedDates.json()).code,'SEASON_DATES_IN_USE');
+        assert.equal((await patch({...payload,expectedSeasonVersion:2})).status,200);
+        await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1",[season]);
+        const closed = await patch({...payload,expectedSeasonVersion:3});
+        assert.equal(closed.status,409); assert.equal((await closed.json()).code,'SEASON_CLOSED');
+      });
       await t.test('revocar CREATE invalida un formulario ya abierto', async () => {
         await db.query(`DELETE FROM sports_management.role_permissions rp USING sports_management.roles r,sports_management.permissions p
           WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code='SUPERADMIN' AND p.module='competitions' AND p.action='CREATE'`);

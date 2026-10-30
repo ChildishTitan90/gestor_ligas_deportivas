@@ -36,12 +36,15 @@ guardas comunes de sesión, origen, cuerpo JSON limitado y respuestas sin caché
 
 ## Límite de formatos e inscripción
 
-Este CRUD prepara la administración. Todavía no configura ni acredita tabla
-general/General automático o fase de grupos con distribución posterior.
+Este CRUD prepara la administración. El contrato posterior de
+[tabla general](competition-general-table.md) incorpora General automático y
+protege ese grupo frente a modificaciones manuales. El contrato de
+[distribución](competition-distribution.md) incorpora fase de grupos en servidor.
 No crear grupos General ficticios para ocultar una distribución pendiente.
-El contrato de inscripción sigue requiriendo grupo; falta la adaptación completa
-del servidor, esquema, recuperación, DTO y cliente antes de habilitar el formato
-nuevo. La tabla para la interfaz marca esas operaciones como pendientes.
+El contrato de inscripción permite omitir grupo para fase de grupos, conserva
+la categoría y devuelve groupId=null hasta asignación autorizada. Los contratos
+de recuperación/listado aceptan esa ausencia. La integración visual de esos
+formatos permanece pendiente en PDGLD-95.
 
 Pruebas HTTP con PostgreSQL desechable: alta/consulta/renombrado/borrado vacío,
 auditoría única, sesión, permisos, origen, pertenencia de categoría, duplicados,

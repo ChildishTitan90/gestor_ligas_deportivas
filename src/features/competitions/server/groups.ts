@@ -43,6 +43,8 @@ export async function mutateCompetitionGroup(seasonId: string, participationId: 
       if (season.status !== "PLANNED" || season.competition_starts_at) throw new CompetitionError("COMPETITION_ALREADY_STARTED", 409);
       if (season.version !== data.expectedSeasonVersion) throw new CompetitionError("STALE_CONFIGURATION", 409);
       await participation(tx, seasonId, participationId);
+      const configuration = await tx.season_categories.findUniqueOrThrow({ where: { id: participationId }, select: { competition_format: true } });
+      if (configuration.competition_format === "GENERAL_TABLE") throw new CompetitionError("GENERAL_GROUP_MANAGED_AUTOMATICALLY", 409);
       await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true), set_config('app.reason', ${data.reason}, true)`;
       let before: { id: string; name: string } | null = null;
       let result: { id: string; name: string };

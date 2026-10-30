@@ -71,19 +71,27 @@ declara completada la configuración de formatos o distribución de equipos.
 `test:competitions`: 29 resultados aprobados, reconstrucción/migrate diff sin
 diferencias; lint, typecheck y build aprobados. CI remoto no ejecutado.
 Contrato: [grupos](../architecture/competition-groups.md).
-Guía y tabla para coordinar con Vic: [integración de vistas](../design/PDGLD-95-datos-integracion-vic.md).
 
 ## Trabajo restante
 
+Incremento tabla general: 34 resultados de competencias aprobados. Formato por participación y General automático en
+inscripción por HTTP, sin tocar vistas. Nueva migración con compatibilidad
+LEGACY_GROUPS y restricción de único General. Pruebas de inscripción legada: 30
+resultados aprobados; cliente de inscripción: 73 aprobados; lint/typecheck
+aprobados. Contrato y límites: [tabla general](../architecture/competition-general-table.md).
+Fase de grupos y distribución añadidas en el incremento del 30/10 descrito abajo;
+no se declara completada la historia.
+
+Avance de edición (29/10): PATCH de nombre/fechas para temporadas planificadas,
+con permisos, motivo, versión y protección de calendario utilizado. Suite de
+competencias: 31 resultados aprobados; lint y typecheck aprobados.
+Contrato y límites del cierre: [edición de temporada](../architecture/competition-season-edit.md).
+
 - Edición de categorías/participaciones; validación y aprobación de convocatoria
   y parámetros versionados. No aplicar automáticamente propuestas DRAFT.
-- Formato por participación: tabla general con único General y asignación
-  automática; fase de grupos con distribución pendiente y asignación posterior
-  por operador autorizado. No atribuir al delegado la elección del grupo.
-- Migración aditiva y adaptación de inscripción, recuperación e historial para
-  separar REGISTERED de grupo asignado, conservando filas legadas y restricciones.
-- Edición con concurrencia y protección de datos existentes; cierre auditado y
-  solo lectura; grupos eliminables únicamente vacíos y sin referencias.
+- Cierre auditado con comprobación de pendientes: falta concretar qué trámites
+  bloquean además de los partidos sin resolver y la autoridad pertinente. La
+  preferencia del usuario es bloquear, sin inventar resultados por default.
 - Pantallas integradas, coordinación con PDGLD-110 y pruebas de ambos formatos,
   permisos, concurrencia, cierre y regresión de afiliación/inscripción.
 
@@ -93,3 +101,36 @@ convocatoria histórica de 2024–2025 como reglas vigentes de 2026.
 
 Este primer incremento no termina la historia ni sus subtareas. Faltan los puntos
 anteriores, revisión independiente, CI remoto y evidencia de aceptación integrada.
+
+## Incremento: inscripción pendiente y distribución (30/10/2026)
+
+Servidor implementado y contrato en
+[fase de grupos](../architecture/competition-distribution.md). Sin nuevas vistas.
+GROUP_STAGE conserva categoría y REGISTERED sin grupo hasta asignación autorizada.
+GENERAL_TABLE y LEGACY_GROUPS conservan sus recorridos. Se adapta el contrato de
+recuperación/listado, sin alterar cuerpos, claves o huellas anteriores.
+
+Comprobaciones locales:
+
+- Competencias: 41 resultados aprobados con HTTP y PostgreSQL reales, incluyendo
+  permisos retirados, categoría desautorizada, un ganador concurrente y rollback
+  de grupo/versión si falla auditoría. SQL rechaza partidos y clasificación sin
+  grupo, reasignaciones y cambio de formato con historial.
+- La migración real se ejecutó además sobre inscripciones previas dentro de una
+  transacción revertida: categoría proyectada correctamente, temporadas cerradas,
+  todos los demás campos/huellas y auditoría intactos, estado de triggers restaurado.
+- Inscripciones existentes: 30 resultados aprobados; interfaz/adaptadores: 73;
+  recuperación cliente: 12; seed: 19 + 7. Reconstrucción y comparación Prisma sin
+  diferencias. Lint sin avisos y typecheck aprobados.
+- `npm run build` falla al arrancar el proceso CSS de Turbopack
+  (`node process exited before we could connect`, código 0), también al repetir
+  con permisos ampliados. No se cambiaron dependencias ni configuración para
+  ocultarlo. Comprobación complementaria `next build --webpack` aprobada,
+  incluyendo TypeScript y generación de rutas. Confirmación del build oficial
+  con Turbopack pendiente en CI; Webpack no lo sustituye.
+- Referencia remota consultada nuevamente: origin/develop=e84ef5d, sin nuevos
+  commits respecto de la base revisada. No se incorporó el borrador visual de Vic.
+
+Solo bases desechables. No se aplicaron migraciones a gestor_ligas_dev/Supabase;
+no hubo commit, push, publicación ni cambios en Jira. PDGLD-95 y aceptación visual
+siguen pendientes, además de los criterios de negocio/revisión indicados arriba.

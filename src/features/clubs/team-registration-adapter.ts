@@ -16,9 +16,9 @@ const optionsSchema = z.object({
 });
 export type EnrollmentOptions = z.infer<typeof optionsSchema>;
 const receiptSchema = z.object({ id: uuid, teamId: uuid, clubId: uuid, seasonId: uuid,
-  categoryId: uuid, groupId: uuid, status, replayed: z.boolean() });
+  categoryId: uuid, groupId: uuid.nullable(), status, replayed: z.boolean() });
 const listSchema = z.object({ items: z.array(receiptSchema.omit({ replayed: true }).extend({
-  seasonName: z.string(), teamName: z.string(), teamReferenceNumber: z.string(), categoryName: z.string(), groupName: z.string(),
+  seasonName: z.string(), teamName: z.string(), teamReferenceNumber: z.string(), categoryName: z.string(), groupName: z.string().nullable(),
 })), nextAfter: uuid.nullable() });
 const operationSchema = z.discriminatedUnion("outcome", [
   z.object({ enrollmentKey: uuid, clubId: uuid, outcome: z.literal("CONFIRMED"), enrollment: receiptSchema }),
@@ -107,7 +107,7 @@ export function createEnrollmentApi(fetcher: typeof fetch, storage: Storage, sto
     }
   }
   function matches(payload: Payload, receipt: z.infer<typeof receiptSchema>) {
-    return (["clubId", "seasonId", "categoryId", "groupId"] as const).every(key => receipt[key] === payload[key]) &&
+    return (["clubId", "seasonId", "categoryId"] as const).every(key => receipt[key] === payload[key]) && (!payload.groupId || receipt.groupId === payload.groupId) &&
       (payload.team.mode !== "existing" || receipt.teamId === payload.team.teamId);
   }
   function finish(result: Extract<TeamRegistrationResult, { kind: "confirmed" | "cancelled" }>): TeamRegistrationResult {
@@ -195,7 +195,7 @@ export function createEnrollmentApi(fetcher: typeof fetch, storage: Storage, sto
         if (data.items.some(item => item.clubId !== clubId || (seasonId && item.seasonId !== seasonId))) throw new Error();
         return { nextAfter: data.nextAfter, items: data.items.map(item => ({
           teamId: item.teamId, seasonTeamId: item.id, teamName: item.teamName, seasonName: item.seasonName,
-          categoryName: item.categoryName, groupName: item.groupName, status: item.status,
+          categoryName: item.categoryName, groupName: item.groupName ?? "Pendiente de asignación", status: item.status,
         } satisfies TeamRegistrationItem)) };
       } catch (error) { if (error instanceof EnrollmentReadError) throw error; throw new EnrollmentReadError("INVALID_RESPONSE"); }
     },
@@ -231,6 +231,7 @@ export function createEnrollmentApi(fetcher: typeof fetch, storage: Storage, sto
 }
 export type EnrollmentApi = ReturnType<typeof createEnrollmentApi>;
 export function pendingCapture(payload: Payload): TeamRegistrationSubmission {
-  return { clubId: payload.clubId, seasonId: payload.seasonId, categoryId: payload.categoryId, groupId: payload.groupId,
+  // Captura visual sin selección; el cuerpo persistido conserva la omisión real.
+  return { clubId: payload.clubId, seasonId: payload.seasonId, categoryId: payload.categoryId, groupId: payload.groupId ?? "",
     team: payload.team.mode === "existing" ? { kind: "existing", id: payload.team.teamId } : { kind: "new", name: payload.team.name } };
 }

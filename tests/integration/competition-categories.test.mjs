@@ -30,6 +30,7 @@ export async function runCategoryTests({ t, db, baseUrl, admin, reader, league, 
         (season_id,category_id,competition_rule_id,hierarchy_order,type,age_cutoff_date)
         VALUES ($1,$2,$3,1,'OPEN','2026-08-01') RETURNING id`,[season,legacy,rule])).rows[0].id;
       const migration = readFileSync(new URL('../../prisma/migrations/20261028120000_pdgld38_pending_category_eligibility/migration.sql',import.meta.url),'utf8');
+      await db.query('SET CONSTRAINTS ALL IMMEDIATE');
       await db.query(migration);
       const row = (await db.query('SELECT category_id,competition_rule_id,age_cutoff_date::text,eligibility_pending FROM sports_management.season_categories WHERE id=$1',[participation])).rows[0];
       assert.equal(row.category_id,legacy); assert.equal(row.competition_rule_id,rule);

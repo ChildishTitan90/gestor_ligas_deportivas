@@ -67,6 +67,21 @@ export async function runGroupTests({ t, db, baseUrl, admin, reader, league, oth
       assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.groups WHERE season_id=$1 AND name='Revertido'",[season])).rows[0].n,0);
     } finally { await db.query('DROP TRIGGER test_group_audit ON sports_management.audit_logs'); }
   });
+  await t.test('grupos: retirar UPDATE invalida una edición con sesión ya abierta', async () => {
+    const grant = (await db.query(`SELECT rp.* FROM sports_management.role_permissions rp
+      JOIN sports_management.roles r ON r.id=rp.role_id JOIN sports_management.permissions p ON p.id=rp.permission_id
+      WHERE r.code='SUPERADMIN' AND p.module='competitions' AND p.action='UPDATE'`)).rows[0];
+    assert.ok(grant);
+    await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2',[grant.role_id,grant.permission_id]);
+    try {
+      const response = await send('PATCH',{groupId:group.id,name:'Cambio sin autoridad',expectedSeasonVersion:6,reason});
+      assert.equal(response.status,403); assert.equal((await response.json()).code,'FORBIDDEN');
+      assert.equal(await version(),6);
+      assert.equal((await db.query('SELECT name FROM sports_management.groups WHERE id=$1',[group.id])).rows[0].name,'Grupo B');
+    } finally {
+      await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES($1,$2,$3)',[grant.role_id,grant.permission_id,grant.context_only]);
+    }
+  });
   await t.test('grupos: cierre e inicio protegen la configuración, manteniendo consulta', async () => {
     await db.query("UPDATE sports_management.seasons SET status='ACTIVE',competition_starts_at=clock_timestamp() WHERE id=$1",[season]);
     const active = await send('POST',{name:'Tardío',expectedSeasonVersion:6,reason});

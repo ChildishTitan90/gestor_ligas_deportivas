@@ -31,7 +31,7 @@ export async function enrollTeam(input: unknown, expectedActorId?: string) {
       }
       const season = await lockEnrollmentSeason(tx, data.clubId, data.seasonId);
       if (season.status === "CLOSED") throw new TeamEnrollmentError("SEASON_CLOSED", 409);
-      await lockEnrollmentCategory(tx, data);
+      const { groupId, participationId } = await lockEnrollmentCategory(tx, data);
       await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true),
         set_config('app.reason', 'PDGLD-62: inscripción de equipo', true)`;
 
@@ -51,7 +51,7 @@ export async function enrollTeam(input: unknown, expectedActorId?: string) {
         teamId = team.id;
       }
       const enrollment = await tx.season_teams.create({
-        data: { team_id: teamId, club_id: data.clubId, season_id: data.seasonId, group_id: data.groupId,
+        data: { team_id: teamId, club_id: data.clubId, season_id: data.seasonId, group_id: groupId, season_category_id: participationId,
           status: "REGISTERED", enrolled_by: actor.id, enrolled_at: new Date(),
           enrollment_key: data.enrollmentKey, enrollment_hash: fingerprint },
         select: enrollmentSelect,
