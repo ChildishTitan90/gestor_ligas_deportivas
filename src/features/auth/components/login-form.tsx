@@ -5,18 +5,9 @@ import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { CircleAlert, Eye, EyeOff } from "lucide-react";
 import { loginSchema } from "@/features/auth/schemas";
+import { getLoginFeedback, type LoginFeedback } from "@/features/auth/login-feedback";
 
 type FieldErrors = { email?: string; password?: string };
-type LoginError = { title: string; description: string };
-
-const invalidCredentialsError: LoginError = {
-  title: "Correo o contraseña incorrectos",
-  description: "Revisa tus datos e inténtalo de nuevo. Si necesitas ayuda para acceder, comunícate con la administración de la liga.",
-};
-const serviceError: LoginError = {
-  title: "No pudimos conectar con el servicio",
-  description: "Inténtalo de nuevo en unos momentos. Si el problema continúa, comunícate con la administración de la liga.",
-};
 
 function subscribeToConnection(onChange: () => void) {
   window.addEventListener("online", onChange);
@@ -39,7 +30,7 @@ export function LoginForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [error, setError] = useState<LoginError>();
+  const [error, setError] = useState<LoginFeedback>();
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -65,7 +56,7 @@ export function LoginForm() {
     if (!result.success) {
       const fields: FieldErrors = {};
       for (const issue of result.error.issues) {
-        if (issue.path[0] === "email") fields.email = "Escribe un correo electrónico válido.";
+        if (issue.path[0] === "email") fields.email = "Escribe tu usuario o un correo electrónico válido.";
         if (issue.path[0] === "password") fields.password = issue.message;
       }
       setFieldErrors(fields);
@@ -84,7 +75,7 @@ export function LoginForm() {
       });
 
       if (!response?.ok || response.error) {
-        setError(response?.error === "CredentialsSignin" ? invalidCredentialsError : serviceError);
+        setError(getLoginFeedback(response?.error));
         return;
       }
 
@@ -92,7 +83,7 @@ export function LoginForm() {
       router.push("/access");
       router.refresh();
     } catch {
-      setError(serviceError);
+      setError(getLoginFeedback(undefined));
     } finally {
       if (passwordRef.current) passwordRef.current.value = "";
       setShowPassword(false);
@@ -137,12 +128,12 @@ export function LoginForm() {
       <fieldset disabled={isSubmitting} className="space-y-5 disabled:opacity-70">
         <legend className="sr-only">Datos de acceso</legend>
         <div>
-          <label htmlFor="email" className="mb-2 block text-sm font-medium">Correo electrónico</label>
+          <label htmlFor="email" className="mb-2 block text-sm font-medium">Usuario o correo electrónico</label>
           <input
             id="email"
             name="email"
-            type="email"
-            inputMode="email"
+            type="text"
+            inputMode="text"
             autoComplete="username"
             autoCapitalize="none"
             spellCheck={false}
@@ -151,7 +142,7 @@ export function LoginForm() {
             aria-invalid={Boolean(fieldErrors.email)}
             aria-describedby={fieldErrors.email ? "email-error" : undefined}
             className="h-12 w-full rounded-xl border border-border bg-surface px-3.5 text-base transition-colors placeholder:text-muted focus:border-primary"
-            placeholder="tu.correo@ejemplo.com"
+            placeholder="Tu usuario o correo electrónico"
           />
           {fieldErrors.email && <p id="email-error" className="mt-2 text-sm text-danger">{fieldErrors.email}</p>}
         </div>
