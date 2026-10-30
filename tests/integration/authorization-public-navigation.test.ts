@@ -7,6 +7,8 @@ import { hashPassword } from "../../src/server/auth/password";
 import { lockAuthorization } from "../../src/server/auth/authorization";
 import { readAccessOverview } from "../../src/features/auth/server/access-overview";
 import { readAccountPresentation } from "../../src/features/auth/server/account-presentation";
+import { readClubDashboardSummary } from "../../src/features/clubs/server/dashboard-queries";
+import { AuthorizationError } from "../../src/server/auth/authorization";
 
 test("Entrada pública de fútbol y panel con permisos vigentes por contexto", { timeout: 240_000 }, async (t) => {
   assert.equal(process.env.AUTH_TEST_RUN, "1");
@@ -149,6 +151,52 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
       assert.equal(new URL(login.headers.get("location")!, base).pathname, "/access");
     });
 
+    await t.test("dashboard: selección explícita, agregados completos y rechazo de otros ámbitos", async () => {
+      const dashboardClub = await db.clubs.create({ data: { league_id: leagueA.id,
+        name: `Club de indicadores ${suffix}`, reference_number: `dashboard-${suffix}` } });
+      const sport = await db.sports.findUniqueOrThrow({ where: { code: "SOCCER" } });
+      const foreignSeason = await db.seasons.create({ data: { league_id: leagueB.id, sport_id: sport.id,
+        name: `Otra liga ${suffix}`, start_date: new Date("2026-01-01"), end_date: new Date("2026-12-31") } });
+      await write(tx => tx.club_affiliations.create({ data: { league_id: leagueB.id, club_id: club.id,
+        season_id: foreignSeason.id, reference_number: `foreign-dashboard-${suffix}`, uniform_colors: "Rojo",
+        requested_by: actor.id } }));
+      for (let index = 0; index < 26; index++) {
+        const season = await db.seasons.create({ data: { league_id: leagueA.id, sport_id: sport.id,
+          name: `Resumen ${index} ${suffix}`, start_date: new Date("2026-01-01"), end_date: new Date("2026-12-31") } });
+        await write(tx => tx.club_affiliations.create({ data: { league_id: leagueA.id, club_id: dashboardClub.id,
+          season_id: season.id, reference_number: `dashboard-${suffix}-${index}`, uniform_colors: "Azul",
+          requested_by: actor.id, status: index < 24 ? "PENDING" : "APPROVED",
+          review_reason: index < 20 ? null : index === 20 ? "" : index < 24 ? "Corregir datos" : null } }));
+      }
+      const summary = await db.$transaction(tx => readClubDashboardSummary(tx, actor.id, { kind: "league", id: leagueA.id }));
+      assert.equal(summary.awaitingReview, 21, "No debe limitarse a una primera página de 20 filas.");
+      assert.equal(summary.correctionsRequested, 3);
+      assert.equal(summary.approved, 2);
+      assert.equal(summary.enrollments, null);
+      const clubSummary = await db.$transaction(tx => readClubDashboardSummary(tx, actor.id, { kind: "club", id: dashboardClub.id }));
+      assert.equal(clubSummary.awaitingReview, 21);
+      assert.equal(clubSummary.enrollments, 0);
+      for (const context of [{ kind: "league", id: leagueB.id }, { kind: "club", id: club.id }]) {
+        await assert.rejects(db.$transaction(tx => readClubDashboardSummary(tx, actor.id, context)), AuthorizationError);
+      }
+      const plain = await (await browser.request("/access")).text();
+      assert.ok(plain.includes("¿Qué necesitas hacer?") && !plain.includes('aria-label="Indicadores del contexto seleccionado"'));
+      const selected = await (await browser.request(`/access?context=league:${leagueA.id}`)).text();
+      assert.ok(selected.includes('aria-label="Indicadores del contexto seleccionado"'));
+      assert.ok(selected.includes('tabular-nums">21</dd>') && selected.includes("Todas las temporadas"));
+      const foreign = await (await browser.request(`/access?context=league:${leagueB.id}`)).text();
+      assert.ok(foreign.includes("No tienes acceso a esa selección"));
+      assert.ok(!foreign.includes('aria-label="Indicadores del contexto seleccionado"'));
+      for (const value of ["incorrecto", `club:${club.id}:extra`]) {
+        const invalid = await (await browser.request(`/access?context=${encodeURIComponent(value)}`)).text();
+        assert.ok(invalid.includes("La selección no es válida"));
+      }
+      // No alterar el escenario previo de navegación que espera una liga sin clubes activos.
+      await db.clubs.update({ where: { id: dashboardClub.id }, data: { status: "SUSPENDED" } });
+      await assert.rejects(db.$transaction(tx => readClubDashboardSummary(tx, actor.id,
+        { kind: "club", id: dashboardClub.id })), AuthorizationError);
+    });
+
     await t.test("las pantallas de gestión comparten sidebar, un solo encabezado y sus URL directas", async () => {
       for (const path of ["/access", "/accounts/new", "/affiliations/new", "/affiliations/review", "/teams/registrations"]) {
         const page = await browser.request(path);
@@ -198,8 +246,11 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
       assert.deepEqual(publicPresentation?.assignments, []);
       const session = await browser.session();
       assert.deepEqual(Object.keys(session.user).sort(), ["id", "mustChangePassword"]);
-      // El nombre de usuario sigue sin ser una credencial de login.
-      assert.ok((await anonymous.login(actor.username, password)).searchParams.has("error"));
+      // Ambos identificadores resuelven la misma cuenta, sin ampliar sus permisos.
+      assert.equal((await anonymous.login(actor.username.toUpperCase(), password)).searchParams.has("error"), false);
+      assert.equal((await anonymous.session()).user.id, actor.id);
+      await anonymous.request("/api/auth/signout", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ csrfToken: await anonymous.csrf(), callbackUrl: "/login", json: "true" }) });
       const before = await db.user_roles.count({ where: { user_id: actor.id } });
       for (const path of ["/futbol", "/", "/access"]) {
         const page = await browser.request(path);
@@ -251,6 +302,9 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
       content = await page.text();
       assert.ok(!navigation(content).includes('href="/affiliations/review"'));
       assert.ok(!navigation(content).includes('href="/teams/registrations"'));
+      const deniedSummary = await (await browser.request(`/access?context=league:${leagueA.id}`)).text();
+      assert.ok(deniedSummary.includes("No tienes acceso a esa selección"));
+      assert.ok(!deniedSummary.includes('aria-label="Indicadores del contexto seleccionado"'));
       const overview = await db.$transaction((tx) => readAccessOverview(tx, actor.id));
       assert.ok(!overview.some((scope) => scope.title === scopeA) && content.includes(clubName));
       await write((tx) => tx.user_roles.updateMany({ where: { user_id: actor.id, role_id: roleId("PLAYER") }, data: { starts_at: new Date(Date.now() + 3_600_000) } }));
