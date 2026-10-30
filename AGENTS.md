@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Proyecto: Gestor de Ligas Deportivas
 
-Guía del equipo y de los agentes. Revisada el 28 de octubre de 2026. Conservar intacto el bloque generado de Next.js que precede esta guía.
+Guía del equipo y de los agentes. Revisada el 29 de octubre de 2026. Conservar intacto el bloque generado de Next.js que precede esta guía.
 
 ## Contexto y estado real
 
@@ -189,3 +189,26 @@ Consultar y revisar la skill pertinente antes de aplicarla; una referencia en es
 - `docs/ci-cd.md`: comprobaciones y liberación controlada.
 - `docs/revision-entorno.md`: validaciones realizadas y dependencias pendientes.
 - Next.js: `node_modules/next/dist/docs/01-app/01-getting-started/02-project-structure.md`, `01-app/02-guides/data-security.md`, `01-app/02-guides/authentication.md` y `01-app/02-guides/progressive-web-apps.md`.
+
+## Selectores desplegables compartidos
+
+- Usar `components/ui/select-field.tsx` (`SelectField`) para seleccionar valores en formularios, filtros, paneles y demostraciones. No añadir `<select>`, `<datalist>`, menús del sistema ni otra implementación particular por pantalla. El menú de cuenta conserva su componente y semántica propios.
+- **Conservar el aspecto cerrado que ya tiene la app:** campo completo con borde redondeado, fondo de superficie, texto/placeholder y flecha alineada a la derecha, altura mínima de 48 px y estados deshabilitado/error/foco visibles. La personalización corresponde al menú abierto; no reemplazar el campo por texto suelto ni eliminar su recuadro. La variante compacta del selector de tema conserva su tamaño específico.
+- Las opciones utilizan los tokens vigentes de claro/oscuro, una lista desplazable y resaltado cobre para opción activa/seleccionada. La selección confirmada muestra además una marca de verificación y `aria-selected`; recorrer o filtrar opciones no confirma un valor. No sustituir estos estados por el color predeterminado del navegador.
+- Pasar opciones serializables `{ value, label, description?, disabled? }`; `value` conserva el identificador o código del contrato real. `description` admite referencias breves como el código del club. Buscar no envía texto libre ni modifica el valor confirmado. Para selecciones breves sin búsqueda, como el tema compacto, reutilizar `searchable={false}`.
+- Preservar `id`, etiqueta asociada, `name`, `required`, `disabled`, `aria-invalid` y `aria-describedby`. Los selectores controlados usan `value` y `onValueChange`; los formularios GET o no controlados usan `defaultValue`. No elegir automáticamente otro club, liga o temporada al filtrar ni conservar identificadores de opciones retiradas.
+- El valor de formulario se envía mediante un campo oculto. Para enfocar errores o restablecer el foco, usar `focusFormControl` en lugar de enfocar directamente `form.elements.namedItem(name)`, que puede devolver el campo oculto. Conservar validación de servidor y bloqueos de operaciones inciertas; el selector no concede permisos.
+- Mantener flechas, Enter, Escape, Tab, búsqueda sin distinción de acentos, foco visible y cierre al salir del control. El popup se ajusta al espacio disponible, puede abrir hacia arriba y respeta el desplazamiento de página/lista y el teclado móvil. Dentro de un diálogo se monta en ese diálogo para conservar su foco y capa modal.
+- Verificar campo cerrado y opciones abiertas, ambos temas, móvil/escritorio, teclado, valores de `FormData`, reset, estados dependientes/deshabilitados y opciones cambiantes. Las pruebas estáticas no deben exigir opciones de un popup todavía cerrado. La prueba de navegador con datos sintéticos se ejecuta con `npm run test:team-registration-browser` (configurar `CHROME_BIN` cuando sea necesario); distinguirla de recorridos con backend real.
+
+Referencia de integración y decisiones: [selectores personalizados](docs/design/select-field.md).
+
+## Diálogos breves y bandeja de revisión (PDGLD-115, entrega 2)
+
+- Reutilizar `components/ui/form-dialog.tsx` para captura breve y confirmaciones. El padre conserva captura, errores y estado de envío; no duplicar validaciones, servicios ni permisos en el contenedor. Mantener expedientes, firmas y procesos extensos en página.
+- Conservar título/descripción accesibles, foco inicial seguro, fondo inerte, desplazamiento interno en móvil y retorno al control de origen. Escape, X, clic exterior y Cancelar comparten las reglas; advertir antes de descartar captura sin guardar.
+- Cerrar un diálogo no cancela una escritura enviada. Evitar doble envío y no descartar el payload/versión ante respuestas inciertas. Ofrecer consulta sin reenviar y reintento manual solo con el mismo contrato/versión; nunca afirmar éxito sin acuse o resultado oficial. Si la captura no persiste entre rutas/recargas, no presentarla como borrador guardado.
+- En revisión de afiliaciones, conservar búsqueda por folio/club, filtros por liga/estado/fase/temporada, tabla en escritorio y tarjetas en móvil. Filtrar y contar solo la colección autorizada completa; no calcular totales globales con una página parcial. Con varias ligas, exigir selección explícita.
+- Validar foco, descarte, doble envío, incertidumbre y pérdida de permisos. `test:management-ui` usa Chrome headless y respuestas sintéticas; distinguirlo de pruebas HTTP/base reales y de revisión visual manual. La integración de grupos de PDGLD-95 espera la entrega 3.
+
+Referencias: [diálogos](docs/design/management-dialogs.md) y [bandeja de afiliaciones](docs/design/affiliation-review.md).
