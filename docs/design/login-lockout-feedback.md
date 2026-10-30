@@ -3,9 +3,10 @@
 Ajuste solicitado durante la revisión de PDGLD-115, 29/10/2026.
 
 El formulario distingue validación de campos, credenciales rechazadas, fallo del
-servicio y bloqueo temporal real. Con la política predeterminada, el quinto fallo
-devuelve «Acceso bloqueado temporalmente», cinco intentos y aproximadamente quince
-minutos de espera. Durante un bloqueo vigente muestra los minutos restantes,
+servicio y bloqueo temporal real. Una contraseña incorrecta devuelve siempre
+`CredentialsSignin`, incluido el intento que activa el bloqueo y los posteriores.
+El aviso «Acceso bloqueado temporalmente» solo se devuelve después de verificar
+la contraseña correcta de una cuenta activa bloqueada. Muestra los minutos restantes,
 redondeados hacia arriba. No presenta un contador de intentos calculado por pestaña.
 
 El servidor conserva `AUTH_MAX_FAILED_ATTEMPTS` y `AUTH_LOCKOUT_MINUTES`; el texto
@@ -19,6 +20,11 @@ devolvía `CredentialsSignin` también para ese estado. El código controlado no
 incluye correo, identificadores, hash ni el mensaje de una excepción de base de
 datos. Las cuentas ausentes/inactivas y credenciales inválidas mantienen rechazo
 genérico. La interfaz solo interpreta el patrón y los límites numéricos previstos.
+
+La revisión de seguridad del 30/10/2026 restringe el aviso a contraseñas verificadas:
+no se revela el bloqueo por alcanzar cinco fallos. Se conserva la comprobación de
+hash incluso durante el bloqueo, sin crear sesión ni reiniciar su plazo. El contador
+y los eventos LOGIN_FAILED/BLOCK siguen confirmándose antes de devolver la respuesta.
 
 Los intentos durante el bloqueo siguen sin ampliar `locked_until` ni generar otro
 evento `BLOCK`. El servidor sigue siendo la autoridad aunque se recargue la página,

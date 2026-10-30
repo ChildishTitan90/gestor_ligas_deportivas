@@ -72,7 +72,10 @@ del bloqueo. Así, los fallos simultáneos no sobrescriben el contador y un inte
 no limpia un bloqueo generado por otra petición mientras esperaba. Se conservan
 cinco fallos, bloqueo de 15 minutos y reinicio después de éxito o bloqueo vencido.
 
-El formulario informa el bloqueo real con la política y los minutos restantes.
+El formulario informa el bloqueo real con la política y los minutos restantes
+solo después de comprobar la contraseña correcta de una cuenta activa. Con una
+contraseña incorrecta, tanto las cuentas existentes como las ausentes devuelven
+`CredentialsSignin`, incluso al alcanzar el límite o durante el bloqueo.
 El código público controlado se genera después de confirmar la transacción;
 los intentos durante el bloqueo no reinician el plazo. Véase
 [el contrato del aviso de acceso](design/login-lockout-feedback.md).

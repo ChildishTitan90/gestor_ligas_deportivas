@@ -178,6 +178,11 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
 
       await t.test('el bloqueo vigente devuelve solo política y tiempo restante, sin crear sesión', async () => {
         const browser = new Browser(baseUrl);
+        for (const identifier of [fixtures.locked.email, 'pdgld48_locked', 'ausente@example.test', 'usuario_ausente']) {
+          const denied = await browser.login(identifier, 'incorrecta');
+          assert.equal(denied.searchParams.get('error'), 'CredentialsSignin', 'Una contraseña incorrecta no revela existencia ni bloqueo.');
+          assert.equal((await browser.session()).user, undefined);
+        }
         const result = await browser.login(fixtures.locked.email, fixturePassword);
         assert.match(result.searchParams.get('error'), /^LOGIN_LOCKED_5_(?:[1-9]|1[0-5])$/);
         assert.equal((await browser.session()).user, undefined);
@@ -236,8 +241,7 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
         const account = fixtures.concurrent;
         const results = await Promise.all(Array.from({ length: 5 }, (_, index) =>
           new Browser(baseUrl).login(index % 2 ? 'pdgld48_concurrent' : account.email, 'incorrecta')));
-        assert.equal(results.filter(result => result.searchParams.get('error') === 'CredentialsSignin').length, 4);
-        assert.equal(results.filter(result => /^LOGIN_LOCKED_5_15$/.test(result.searchParams.get('error'))).length, 1);
+        assert.equal(results.filter(result => result.searchParams.get('error') === 'CredentialsSignin').length, 5);
         const state = async () => (await client.query(
           'SELECT failed_login_attempts, locked_until FROM sports_management.users WHERE id = $1',
           [account.id],
@@ -309,7 +313,9 @@ export async function runAuthIntegrationSuite({ databaseUrl, baseUrl, restartSer
           }
           const start = Date.now();
           const blocked = await new Browser(baseUrl).login(account.email, 'incorrecta');
-          assert.equal(blocked.searchParams.get('error'), 'LOGIN_LOCKED_3_2');
+          assert.equal(blocked.searchParams.get('error'), 'CredentialsSignin');
+          const verified = await new Browser(baseUrl).login(account.email, fixturePassword);
+          assert.equal(verified.searchParams.get('error'), 'LOGIN_LOCKED_3_2');
           const locked = await state();
           assert.equal(locked.failed_login_attempts, 3);
           assert.ok(locked.locked_until.getTime() >= start + 120_000);

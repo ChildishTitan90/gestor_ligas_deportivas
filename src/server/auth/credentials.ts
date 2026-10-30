@@ -50,9 +50,10 @@ export async function authorizeCredentials(input: unknown) {
         return null;
       }
       if (user.locked_until && user.locked_until > now) {
-        await verifyPassword(null, parsed.data.password);
+        const valid = await verifyPassword(user.password_hash, parsed.data.password);
         await tx.authentication_events.create({ data: { user_id: user.id, action: "LOGIN_FAILED", occurred_at: now } });
-        return { blockedUntil: user.locked_until };
+        // El estado de la cuenta solo se revela tras comprobar su contraseña.
+        return valid ? { blockedUntil: user.locked_until } : null;
       }
 
       const baseAttempts = user.locked_until ? 0 : user.failed_login_attempts;
@@ -74,7 +75,7 @@ export async function authorizeCredentials(input: unknown) {
         // el bloqueo pasan por la rama anterior y no repiten BLOCK ni lo extienden.
         if (blocking)
           await tx.authentication_events.create({ data: { user_id: user.id, action: "BLOCK", occurred_at: now } });
-        return blocking ? { blockedUntil } : null;
+        return null;
       }
 
       if (user.failed_login_attempts > 0 || user.locked_until !== null) {
