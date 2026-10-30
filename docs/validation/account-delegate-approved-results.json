@@ -1,0 +1,225 @@
+{
+  "documentedOn": "2026-10-30",
+  "timezone": "America/Mexico_City",
+  "baseCommit": "fb64b4f068b6121063475333320524725436e0c0",
+  "uncommittedWorkingTree": true,
+  "executedInOrder": [
+    "browser:15",
+    "browser:17",
+    "cleanup verification",
+    "preview:15",
+    "preview:17",
+    "cleanup verification"
+  ],
+  "profiles": [
+    {
+      "profile": "browser",
+      "runId": "c2bf8520-6197-4fae-8a60-4b0e6d2b0729",
+      "postgresql": [
+        {
+          "postgresqlMajor": 15,
+          "passed": true,
+          "cleaned": true,
+          "pending": false,
+          "containerAbsent": true,
+          "networkAbsent": true,
+          "localDirectoriesAbsent": true,
+          "installation": {
+            "passed": true,
+            "packageSha256": "71a995bb9383edf827cff7a6da3ae1f5d04198b58410af5414d62cc1a4392b88",
+            "lockSha256": "3e8d4159d940ee9597a1cba6ad249d9aeef454bcbd399f269a1f7ab12aa695d4",
+            "versions": {
+              "next": "16.4.3",
+              "pg": "8.23.1",
+              "@prisma/adapter-pg": "7.10.1",
+              "@prisma/client": "7.10.1",
+              "prisma": "7.10.1",
+              "react": "19.3.0",
+              "react-dom": "19.3.0"
+            }
+          },
+          "checks": {
+            "selectorEmpty": true,
+            "contextResets": true,
+            "conflictPreservedCapture": true,
+            "passwordCleared": true,
+            "keyboardAndFocus": true,
+            "mobileViewport": "390x844",
+            "storedPositionShown": true,
+            "legacyPreserved": true
+          }
+        },
+        {
+          "postgresqlMajor": 17,
+          "passed": true,
+          "cleaned": true,
+          "pending": false,
+          "containerAbsent": true,
+          "networkAbsent": true,
+          "localDirectoriesAbsent": true,
+          "installation": {
+            "passed": true,
+            "packageSha256": "71a995bb9383edf827cff7a6da3ae1f5d04198b58410af5414d62cc1a4392b88",
+            "lockSha256": "3e8d4159d940ee9597a1cba6ad249d9aeef454bcbd399f269a1f7ab12aa695d4",
+            "versions": {
+              "next": "16.4.3",
+              "pg": "8.23.1",
+              "@prisma/adapter-pg": "7.10.1",
+              "@prisma/client": "7.10.1",
+              "prisma": "7.10.1",
+              "react": "19.3.0",
+              "react-dom": "19.3.0"
+            }
+          },
+          "checks": {
+            "selectorEmpty": true,
+            "contextResets": true,
+            "conflictPreservedCapture": true,
+            "passwordCleared": true,
+            "keyboardAndFocus": true,
+            "mobileViewport": "390x844",
+            "storedPositionShown": true,
+            "legacyPreserved": true
+          }
+        }
+      ],
+      "portsFree": true,
+      "ownedProcessesAbsent": true,
+      "cleanupVerifiedAt": "2026-10-30T17:16:44.717Z"
+    },
+    {
+      "profile": "preview",
+      "runId": "e8d3af10-f264-48b2-9fae-b90bb865630d",
+      "postgresql": [
+        {
+          "postgresqlMajor": 15,
+          "passed": true,
+          "cleaned": true,
+          "pending": false,
+          "containerAbsent": true,
+          "networkAbsent": true,
+          "localDirectoriesAbsent": true,
+          "installation": {
+            "passed": true,
+            "packageSha256": "71a995bb9383edf827cff7a6da3ae1f5d04198b58410af5414d62cc1a4392b88",
+            "lockSha256": "3e8d4159d940ee9597a1cba6ad249d9aeef454bcbd399f269a1f7ab12aa695d4",
+            "versions": {
+              "next": "16.4.3",
+              "pg": "8.23.1",
+              "@prisma/adapter-pg": "7.10.1",
+              "@prisma/client": "7.10.1",
+              "prisma": "7.10.1",
+              "react": "19.3.0",
+              "react-dom": "19.3.0"
+            }
+          }
+        },
+        {
+          "postgresqlMajor": 17,
+          "passed": true,
+          "cleaned": true,
+          "pending": false,
+          "containerAbsent": true,
+          "networkAbsent": true,
+          "localDirectoriesAbsent": true,
+          "installation": {
+            "passed": true,
+            "packageSha256": "71a995bb9383edf827cff7a6da3ae1f5d04198b58410af5414d62cc1a4392b88",
+            "lockSha256": "3e8d4159d940ee9597a1cba6ad249d9aeef454bcbd399f269a1f7ab12aa695d4",
+            "versions": {
+              "next": "16.4.3",
+              "pg": "8.23.1",
+              "@prisma/adapter-pg": "7.10.1",
+              "@prisma/client": "7.10.1",
+              "prisma": "7.10.1",
+              "react": "19.3.0",
+              "react-dom": "19.3.0"
+            }
+          }
+        }
+      ],
+      "portsFree": true,
+      "ownedProcessesAbsent": true,
+      "cleanupVerifiedAt": "2026-10-30T17:16:44.813Z"
+    }
+  ],
+  "noNewServiceTestsForDocumentation": true,
+  "limitations": [
+    "Las aserciones acreditan únicamente el alcance descrito en la matriz de criterios.",
+    "Preview utilizó PostgreSQL local desechable y runtime limitado; no Supabase real.",
+    "Estas ejecuciones no acreditan revisión independiente, CI remoto ni una decisión de producto."
+  ],
+  "agreedRuleRegressionRun": {
+    "reference": "E6",
+    "runId": "8f6e123a-9241-4afc-a9ad-c8c91e3be7d2",
+    "postgresql": [
+      {
+        "postgresqlMajor": 15,
+        "passed": true,
+        "cleaned": true,
+        "pending": false,
+        "dockerAbsent": true,
+        "checks": [
+          {
+            "case": "distinct-deputies-capacity",
+            "passed": true
+          },
+          {
+            "case": "authorization-inclusive-start-exclusive-end",
+            "positions": [
+              "PRIMARY",
+              "DEPUTY"
+            ],
+            "passed": true,
+            "clock": "test-sql-adapter"
+          },
+          {
+            "case": "representation-change-preserves-authorship",
+            "positions": [
+              "PRIMARY",
+              "DEPUTY"
+            ],
+            "passed": true,
+            "handover": "sql-fixture-not-service"
+          }
+        ]
+      },
+      {
+        "postgresqlMajor": 17,
+        "passed": true,
+        "cleaned": true,
+        "pending": false,
+        "dockerAbsent": true,
+        "checks": [
+          {
+            "case": "distinct-deputies-capacity",
+            "passed": true
+          },
+          {
+            "case": "authorization-inclusive-start-exclusive-end",
+            "positions": [
+              "PRIMARY",
+              "DEPUTY"
+            ],
+            "passed": true,
+            "clock": "test-sql-adapter"
+          },
+          {
+            "case": "representation-change-preserves-authorship",
+            "positions": [
+              "PRIMARY",
+              "DEPUTY"
+            ],
+            "passed": true,
+            "handover": "sql-fixture-not-service"
+          }
+        ]
+      }
+    ],
+    "portsFree": true,
+    "ownedProcessesAbsent": true,
+    "projectIntegrityVerified": true,
+    "verifiedAt": "2026-10-30T20:24:12.193Z",
+    "scope": "SQL fixture changes do not validate an authorized replacement service"
+  }
+}
