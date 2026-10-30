@@ -8,6 +8,7 @@ import { getAffiliationFormPageData } from
   "@/features/clubs/server/affiliation-form-queries";
 import { AuthAccessError } from "@/server/auth/session";
 import { AuthorizationError } from "@/server/auth/authorization";
+import { SelectField } from "@/components/ui/select-field";
 
 export const metadata = {
   title: "Solicitar afiliación",
@@ -78,18 +79,12 @@ export default async function NewAffiliationPage({
                 Club y temporada
               </label>
 
-              <select
+              <SelectField
                 id="affiliation-context"
                 name="context"
                 defaultValue={data.selected.value}
-                className="min-h-12 w-full rounded-xl border border-border bg-surface px-3"
-              >
-                {data.options.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.clubName} — {option.seasonName}
-                  </option>
-                ))}
-              </select>
+                required options={data.options.map(option => ({ value: option.value, label: `${option.clubName} — ${option.seasonName}` }))}
+              />
 
               <button
                 type="submit"
