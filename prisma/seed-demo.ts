@@ -64,6 +64,7 @@ export async function seedDemoDatabase(prisma: PrismaClient, input: unknown, env
       }, select: { id: true } });
       await tx.user_roles.create({ data: {
         user_id: user.id, role_id: role.id,
+        delegate_position: "delegatePosition" in account ? account.delegatePosition : null,
         league_id: account.scope === "global" ? null : DEMO_CONTEXT.leagueId,
         club_id: account.scope === "clubA" ? DEMO_CONTEXT.clubAId : account.scope === "clubB" ? DEMO_CONTEXT.clubBId : null,
         starts_at: startsAt, ends_at: account.temporary ? new Date(startsAt.getTime() + 30 * 86_400_000) : null,

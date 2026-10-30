@@ -2,18 +2,22 @@ import assert from 'node:assert/strict';
 import { previewRuntimeSql, PREVIEW_MARKER, PREVIEW_ROLE } from '../../scripts/preview/runtime-plan.mjs';
 
 /** Parámetros efectivos de pg, después de resolver su connectionString. */
-export function assertPreviewFixtureTarget(connection, databaseName) {
+export function assertPreviewFixtureTarget(connection, databaseName, { isolatedPort } = {}) {
   assert.match(databaseName, /^pdgld48_test_[a-f0-9]{16}$/);
   assert.ok(['localhost', '127.0.0.1', '::1', '[::1]'].includes(connection.host),
     'Los fixtures de Preview requieren una conexión loopback del cliente.');
-  assert.ok([5432, 5433].includes(Number(connection.port)), 'Puerto de fixture de Preview no permitido.');
+  if (isolatedPort !== undefined) {
+    assert.ok([55415, 55417].includes(isolatedPort));
+    assert.equal(connection.host, '127.0.0.1');
+    assert.equal(Number(connection.port), isolatedPort);
+  } else assert.ok([5432, 5433].includes(Number(connection.port)), 'Puerto de fixture de Preview no permitido.');
   assert.equal(connection.database, databaseName, 'La conexión debe usar la base temporal creada por el harness.');
   assert.equal(connection.user, 'postgres', 'Los fixtures solo los prepara el propietario local.');
 }
 
 /** Solo lo invoca el harness después de crear una base con nombre aleatorio. */
-export async function preparePreviewRuntime(client, databaseName, runtimePassword) {
-  assertPreviewFixtureTarget(client.connectionParameters, databaseName);
+export async function preparePreviewRuntime(client, databaseName, runtimePassword, options = {}) {
+  assertPreviewFixtureTarget(client.connectionParameters, databaseName, options);
   const identity = (await client.query('SELECT current_database() AS database, current_user AS actor')).rows[0];
   assert.equal(identity.database, databaseName);
   assert.equal(identity.actor, 'postgres');

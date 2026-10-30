@@ -1979,6 +1979,9 @@ model user_roles {
   club_id                                   String?   @db.Uuid
   starts_at                                 DateTime  @default(now()) @db.Timestamptz(6)
   ends_at                                   DateTime? @db.Timestamptz(6)
+  /// PRIMARY/DEPUTY. NULL on legacy delegates means the position is unknown.
+  /// CHECK, three exclusion constraints and transition guards live in the SQL migration.
+  delegate_position                         String?
   clubs_user_roles_club_idToclubs           clubs?    @relation("user_roles_club_idToclubs", fields: [club_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   clubs_user_roles_club_id_league_idToclubs clubs?    @relation("user_roles_club_id_league_idToclubs", fields: [club_id, league_id], references: [id, league_id], onDelete: NoAction, onUpdate: NoAction)
   leagues                                   leagues?  @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)

@@ -26,7 +26,8 @@ const insert = {
   teams: ['club_id', 'name', 'reference_number', 'created_at'],
   season_teams: ['team_id', 'club_id', 'season_id', 'group_id', 'status', 'enrolled_by', 'enrolled_at', 'enrollment_key', 'enrollment_hash'],
   team_enrollment_operations: ['actor_id', 'enrollment_key', 'club_id', 'fingerprint', 'outcome', 'enrollment_id', 'finalized_at'],
-  user_roles: ['user_id', 'role_id', 'league_id', 'club_id', 'starts_at'],
+  // PDGLD-107: finite initial assignments need INSERT ends_at, never UPDATE.
+  user_roles: ['user_id', 'role_id', 'league_id', 'club_id', 'starts_at', 'delegate_position', 'ends_at'],
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at'],
 };
 const update = {

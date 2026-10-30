@@ -115,6 +115,7 @@ test("PDGLD-56: delegado no accede a otro club cambiando identificadores", async
             role_id: role.id,
             league_id: leagueA.id,
             club_id: ownClub.id,
+            delegate_position: "PRIMARY",
             starts_at: new Date(Date.now() - 60_000),
           },
         });

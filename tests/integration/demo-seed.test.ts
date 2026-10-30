@@ -144,6 +144,7 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
         assert.equal(user.is_active, account.active);
         assert.equal(user.must_change_password, account.temporary);
         assert.equal(user.user_roles.length, 1);
+        assert.equal(user.user_roles[0].delegate_position, "delegatePosition" in account ? account.delegatePosition : null);
         assert.equal(user.user_roles[0].league_id, account.scope === "global" ? null : DEMO_CONTEXT.leagueId);
         assert.equal(user.user_roles[0].club_id, account.scope === "clubA" ? DEMO_CONTEXT.clubAId : account.scope === "clubB" ? DEMO_CONTEXT.clubBId : null);
         assert.equal(!!user.user_roles[0].ends_at, account.temporary);
@@ -166,7 +167,7 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
         await tx.$queryRaw`SELECT set_config('app.user_id', ${temporary.id}, true), set_config('app.reason', 'PDGLD-54: fixture de revocación posterior al seed', true)`;
         await tx.users.update({ where: { id: temporary.id }, data: { password_hash: customHash, is_active: false, must_change_password: false } });
         await tx.user_roles.updateMany({ where: { user_id: temporary.id }, data: { starts_at: new Date("2025-01-01T00:00:00Z"), ends_at: new Date("2025-02-01T00:00:00Z") } });
-        await tx.user_roles.deleteMany({ where: { user_id: delegate.id } });
+        await tx.user_roles.updateMany({ where: { user_id: delegate.id }, data: { ends_at: new Date() } });
         await tx.role_permissions.deleteMany({ where: { roles: { code: "SECRETARY" } } });
         await tx.role_permissions.deleteMany({ where: { roles: { code: "SUPERADMIN" }, permissions: { module: "users", action: "CREATE" } } });
         await tx.role_permissions.updateMany({ where: { roles: { code: "CLUB_DELEGATE" } }, data: { context_only: false } });
@@ -177,7 +178,8 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
       assert.deepEqual(await snapshot(client), changed, "No se escriben UPDATE vacíos, eventos duplicados ni concesiones retiradas.");
       assert.equal(await prisma.role_permissions.count({ where: { roles: { code: "SECRETARY" } } }), 0);
       assert.equal(await prisma.role_permissions.count({ where: { roles: { code: "SUPERADMIN" }, permissions: { module: "users", action: "CREATE" } } }), 0);
-      assert.equal(await prisma.user_roles.count({ where: { user_id: delegate.id } }), 0);
+      assert.equal(await prisma.user_roles.count({ where: { user_id: delegate.id, ends_at: null } }), 0);
+      assert.equal(await prisma.user_roles.count({ where: { user_id: delegate.id } }), 1, "La asignación cerrada se conserva.");
     });
   } catch (error) {
     if (error instanceof assert.AssertionError) throw error;
