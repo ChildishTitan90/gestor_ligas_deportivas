@@ -1,100 +1,59 @@
 import { ActionLink } from "@/components/ui/action-link";
 
 export type AffiliationReviewItem = {
-  id: string;
-  referenceNumber: string;
-  clubName: string;
-  seasonName: string;
+  id: string; referenceNumber: string; clubName: string; seasonName: string;
   status: "PENDING" | "APPROVED";
   reviewPhase: "AWAITING_REVIEW" | "CORRECTIONS_REQUESTED" | null;
   detailHref: string;
 };
+type Props = { items: readonly AffiliationReviewItem[]; onSelect?: (id: string) => void; disabled?: boolean; status?: "PENDING" | "APPROVED" };
+const phase = (item: AffiliationReviewItem) => item.reviewPhase === "AWAITING_REVIEW" ? "Por revisar" : item.reviewPhase === "CORRECTIONS_REQUESTED" ? "Correcciones solicitadas" : "No aplica";
 
-type AffiliationReviewListProps = {
-  items: readonly AffiliationReviewItem[];
-  onSelect?: (id: string) => void;
-  disabled?: boolean;
-  status?: "PENDING" | "APPROVED";
-};
+function Status({ item }: { item: AffiliationReviewItem }) {
+  return <span className="inline-flex rounded-full border px-3 py-1 text-xs font-semibold"
+    style={item.status === "APPROVED" ? { color: "var(--positive)", background: "var(--positive-surface)", borderColor: "var(--positive)" } :
+      { color: "var(--primary)", background: "var(--soft)", borderColor: "var(--accent)" }}>
+    {item.status === "APPROVED" ? "Aprobada" : "Pendiente"}
+  </span>;
+}
 
-const phaseLabels = {
-  AWAITING_REVIEW: "Pendiente de revisión",
-  CORRECTIONS_REQUESTED: "Correcciones solicitadas",
-} satisfies Record<Exclude<AffiliationReviewItem["reviewPhase"], null>, string>;
-
-export function AffiliationReviewList({
-  items, onSelect, disabled = false, status = "PENDING",
-}: AffiliationReviewListProps) {
-  if (items.length === 0) {
-    return (
-      <div className="rounded-2xl border border-border bg-surface p-6">
-        <p className="font-medium text-primary">
-          {status === "APPROVED" ? "No hay afiliaciones aprobadas en esta consulta." : "No hay solicitudes pendientes de revisión."}
-        </p>
-        <p className="mt-2 text-sm leading-6 text-muted">
-          Aquí aparecerán las solicitudes del ámbito consultado.
-        </p>
-      </div>
-    );
+export function AffiliationReviewList({ items, onSelect, disabled = false, status = "PENDING" }: Props) {
+  const label = status === "APPROVED" ? "Afiliaciones aprobadas" : "Solicitudes pendientes de afiliación";
+  function action(item: AffiliationReviewItem) {
+    const text = item.status === "PENDING" ? "Revisar" : "Ver detalle";
+    const name = `${text} de ${item.clubName}, folio ${item.referenceNumber}`;
+    return onSelect ? <button type="button" disabled={disabled} onClick={() => onSelect(item.id)} aria-label={name}
+      className="min-h-11 w-full rounded-xl border border-border bg-surface px-5 py-2.5 text-sm font-semibold text-primary hover:bg-soft disabled:opacity-50 lg:w-auto">{text}</button> :
+      <ActionLink href={item.detailHref} variant="secondary" aria-label={name}>{text}</ActionLink>;
   }
+  if (!items.length) return <div className="rounded-2xl border border-border bg-surface p-6">
+    <p className="font-medium text-primary">{status === "APPROVED" ? "No hay afiliaciones aprobadas en esta consulta." : "No hay solicitudes pendientes de revisión."}</p>
+    <p className="mt-2 text-sm leading-6 text-muted">Prueba otra búsqueda o limpia los filtros del ámbito consultado.</p>
+  </div>;
 
-  return (
-    <ul aria-label={status === "APPROVED" ? "Afiliaciones aprobadas" : "Solicitudes pendientes de afiliación"} className="space-y-4">
-      {items.map((item) => (
-        <li
-          key={item.id}
-          className="rounded-2xl border border-border bg-surface p-5 sm:p-6"
-        >
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 flex-1">
-              <h2 className="wrap-break-word text-lg font-semibold text-primary">
-                {item.clubName}
-              </h2>
-
-              <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-                <div>
-                  <dt className="text-muted">Folio</dt>
-                  <dd className="mt-1 wrap-break-word font-medium">
-                    {item.referenceNumber}
-                  </dd>
-                </div>
-
-                <div className="min-w-0">
-                  <dt className="text-muted">Temporada</dt>
-                  <dd className="mt-1 wrap-break-word">{item.seasonName}</dd>
-                </div>
-
-                <div>
-                  <dt className="text-muted">Estado de aprobación</dt>
-                  <dd className="mt-1">{item.status === "APPROVED" ? "Aprobada" : "Pendiente"}</dd>
-                </div>
-
-                <div>
-                  <dt className="text-muted">Fase de revisión</dt>
-                  <dd className="mt-1">
-                    <span className="inline-block rounded-lg bg-soft px-3 py-1 font-medium text-primary">
-                      {item.reviewPhase ? phaseLabels[item.reviewPhase] : "No aplica"}
-                    </span>
-                  </dd>
-                </div>
-              </dl>
-            </div>
-
-            {onSelect ? <button type="button" disabled={disabled} onClick={() => onSelect(item.id)}
-              aria-label={`Ver detalle de ${item.clubName}, folio ${item.referenceNumber}`}
-              className="min-h-12 rounded-xl border border-border px-5 py-3 text-sm font-semibold text-primary disabled:opacity-50">
-              Ver detalle
-            </button> : <ActionLink
-              href={item.detailHref}
-              variant="secondary"
-              aria-label={`Ver detalle de ${item.clubName}, folio ${item.referenceNumber}`}
-              className="w-full shrink-0 sm:w-auto"
-            >
-              Ver detalle
-            </ActionLink>}
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
+  return <>
+    <div className="hidden overflow-x-auto rounded-2xl border border-border bg-surface lg:flex">
+      <table aria-label={label} className="w-full text-left text-sm">
+        <thead className="border-b border-border bg-soft text-xs text-muted uppercase"><tr>
+          {["Folio", "Club", "Temporada", "Estado", "Fase de revisión", "Acción"].map(column => <th key={column} scope="col" className="px-4 py-4 font-semibold">{column}</th>)}
+        </tr></thead>
+        <tbody>{items.map(item => <tr key={item.id} className="border-b border-border last:border-b-0">
+          <td className="px-4 py-4 font-semibold text-primary">{item.referenceNumber}</td>
+          <td className="px-4 py-4">{item.clubName}</td>
+          <td className="px-4 py-4 text-muted">{item.seasonName}</td>
+          <td className="px-4 py-4"><Status item={item} /></td>
+          <td className="px-4 py-4 text-xs text-muted">{phase(item)}</td>
+          <td className="px-4 py-4">{action(item)}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+    <ul aria-label={label} className="space-y-4 lg:hidden">{items.map(item => <li key={item.id} className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="wrap-break-word font-semibold text-primary">{item.referenceNumber}</p><Status item={item} />
+      </div>
+      <h3 className="wrap-break-word text-lg font-semibold text-primary">{item.clubName}</h3>
+      <p className="text-sm leading-6 text-muted">{item.seasonName} · {phase(item)}</p>
+      {action(item)}
+    </li>)}</ul>
+  </>;
 }

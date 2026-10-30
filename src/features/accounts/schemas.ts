@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { changePasswordSchema, loginSchema } from "@/features/auth/schemas";
+import { changePasswordSchema, emailSchema } from "@/features/auth/schemas";
 
 // Alcance de HU22-01: cuentas administrativas y delegados, sin cuentas GUEST.
 export const accountRoleCodes = [
@@ -25,7 +25,7 @@ export const createAccountSchema = z.strictObject({
   username: z.string().trim().min(1).max(64)
     .regex(/^[A-Za-z0-9._-]+$/, "Usa letras, números, punto, guion o guion bajo.")
     .transform((value) => value.toLowerCase()),
-  email: loginSchema.shape.email,
+  email: emailSchema,
   temporaryPassword: changePasswordSchema.shape.newPassword,
   person: personSchema,
   roles: z.array(z.enum(accountRoleCodes)).min(1).max(accountRoleCodes.length),

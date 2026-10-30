@@ -17,6 +17,7 @@ test("formulario inicial muestra datos requeridos, contraseña oculta y roles au
 test("sin roles ofrece estado vacío y mantiene envío bloqueado", () => {
   const html = renderToStaticMarkup(<AccountForm options={{ roles: [], leagues: [], clubs: [] }} canReusePerson={true} createClubLeagues={[]} />);
   assert.match(html, /No hay roles disponibles/);
-  assert.match(html, /Usar UUID conocido/);
+  assert.match(html, /role="combobox"/);
+  assert.match(html, /value="Registrar persona"/);
   assert.match(html, /type="submit" disabled=""/);
 });

@@ -1,7 +1,11 @@
 import { z } from "zod";
 
+export const emailSchema = z.string().trim().max(254).pipe(z.email()).transform(value => value.toLowerCase());
+export const usernameSchema = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9._-]+$/).transform(value => value.toLowerCase());
+
 export const loginSchema = z.object({
-  email: z.string().trim().max(254).pipe(z.email()).transform((value) => value.toLowerCase()),
+  // Se conserva el nombre del parámetro de NextAuth 4 para los clientes existentes.
+  email: z.union([emailSchema, usernameSchema]),
   // La política de alta/cambio pertenece a PDGLD-49; no transformar contraseñas.
   password: z
     .string({ error: "Escribe tu contraseña." })

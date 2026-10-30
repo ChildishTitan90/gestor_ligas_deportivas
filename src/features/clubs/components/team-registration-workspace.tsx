@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ActionLink } from "@/components/ui/action-link";
+import { SelectField } from "@/components/ui/select-field";
 import { createEnrollmentApi } from "../team-registration-adapter";
 import { createRegistrationWorkspace, type RegistrationWorkspaceController } from "../team-registration-workspace-controller";
 import { TeamRegistrationFormView } from "./team-registration-form";
@@ -22,7 +23,6 @@ export function IdentityWorkspace({ userId }: { userId: string }) {
   return <TeamRegistrationWorkspaceView controller={controller} />;
 }
 const button = "min-h-12 rounded-xl border border-border px-5 py-3 text-primary disabled:opacity-50";
-const input = "mt-2 min-h-12 w-full rounded-xl border border-border bg-surface px-3 py-2";
 /** Vista de datos reales; las pruebas inyectan el controlador y una red simulada. */
 export function TeamRegistrationWorkspaceView({ controller }: { controller: RegistrationWorkspaceController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
@@ -66,19 +66,15 @@ export function TeamRegistrationWorkspaceView({ controller }: { controller: Regi
       {!state.catalogLoading && !state.catalogError && !state.queryClubs.length && <p>No hay clubes disponibles para consultar en tu ámbito.</p>}
       <form onSubmit={query} className="space-y-4" aria-busy={state.listLoading || state.catalogLoading}>
         <div><label htmlFor="registration-query-club">Club *</label>
-          <select id="registration-query-club" name="clubId" value={state.queryClubId} required
-            disabled={state.catalogLoading || state.listLoading || !!state.catalogError} className={input}
-            onChange={event => void controller.queryCatalogs(event.target.value, "")}>
-            <option value="">Selecciona un club</option>
-            {state.queryClubs.map(club => <option key={club.id} value={club.id}>{club.name}</option>)}
-          </select></div>
+          <SelectField id="registration-query-club" name="clubId" value={state.queryClubId} required
+            disabled={state.catalogLoading || state.listLoading || !!state.catalogError} className="mt-2"
+            placeholder="Selecciona un club" onValueChange={value => void controller.queryCatalogs(value, "")}
+            options={state.queryClubs.map(club => ({ value: club.id, label: club.name }))} /></div>
         <div><label htmlFor="registration-query-season">Temporada</label>
-          <select id="registration-query-season" name="seasonId" value={state.querySeasonId}
-            disabled={state.catalogLoading || state.listLoading || !state.queryClubId || !!state.catalogError} className={input}
-            onChange={event => void controller.queryCatalogs(state.queryClubId, event.target.value)}>
-            <option value="">Todas las temporadas</option>
-            {state.querySeasons.map(season => <option key={season.id} value={season.id}>{season.name}</option>)}
-          </select></div>
+          <SelectField id="registration-query-season" name="seasonId" value={state.querySeasonId}
+            disabled={state.catalogLoading || state.listLoading || !state.queryClubId || !!state.catalogError} className="mt-2"
+            onValueChange={value => void controller.queryCatalogs(state.queryClubId, value)}
+            options={[{ value: "", label: "Todas las temporadas" }, ...state.querySeasons.map(season => ({ value: season.id, label: season.name }))]} /></div>
         <button className={button} disabled={state.listLoading || state.catalogLoading || !state.queryClubId || !!state.catalogError}>Consultar inscripciones</button>
       </form>
       {state.listLoading && <p role="status">Cargando inscripciones…</p>}

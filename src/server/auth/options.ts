@@ -27,7 +27,7 @@ export function getAuthOptions(): NextAuthOptions {
       CredentialsProvider({
         name: "Correo y contraseña",
         credentials: {
-          email: { label: "Correo electrónico", type: "email" },
+          email: { label: "Usuario o correo electrónico", type: "text" },
           password: { label: "Contraseña", type: "password" },
         },
         authorize: authorizeCredentials,

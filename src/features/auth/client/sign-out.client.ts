@@ -2,8 +2,16 @@
 
 import { getCsrfToken } from "next-auth/react";
 
+let pendingSignOut: Promise<void> | null = null;
+
+/** Los dos accesos de salida comparten una sola petición mientras está pendiente. */
+export function signOutCurrentSession(): Promise<void> {
+  pendingSignOut ??= performSignOut().finally(() => { pendingSignOut = null; });
+  return pendingSignOut;
+}
+
 /** NextAuth 4 puede redirigir aunque el servidor rechace el cierre; comprobarlo explícitamente. */
-export async function signOutCurrentSession() {
+async function performSignOut() {
   const csrfToken = await getCsrfToken();
   if (!csrfToken) throw new Error("SIGNOUT_FAILED");
   const response = await fetch("/api/auth/signout", {

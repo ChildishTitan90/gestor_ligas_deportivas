@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { AccountHeader } from "@/components/layout/account-header";
 import { ActionLink } from "@/components/ui/action-link";
 import { getCurrentAccount } from
   "@/features/auth/server/account-presentation";
@@ -9,6 +8,7 @@ import { getAffiliationFormPageData } from
   "@/features/clubs/server/affiliation-form-queries";
 import { AuthAccessError } from "@/server/auth/session";
 import { AuthorizationError } from "@/server/auth/authorization";
+import { SelectField } from "@/components/ui/select-field";
 
 export const metadata = {
   title: "Solicitar afiliación",
@@ -44,18 +44,13 @@ export default async function NewAffiliationPage({
     unavailable = !(error instanceof AuthorizationError);
   }
 
-  const current = await getCurrentAccount({
-    includeAssignments: true,
-  });
+  const current = await getCurrentAccount();
 
   if (!current) redirect("/login");
   if (current.mustChangePassword) redirect("/change-password");
 
   return (
-    <>
-      <AccountHeader account={current.account} />
-
-      <main className="mx-auto w-full max-w-5xl flex-1 space-y-6 px-6 py-10 sm:px-10">
+      <div className="mx-auto w-full max-w-5xl space-y-6">
         <ActionLink href="/access" variant="secondary">Volver al panel</ActionLink>
         <h1 className="text-2xl font-semibold text-primary">
           Mis solicitudes de afiliación
@@ -84,22 +79,16 @@ export default async function NewAffiliationPage({
                 Club y temporada
               </label>
 
-              <select
+              <SelectField
                 id="affiliation-context"
                 name="context"
                 defaultValue={data.selected.value}
-                className="min-h-12 w-full rounded-xl border border-border bg-surface px-3"
-              >
-                {data.options.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.clubName} — {option.seasonName}
-                  </option>
-                ))}
-              </select>
+                required options={data.options.map(option => ({ value: option.value, label: `${option.clubName} — ${option.seasonName}` }))}
+              />
 
               <button
                 type="submit"
-                className="min-h-12 rounded-xl bg-primary px-5 py-3 font-semibold text-white"
+                className="min-h-12 rounded-xl primary-action px-5 py-3 font-semibold"
               >
                 Abrir selección
               </button>
@@ -162,7 +151,6 @@ export default async function NewAffiliationPage({
             ) : null}
           </>
         )}
-      </main>
-    </>
+      </div>
   );
 }

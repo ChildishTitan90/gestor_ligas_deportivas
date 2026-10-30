@@ -4,6 +4,9 @@ import Link from "next/link";
 import { Globe, KeyRound, LayoutDashboard } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { SignOutButton } from "./sign-out-button";
+import { ThemeMenuControls } from "@/components/ui/theme-menu-controls";
+
+const menuItemSelector = '[role="menuitem"]:not(:disabled), [role="menuitemcheckbox"]:not(:disabled)';
 
 export function AccountMenu({
   username, initials, roleNames = [], mustChangePassword = false, publicView = false,
@@ -23,7 +26,7 @@ export function AccountMenu({
   const label = username ? `@${username}` : "Mi cuenta";
 
   function items() {
-    return Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? []);
+    return Array.from(menu.current?.querySelectorAll<HTMLElement>(menuItemSelector) ?? []);
   }
 
   function close(restoreFocus = false) {
@@ -33,7 +36,7 @@ export function AccountMenu({
 
   useEffect(() => {
     if (!open) return;
-    const controls = Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? []);
+    const controls = Array.from(menu.current?.querySelectorAll<HTMLElement>(menuItemSelector) ?? []);
     (initialFocus.current === "last" ? controls.at(-1) : controls[0])?.focus();
     function onPointerDown(event: PointerEvent) {
       if (!container.current?.contains(event.target as Node)) setOpen(false);
@@ -97,7 +100,7 @@ export function AccountMenu({
     </div>
     <div ref={menu} id={menuId} role="menu" aria-label="Opciones de la cuenta" hidden={!open}
       onKeyDown={onMenuKeyDown}
-      className="absolute top-full right-0 z-20 mt-3 w-56 max-w-[calc(100vw-3rem)] rounded-2xl border border-border bg-surface p-2 shadow-lg">
+      className="absolute top-full right-0 z-20 mt-3 w-64 max-w-[calc(100vw-3rem)] rounded-2xl border border-border bg-surface p-2 shadow-lg">
       <Link role="menuitem" tabIndex={-1} href={mustChangePassword ? "/change-password" : "/access"}
         onClick={() => close()} className="flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-primary hover:bg-soft focus:bg-soft">
         {mustChangePassword ? <KeyRound size={18} aria-hidden="true" /> : <LayoutDashboard size={18} aria-hidden="true" />}
@@ -108,6 +111,8 @@ export function AccountMenu({
         <Globe size={18} aria-hidden="true" />
         Portal público
       </Link>
+      <div role="separator" className="my-1 h-px bg-border" />
+      <ThemeMenuControls />
       <div role="separator" className="my-1 h-px bg-border" />
       <SignOutButton variant="menu-item" />
     </div>
