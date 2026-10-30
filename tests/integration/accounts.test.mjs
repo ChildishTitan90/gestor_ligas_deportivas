@@ -21,7 +21,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
       clubs.push((await db.query("INSERT INTO sports_management.clubs(league_id,reference_number,name) VALUES ($1,$2,$3) RETURNING id",
         [league, randomUUID(), 'Club sintético'])).rows[0].id);
     }
-    async function fixture(kind, role, scope, restricted = false, club = null) {
+    async function fixture(kind, role, scope, restricted = false, club = null, delegatePosition = null) {
       const person = (await db.query("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES ('Sintético','Cuentas') RETURNING id")).rows[0].id;
       const email = `${kind}-${randomUUID()}@example.test`;
       const user = (await db.query(`INSERT INTO sports_management.users(person_id,username,email,password_hash,must_change_password)
@@ -30,8 +30,8 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         await db.query('BEGIN');
         try {
           await db.query("SELECT set_config('app.user_id',$1,true),set_config('app.reason','Fixture sintético PDGLD-34',true)", [user.id]);
-          await db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id)
-            SELECT $1,id,$3,$4 FROM sports_management.roles WHERE code=$2`, [user.id, role, scope, club]);
+          await db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id,delegate_position)
+            SELECT $1,id,$3,$4,$5 FROM sports_management.roles WHERE code=$2`, [user.id, role, scope, club, delegatePosition]);
           await db.query('COMMIT');
         } catch (error) { await db.query('ROLLBACK'); throw error; }
       }
@@ -124,14 +124,14 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         await deny(local.browser, payload({ leagueId: leagueB }), 403, 'FORBIDDEN');
         await deny(local.browser, payload({ roles: ['SUPERADMIN'], leagueId: undefined }), 403, 'FORBIDDEN');
         // Poder crear no habilita roles cuyas capacidades no posee, ni altas de clubes.
-        await deny(local.browser, payload({ roles: ['CLUB_DELEGATE'], club: { kind: 'new', name: 'Fuera de facultades' } }), 403, 'FORBIDDEN');
+        await deny(local.browser, payload({ roles: ['CLUB_DELEGATE'], delegatePosition: 'PRIMARY', club: { kind: 'new', name: 'Fuera de facultades' } }), 403, 'FORBIDDEN');
         const clubLocal = await fixture('club-local', 'EXECUTIVE_PRESIDENT', leagueA, false, clubs[0]);
         const clubOptions = await clubLocal.browser.request(`/api/accounts?leagueId=${leagueA}`);
         assert.equal(clubOptions.status, 200);
         const filtered = await clubOptions.json();
         assert.deepEqual(filtered.clubs.map((club) => club.id), [clubs[0]]);
         assert.deepEqual(filtered.roles.map((role) => role.code), ['CLUB_DELEGATE']);
-        assert.equal((await post(clubLocal.browser, payload({ roles: ['CLUB_DELEGATE'], club: { kind: 'existing', id: clubs[0] } }))).status, 201);
+        assert.equal((await post(clubLocal.browser, payload({ roles: ['CLUB_DELEGATE'], delegatePosition: 'PRIMARY', club: { kind: 'existing', id: clubs[0] } }))).status, 201);
         await deny(clubLocal.browser, payload(), 403, 'FORBIDDEN');
       });
 
@@ -194,7 +194,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         for (const body of [
           payload({ roles: ['GUEST'] }), payload({ roles: ['PLAYER'] }),
           payload({ roles: ['SECRETARY', 'SECRETARY'] }),
-          payload({ roles: ['CLUB_DELEGATE'] }),
+          payload({ roles: ['CLUB_DELEGATE'], delegatePosition: 'PRIMARY' }),
           payload({ roles: ['SUPERADMIN'] }),
           payload({ roles: ['SUPERADMIN', 'SECRETARY'], leagueId: undefined }),
           payload({ roles: ['SECRETARY'], leagueId: undefined }),
@@ -202,7 +202,13 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
           payload({ is_active: false }),
         ]) await deny(admin.browser, body, 400, 'VALIDATION_ERROR');
         await deny(admin.browser, payload({ leagueId: randomUUID() }), 400, 'INVALID_CONTEXT');
-        await deny(admin.browser, payload({ roles: ['CLUB_DELEGATE'], club: { kind: 'existing', id: clubs[1] } }), 400, 'INVALID_CONTEXT');
+        await deny(admin.browser, payload({ roles: ['CLUB_DELEGATE'], delegatePosition: 'PRIMARY', club: { kind: 'existing', id: clubs[1] } }), 400, 'INVALID_CONTEXT');
+      });
+
+      await t.test('cargo explícito y conflictos no dejan cuentas ni personas huérfanas', async () => {
+        await deny(admin.browser, payload({ roles: ['CLUB_DELEGATE'], club: { kind: 'existing', id: clubs[0] } }), 400, 'DELEGATE_POSITION_REQUIRED');
+        await deny(admin.browser, payload({ delegatePosition: 'PRIMARY' }), 400, 'INVALID_DELEGATE_POSITION');
+        await deny(admin.browser, payload({ roles: ['CLUB_DELEGATE'], delegatePosition: 'PRIMARY', club: { kind: 'existing', id: clubs[0] } }), 409, 'DELEGATE_POSITION_OCCUPIED');
       });
 
       await t.test('crea administrativo, normaliza correo/usuario y exige cambio de contraseña', async () => {
@@ -245,14 +251,16 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
       });
 
       await t.test('delegado queda vinculado antes de afiliación; otros roles mantienen ámbito de liga', async () => {
-        const input = payload({ roles: ['CLUB_DELEGATE', 'DATA_ENTRY'], club: { kind: 'new', name: 'Club previo a afiliación' } });
+        const input = payload({ roles: ['CLUB_DELEGATE', 'DATA_ENTRY'], delegatePosition: 'PRIMARY', club: { kind: 'new', name: 'Club previo a afiliación' } });
         const response = await post(admin.browser, input);
         assert.equal(response.status, 201);
         const created = await response.json();
-        const grants = (await db.query(`SELECT r.code,ur.league_id,ur.club_id FROM sports_management.user_roles ur
+        const grants = (await db.query(`SELECT r.code,ur.league_id,ur.club_id,ur.delegate_position FROM sports_management.user_roles ur
           JOIN sports_management.roles r ON r.id=ur.role_id WHERE ur.user_id=$1`, [created.id])).rows;
         assert.equal(grants.length, 2);
         assert.equal(grants.find((r) => r.code === 'CLUB_DELEGATE').club_id, created.clubId);
+        assert.equal(grants.find((r) => r.code === 'CLUB_DELEGATE').delegate_position, 'PRIMARY');
+        assert.equal(grants.find((r) => r.code === 'DATA_ENTRY').delegate_position, null);
         assert.equal(grants.find((r) => r.code === 'DATA_ENTRY').club_id, null);
         assert.ok(grants.every((r) => r.league_id === leagueA));
         assert.equal((await db.query('SELECT count(*)::int n FROM sports_management.club_affiliations WHERE club_id=$1', [created.clubId])).rows[0].n, 0);
@@ -263,7 +271,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         const json = JSON.stringify(audits);
         for (const forbidden of [input.email, input.temporaryPassword, '$argon2', 'password_hash', 'encrypted_mfa_secret'])
           assert.ok(!json.includes(forbidden));
-        assert.equal((await post(admin.browser, payload({ roles: ['CLUB_DELEGATE'], club: { kind: 'existing', id: clubs[0] } }))).status, 201);
+        assert.equal((await post(admin.browser, payload({ roles: ['CLUB_DELEGATE'], delegatePosition: 'DEPUTY', club: { kind: 'existing', id: clubs[0] } }))).status, 201);
       });
 
       await t.test('reutiliza una persona sin cuenta y rechaza otra cuenta para esa identidad', async () => {
@@ -274,12 +282,12 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         assert.equal(response.status, 201);
         assert.equal((await response.json()).personId, person);
         assert.equal((await totals()).people, count);
-        await deny(admin.browser, payload({ person: { id: person }, roles: ['CLUB_DELEGATE'], club: { kind: 'new', name: 'No debe persistir' } }), 409, 'PERSON_UNAVAILABLE');
+        await deny(admin.browser, payload({ person: { id: person }, roles: ['CLUB_DELEGATE'], delegatePosition: 'PRIMARY', club: { kind: 'new', name: 'No debe persistir' } }), 409, 'PERSON_UNAVAILABLE');
         await deny(admin.browser, payload({ person: { id: randomUUID() } }), 409, 'PERSON_UNAVAILABLE');
       });
 
       await t.test('los duplicados y dos altas concurrentes se resuelven sin residuos', async () => {
-        const input = payload({ roles: ['CLUB_DELEGATE'], club: { kind: 'new', name: 'Club concurrente sintético' } });
+        const input = payload({ roles: ['CLUB_DELEGATE'], delegatePosition: 'PRIMARY', club: { kind: 'new', name: 'Club concurrente sintético' } });
         const before = await totals();
         const responses = await Promise.all([post(admin.browser, input), post(admin.browser, input)]);
         assert.deepEqual(responses.map((r) => r.status).sort(), [201, 409]);
@@ -335,7 +343,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         await deny(admin.browser, payload({ leagueId: leagueB }), 400, 'INVALID_CONTEXT');
         await db.query("UPDATE sports_management.clubs SET status='SUSPENDED' WHERE id=$1", [clubs[0]]);
         try {
-          await deny(admin.browser, payload({ roles: ['CLUB_DELEGATE'], club: { kind: 'existing', id: clubs[0] } }), 400, 'INVALID_CONTEXT');
+          await deny(admin.browser, payload({ roles: ['CLUB_DELEGATE'], delegatePosition: 'PRIMARY', club: { kind: 'existing', id: clubs[0] } }), 400, 'INVALID_CONTEXT');
         } finally {
           await db.query("UPDATE sports_management.clubs SET status='ACTIVE' WHERE id=$1", [clubs[0]]);
         }
@@ -347,7 +355,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
             THEN RAISE EXCEPTION 'Fallo sintético'; END IF; RETURN NEW; END $$`);
         await db.query('CREATE TRIGGER fail_account_audit_test BEFORE INSERT ON sports_management.audit_logs FOR EACH ROW EXECUTE FUNCTION sports_management.fail_account_audit_test()');
         try {
-          await deny(admin.browser, payload({ roles: ['CLUB_DELEGATE'], club: { kind: 'new', name: 'Rollback sintético' } }), 503, 'SERVICE_UNAVAILABLE');
+          await deny(admin.browser, payload({ roles: ['CLUB_DELEGATE'], delegatePosition: 'PRIMARY', club: { kind: 'new', name: 'Rollback sintético' } }), 503, 'SERVICE_UNAVAILABLE');
         } finally {
           await db.query('DROP TRIGGER fail_account_audit_test ON sports_management.audit_logs');
           await db.query('DROP FUNCTION sports_management.fail_account_audit_test()');

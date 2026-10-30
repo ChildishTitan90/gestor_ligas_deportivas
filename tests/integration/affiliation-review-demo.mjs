@@ -17,12 +17,12 @@ export async function prepareAffiliationReviewDemo(db, databaseUrl, users) {
   const rule = (await db.query('INSERT INTO sports_management.competition_rules(season_id,version_number) VALUES ($1,1) RETURNING id', [season])).rows[0].id;
   const category = (await db.query("INSERT INTO sports_management.categories(league_id,sport_id,name) VALUES ($1,$2,'Categoría sintética') RETURNING id", [league, sport])).rows[0].id;
   await db.query("INSERT INTO sports_management.season_categories(season_id,category_id,competition_rule_id,hierarchy_order,type,age_cutoff_date) VALUES ($1,$2,$3,1,'OPEN','2026-01-01')", [season, category, rule]);
-  for (const [role, actor, clubId, actions] of [
-    ['SECRETARY', secretary, null, ['READ', 'APPROVE']],
-    ['CLUB_DELEGATE', delegate, club, ['CREATE', 'READ', 'UPDATE']],
+  for (const [role, actor, clubId, actions, delegatePosition] of [
+    ['SECRETARY', secretary, null, ['READ', 'APPROVE'], null],
+    ['CLUB_DELEGATE', delegate, club, ['CREATE', 'READ', 'UPDATE'], 'PRIMARY'],
   ]) {
     const roleId = (await db.query('SELECT id FROM sports_management.roles WHERE code=$1', [role])).rows[0].id;
-    await db.query('INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id) VALUES ($1,$2,$3,$4)', [actor, roleId, league, clubId]);
+    await db.query('INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id,delegate_position) VALUES ($1,$2,$3,$4,$5)', [actor, roleId, league, clubId, delegatePosition]);
     for (const action of actions) {
       const permission = (await db.query("INSERT INTO sports_management.permissions(module,action) VALUES ('clubs',$1) ON CONFLICT(module,action) DO UPDATE SET module=EXCLUDED.module RETURNING id", [action])).rows[0].id;
       await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,$3) ON CONFLICT(role_id,permission_id) DO UPDATE SET context_only=EXCLUDED.context_only', [roleId, permission, !!clubId]);

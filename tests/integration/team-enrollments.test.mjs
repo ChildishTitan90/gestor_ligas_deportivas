@@ -6,6 +6,7 @@ import * as argon2 from 'argon2';
 import { tsImport } from 'tsx/esm/api';
 import { readFileSync } from 'node:fs';
 import { Browser } from './auth.test.mjs';
+import { withDelegateValidity } from './delegate-fixtures.mjs';
 import { verifyEnrollmentOperationMigration } from './team-enrollment-migration.mjs';
 
 /** HTTP real y PostgreSQL desechable. El primer recorrido solicita, aprueba
@@ -33,21 +34,22 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
     const clubId = await club();
     const otherClub = await club();
     const foreignClub = await club(foreignLeague);
-    async function user(role, scopeClub, restricted = false) {
+    async function user(role, scopeClub, restricted = false, delegatePosition = null) {
       const person = (await db.query("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES ('Sintético','PD62') RETURNING id")).rows[0].id;
       const email = `${randomUUID()}@example.test`;
       const id = (await db.query(`INSERT INTO sports_management.users(person_id,username,email,password_hash,must_change_password)
         VALUES ($1,$2,$2,$3,$4) RETURNING id`, [person, email, hash, restricted])).rows[0].id;
       await db.query("SELECT set_config('app.user_id',$1,false),set_config('app.reason','PDGLD-64: fixtures sintéticos',false)", [id]);
-      await db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id)
-        SELECT $1,id,$2,$3 FROM sports_management.roles WHERE code=$4`, [id, league, scopeClub ?? null, role]);
+      await db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id,delegate_position)
+        SELECT $1,id,$2,$3,$5 FROM sports_management.roles WHERE code=$4`, [id, league, scopeClub ?? null, role, delegatePosition]);
       const browser = new Browser(baseUrl);
       assert.equal((await browser.login(email, password)).searchParams.get('error'), null);
       return { id, browser };
     }
-    const actor = await user('CLUB_DELEGATE', clubId);
-    const peer = await user('CLUB_DELEGATE', clubId);
-    const restricted = await user('CLUB_DELEGATE', clubId, true);
+    const actor = await user('CLUB_DELEGATE', clubId, false, 'PRIMARY');
+    const peer = await user('CLUB_DELEGATE', clubId, false, 'DEPUTY');
+    const restrictedClub = (await db.query("INSERT INTO sports_management.clubs(league_id,reference_number,name) VALUES ($1,$2,'Club restringido sintético') RETURNING id", [league, randomUUID()])).rows[0].id;
+    const restricted = await user('CLUB_DELEGATE', restrictedClub, true, 'PRIMARY');
     const ordinary = await user('PLAYER');
     const secretary = await user('SECRETARY');
     roleId = (await db.query("SELECT id FROM sports_management.roles WHERE code='CLUB_DELEGATE'")).rows[0].id;
@@ -556,10 +558,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
           assert.equal((await actor.browser.request(`/api/team-enrollments?clubId=${clubId}`)).status, 403);
         } finally { await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [roleId, readPermission]); }
         for (const future of [true, false]) {
-          await db.query('UPDATE sports_management.user_roles SET starts_at=$1,ends_at=$2 WHERE user_id=$3',
-            [new Date(Date.now() + (future ? 60_000 : -120_000)), future ? null : new Date(Date.now() - 60_000), actor.id]);
-          try { await deny(actor.browser, body, 403, 'FORBIDDEN'); }
-          finally { await db.query("UPDATE sports_management.user_roles SET starts_at=now()-interval '1 minute',ends_at=NULL WHERE user_id=$1", [actor.id]); }
+          await withDelegateValidity(db, actor.id, future ? 'future' : 'expired', () => deny(actor.browser, body, 403, 'FORBIDDEN'));
         }
         await db.query("UPDATE sports_management.clubs SET status='SUSPENDED' WHERE id=$1", [clubId]);
         try { await deny(actor.browser, body, 403, 'FORBIDDEN'); }

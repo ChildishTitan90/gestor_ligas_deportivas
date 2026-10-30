@@ -26,6 +26,7 @@ test("delegado necesita liga y club y admite registro inicial antes de afiliaci√
   const data = capture();
   assert.equal(parseAccountForm(data, ["CLUB_DELEGATE"], "", "new", "existing").success, false);
   const club = randomUUID();
+  data.set("delegatePosition", "PRIMARY");
   data.set("club.id", club);
   const existing = parseAccountForm(data, ["CLUB_DELEGATE"], randomUUID(), "new", "existing");
   assert.ok(existing.success);

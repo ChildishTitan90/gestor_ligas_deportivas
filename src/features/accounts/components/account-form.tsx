@@ -1,11 +1,13 @@
 "use client";
 
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ActionLink } from "@/components/ui/action-link";
-import { accountRoleCodes } from "../schemas";
+import { accountRoleCodes, delegatePeriodSchema } from "../schemas";
 import { parseAccountForm } from "../form-input";
 import { accountErrorMessage, accountValidationErrors } from "../form-feedback";
-import type { AccountCreationOptions, AccountFormData } from "../types";
+import type { AccountCreationOptions, AccountFormData, DelegateAssignmentOptions } from "../types";
+import { createDelegateOptionsLoader, formDelegatePeriod } from "../delegate-options.client";
+import { DelegatePositionSelect } from "./delegate-position-select";
 import { SelectField, type SelectOption } from "@/components/ui/select-field";
 import { focusFormControl } from "@/components/ui/focus-form-control";
 
@@ -21,6 +23,15 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
   const [roles, setRoles] = useState<string[]>([]);
   const [personMode, setPersonMode] = useState("new");
   const [clubMode, setClubMode] = useState("existing");
+  const [club, setClub] = useState("");
+  const [delegatePosition, setDelegatePosition] = useState("");
+  const [periodMode, setPeriodMode] = useState("now");
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [delegateOptions, setDelegateOptions] = useState<DelegateAssignmentOptions | null>(null);
+  const [delegateStatus, setDelegateStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [delegateLoader] = useState(createDelegateOptionsLoader);
+  useEffect(() => () => delegateLoader.cancel(), [delegateLoader]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -31,11 +42,40 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
   const global = roles.includes("SUPERADMIN");
   const delegate = roles.includes("CLUB_DELEGATE");
 
+  async function loadDelegate(change: Partial<{ enabled: boolean; club: string; clubMode: string;
+    periodMode: string; periodStart: string; periodEnd: string }> = {}, preserveMessage = false) {
+    const next = { enabled: delegate, club, clubMode, periodMode, periodStart, periodEnd, ...change };
+    setDelegatePosition("");
+    setDelegateOptions(null);
+    if (!preserveMessage) setMessage("");
+    if (!next.enabled || !league || (next.clubMode === "existing" && !next.club)) {
+      delegateLoader.cancel(); setDelegateStatus("idle"); return;
+    }
+    const period = formDelegatePeriod(next.periodMode, next.periodStart, next.periodEnd);
+    if (period) {
+      const checked = delegatePeriodSchema.safeParse(period);
+      if (!checked.success) {
+        setErrors(accountValidationErrors(checked.error.issues.map(issue => ({ ...issue, path: ["delegatePeriod", ...issue.path] }))));
+      }
+    }
+    setDelegateStatus("loading");
+    const result = await delegateLoader.load({ leagueId: league,
+      club: next.clubMode === "new" ? { kind: "new" } : { kind: "existing", id: next.club }, period });
+    if (result.kind === "stale") return;
+    setDelegateStatus(result.kind);
+    if (result.kind === "ready") { setDelegateOptions(result.options); setSessionCode(""); }
+    if (result.kind === "error") {
+      setMessage(accountErrorMessage(result.code)); setSessionCode(result.code);
+    }
+  }
+
   async function loadLeague(value: string) {
     const request = ++optionRequest.current;
     setLeague(value);
     setRoles([]);
     setClubMode("existing");
+    setClub(""); setDelegatePosition(""); setDelegateOptions(null); setDelegateStatus("idle");
+    setPeriodMode("now"); setPeriodStart(""); setPeriodEnd(""); delegateLoader.cancel();
     setOptions({ ...initial, roles: [], clubs: [] });
     setLoading(true);
     setMessage("");
@@ -50,6 +90,7 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
         return;
       }
       setOptions(data as AccountCreationOptions);
+      setSessionCode("");
     } catch {
       if (request === optionRequest.current) setMessage("No se pudieron cargar las opciones. Vuelve a seleccionar la liga.");
     } finally { if (request === optionRequest.current) setLoading(false); }
@@ -57,7 +98,8 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (lock.current || loading || uncertain || success) return;
+    if (lock.current || loading || uncertain || success || (delegate && (delegateStatus !== "ready" ||
+      !delegateOptions?.positions.some(position => position.value === delegatePosition && position.available)))) return;
     const values = new FormData(event.currentTarget);
     const parsed = parseAccountForm(values, roles, league, personMode, clubMode);
     setMessage("");
@@ -81,6 +123,10 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
       } else {
         setMessage(accountErrorMessage(result.code));
         setSessionCode(result.code);
+        if (["DELEGATE_POSITION_OCCUPIED", "DELEGATE_ACCOUNT_OVERLAP", "DELEGATE_LEGACY_OVERLAP", "DELEGATE_POSITION_REQUIRED", "INVALID_DELEGATE_POSITION"].includes(result.code)) {
+          setErrors({ delegatePosition: accountErrorMessage(result.code) });
+          void loadDelegate({}, true);
+        }
         if (response.status >= 500 || response.ok) setUncertain(true);
       }
     } catch {
@@ -97,9 +143,10 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
   function feedback(path: string) {
     return errors[path] ? <p id={`${id}-${path}-error`} className="mt-2 text-sm text-danger">{errors[path]}</p> : null;
   }
-  function field(path: string, label: string, maxLength: number, type = "text", required = true) {
+  function field(path: string, label: string, maxLength: number, type = "text", required = true, value?: string, onChange?: (value: string) => void) {
     return <div><label htmlFor={`${id}-${path}`} className="text-sm font-medium">{label}{required ? " *" : ""}</label>
       <input id={`${id}-${path}`} name={path} type={type} maxLength={maxLength} required={required}
+        value={value} onChange={onChange ? event => onChange(event.target.value) : undefined}
         autoComplete={type === "password" ? "new-password" : "off"} className={control}
         aria-invalid={Boolean(errors[path])} aria-describedby={errors[path] ? `${id}-${path}-error` : undefined} />{feedback(path)}</div>;
   }
@@ -146,17 +193,31 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
         <legend className="text-sm font-medium">Roles *</legend>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">{options.roles.filter((role) => accountRoleCodes.some((code) => code === role.code)).map((role) => <label key={role.code} className="flex min-h-12 items-center gap-3 rounded-xl border border-border p-3 text-sm">
           <input type="checkbox" name="roles" value={role.code} checked={roles.includes(role.code)} aria-invalid={Boolean(errors.roles)}
-            onChange={(event) => { setErrors({}); setRoles(event.target.checked ? role.code === "SUPERADMIN" ? [role.code] : [...roles.filter((code) => code !== "SUPERADMIN"), role.code] : roles.filter((code) => code !== role.code)); }} className="size-5 accent-primary" />{role.name}
+            onChange={(event) => { setErrors({});
+              const next = event.target.checked ? role.code === "SUPERADMIN" ? [role.code] : [...roles.filter((code) => code !== "SUPERADMIN"), role.code] : roles.filter((code) => code !== role.code);
+              setRoles(next); void loadDelegate({ enabled: next.includes("CLUB_DELEGATE") });
+            }} className="size-5 accent-primary" />{role.name}
         </label>)}</div>{feedback("roles")}
       </fieldset>
       {global && <p className="rounded-xl bg-soft p-4 text-sm">SUPERADMIN se asignará de forma global y exclusiva; no se enviará la liga seleccionada.</p>}
       {delegate && <div className="space-y-5">
-        {select("clubMode", "Registro de club", [{ value: "existing", label: "Club existente" }, ...(createClubLeagues.includes(league) ? [{ value: "new", label: "Crear registro inicial" }] : [])], clubMode, (value) => { setClubMode(value); setErrors({}); })}
-        {clubMode === "new" ? field("club.name", "Nombre del club", 150) : select("club.id", "Club", options.clubs.map(club => ({ value: club.id, label: club.name, description: club.reference_number })))}
+        {select("clubMode", "Registro de club", [{ value: "existing", label: "Club existente" }, ...(createClubLeagues.includes(league) ? [{ value: "new", label: "Crear registro inicial" }] : [])], clubMode, (value) => { setClubMode(value); setErrors({}); void loadDelegate({ clubMode: value }); })}
+        {clubMode === "new" ? field("club.name", "Nombre del club", 150) : select("club.id", "Club", [{ value: "", label: "Selecciona un club" }, ...options.clubs.map(entry => ({ value: entry.id, label: entry.name, description: entry.reference_number }))], club, value => { setClub(value); setErrors({}); void loadDelegate({ club: value }); })}
         {feedback("club")}
+        {select("delegatePeriodMode", "Vigencia de la asignación", [{ value: "now", label: "Desde el alta, sin fecha de fin" }, { value: "scheduled", label: "Indicar inicio y fin opcional" }], periodMode,
+          value => { setPeriodMode(value); setErrors({}); void loadDelegate({ periodMode: value }); })}
+        {periodMode === "scheduled" && <div className="space-y-4">
+          <p className="text-sm text-muted">Indica las fechas en la hora local de este dispositivo. El inicio se incluye y el fin no; deja el fin vacío para una vigencia abierta.</p>
+          {field("delegatePeriod.startsAt", "Inicio", 40, "datetime-local", true, periodStart, value => { setPeriodStart(value); setErrors({}); void loadDelegate({ periodStart: value }); })}
+          {field("delegatePeriod.endsAt", "Fin (opcional)", 40, "datetime-local", false, periodEnd, value => { setPeriodEnd(value); setErrors({}); void loadDelegate({ periodEnd: value }); })}
+          {feedback("delegatePeriod")}
+        </div>}
+        <DelegatePositionSelect id={`${id}-delegatePosition`} value={delegatePosition} onChange={value => { setDelegatePosition(value); setErrors({}); }}
+          options={delegateOptions} status={delegateStatus} error={errors.delegatePosition} className="mt-2" />
+        {delegateStatus === "error" || delegateStatus === "ready" ? <button type="button" className={control} onClick={() => { void loadDelegate(); }}>Actualizar disponibilidad</button> : null}
         <p className="text-sm text-muted">Se muestran hasta 100 clubes activos de la liga. El registro inicial permite habilitar al delegado; no implica afiliación aprobada ni inscripción de equipos.</p>
       </div>}
-      <button type="submit" disabled={loading || !roles.length || (!global && !league)} className="min-h-12 w-full rounded-xl primary-action px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">{busy ? "Creando cuenta…" : "Crear cuenta"}</button>
+      <button type="submit" disabled={loading || !roles.length || (!global && !league) || (delegate && (delegateStatus !== "ready" || !delegatePosition))} className="min-h-12 w-full rounded-xl primary-action px-5 py-3 font-semibold disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">{busy ? "Creando cuenta…" : "Crear cuenta"}</button>
     </fieldset>
     <p role="status" className="text-sm text-muted">{busy ? "Esperando confirmación del servidor…" : uncertain ? "El envío quedó detenido para evitar un alta repetida. Verifica el resultado antes de abrir un nuevo formulario." : "Se necesita conexión para crear la cuenta. La contraseña se limpia después de cada envío."}</p>
   </form>;

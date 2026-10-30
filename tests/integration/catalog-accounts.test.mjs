@@ -38,15 +38,15 @@ export async function runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl, 
       await db.query('COMMIT');
     } catch (error) { await db.query('ROLLBACK'); throw error; }
   }
-  async function fixture(role, leagueId = null, clubId = null) {
+  async function fixture(role, leagueId = null, clubId = null, delegatePosition = null) {
     const person = (await db.query("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES ('Sintético','Catálogo RF22') RETURNING id")).rows[0].id;
     const email = `catalog-${randomUUID()}@example.test`;
     const user = (await db.query(`INSERT INTO sports_management.users(person_id,username,email,password_hash,must_change_password)
       VALUES ($1,$2,$2,$3,false) RETURNING id`, [person, email, hash])).rows[0];
     fixtureUsers.push(user.id);
     fixtureActor ??= user.id;
-    await audited(() => db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id)
-      SELECT $1,id,$3,$4 FROM sports_management.roles WHERE code=$2`, [user.id, role, leagueId, clubId]));
+    await audited(() => db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id,delegate_position)
+      SELECT $1,id,$3,$4,$5 FROM sports_management.roles WHERE code=$2`, [user.id, role, leagueId, clubId, delegatePosition]));
     const browser = new Browser(baseUrl);
     assert.equal((await browser.login(email, password)).searchParams.has('error'), false);
     return { ...user, browser };
@@ -183,7 +183,7 @@ export async function runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl, 
         const options = await clubResponse.json();
         assert.deepEqual(options.clubs.map((club) => club.id), [clubs[0]]);
         assert.deepEqual(options.roles.map((role) => role.code), ['CLUB_DELEGATE']);
-        const body = (clubId) => payload(leagueA, { roles: ['CLUB_DELEGATE'], club: { kind: 'existing', id: clubId } });
+        const body = (clubId) => payload(leagueA, { roles: ['CLUB_DELEGATE'], delegatePosition: 'PRIMARY', club: { kind: 'existing', id: clubId } });
         const permitted = await create(clubScoped.browser, body(clubs[0]));
         assert.equal(permitted.status, 201);
         fixtureUsers.push((await permitted.json()).id);
@@ -260,7 +260,7 @@ export async function runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl, 
           WHERE rp.role_id=r.id AND rp.permission_id=p.id AND (r.code,p.module,p.action) IN (
             SELECT x."roleCode",x.module,x.action FROM jsonb_to_recordset($1::jsonb)
               AS x("roleCode" text,module text,action text))`, [JSON.stringify(catalog)]);
-        await db.query('DELETE FROM sports_management.user_roles WHERE user_id=ANY($1::uuid[])', [fixtureUsers]);
+        await db.query('UPDATE sports_management.user_roles SET ends_at=clock_timestamp() WHERE user_id=ANY($1::uuid[]) AND ends_at IS NULL', [fixtureUsers]);
       });
     } finally {
       await prisma.$disconnect();

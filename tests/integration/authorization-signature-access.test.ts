@@ -130,6 +130,7 @@ test("PDGLD-59: firmas limitadas al club y liga autorizados", async () => {
             role_id: role.id,
             league_id: leagueA.id,
             club_id: ownClub.id,
+            delegate_position: "PRIMARY",
             starts_at: new Date(Date.now() - 60_000),
           },
         });

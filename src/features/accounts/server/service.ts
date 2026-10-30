@@ -7,17 +7,12 @@ import { assertAccountAdministrator } from "@/server/auth/account-administrator"
 import { requireOperationalUser } from "@/server/auth/session";
 import { readAccountCreationOptions } from "./creation-options";
 import { hashPassword } from "@/server/auth/password";
+import { AccountInputError, accountDatabaseError } from "../account-errors";
+export { AccountInputError } from "../account-errors";
 import {
   assertCanGrantRole, AuthorizationError, getPermissionGrants,
   lockAuthorization, assertPermission,
 } from "@/server/auth/authorization";
-
-export class AccountInputError extends Error {
-  constructor(
-    public readonly code: "VALIDATION_ERROR" | "INVALID_CONTEXT" | "PERSON_UNAVAILABLE" | "DUPLICATE_ACCOUNT",
-    public readonly status: number = 400,
-  ) { super(code); }
-}
 
 export async function getAccountCreationOptions(leagueId?: string) {
   const actor = await requireOperationalUser();
@@ -74,7 +69,14 @@ export async function createAccount(input: unknown) {
     if (!(await getPermissionGrants(tx, actor.id, "users", "CREATE")).length) throw new AuthorizationError();
   });
   const parsed = createAccountSchema.safeParse(input);
-  if (!parsed.success) throw new AccountInputError("VALIDATION_ERROR");
+  if (!parsed.success) {
+    if (parsed.error.issues.some((issue) => issue.path[0] === "delegatePosition")) {
+      const raw = input as { roles?: unknown; delegatePosition?: unknown };
+      throw new AccountInputError(Array.isArray(raw?.roles) && raw.roles.includes("CLUB_DELEGATE") &&
+        raw.delegatePosition === undefined ? "DELEGATE_POSITION_REQUIRED" : "INVALID_DELEGATE_POSITION");
+    }
+    throw new AccountInputError("VALIDATION_ERROR");
+  }
   const data = parsed.data;
   await getPrisma().$transaction((tx) => authorizeAccountCreation(tx, actor.id, data));
   const passwordHash = await hashPassword(data.temporaryPassword);
@@ -131,17 +133,25 @@ export async function createAccount(input: unknown) {
       for (const role of catalog) {
         const assignment = await tx.user_roles.create({
           data: { user_id: user.id, role_id: role.id,
+            delegate_position: role.code === "CLUB_DELEGATE" ? data.delegatePosition! : null,
+            ...(role.code === "CLUB_DELEGATE" && data.delegatePeriod ? {
+              starts_at: new Date(data.delegatePeriod.startsAt),
+              ends_at: data.delegatePeriod.endsAt ? new Date(data.delegatePeriod.endsAt) : null,
+            } : {}),
             league_id: data.leagueId ?? null,
             club_id: role.code === "CLUB_DELEGATE" ? clubId! : null },
           select: { id: true },
         });
         // El trigger del baseline registra exactamente una vez cada vínculo.
-        assignments.push({ id: assignment.id, role: role.code });
+        assignments.push({ id: assignment.id, role: role.code,
+          delegatePosition: role.code === "CLUB_DELEGATE" ? data.delegatePosition! : null });
       }
       return { id: user.id, personId, mustChangePassword: user.must_change_password,
         leagueId: data.leagueId ?? null, clubId: clubId ?? null, assignments };
     });
   } catch (error) {
+    const delegateError = accountDatabaseError(error);
+    if (delegateError) throw delegateError;
     // Los índices lower(email)/lower(username) cubren también la concurrencia.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
       throw new AccountInputError("DUPLICATE_ACCOUNT", 409);

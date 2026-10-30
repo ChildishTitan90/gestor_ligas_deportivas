@@ -8,3 +8,11 @@ export type AccountFormData = {
   canReusePerson: boolean;
   createClubLeagues: string[];
 };
+
+export type DelegatePosition = "PRIMARY" | "DEPUTY";
+export type DelegatePeriod = { startsAt: string; endsAt: string | null };
+export type DelegateAssignmentOptions = {
+  period: DelegatePeriod;
+  positions: { value: DelegatePosition; label: string; available: boolean;
+    reason: "OCCUPIED" | "LEGACY" | null }[];
+};
