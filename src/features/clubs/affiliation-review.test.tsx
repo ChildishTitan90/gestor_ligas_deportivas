@@ -5,6 +5,7 @@ import { createReviewApi } from "./affiliation-review-adapter";
 import { createReviewController } from "./affiliation-review-controller";
 import { ReviewApiError, type ReviewApi, type ReviewDetail } from "./affiliation-review-model";
 import { AffiliationReviewView } from "./components/affiliation-review-workspace";
+import { emptyReviewFilters, filterReviewItems } from "./affiliation-review-filters";
 
 // Exclusivamente fixtures de pruebas: nunca importadas por la página real.
 const leagueId = "61000000-0000-4000-8000-000000000001";
@@ -19,6 +20,38 @@ const fixture: ReviewDetail = {
   officers: [{ office: "PRESIDENT", firstName: "Persona sintética", paternalSurname: "Prueba", maternalSurname: "",
     signatureFileId: "61000000-0000-4000-8000-000000000030" }],
 };
+
+test("buscador y filtros paginan la colección completa sin mezclar temporadas del mismo nombre", () => {
+  const items = Array.from({ length: 26 }, (_, index) => ({ ...fixture, id: String(index),
+    referenceNumber: `AFI-${index}`, clubName: index === 25 ? "Águilas Centro" : `Club ${index}`,
+    seasonId: index % 2 ? "temporada-a" : "temporada-b", seasonName: "Apertura",
+    reviewPhase: index < 20 ? "AWAITING_REVIEW" as const : "CORRECTIONS_REQUESTED" as const }));
+  const first = filterReviewItems(items, emptyReviewFilters);
+  assert.equal(first.total, 26); assert.equal(first.items.length, 10); assert.equal(first.pages, 3);
+  assert.equal(filterReviewItems(items, { ...emptyReviewFilters, page: 3 }).items.length, 6);
+  assert.equal(filterReviewItems(items, { ...emptyReviewFilters, search: "aguilas" }).items[0].id, "25");
+  assert.equal(filterReviewItems(items, { ...emptyReviewFilters, search: "AFI-25", phase: "CORRECTIONS_REQUESTED" }).total, 1);
+  assert.equal(filterReviewItems(items, { ...emptyReviewFilters, season: "temporada-a" }).total, 13);
+  assert.equal(filterReviewItems(items, { ...emptyReviewFilters, search: "ausente", page: 9 }).page, 1);
+});
+
+test("un envío incierto conserva su captura y reintenta únicamente el mismo cuerpo y versión", async () => {
+  const writes: unknown[][] = [];
+  const { controller } = setup({ review: async (...args) => { writes.push(args); throw new ReviewApiError("unavailable"); } });
+  await controller.load(leagueId); await controller.open(fixture.id);
+  controller.observations("Corregir los colores originales");
+  await controller.submit("REQUEST_CORRECTIONS");
+  const pending = controller.getSnapshot().pendingReview;
+  assert.equal(pending?.version, 0);
+  controller.observations("No debe reemplazar el envío original");
+  await controller.load(leagueId); await controller.open(fixture.id);
+  assert.deepEqual(controller.getSnapshot().pendingReview, pending);
+  await controller.reconcile();
+  assert.deepEqual(controller.getSnapshot().pendingReview, pending);
+  await controller.retryReview();
+  assert.equal(writes.length, 2); assert.deepEqual(writes[0], writes[1]);
+  assert.equal(controller.getSnapshot().observations, "Corregir los colores originales");
+});
 function setup(overrides: Partial<ReviewApi> = {}) {
   const calls: string[] = [];
   const api: ReviewApi = {
@@ -335,13 +368,20 @@ test("405 o formato inesperado del listado muestran solo error de lectura", asyn
 
 test("solo un PATCH no confirmado muestra la advertencia de verificar antes de reenviar", async () => {
   for (const kind of ["unavailable", "invalid-response"] as const) {
-    const { controller } = await selected({ review: async () => { throw new ReviewApiError(kind); } });
+    let settled = false;
+    const { controller } = await selected({ review: async () => { throw new ReviewApiError(kind); },
+      detail: async () => ({ ...fixture, version: settled ? 1 : 0 }) });
     await controller.submit("APPROVE");
     assert.doesNotMatch(html(controller), /antes de reenviarla/);
     await controller.confirmApproval();
     assert.match(html(controller), /Verifica el estado de la solicitud antes de reenviarla/);
     assert.doesNotMatch(html(controller), /Aprobación confirmada/);
     await controller.load(leagueId);
+    assert.match(html(controller), /antes de reenviarla/, "Consultar otra lista no debe descartar un envío incierto.");
+    await controller.reconcile();
+    assert.ok(controller.getSnapshot().pendingReview, "Una lectura de la versión anterior no confirma que el envío falló.");
+    settled = true;
+    await controller.reconcile();
     assert.doesNotMatch(html(controller), /antes de reenviarla/);
   }
 });
