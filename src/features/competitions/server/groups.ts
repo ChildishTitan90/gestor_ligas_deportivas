@@ -22,7 +22,7 @@ export async function listCompetitionGroups(seasonId: string, participationId: s
     await assertPermission(tx, actor.id, { module: "competitions", action: "READ", context: { seasonId } });
     await participation(tx, seasonId, participationId);
     return { items: await tx.groups.findMany({ where: { season_id: seasonId, season_category_id: participationId },
-      select: { id: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }] }) };
+      select: { id: true, name: true, _count: { select: { season_teams: true } } }, orderBy: [{ name: "asc" }, { id: "asc" }] }) };
   });
 }
 

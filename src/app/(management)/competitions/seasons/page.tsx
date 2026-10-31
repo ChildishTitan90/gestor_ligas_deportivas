@@ -49,7 +49,7 @@ export default async function SeasonsPage({ searchParams }: { searchParams: Prom
       <section aria-labelledby="seasons-heading" className="space-y-4"><h2 id="seasons-heading" className="text-xl font-semibold">Temporadas registradas</h2>
         {!data.seasons.length && <p>No hay temporadas registradas en tus ligas disponibles.</p>}
         {data.seasons.map(season => <article key={season.id} className="rounded-2xl border border-border bg-surface p-5">
-          <h3 className="font-semibold">{season.name}</h3>
+          <h3 className="font-semibold">{season.name}</h3><ActionLink href={`/competitions/seasons/${season.id}`} variant="secondary">Configurar temporada</ActionLink>
           <p>{data.leagues.find(league => league.id === season.leagueId)?.name}</p>
           <p>{season.startDate} a {season.endDate}</p>
           <p>Estado: {({ PLANNED: "Planificada", ACTIVE: "Activa", CLOSED: "Cerrada" } as Record<string, string>)[season.status] ?? season.status} · Versión {season.version}</p>

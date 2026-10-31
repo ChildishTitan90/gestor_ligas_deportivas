@@ -147,3 +147,9 @@ Comprobaciones locales:
 Solo bases desechables. No se aplicaron migraciones a gestor_ligas_dev/Supabase;
 no hubo commit, push, publicación ni cambios en Jira. PDGLD-95 y aceptación visual
 siguen pendientes, además de los criterios de negocio/revisión indicados arriba.
+
+## Vistas de configuración (PDGLD-95)
+
+Se incorpora `/competitions/seasons/[id]` al shell compartido, con enlace desde Temporadas. Consulta versiones de reglas y categorías; permite crear borradores, crear/asociar categorías, definir formato, editar temporada, mantener grupos vacíos y ejecutar distribución automática. Los formularios utilizan contratos HTTP reales, versión esperada y motivo; los diálogos reutilizan FormDialog y los selectores SelectField. Las capacidades se consultan en servidor y cada operación conserva su autorización independiente. Las respuestas inciertas bloquean el reenvío y ofrecen consultar de nuevo. El catálogo y las categorías conservan su contexto de liga/temporada.
+
+Comprobación: 42/42 pruebas de competencias con PostgreSQL temporal; lint y typecheck satisfactorios; compilación Webpack satisfactoria. La consulta de grupos incorpora su número de inscripciones. Se verificó que origin/develop sigue integrado. Pendiente recorrido de navegador con datos reales (teclado, foco, móvil y temas), CI y revisión de otra persona. Las vistas no implementan el cierre ni las reglas PV-04 pendientes del servidor, ni declaran completa PDGLD-38.
