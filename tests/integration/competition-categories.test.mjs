@@ -111,6 +111,7 @@ export async function runCategoryTests({ t, db, baseUrl, admin, reader, league, 
     } finally { await db.query('DROP TRIGGER test_category_audit ON sports_management.audit_logs'); }
   });
   await t.test('categorías: cerrada consultable, asociación prohibida y temporada iniciada protegida', async () => {
+    await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1",[season]);
     await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1",[season]);
     assert.equal((await admin.request(path)).status,200);
     assert.equal((await post(admin,path,{...association(),expectedSeasonVersion:3})).status,409);

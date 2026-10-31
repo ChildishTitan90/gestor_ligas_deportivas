@@ -56,6 +56,10 @@ jobs:
         run: npm run test:team-registration-browser
         env:
           CHROME_BIN: /usr/bin/google-chrome
+      - name: Probar controles de competencias en Chrome con datos sintéticos
+        run: npm run test:competition-ui
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
       - name: Probar firmas de afiliación
         run: npm run test:signatures
       - name: Probar recuperación de inscripciones y capacidades del cliente

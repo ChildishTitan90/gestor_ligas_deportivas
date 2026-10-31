@@ -34,6 +34,6 @@ export async function configureGeneralTable(seasonId: string, participationId: s
     if (group) await tx.audit_logs.create({ data: { user_id: actor.id, action: "INSERT", table_name: "groups", entity_id: group.id,
       new_data: { name: group.name, seasonId, participationId }, reason: data.reason } });
     const updated = await tx.seasons.update({ where: { id: seasonId }, data: { version: { increment: 1 } }, select: { version: true } });
-    return { format: data.format, group, seasonVersion: updated.version };
+    return { id: participationId, format: data.format, group, seasonVersion: updated.version };
   });
 }

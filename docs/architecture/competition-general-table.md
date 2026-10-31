@@ -10,7 +10,7 @@ versión vigente y ausencia de grupos o solicitudes de afiliación de esa catego
 No transforma grupos existentes ni reinterpretaciones del historial.
 
 Una transacción cambia el formato, crea General, audita ambas operaciones y
-actualiza la versión de la temporada (audit_season). Devuelve format, group con
+actualiza la versión de la temporada (audit_season). Devuelve id de participación, format, group con
 id/name y seasonVersion. Dos escrituras sobre la misma versión tienen un ganador.
 No permite volver a LEGACY_GROUPS ni cambiar otra vez el formato desde esta ruta.
 

@@ -613,6 +613,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
           WHERE season_id=$1 AND category_id=$2`, [context.id, context.categories[0].id]), { code: '23514' });
       });
       await t.test('temporada cerrada bloquea nuevas altas; reintento confirmado y lectura conservan historial', async () => {
+        await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1", [context.id]);
         await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1", [context.id]);
         await deny(actor.browser, payload(), 409, 'SEASON_CLOSED');
         const before = await counts();

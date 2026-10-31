@@ -16,7 +16,8 @@
     "fsevents": false
   },
   "scripts": {
-    "test:competitions": "node scripts/test-auth.mjs --competitions",
+    "test:competitions": "node --import tsx --test src/features/competitions/player-policy.test.ts && node scripts/test-auth.mjs --competitions",
+    "test:competition-ui": "node --test tests/e2e/competition-configuration.test.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

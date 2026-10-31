@@ -8,6 +8,8 @@ import { runRuleDraftTests } from './competition-rules.test.mjs';
 import { runCategoryTests } from './competition-categories.test.mjs';
 import { runGroupTests } from './competition-groups.test.mjs';
 import { runGeneralTableTests } from './competition-general-table.test.mjs';
+import { runMaintenanceTests } from './competition-maintenance.test.mjs';
+import { runLifecycleTests } from './competition-lifecycle.test.mjs';
 
 export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl }) {
   const target = new URL(databaseUrl);
@@ -94,6 +96,8 @@ export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl }) {
       await runCategoryTests({ t, db, baseUrl, admin, reader, league, other });
       await runGroupTests({ t, db, baseUrl, admin, reader, league, other });
       await runGeneralTableTests({ t, db, baseUrl, admin, reader, league, users });
+      await runMaintenanceTests({ t, db, baseUrl, admin, reader, league, other });
+      await runLifecycleTests({ t, db, baseUrl, admin, reader, league, users });
       await t.test('temporadas: edición autorizada, versiones, calendario utilizado y cierre', async () => {
         const sport = (await db.query("SELECT id FROM sports_management.sports WHERE code='SOCCER'")).rows[0].id;
         const season = (await db.query("INSERT INTO sports_management.seasons(league_id,sport_id,name,start_date,end_date) VALUES($1,$2,'Edición prueba','2026-01-01','2026-12-31') RETURNING id",[league,sport])).rows[0].id;
@@ -110,6 +114,7 @@ export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl }) {
         const protectedDates = await patch({...payload,expectedSeasonVersion:2,startDate:'2026-02-01'});
         assert.equal(protectedDates.status,409); assert.equal((await protectedDates.json()).code,'SEASON_DATES_IN_USE');
         assert.equal((await patch({...payload,expectedSeasonVersion:2})).status,200);
+        await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1",[season]);
         await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1",[season]);
         const closed = await patch({...payload,expectedSeasonVersion:3});
         assert.equal(closed.status,409); assert.equal((await closed.json()).code,'SEASON_CLOSED');

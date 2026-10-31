@@ -60,6 +60,7 @@ export async function runRuleDraftTests({ t, db, baseUrl, admin, reader, league,
   });
   await t.test('reglas: temporada cerrada permite consulta y deniega nuevas versiones', async () => {
     // Cierre sintético para probar la barrera; no implementa el proceso de cierre.
+    await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1",[season]);
     await db.query("UPDATE sports_management.seasons SET status='CLOSED',closed_at=clock_timestamp() WHERE id=$1",[season]);
     const response = await send(admin,{...input,expectedSeasonVersion:3});
     assert.equal(response.status,409); assert.equal((await response.json()).code,'SEASON_CLOSED');

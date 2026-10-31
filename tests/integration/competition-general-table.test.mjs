@@ -18,7 +18,9 @@ export async function runGeneralTableTests({ t, db, baseUrl, admin, reader, leag
     assert.equal((await request(reader,`${path}/format`,'PATCH',body)).status,403);
     const responses = await Promise.all([request(admin,`${path}/format`,'PATCH',body),request(admin,`${path}/format`,'PATCH',body)]);
     assert.deepEqual(responses.map(response=>response.status).sort(),[200,409]);
-    group = (await responses.find(response=>response.status===200).json()).group;
+    const acknowledged = await responses.find(response=>response.status===200).json();
+    assert.equal(acknowledged.id,participation);
+    group = acknowledged.group;
     assert.equal(group.name,'General');
     assert.equal((await db.query('SELECT count(*)::int AS n FROM sports_management.groups WHERE season_category_id=$1',[participation])).rows[0].n,1);
     assert.equal((await request(admin,`${path}/groups`,'POST',{name:'Otro',expectedSeasonVersion:2,reason:'Intento sintético'})).status,409);

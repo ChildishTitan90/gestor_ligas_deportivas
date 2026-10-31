@@ -22,6 +22,7 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
   const { draft, options, errors, submitting } = state;
   const locked = disabled || submitting || state.outcome !== "idle";
   const { club, season, category, seasons, teams, categories, groups, hasRequiredOptions } = registrationChoices(options, draft);
+  const manualGroup = !category?.format || category.format === "LEGACY_GROUPS";
   const messageRef = useRef<HTMLParagraphElement>(null);
   const previousOutcome = useRef(state.outcome);
   useEffect(() => {
@@ -60,7 +61,7 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
     className="space-y-6 rounded-3xl border border-border bg-surface p-5 sm:p-8">
     <header>
       <h2 id={`${prefix}-title`} className="text-2xl font-semibold text-primary">Inscribir equipo</h2>
-      <p className="mt-2 text-sm text-muted">Selecciona el club, la temporada y el grupo. La inscripción inicial será «Inscrito»; no activa el equipo.</p>
+      <p className="mt-2 text-sm text-muted">Selecciona el club, la temporada y la categoría. El formato determina la asignación de grupo. La inscripción inicial será «Inscrito»; no activa el equipo.</p>
     </header>
     {!options.clubs.length && <p>No hay clubes disponibles para inscribir equipos en tu ámbito.</p>}
     {!!Object.keys(errors).length && <p role="alert" className="text-danger">Revisa los campos señalados.</p>}
@@ -81,13 +82,15 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
         {error("teamName")}
       </div> : select("teamId", "Equipo", teams, !season || !teams.length)}
       {select("categoryId", "Categoría", categories, !season || !categories.length)}
-      {select("groupId", "Grupo", groups, !category || !groups.length)}
+      {manualGroup && select("groupId", "Grupo", groups, !category || !groups.length)}
     </div>
+    {category?.format === "GENERAL_TABLE" && <p role="status">El servidor asignará automáticamente el grupo General al inscribir.</p>}
+    {category?.format === "GROUP_STAGE" && <p role="status">El equipo quedará pendiente de asignación de grupo. Secretaría u organizador autorizado lo distribuirá después.</p>}
     {season && !season.canEnroll && <p role="status">El servidor no habilita inscripciones para este club. Puedes consultar su historial y resolver tus envíos pendientes.</p>}
     {season && draft.teamMode === "existing" && !teams.length && <p className="text-sm text-muted">No hay equipos existentes disponibles para esta selección.</p>}
     {club && !seasons.length && <p className="text-sm text-muted">No hay temporadas disponibles para este club.</p>}
     {season && !categories.length && <p className="text-sm text-muted">No hay categorías disponibles para esta temporada.</p>}
-    {season && categories.length > 0 && (category ? !groups.length : !categories.some(item => item.groups.length > 0)) &&
+    {season && categories.length > 0 && (category ? manualGroup && !groups.length : !categories.some(item => item.format === "GROUP_STAGE" || item.groups.length > 0)) &&
       <p className="text-sm text-muted">No hay grupos disponibles para {category ? "la categoría seleccionada" : "las categorías de esta temporada"}.</p>}
     <button type="submit" disabled={locked || !hasRequiredOptions}
       className="min-h-12 rounded-xl primary-action px-5 py-3 text-sm font-semibold disabled:opacity-50">

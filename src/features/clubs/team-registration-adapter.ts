@@ -11,7 +11,7 @@ const optionsSchema = z.object({
   nextClubAfter: uuid.nullable(), nextSeasonAfter: uuid.nullable(), nextTeamAfter: uuid.nullable(),
   seasons: z.array(option.extend({ status: z.string() })),
   teams: z.array(option.extend({ clubId: uuid, referenceNumber: z.string(), enrolledSeasonIds: z.array(uuid) })),
-  categories: z.array(option.extend({ seasonId: uuid, seasonCategoryId: uuid })),
+  categories: z.array(option.extend({ seasonId: uuid, seasonCategoryId: uuid, format: z.enum(["LEGACY_GROUPS", "GENERAL_TABLE", "GROUP_STAGE"]).optional() })),
   groups: z.array(option.extend({ categoryId: uuid, seasonId: uuid })),
 });
 export type EnrollmentOptions = z.infer<typeof optionsSchema>;
@@ -59,7 +59,7 @@ export function registrationOptions(data: EnrollmentOptions, clubId = "", season
 }
 export function enrollmentPayload(capture: TeamRegistrationSubmission, enrollmentKey: string) {
   return teamEnrollmentSchema.parse({ enrollmentKey, clubId: capture.clubId, seasonId: capture.seasonId,
-    categoryId: capture.categoryId, groupId: capture.groupId,
+    categoryId: capture.categoryId, ...(capture.groupId ? { groupId: capture.groupId } : {}),
     team: capture.team.kind === "existing" ? { mode: "existing", teamId: capture.team.id } : { mode: "new", name: capture.team.name },
   });
 }

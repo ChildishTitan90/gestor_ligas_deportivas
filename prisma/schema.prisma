@@ -1692,6 +1692,7 @@ model season_categories {
   maximum_age           Int?
   age_cutoff_date       DateTime?               @db.Date
   eligibility_pending   Boolean                 @default(false)
+  player_policy         Json?
   competition_format    String                  @default("LEGACY_GROUPS")
   competition_stages    competition_stages[]
   document_requirements document_requirements[]
