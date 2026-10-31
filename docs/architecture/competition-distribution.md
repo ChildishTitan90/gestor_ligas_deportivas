@@ -58,6 +58,31 @@ mantiene su contrato y GENERAL_TABLE sigue asignando General automáticamente.
 
 ## Límites
 
+## Distribución automática equilibrada
+
+POST `/api/competitions/seasons/{id}/categories/{participationId}/distribution/automatic`
+recibe `{expectedSeasonVersion,reason}` y devuelve `{assignments,seasonVersion}`.
+Exige clubs:APPROVE sobre toda la temporada y cada club afectado. Revalida las
+afiliaciones y categorías autorizadas bajo bloqueo, GROUP_STAGE, grupos reales,
+temporada no cerrada ni competencia iniciada. Comparte el bloqueo de temporada
+con inscripción, configuración y distribución individual.
+
+El algoritmo recorre pendientes por UUID y asigna cada uno al grupo con menor
+cantidad de inscripciones existentes (todos los estados); empates por UUID de
+grupo. Se incluyen las asignaciones previas para equilibrar la carga, sin moverlas.
+No es un sorteo ni aplica cabezas de serie, cupos o separación por club.
+La administración lo ejecuta expresamente; este criterio debe revisarse con Vic.
+Los equipos conservan REGISTERED. El lote y el incremento único de versión se
+auditan con los triggers existentes y se revierten juntos si falla una operación.
+Sin pendientes devuelve lista vacía y no cambia versión ni auditoría. Reintentar
+una versión anterior produce STALE_CONFIGURATION; consultar el listado antes de
+reenviar tras respuesta incierta. Dos ejecuciones simultáneas tienen un ganador.
+
+Límite técnico de 500 pendientes por ejecución: si se supera, rechaza el lote
+completo con DISTRIBUTION_TOO_LARGE (409), sin procesar una página parcial. No es
+un cupo deportivo. Sin grupos: DISTRIBUTION_REQUIRES_GROUPS (409). La interfaz de
+ejecución y confirmación sigue pendiente; la verificación actual es por HTTP real.
+
 No hay sorteo, cupos inventados, reasignación, programación, activación ni
 segunda aprobación de equipo. La selección/presentación de formatos y bandeja de
 distribución quedan para PDGLD-95 tras la refactorización visual. El formulario

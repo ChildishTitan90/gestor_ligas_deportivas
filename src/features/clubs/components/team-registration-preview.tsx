@@ -1,5 +1,7 @@
 "use client";
 
+import { SelectField } from "@/components/ui/select-field";
+
 import { useState } from "react";
 import { TeamRegistrationForm } from "./team-registration-form";
 import { TeamRegistrationList } from "./team-registration-list";
@@ -48,7 +50,6 @@ function optionsFor(scenario: Scenario): TeamRegistrationFormOptions {
       groups: scenario === "no-groups" ? [] : category.groups })),
   })) })) };
 }
-const controlClass = "mt-2 min-h-12 w-full rounded-xl border border-border bg-surface px-3.5 py-3 disabled:opacity-50";
 
 export function TeamRegistrationPreview() {
   const [scenario, setScenario] = useState<Scenario>("complete");
@@ -83,17 +84,14 @@ export function TeamRegistrationPreview() {
       <h2 id="demo-controls-title" className="text-lg font-semibold text-primary">Escenarios de demostración</h2>
       <div className="grid gap-4 sm:grid-cols-2">
         <label>Opciones disponibles
-          <select className={controlClass} value={scenario} disabled={pending} onChange={event => reset(event.target.value as Scenario)}>
-            {Object.entries(scenarios).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
+          <SelectField className="mt-2" value={scenario} disabled={pending} onValueChange={value => reset(value as Scenario)}
+            options={Object.entries(scenarios).map(([value, label]) => ({ value, label }))} />
         </label>
         <label>Resultado simulado del callback
-          <select className={controlClass} value={result} disabled={pending} onChange={event => {
-            setResult(event.target.value as "correctable" | "unconfirmed"); reset();
-          }}>
-            <option value="correctable">Error confirmado simulado: permite corregir</option>
-            <option value="unconfirmed">Resultado incierto simulado: bloquea el formulario</option>
-          </select>
+          <SelectField className="mt-2" value={result} disabled={pending} onValueChange={value => {
+            setResult(value as "correctable" | "unconfirmed"); reset();
+          }} options={[{ value: "correctable", label: "Error confirmado simulado: permite corregir" },
+            { value: "unconfirmed", label: "Resultado incierto simulado: bloquea el formulario" }]} />
         </label>
       </div>
       <button type="button" disabled={pending} onClick={() => reset()}

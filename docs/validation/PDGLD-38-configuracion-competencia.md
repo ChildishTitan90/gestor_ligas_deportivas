@@ -104,6 +104,19 @@ anteriores, revisión independiente, CI remoto y evidencia de aceptación integr
 
 ## Incremento: inscripción pendiente y distribución (30/10/2026)
 
+Avance posterior a la integración de origin/develop=fb64b4f (PR #36): conflicto de
+acceso resuelto conservando el panel nuevo y enlace de temporadas autorizado.
+Temporadas reutiliza ManagementShell y SelectField; las URL se conservan.
+La distribución automática equilibrada está implementada por HTTP; contrato en
+competition-distribution.md. 42 resultados de competencias aprobados, incluidos
+balance con grupos ya ocupados, conservación de asignaciones/REGISTERED, rechazo
+de delegado, concurrencia, rollback de auditoría y repetición sin nuevos cambios.
+Lint y el comando habitual typecheck aprobados tras regenerar tipos de rutas y
+retirar únicamente tipos generados obsoletos de las rutas anteriores. No se
+modifican datos habituales ni se crea un commit de integración automáticamente.
+Compilación complementaria con `next build --webpack` aprobada en este incremento;
+no sustituye el build oficial con Turbopack ni el CI remoto.
+
 Servidor implementado y contrato en
 [fase de grupos](../architecture/competition-distribution.md). Sin nuevas vistas.
 GROUP_STAGE conserva categoría y REGISTERED sin grupo hasta asignación autorizada.

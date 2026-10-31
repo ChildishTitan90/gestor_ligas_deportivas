@@ -4,7 +4,8 @@ Decisión actualizada el 21/10/2026 con la revisión visual del usuario: el enca
 privado muestra «Liga Municipal · Morelia», las iniciales, `@usuario` y los nombres
 de sus roles vigentes debajo del usuario. Se omite el nombre completo. Conserva
 Geist, los tokens de petróleo/cobre, las superficies blancas y el foco del sistema.
-El `@` es presentación; el login sigue usando correo y contraseña.
+El `@` es presentación. Desde la entrega 2 de PDGLD-115 el login acepta usuario o
+correo electrónico y contraseña; escribir el usuario no requiere ese prefijo.
 
 Las iniciales son un botón que abre un menú pequeño. Sus opciones, en este orden,
 son «Mi panel» (`/access`), «Portal público» (`/futbol`) y «Cerrar sesión». En la parte

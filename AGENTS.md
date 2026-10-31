@@ -10,14 +10,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Proyecto: Gestor de Ligas Deportivas
 
-Guía del equipo y de los agentes. Revisada el 17 de octubre de 2026. Conservar intacto el bloque generado de Next.js que precede esta guía.
+Guía del equipo y de los agentes. Revisada el 29 de octubre de 2026. Conservar intacto el bloque generado de Next.js que precede esta guía.
 
 ## Contexto y estado real
 
 - MVP de fútbol amateur para la Liga Municipal de Morelia. Equipo: Víctor, Sergio, Nickte y Karol; todos pueden desarrollar y revisar código.
 - Stack instalado: Next.js 16.4, React 19, TypeScript, Tailwind 4, NextAuth 4, Zod 4, Prisma 7.10. Node.js 24; PostgreSQL 15 en Docker local y Supabase actual destinado a producción.
 - El esquema tiene 96 tablas iniciales, modelos/columnas en inglés y UUID. `0_init` ya está registrado en la base local de Víctor y Supabase.
-- Actualmente la aplicación sigue principalmente en scaffold. Las carpetas y servicios descritos abajo son el objetivo para nuevos tickets; no afirmar que ya están implementados.
+- Ya existen autenticación, autorización y pantallas de cuentas, afiliación e inscripción de equipos. PDGLD-114 incorpora la estructura compartida de gestión y los temas visuales; su disponibilidad en otras ramas depende de integrar su PR. El árbol de módulos sigue siendo una guía para nuevos tickets: comprobar qué carpetas y servicios existen antes de reutilizarlos o crearlos.
 - `pg` está instalado como dependencia de desarrollo para los controles del pipeline. La integración de Prisma 7 en el backend necesita su adaptador PostgreSQL: no asumir que generar el cliente o instalar NextAuth implementa conexión de aplicación, login o RBAC.
 - La PWA de cédulas requiere Service Worker e IndexedDB; no es una aplicación móvil nativa. El MVP no incluye pasarela de pago ni otros deportes.
 
@@ -55,7 +55,7 @@ src/
 ├── components/
 │   ├── ui/                        # Controles accesibles sin lógica de liga
 │   └── layout/                    # Navegación y shell compartidos
-├── styles/tokens.css              # Futuro sistema visual acordado
+├── styles/tokens.css              # Paletas y tokens compartidos de la UI
 └── lib/                           # Utilidades puras y compartidas
 ```
 
@@ -129,10 +129,29 @@ Las páginas de servidor consultan la capa de datos directamente; no llamar por 
 
 - Carpetas/archivos nuevos en inglés y kebab-case; componentes React en PascalCase. Conservar el alias `@/*` existente. Los textos de producto y documentación del equipo se escriben en español.
 - `components/ui` contiene controles genéricos; `features/*/components` contiene pantallas y componentes de negocio. Compartir un componente cuando existe una necesidad real de reutilización.
-- Conservar Tailwind 4. Acordar tokens de color, tipografía, espaciado, foco y estados; incorporar `styles/tokens.css` al implementar el diseño. No introducir configuraciones de Tailwind 3 ni paquetes UI por iniciativa propia.
+- Conservar Tailwind 4, Geist y los tokens vigentes de `styles/tokens.css`; los estilos compartidos están en `src/app/globals.css`. No introducir configuraciones de Tailwind 3, otra paleta o paquetes UI por iniciativa propia.
 - Diseñar carga, vacío, error, éxito, acceso denegado y estados offline. Formularios con etiquetas, errores asociados al campo y prevención de envíos duplicados. Foco visible y navegación por teclado; no comunicar estados solo por color.
 - La cédula arbitral prioriza uso móvil y mala conectividad. Pantallas administrativas priorizan tablas/filtros legibles. Proteger datos sensibles en listados y confirmaciones.
 - Nickte/Karol acuerdan flujos y componentes; Víctor/Sergio acuerdan contratos y reglas de servidor. Todos pueden implementar ambas partes y revisar trabajo ajeno. Documentar las decisiones visuales cuando se implementen en `docs/design/` y las arquitectónicas en `docs/architecture/`.
+
+### Base de gestión que deben conservar las nuevas pantallas (PDGLD-114)
+
+- Las rutas de gestión viven en `src/app/(management)/`. Su layout incorpora `ManagementShell`, un único encabezado y el `main` compartido. Una página nueva aporta su contenido y sus consultas autorizadas; no agrega otro shell, `AccountHeader`, menú de cuenta o `main` anidado. El grupo no cambia las URL: conservar enlaces directos e historial. Portal público, login y cambio obligatorio mantienen sus estructuras propias.
+- Reutilizar `components/layout/management-shell.tsx` y `management-navigation.tsx`. Conservar sidebar de alto completo, zona de enlaces desplazable, salida al pie, control para ocultar/mostrar y expansión del contenido al ocultarla. Marca, encabezado y franja de cierre comparten las reglas de altura (80 px en escritorio y 64 px en móvil); no compensar sus alturas con márgenes distintos por página. En móvil, la marca y el botón de cierre van en una misma fila, sin otra franja encima.
+- La navegación se construye en `features/auth/server/management-navigation.ts` mediante capacidades y servicios existentes. Añadir solo destinos implementados y autorizados; omitir grupos vacíos. No construir otra matriz en el cliente ni usar nombres de roles como permisos. El menú no sustituye la autorización de página, servicio o API, aunque un layout persistente conserve un enlace hasta refrescarse.
+- Mantener opción activa con `aria-current`, fondo y borde cobre. En móvil, conservar nombre accesible, cierre por Escape/clic exterior, foco dentro del menú, fondo inerte, retorno del foco y cierre al navegar. Comprobar tamaños pequeños y recorridos de teclado al modificar esta estructura.
+- Reutilizar `AccountMenu`: iniciales, `@usuario` y nombres de roles vigentes, sin exponer nombre completo, correo o asignaciones internas. Conservar Mi panel, Portal público y Cerrar sesión; una cuenta restringida muestra Cambiar contraseña. Ir al portal no cierra la sesión.
+- Las dos salidas de sesión son deliberadas: pie de sidebar y menú de cuenta. Ambas usan `SignOutButton` y el cierre compartido existente, con prevención de solicitudes duplicadas y recuperación ante error; no sustituirlas por enlaces o cierres de sesión nuevos.
+
+### Apariencia y jerarquía visual acordadas
+
+- Conservar modo claro, oscuro y sistema. Con sesión, el interruptor sol/luna y Usar tema del sistema viven dentro de `AccountMenu`, sin otro selector junto al usuario. Sin sesión, reutilizar `ThemeSelector` en los recorridos públicos. Respetar persistencia del navegador, sincronización entre pestañas y aplicación inicial del tema antes del pintado; no guardar esa preferencia en sesión/JWT ni añadir otra implementación por pantalla.
+- Las acciones principales deben distinguirse por su relleno: petróleo con texto blanco en claro y cobre con texto oscuro en oscuro. Reutilizar `ActionLink` o la clase `primary-action` en botones de formulario; las acciones secundarias conservan contorno. No convertir la acción principal en texto plano al cambiar de tema.
+- La sidebar conserva su fondo petróleo, separado del contenido en ambos temas; reutilizar `management-sidebar`, `sidebar-link` y los tokens de sidebar/estado activo. Reservar la menta para estados positivos. No usar `--primary` como fondo de botones ni `--surface` como texto sobre la sidebar: esos tokens también cambian con el tema; usar los tokens semánticos de acción y navegación.
+- Extender los tokens y componentes compartidos cuando haga falta un estado visual. Mantener contraste, foco visible, etiquetas, errores y estados de carga/vacío/denegación legibles en ambos temas. Un color o icono no reemplaza el texto ni el estado accesible; respetar movimiento reducido en controles animados.
+- Un PR de UI debe explicar cómo reutiliza esta base y aportar la validación pertinente en claro/oscuro, escritorio/móvil y teclado. Distinguir pruebas con sesión/backend reales de respuestas simuladas y no declarar verificados recorridos no ejecutados. La estructura de PDGLD-114 no da por implementados el dashboard/modales de PDGLD-115 ni la regresión completa de PDGLD-116.
+
+Referencias de la base: [estructura y recorrido](docs/design/management-shell.md), [temas y contraste](docs/design/color-themes.md) y [integración de rutas/enlaces autorizados](docs/architecture/management-navigation.md).
 
 ## Pruebas, Jira y CI/CD
 
@@ -170,3 +189,26 @@ Consultar y revisar la skill pertinente antes de aplicarla; una referencia en es
 - `docs/ci-cd.md`: comprobaciones y liberación controlada.
 - `docs/revision-entorno.md`: validaciones realizadas y dependencias pendientes.
 - Next.js: `node_modules/next/dist/docs/01-app/01-getting-started/02-project-structure.md`, `01-app/02-guides/data-security.md`, `01-app/02-guides/authentication.md` y `01-app/02-guides/progressive-web-apps.md`.
+
+## Selectores desplegables compartidos
+
+- Usar `components/ui/select-field.tsx` (`SelectField`) para seleccionar valores en formularios, filtros, paneles y demostraciones. No añadir `<select>`, `<datalist>`, menús del sistema ni otra implementación particular por pantalla. El menú de cuenta conserva su componente y semántica propios.
+- **Conservar el aspecto cerrado que ya tiene la app:** campo completo con borde redondeado, fondo de superficie, texto/placeholder y flecha alineada a la derecha, altura mínima de 48 px y estados deshabilitado/error/foco visibles. La personalización corresponde al menú abierto; no reemplazar el campo por texto suelto ni eliminar su recuadro. La variante compacta del selector de tema conserva su tamaño específico.
+- Las opciones utilizan los tokens vigentes de claro/oscuro, una lista desplazable y resaltado cobre para opción activa/seleccionada. La selección confirmada muestra además una marca de verificación y `aria-selected`; recorrer o filtrar opciones no confirma un valor. No sustituir estos estados por el color predeterminado del navegador.
+- Pasar opciones serializables `{ value, label, description?, disabled? }`; `value` conserva el identificador o código del contrato real. `description` admite referencias breves como el código del club. Buscar no envía texto libre ni modifica el valor confirmado. Para selecciones breves sin búsqueda, como el tema compacto, reutilizar `searchable={false}`.
+- Preservar `id`, etiqueta asociada, `name`, `required`, `disabled`, `aria-invalid` y `aria-describedby`. Los selectores controlados usan `value` y `onValueChange`; los formularios GET o no controlados usan `defaultValue`. No elegir automáticamente otro club, liga o temporada al filtrar ni conservar identificadores de opciones retiradas.
+- El valor de formulario se envía mediante un campo oculto. Para enfocar errores o restablecer el foco, usar `focusFormControl` en lugar de enfocar directamente `form.elements.namedItem(name)`, que puede devolver el campo oculto. Conservar validación de servidor y bloqueos de operaciones inciertas; el selector no concede permisos.
+- Mantener flechas, Enter, Escape, Tab, búsqueda sin distinción de acentos, foco visible y cierre al salir del control. El popup se ajusta al espacio disponible, puede abrir hacia arriba y respeta el desplazamiento de página/lista y el teclado móvil. Dentro de un diálogo se monta en ese diálogo para conservar su foco y capa modal.
+- Verificar campo cerrado y opciones abiertas, ambos temas, móvil/escritorio, teclado, valores de `FormData`, reset, estados dependientes/deshabilitados y opciones cambiantes. Las pruebas estáticas no deben exigir opciones de un popup todavía cerrado. La prueba de navegador con datos sintéticos se ejecuta con `npm run test:team-registration-browser` (configurar `CHROME_BIN` cuando sea necesario); distinguirla de recorridos con backend real.
+
+Referencia de integración y decisiones: [selectores personalizados](docs/design/select-field.md).
+
+## Diálogos breves y bandeja de revisión (PDGLD-115, entrega 2)
+
+- Reutilizar `components/ui/form-dialog.tsx` para captura breve y confirmaciones. El padre conserva captura, errores y estado de envío; no duplicar validaciones, servicios ni permisos en el contenedor. Mantener expedientes, firmas y procesos extensos en página.
+- Conservar título/descripción accesibles, foco inicial seguro, fondo inerte, desplazamiento interno en móvil y retorno al control de origen. Escape, X, clic exterior y Cancelar comparten las reglas; advertir antes de descartar captura sin guardar.
+- Cerrar un diálogo no cancela una escritura enviada. Evitar doble envío y no descartar el payload/versión ante respuestas inciertas. Ofrecer consulta sin reenviar y reintento manual solo con el mismo contrato/versión; nunca afirmar éxito sin acuse o resultado oficial. Si la captura no persiste entre rutas/recargas, no presentarla como borrador guardado.
+- En revisión de afiliaciones, conservar búsqueda por folio/club, filtros por liga/estado/fase/temporada, tabla en escritorio y tarjetas en móvil. Filtrar y contar solo la colección autorizada completa; no calcular totales globales con una página parcial. Con varias ligas, exigir selección explícita.
+- Validar foco, descarte, doble envío, incertidumbre y pérdida de permisos. `test:management-ui` usa Chrome headless y respuestas sintéticas; distinguirlo de pruebas HTTP/base reales y de revisión visual manual. La integración de grupos de PDGLD-95 espera la entrega 3.
+
+Referencias: [diálogos](docs/design/management-dialogs.md) y [bandeja de afiliaciones](docs/design/affiliation-review.md).

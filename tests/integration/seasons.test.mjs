@@ -38,6 +38,11 @@ export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl }) {
     const page = await admin.request(path);
     assert.equal(page.status,200);
     const html = await page.text();
+    assert.match(html, /aria-label="Gestión de la liga"/);
+    assert.equal((html.match(/<main\b/g) ?? []).length, 1);
+    const panel = await admin.request('/access');
+    assert.equal(panel.status,200);
+    assert.match(await panel.text(), /href="\/competitions\/seasons"/);
     const action = html.match(/name="(\$ACTION_ID_[^"]+)"/)[1];
     async function submit(browser, fields = {}) {
       const body = new FormData();

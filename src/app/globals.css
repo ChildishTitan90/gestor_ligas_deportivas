@@ -13,6 +13,14 @@
   --color-soft: var(--soft);
   --color-danger: var(--danger);
   --color-danger-surface: var(--danger-surface);
+  --color-action: var(--action);
+  --color-action-hover: var(--action-hover);
+  --color-on-action: var(--on-action);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-overlay: var(--overlay);
+  --color-positive: var(--positive);
+  --color-positive-surface: var(--positive-surface);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -31,4 +39,154 @@ body {
 ::selection {
   background: var(--soft);
   color: var(--primary);
+}
+
+/* Colores semánticos directos: el relleno principal no depende de que el
+   servidor de desarrollo regenere utilidades al incorporar nuevos tokens. */
+.primary-action {
+  background-color: var(--action);
+  color: var(--on-action);
+}
+
+.primary-action:hover:not(:disabled),
+.group:hover .primary-action {
+  background-color: var(--action-hover);
+}
+
+.management-sidebar {
+  background-color: var(--sidebar);
+  color: var(--sidebar-foreground);
+  border-right: 1px solid var(--sidebar-border);
+}
+
+.management-sidebar :focus-visible {
+  outline-color: var(--sidebar-foreground);
+}
+
+.sidebar-link:hover,
+.sidebar-link[aria-current="page"],
+.sidebar-brand-mark {
+  background-color: var(--sidebar-active);
+}
+
+.sidebar-link {
+  color: var(--sidebar-foreground);
+}
+
+.sidebar-divider {
+  border-color: var(--sidebar-border);
+}
+
+.sidebar-muted {
+  color: color-mix(in srgb, var(--sidebar-foreground) 75%, transparent);
+}
+
+.management-overlay {
+  background-color: color-mix(in srgb, var(--overlay) 50%, transparent);
+}
+
+.management-brand-row,
+.management-header-row,
+.management-footer-row {
+  min-height: 4rem;
+  box-sizing: border-box;
+}
+
+.management-brand-row {
+  padding-block: 0.5rem;
+}
+
+@media (min-width: 64rem) {
+  .management-brand-row,
+  .management-header-row,
+  .management-footer-row {
+    min-height: 5rem;
+  }
+
+  .management-brand-row { padding-block: 1rem; }
+}
+
+.theme-switch-track {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 3.75rem;
+  height: 2rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background-color: var(--soft);
+}
+
+.theme-switch-track[data-checked="true"] {
+  background-color: var(--action);
+  border-color: var(--action);
+}
+
+.theme-switch-moon,
+.theme-switch-sun {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.theme-switch-moon { left: 7px; color: var(--on-action); }
+.theme-switch-sun { right: 7px; color: var(--primary); }
+
+.theme-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background-color: var(--primary);
+  transition: transform 160ms ease;
+}
+
+.theme-switch-track[data-checked="true"] .theme-switch-thumb {
+  transform: translateX(1.75rem);
+  background-color: var(--on-action);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-switch-thumb { transition: none; }
+}
+
+/* Selector único: el popup y sus opciones conservan los tokens en ambos temas. */
+.select-field { position: relative; min-width: 0; width: 100%; }
+.select-input {
+  display: block; width: 100%; min-width: 0; min-height: 3rem;
+  border: 1px solid var(--border); border-radius: 0.75rem;
+  background: var(--surface); color: var(--foreground);
+  padding: 0.75rem 2.75rem 0.75rem 0.875rem; font: inherit;
+  text-overflow: ellipsis;
+}
+.select-input::placeholder { color: var(--muted); opacity: 1; }
+.select-field[data-open="false"] .select-input { caret-color: transparent; }
+.select-input:disabled { cursor: not-allowed; opacity: 0.5; }
+.select-input[aria-invalid="true"] { border-color: var(--danger); }
+.select-field[data-open="true"] .select-input { border-color: var(--primary); }
+.select-field[data-has-icon="true"] .select-input { padding-left: 2.5rem; }
+.select-search-icon { position: absolute; top: 1.5rem; left: 0.875rem; transform: translateY(-50%); pointer-events: none; color: var(--muted); }
+.select-arrow { position: absolute; top: 0.25rem; right: 0.25rem; display: flex; width: 2.5rem; height: 2.5rem; align-items: center; justify-content: center; border-radius: 0.5rem; color: var(--muted); }
+.select-arrow:disabled { opacity: 0.5; }
+.select-field[data-open="true"] .select-arrow { transform: rotate(180deg); }
+.select-popup { position: fixed; z-index: 70; overflow-y: auto; overscroll-behavior: contain; padding: 0.375rem; border: 1px solid var(--border); border-radius: 0.875rem; background: var(--surface); color: var(--foreground); box-shadow: 0 12px 32px color-mix(in srgb, var(--overlay) 22%, transparent); scrollbar-color: var(--border) var(--surface); }
+.select-option { position: relative; display: flex; align-items: center; gap: 0.75rem; min-height: 2.75rem; padding: 0.75rem; border-left: 3px solid transparent; border-radius: 0.5rem; cursor: pointer; font-size: 0.875rem; line-height: 1.5; }
+.select-option[data-active="true"], .select-option[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--primary); border-left-color: var(--accent); }
+.select-option[aria-selected="true"] { border-left-color: var(--accent); }
+.select-option[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+.select-option-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.select-option-description { flex-shrink: 0; max-width: 40%; overflow-wrap: anywhere; font-size: 0.75rem; color: var(--muted); }
+.select-option-check { flex-shrink: 0; }
+.select-empty { padding: 1rem; font-size: 0.875rem; line-height: 1.5; color: var(--muted); }
+dialog[data-reusable-dialog]::backdrop { background: color-mix(in srgb, var(--overlay) 65%, transparent); }
+.theme-select { width: 2.75rem; }
+.theme-select .select-input { min-height: 2.75rem; height: 2.75rem; font-size: 0; padding-right: 0; }
+.theme-select .select-search-icon { top: 1.375rem; }
+.theme-select .select-arrow { display: none; }
+@media (min-width: 40rem) {
+  .theme-select { width: 9rem; }
+  .theme-select .select-input { font-size: 0.875rem; padding-right: 2.5rem; }
+  .theme-select .select-arrow { display: flex; height: 2.25rem; }
 }

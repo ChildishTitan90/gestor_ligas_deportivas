@@ -43,3 +43,4 @@ export const groupRenameSchema = groupCreateSchema.extend({ groupId: z.uuid() })
 export const groupDeleteSchema = z.strictObject({ ...groupVersion, groupId: z.uuid() });
 export const generalTableSchema = z.strictObject({ ...groupVersion, format: z.enum(["GENERAL_TABLE", "GROUP_STAGE"]) });
 export const distributionSchema = z.strictObject({ ...groupVersion, enrollmentId: z.uuid(), groupId: z.uuid() });
+export const automaticDistributionSchema = z.strictObject(groupVersion);

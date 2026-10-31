@@ -13,6 +13,7 @@ export type ReviewSummary = {
   referenceNumber: string;
   clubName: string;
   seasonName: string;
+  seasonId?: string;
   version: number;
   status: "PENDING" | "APPROVED";
   reviewPhase: ReviewPhase | null;

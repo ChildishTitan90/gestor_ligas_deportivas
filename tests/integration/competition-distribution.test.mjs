@@ -117,4 +117,34 @@ export async function runPendingDistributionTests({t,db,admin,reader,delegate,cl
     await assert.rejects(db.query('UPDATE sports_management.season_teams SET group_id=$2 WHERE id=$1',[enrollment.id,other]),error=>error.code==='P0001');
     await assert.rejects(db.query("UPDATE sports_management.season_categories SET competition_format='LEGACY_GROUPS' WHERE id=$1",[participation]),error=>error.code==='P0001');
   });
+  await t.test('distribución automática: equilibrio, permisos, rollback y repetición sin mover historial',async()=>{
+    const previous=(await db.query('SELECT group_id FROM sports_management.season_teams WHERE id=$1',[enrollment.id])).rows[0].group_id;
+    for (let i=0;i<3;i++) {
+      const response=await request(delegate,'/api/team-enrollments','POST',{...body,enrollmentKey:randomUUID(),team:{mode:'new',name:`Automático sintético ${i}`}});
+      assert.equal(response.status,201);
+    }
+    const payload={expectedSeasonVersion:5,reason};
+    assert.equal((await request(delegate,`${path}/distribution/automatic`,'POST',payload)).status,403);
+    assert.equal((await request(reader,`${path}/distribution/automatic`,'POST',{...payload,groupId:groupA.id})).status,400);
+    await db.query(`CREATE FUNCTION pg_temp.reject_automatic_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.table_name='season_teams' AND NEW.action='UPDATE' THEN RAISE EXCEPTION 'Fallo sintético'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER test_automatic_audit BEFORE INSERT ON sports_management.audit_logs FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_automatic_audit()`);
+    try {
+      assert.equal((await request(reader,`${path}/distribution/automatic`,'POST',payload)).status,503);
+      assert.equal((await db.query('SELECT count(*)::int AS n FROM sports_management.season_teams WHERE season_category_id=$1 AND group_id IS NULL',[participation])).rows[0].n,3);
+      assert.equal((await db.query('SELECT version FROM sports_management.seasons WHERE id=$1',[season])).rows[0].version,5);
+    } finally { await db.query('DROP TRIGGER test_automatic_audit ON sports_management.audit_logs'); }
+    const responses=await Promise.all([request(reader,`${path}/distribution/automatic`,'POST',payload),request(reader,`${path}/distribution/automatic`,'POST',payload)]);
+    assert.deepEqual(responses.map(r=>r.status).sort(),[200,409]);
+    const result=await responses.find(r=>r.status===200).json();
+    assert.equal(result.assignments.length,3); assert.equal(result.seasonVersion,6);
+    const rows=(await db.query('SELECT group_id,status FROM sports_management.season_teams WHERE season_category_id=$1',[participation])).rows;
+    assert.equal(rows.filter(row=>row.group_id===groupA.id).length,2);
+    assert.equal(rows.filter(row=>row.group_id===groupB.id).length,2);
+    assert.ok(rows.every(row=>row.status==='REGISTERED'));
+    assert.equal((await db.query('SELECT group_id FROM sports_management.season_teams WHERE id=$1',[enrollment.id])).rows[0].group_id,previous);
+    const again=await request(reader,`${path}/distribution/automatic`,'POST',{...payload,expectedSeasonVersion:6});
+    assert.equal(again.status,200); assert.deepEqual((await again.json()).assignments,[]);
+    assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.audit_logs WHERE table_name='season_teams' AND action='UPDATE' AND entity_id IN (SELECT id FROM sports_management.season_teams WHERE season_category_id=$1)",[participation])).rows[0].n,4);
+  });
 }

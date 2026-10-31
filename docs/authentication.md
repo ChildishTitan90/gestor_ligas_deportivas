@@ -1,5 +1,25 @@
 # Probar autenticación local — PDGLD-48
 
+## Acceso por usuario o correo — PDGLD-115
+
+El campo «Usuario o correo electrónico» acepta cualquiera de los dos identificadores,
+sin distinguir mayúsculas y con espacios exteriores recortados. La contraseña se
+conserva literalmente. Los usuarios nuevos admiten letras ASCII, números, punto,
+guion y guion bajo; las cuentas heredadas con username igual a un correo siguen
+siendo compatibles. No se añade un prefijo `@` al identificador.
+
+El contrato de NextAuth 4 conserva el parámetro `email` para los clientes existentes.
+El servidor busca coincidencias literales, sin comodines. Si un correo coincide
+con el username heredado de otra cuenta, se rechaza el acceso de forma genérica
+para no elegir una identidad arbitraria. El alta de cuentas utiliza `emailSchema`
+por separado y sigue exigiendo un correo válido.
+
+Ambas vías usan la misma fila, contador de intentos, bloqueo y validación de sesión.
+No se crea otro login ni se cambian contraseñas, permisos o migraciones.
+`test:login-input` comprueba los identificadores y `test:auth` incluye el acceso
+real por ambas vías y fallos concurrentes alternando usuario/correo contra una
+base local temporal. No implica validación de credenciales de producción.
+
 ## Inactividad efectiva — integración de sesiones
 
 El plazo configurable `AUTH_IDLE_TIMEOUT_MINUTES` (30 por defecto) se aplica en
@@ -51,6 +71,14 @@ con `SELECT ... FOR UPDATE` dentro de su transacción y leen su estado después
 del bloqueo. Así, los fallos simultáneos no sobrescriben el contador y un intento
 no limpia un bloqueo generado por otra petición mientras esperaba. Se conservan
 cinco fallos, bloqueo de 15 minutos y reinicio después de éxito o bloqueo vencido.
+
+El formulario informa el bloqueo real con la política y los minutos restantes
+solo después de comprobar la contraseña correcta de una cuenta activa. Con una
+contraseña incorrecta, tanto las cuentas existentes como las ausentes devuelven
+`CredentialsSignin`, incluso al alcanzar el límite o durante el bloqueo.
+El código público controlado se genera después de confirmar la transacción;
+los intentos durante el bloqueo no reinician el plazo. Véase
+[el contrato del aviso de acceso](design/login-lockout-feedback.md).
 
 `npm run test:auth` incluye regresiones HTTP/PostgreSQL para cinco fallos
 simultáneos, vencimiento y reinicio del contador, incremento de versión, rechazo
@@ -118,7 +146,8 @@ Cobertura:
 - Acceso directo sin sesión y compilación de la pantalla de login.
 - Contraseña correcta/incorrecta/ausente/vacía/demasiado larga; correo inválido/inexistente/demasiado largo.
 - Correo normalizado, cuenta almacenada con mayúsculas, igualdad literal con `%`/`_` y espacios significativos de contraseña.
-- Cuentas deshabilitadas/bloqueadas y hashes desconocidos/corruptos con error genérico.
+- Cuentas deshabilitadas y hashes desconocidos/corruptos con error genérico;
+  bloqueo temporal con aviso controlado de política y minutos restantes.
 - DTO mínimo, UUID, cookies HttpOnly/SameSite=Lax y rechazo CSRF.
 - Cambio obligatorio; `update()` manipulado y retirar el flag no promueven la sesión restringida.
 - Revalidación ante desactivación, bloqueo, versión nueva, cambio obligatorio y eliminación; replay de cookie anterior.
@@ -139,7 +168,7 @@ Abre la URL `/login` que imprime el runner. Es una base temporal real; estos dat
 | `operativa@example.test` | Confirma sesión en `/access` |
 | `temporal@example.test` | Redirige a `/change-password`; acceso normal denegado |
 | `inactiva@example.test` | Rechazo genérico |
-| `bloqueada@example.test` | Rechazo genérico por bloqueo vigente |
+| `bloqueada@example.test` | Aviso de bloqueo temporal vigente, sin crear sesión |
 
 Contraseña **sintética de demostración**: `Local-Demo-48!real-test`. No reutilizarla en cuentas reales; no se imprime en los logs del runner.
 
