@@ -7,6 +7,8 @@ import { getAffiliationReviewLeagueOptions } from "@/features/clubs/server/affil
 import { getTeamEnrollmentCatalogs } from "@/features/clubs/server/team-enrollment-queries";
 import { AuthorizationError } from "@/server/auth/authorization";
 import { requireOperationalUser } from "@/server/auth/session";
+import { canAccessPlayerRegistration } from "@/features/players/server/workspace-queries";
+import { canReviewPlayerIdentity } from "@/features/players/server/identity-review";
 
 /** Solo una denegación esperada oculta el enlace; los fallos de sesión o servicio se propagan. */
 async function allowed(check: () => Promise<boolean>): Promise<boolean> {
@@ -21,11 +23,13 @@ async function allowed(check: () => Promise<boolean>): Promise<boolean> {
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
   await requireOperationalUser();
-  const [teams, capture, review, accounts] = await Promise.all([
+  const [teams, capture, review, accounts, players, playerReview] = await Promise.all([
     allowed(async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0),
     allowed(canAccessAffiliationCapture),
     allowed(async () => (await getAffiliationReviewLeagueOptions()).length > 0),
     allowed(async () => (await getAccountCreationOptions()).roles.length > 0),
+    allowed(canAccessPlayerRegistration),
+    allowed(canReviewPlayerIdentity),
   ]);
 
   const groups: ManagementNavigationGroup[] = [
@@ -36,6 +40,10 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if (review) clubs.items.push({ href: "/affiliations/review", label: "Revisión de afiliaciones", icon: "review" });
   if (teams) clubs.items.push({ href: "/teams/registrations", label: "Inscripción y consulta de equipos", icon: "teams" });
   if (clubs.items.length) groups.push(clubs);
+  const playerLinks: ManagementNavigationGroup = {label:"Jugadores",items:[]};
+  if(players) playerLinks.items.push({href:"/players/registrations",label:"Registrar jugadores",icon:"players"});
+  if(playerReview) playerLinks.items.push({href:"/players/review",label:"Revisión de identidad",icon:"review"});
+  if(playerLinks.items.length) groups.push(playerLinks);
   if (accounts) groups.push({ label: "Administración", items: [{ href: "/accounts/new", label: "Crear cuenta", icon: "accounts" }] });
   return groups;
 }

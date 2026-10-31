@@ -15,6 +15,12 @@ export const ENROLLMENT_PLAN = Object.freeze({
   checksum: 'cf81c3eeb7de3b3292aa560fd10820c4ba8db7db2217ede110eae0e37c0f6b33',
 });
 
+// Plan específico: tabla privada de intentos, RLS solo en Supabase y ninguna política para roles API.
+export const CURP_PLAN = Object.freeze({
+  migration: '20261031020000_pdgld97_curp_checks',
+  checksum: '53783b4250f3936ef2767825cb74d9755963d0842abc776d766fd5a1dad01525',
+});
+
 export function sqlChecksum(sql) {
   return createHash('sha256').update(sql.replace(/\r\n/g, '\n')).digest('hex');
 }
@@ -25,6 +31,9 @@ export function assertProductionPlan(migrations, applied, readSql) {
   const pendingCreation = migrations.has(plan.migration) && !applied.has(plan.migration);
   const pendingSecurity = migrations.has(plan.securityMigration) && !applied.has(plan.securityMigration);
   const pendingEnrollmentCreation = migrations.has(ENROLLMENT_PLAN.migration) && !applied.has(ENROLLMENT_PLAN.migration);
+  const pendingCurpCreation = migrations.has(CURP_PLAN.migration) && !applied.has(CURP_PLAN.migration);
+  if (migrations.has(CURP_PLAN.migration) && sqlChecksum(readSql(CURP_PLAN.migration)) !== CURP_PLAN.checksum)
+    throw new Error('El plan PDGLD-97 exige la migración original y su checksum revisado.');
   // Revisar también el original al reintentar una base ya actualizada.
   if (migrations.has(ENROLLMENT_PLAN.migration) && sqlChecksum(readSql(ENROLLMENT_PLAN.migration)) !== ENROLLMENT_PLAN.checksum) {
     throw new Error('El plan PDGLD-64 exige la migración original y su checksum revisado.');
@@ -41,9 +50,10 @@ export function assertProductionPlan(migrations, applied, readSql) {
     if (applied.has(name)) continue;
     if (name === plan.migration && pendingCreation) continue;
     if (name === ENROLLMENT_PLAN.migration && pendingEnrollmentCreation) continue;
+    if (name === CURP_PLAN.migration && pendingCurpCreation) continue;
     assertProductionSql(readSql(name), name);
   }
-  return { pendingCreation, pendingEnrollmentCreation };
+  return { pendingCreation, pendingEnrollmentCreation, pendingCurpCreation };
 }
 
 export function readProductionPlan(directory, migrations, applied) {
@@ -80,6 +90,10 @@ export async function assertEnrollmentProductionSecurity(client) {
   return assertReviewedTableSecurity(client, 'team_enrollment_operations');
 }
 
+export async function assertCurpProductionSecurity(client) {
+  return assertReviewedTableSecurity(client, 'player_curp_checks');
+}
+
 async function assertReviewedTableSecurity(client, name) {
   const { rows: [table] } = await client.query(`SELECT c.oid,c.relrowsecurity
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -99,4 +113,5 @@ async function assertReviewedTableSecurity(client, name) {
 export async function assertAppliedProductionSecurity(client, applied) {
   if (applied.has(AFFILIATION_PLAN.migration)) await assertAffiliationProductionSecurity(client);
   if (applied.has(ENROLLMENT_PLAN.migration)) await assertEnrollmentProductionSecurity(client);
+  if (applied.has(CURP_PLAN.migration)) await assertCurpProductionSecurity(client);
 }

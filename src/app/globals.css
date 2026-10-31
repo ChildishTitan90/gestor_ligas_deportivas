@@ -167,7 +167,7 @@ body {
 .select-input[aria-invalid="true"] { border-color: var(--danger); }
 .select-field[data-open="true"] .select-input { border-color: var(--primary); }
 .select-field[data-has-icon="true"] .select-input { padding-left: 2.5rem; }
-.select-search-icon { position: absolute; top: 1.5rem; left: 0.875rem; transform: translateY(-50%); pointer-events: none; color: var(--muted); }
+.select-search-icon { position: absolute; top: 1.5rem; left: 0.875rem; display: flex; align-items: center; translate: 0 -50%; pointer-events: none; color: var(--muted); }
 .select-arrow { position: absolute; top: 0.25rem; right: 0.25rem; display: flex; width: 2.5rem; height: 2.5rem; align-items: center; justify-content: center; border-radius: 0.5rem; color: var(--muted); }
 .select-arrow:disabled { opacity: 0.5; }
 .select-field[data-open="true"] .select-arrow { transform: rotate(180deg); }

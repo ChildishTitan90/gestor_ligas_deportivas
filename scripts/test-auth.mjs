@@ -183,8 +183,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview'].includes(arg)))
-    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview].');
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--players'].includes(arg)))
+    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --players].');
   if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
   }
@@ -206,6 +206,8 @@ try {
   // Las suites automatizadas nunca usan el Storage real configurado en .env.
   // La demostración manual conserva su configuración explícita.
   if (!process.argv.includes('--demo')) {
+    // Prohibido consumir Verificamex durante las suites automatizadas, aun con .env configurado.
+    delete childEnv.VMX_API_KEY;
     childEnv.SUPABASE_URL = 'https://storage.example.test';
     childEnv.SUPABASE_STORAGE_SERVER_KEY = 'test-only-no-real-storage';
   }
@@ -214,7 +216,9 @@ try {
     childEnv.NODE_OPTIONS = `${childEnv.NODE_OPTIONS ?? ''} --import=${new URL('../tests/integration/account-options-metrics.mjs', import.meta.url).href}`.trim();
   }
   stage = 'aplicación de migraciones en base temporal';
-  console.log('PDGLD-48: preparando PostgreSQL temporal y servidor local.');
+  console.log(process.argv.includes('--players')
+    ? 'PDGLD-97: preparando PostgreSQL temporal, sin servidor HTTP ni proveedor externo.'
+    : 'PDGLD-48: preparando PostgreSQL temporal y servidor local.');
   await command(['node_modules/prisma/build/index.js', 'migrate', 'deploy'], childEnv);
   if (process.argv.includes('--preview')) {
     stage = 'provisión del runtime limitado con RLS';
@@ -230,13 +234,17 @@ try {
     childEnv.DATABASE_URL = runtimeUrl.href;
     delete childEnv.DATABASE_CA_CERT;
   }
-  if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments')) {
+  if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments') || process.argv.includes('--players')) {
     stage = 'comparación de migraciones y esquema';
     await command(['node_modules/prisma/build/index.js', 'migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code'], childEnv, true);
   }
   stage = 'inicio de Next.js';
-  await startServer();
-  if (process.argv.includes('--demo') || process.argv.includes('--affiliation-demo')) {
+  if (!process.argv.includes('--players')) await startServer();
+  if (process.argv.includes('--players')) {
+    stage = 'integridad y permisos del servicio de jugadores en PostgreSQL temporal';
+    await command(['--conditions=react-server', '--import', 'tsx', '--test',
+      'tests/integration/player-registrations.test.ts'], childEnv, true);
+  } else if (process.argv.includes('--demo') || process.argv.includes('--affiliation-demo')) {
     stage = 'carga de datos sintéticos';
     const client = new pg.Client({ connectionString: databaseUrl });
     await client.connect();
@@ -329,7 +337,7 @@ try {
     'Las pruebas solo aceptan PostgreSQL loopback en puertos 5432/5433.',
     'DIRECT_URL contiene parámetros no permitidos para pruebas locales.',
     'Detén el servidor npm run dev antes de ejecutar estas pruebas.',
-    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview].',
+    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --players].',
     'Next.js no quedó disponible para las pruebas locales.',
   ]);
   console.error(safeMessages.has(error.message) ? error.message : `No se completó la fase: ${stage}.`);

@@ -58,6 +58,8 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Probar firmas de afiliación
         run: npm run test:signatures
+      - name: Probar validación local de identidad de jugadores
+        run: npm run test:player-identity && npm run test:curp-provider
       - name: Probar recuperación de inscripciones y capacidades del cliente
         run: npm run test:team-enrollment-client
       - name: Revisar el código
@@ -120,6 +122,8 @@ jobs:
         run: npm run test:auth
       - name: Probar inscripción de equipos, alcance y concurrencia
         run: npm run test:team-enrollments
+      - name: Probar identidad, inscripción única y permisos de jugadores
+        run: npm run test:player-registrations
       - name: Probar Preview con rol limitado, RLS, afiliaciones y operaciones por HTTP
         run: npm run test:preview-runtime
       - name: Probar seed, integridad, rollback e idempotencia

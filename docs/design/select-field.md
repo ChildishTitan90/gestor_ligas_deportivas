@@ -19,6 +19,13 @@ utilidades vigentes en el componente. El control no debe perder el borde, ancho 
 flecha si un servidor de desarrollo todavía conserva una versión anterior de los
 estilos globales. `globals.css` reúne los detalles de presentación compartidos.
 
+El contenedor del icono usa flex y un único `translate` vertical, compatible con
+las utilidades de Tailwind 4. No combinarlo con `transform: translateY(-50%)`:
+ambas propiedades se acumulan y desplazan hacia arriba el icono del tema.
+Comprobado el 31/10/2026 con el componente React real y CSS Tailwind compilado
+en una página local aislada, sin backend: luna, sol y sistema centrados en
+1400 y 375 px, con apertura y selección por teclado. Pasan las siete pruebas de tema.
+
 ## Integración
 
 ```tsx

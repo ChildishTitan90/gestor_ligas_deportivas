@@ -1,0 +1,2 @@
+"use client";
+export default function ErrorPage({reset}:{reset:()=>void}){return <section className="space-y-4"><h1 className="text-2xl font-semibold">Revisión no disponible</h1><p role="alert">No se pudo abrir el expediente. Comprueba tu acceso y vuelve a consultar la bandeja.</p><button onClick={reset} className="primary-action rounded-xl px-5 py-3">Volver a intentar</button><a href="/access" className="ml-4 underline">Mi panel</a></section>;}

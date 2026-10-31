@@ -1,5 +1,5 @@
 // Permisos SQL del backend privado. No son concesiones RF22 a personas.
-// Fuente: auth/*, accounts/server/service, clubs/server y permissions/server.
+// Fuente: auth/*, accounts/server/service, clubs/server, players/server y permissions/server.
 export const PREVIEW_PROJECT = 'loaztwwpwsaqzdtdtvvj';
 export const PREVIEW_ROLE = 'gestor_ligas_preview';
 export const PREVIEW_MARKER = `PDGLD_PRUEBAS_ONLY=${PREVIEW_PROJECT}`;
@@ -7,7 +7,7 @@ export const PREVIEW_MARKER = `PDGLD_PRUEBAS_ONLY=${PREVIEW_PROJECT}`;
 const read = ['audit_logs', 'authentication_events', 'categories', 'charges', 'club_affiliations',
   'club_affiliation_categories', 'club_officers', 'clubs', 'correction_authorizations', 'disciplinary_cases',
   'files', 'groups', 'leagues', 'match_events', 'match_reports', 'matches', 'payment_voids', 'payments',
-  'people', 'permissions', 'player_registrations', 'referee_assignments', 'referees', 'role_permissions',
+  'people', 'permissions', 'player_registrations', 'player_curp_checks', 'referee_assignments', 'referees', 'role_permissions',
   'roles', 'schedule_proposals', 'season_categories', 'season_teams', 'seasons', 'sessions', 'sports',
   'teams', 'team_enrollment_operations', 'user_roles', 'users'];
 const insert = {
@@ -20,7 +20,8 @@ const insert = {
   club_officers: ['affiliation_id', 'person_id', 'office', 'starts_at', 'signature_file_id'],
   clubs: ['name', 'league_id', 'reference_number', 'status', 'created_at'],
   files: ['id', 'storage_key', 'original_name', 'mime_type', 'size_bytes', 'sha256', 'uploaded_by', 'created_at'],
-  people: ['first_name', 'paternal_surname', 'maternal_surname', 'created_at'],
+  people: ['first_name', 'paternal_surname', 'maternal_surname', 'created_at', 'identity_version'],
+  player_curp_checks: ['operation_key', 'actor_id', 'person_id', 'registration_id', 'identity_version', 'fingerprint', 'status', 'mismatched_fields'],
   role_permissions: ['role_id', 'permission_id', 'context_only'],
   sessions: ['user_id', 'token_hash', 'created_at', 'last_activity_at', 'expires_at'],
   teams: ['club_id', 'name', 'reference_number', 'created_at'],
@@ -30,6 +31,7 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at'],
 };
 const update = {
+  player_curp_checks: ['status', 'mismatched_fields', 'finished_at'],
   club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version'],
   club_affiliation_categories: ['authorized_by', 'authorized_at'],
   club_officers: ['person_id', 'signature_file_id'],

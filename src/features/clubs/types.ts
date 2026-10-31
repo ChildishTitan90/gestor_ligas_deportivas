@@ -11,7 +11,7 @@ export type AffiliationSubmissionContext = {
   actorId: string;
   clubId: string;
   seasonId: string;
-  storageOrigin: string;
+  storageOrigin: string | null;
 };
 
 export type AffiliationFormProps = {
