@@ -36,6 +36,12 @@ export async function runRuleDraftTests({ t, db, baseUrl, admin, reader, league,
     assert.ok(configuration.rules[0].parameters.every(parameter=>parameter.requiresValidation));
     assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.audit_logs WHERE table_name='competition_rules' AND entity_id=$1 AND action='INSERT'",[draft.id])).rows[0].n,1);
     assert.equal((await db.query('SELECT approved_by,file_id FROM sports_management.competition_rules WHERE id=$1',[draft.id])).rows[0].approved_by,null);
+    const page = await admin.request(`/competitions/seasons/${season}`);
+    assert.equal(page.status,200);
+    const html = await page.text();
+    assert.match(html,/Borrador/);
+    assert.match(html,/Pendiente de validación/);
+    assert.doesNotMatch(html,/No se pudo cargar la configuración/);
   });
   await t.test('reglas: carreras rechazan una versión obsoleta y conservan el borrador anterior', async () => {
     const responses = await Promise.all([send(admin,{...input,expectedSeasonVersion:2,announcement:'Nueva propuesta A'}),send(admin,{...input,expectedSeasonVersion:2,announcement:'Nueva propuesta B'})]);

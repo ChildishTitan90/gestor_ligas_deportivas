@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { previewRuntimeSql, PREVIEW_MARKER, PREVIEW_ROLE } from '../../scripts/preview/runtime-plan.mjs';
+import { previewRuntimeSql, provisionPreviewRuntime, runtimePrivileges, PREVIEW_MARKER, PREVIEW_ROLE } from '../../scripts/preview/runtime-plan.mjs';
 
 /** Parámetros efectivos de pg, después de resolver su connectionString. */
 export function assertPreviewFixtureTarget(connection, databaseName) {
@@ -29,6 +29,9 @@ export async function preparePreviewRuntime(client, databaseName, runtimePasswor
     await client.query(`COMMENT ON DATABASE "${databaseName}" IS '${PREVIEW_MARKER}'`);
     await client.query(`DO $$ DECLARE t record; BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE schemaname='sports_management'
       LOOP EXECUTE format('ALTER TABLE sports_management.%I ENABLE ROW LEVEL SECURITY',t.tablename); END LOOP; END $$`);
+    // No depender de EXECUTE heredado de PUBLIC: las funciones llamadas desde
+    // otras funciones deben quedar cubiertas por el plan explícito del backend.
+    await client.query('REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA sports_management FROM PUBLIC');
     // Reproducir el fallo original aun cuando SELECT sí está autorizado.
     await client.query(`GRANT USAGE ON SCHEMA sports_management TO gestor_ligas_preview;
       GRANT SELECT ON sports_management.permissions TO gestor_ligas_preview;
@@ -37,6 +40,12 @@ export async function preparePreviewRuntime(client, databaseName, runtimePasswor
     await client.query('SET LOCAL ROLE gestor_ligas_preview');
     await assert.rejects(client.query('SELECT id FROM sports_management.permissions FOR SHARE'), { code: '42501' });
     await client.query('ROLLBACK TO SAVEPOINT original_failure');
+    // Estado anterior de Preview: estas tablas solo permitían bloquear id.
+    // La actualización debe retirar ese permiso y sustituir su política conocida.
+    for (const table of ['groups', 'seasons', 'season_categories', 'season_teams']) {
+      await client.query(`GRANT UPDATE (id) ON sports_management.${table} TO gestor_ligas_preview;
+        CREATE POLICY preview_backend_lock ON sports_management.${table} FOR UPDATE TO gestor_ligas_preview USING (true) WITH CHECK (false)`);
+    }
     await client.query(previewRuntimeSql());
     await client.query(previewRuntimeSql()); // Mantenimiento idempotente sin cambiar RF22/datos.
     await client.query('SET LOCAL ROLE gestor_ligas_preview');
@@ -65,7 +74,22 @@ export async function verifyPreviewRuntime(client) {
       `UPDATE sports_management.permissions SET id=id WHERE id='${permission.id}'`,
       'UPDATE sports_management.user_roles SET id=id',
       'UPDATE sports_management.roles SET id=id',
-      'UPDATE sports_management.groups SET name=name',
+      'UPDATE sports_management.groups SET id=id',
+      'UPDATE sports_management.categories SET name=name',
+      'UPDATE sports_management.seasons SET league_id=league_id',
+      'UPDATE sports_management.season_categories SET category_id=category_id',
+      'UPDATE sports_management.season_teams SET team_id=team_id',
+      "UPDATE sports_management.competition_rules SET status='APPROVED'",
+      'UPDATE sports_management.competition_rule_parameters SET requires_validation=false',
+      'DELETE FROM sports_management.competition_rules',
+      'DELETE FROM sports_management.competition_rule_parameters',
+      'DELETE FROM sports_management.match_results',
+      'SELECT * FROM sports_management.imports',
+      'SELECT * FROM sports_management.official_documents',
+      'SELECT home_score FROM sports_management.match_results',
+      'SELECT approved_by FROM sports_management.competition_rules',
+      'TRUNCATE sports_management.groups',
+      'CREATE TABLE sports_management.preview_forbidden(id uuid)',
       'UPDATE sports_management.teams SET name=name',
       'UPDATE sports_management.season_teams SET status=status',
       'UPDATE sports_management.club_affiliations SET id=id',
@@ -95,6 +119,10 @@ export async function verifyPreviewRuntime(client) {
       'GRANT SELECT ON public._prisma_migrations TO gestor_ligas_preview',
       'GRANT DELETE ON sports_management.teams TO PUBLIC',
       'GRANT anon TO gestor_ligas_preview',
+      'CREATE POLICY unknown_preview_read ON sports_management.competition_rules FOR SELECT TO gestor_ligas_preview USING (false)',
+      'CREATE POLICY unknown_public_update ON sports_management.groups FOR UPDATE TO PUBLIC USING (true)',
+      'ALTER POLICY preview_backend_insert ON sports_management.competition_rules WITH CHECK (false)',
+      'ALTER POLICY preview_backend_update ON sports_management.groups USING (false)',
     ]) {
       await client.query('BEGIN');
       await client.query(mutation);
@@ -105,4 +133,35 @@ export async function verifyPreviewRuntime(client) {
     }
     console.log('Preview: bloqueos sin mutación, columnas inmutables, ledger denegado y datos/RLS conservados.');
   } finally { await client.query('ROLLBACK'); }
+}
+
+/** Mantenimiento real después de las operaciones HTTP: conserva filas, RBAC y
+ * credenciales/atributos; no concede acceso a clientes públicos ni al ledger. */
+export async function verifyPreviewMaintenance(client) {
+  const snapshot = async () => {
+    const tables = {};
+    for (const table of runtimePrivileges.read) {
+      tables[table] = (await client.query(`SELECT md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text)::text,'')) AS hash
+        FROM sports_management.${table} t`)).rows[0].hash;
+    }
+    const role = (await client.query(`SELECT rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,rolinherit,rolreplication,rolbypassrls,rolconnlimit,rolvaliduntil,rolconfig
+      FROM pg_roles WHERE rolname=$1`, [PREVIEW_ROLE])).rows[0];
+    return { tables, role };
+  };
+  const before = await snapshot();
+  await provisionPreviewRuntime(client);
+  await provisionPreviewRuntime(client);
+  assert.deepEqual(await snapshot(), before, 'Provisión repetida conserva todos los datos y atributos del rol.');
+  const role = before.role;
+  for (const flag of ['rolsuper','rolcreatedb','rolcreaterole','rolinherit','rolreplication','rolbypassrls']) assert.equal(role[flag], false);
+  assert.equal((await client.query(`SELECT count(*)::int n FROM pg_auth_members
+    WHERE member=$1::regrole OR roleid=$1::regrole`, [PREVIEW_ROLE])).rows[0].n, 0);
+  for (const table of runtimePrivileges.read) {
+    for (const role of ['anon','authenticated']) {
+      assert.equal((await client.query(`SELECT has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR has_any_column_privilege($1,$2,'SELECT,INSERT,UPDATE,REFERENCES') AS allowed`, [role, `sports_management.${table}`])).rows[0].allowed, false);
+    }
+  }
+  await verifyPreviewRuntime(client);
+  console.log('Preview: mantenimiento repetido conserva datos, RF22, atributos y aislamiento de anon/authenticated.');
 }

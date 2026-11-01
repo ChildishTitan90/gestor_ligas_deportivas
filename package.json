@@ -26,6 +26,7 @@
     "postinstall": "prisma generate",
     "test:ci": "node --test scripts/ci/migration-helpers.test.mjs scripts/ci/production-plans.test.mjs scripts/ci/preview-fixture-target.test.mjs scripts/preview/connection.test.mjs",
     "test:preview-runtime": "node scripts/test-auth.mjs --preview",
+    "test:preview-competitions": "node scripts/test-auth.mjs --preview-competitions",
     "preview:maintain": "node scripts/preview/maintain.mjs",
     "test:database-config": "node --conditions=react-server --import tsx --test src/server/db/connection-options.test.ts",
     "test:authorization": "node scripts/test-auth.mjs --authorization",

@@ -1,5 +1,6 @@
 // Permisos SQL del backend privado. No son concesiones RF22 a personas.
-// Fuente: auth/*, accounts/server/service, clubs/server y permissions/server.
+// Fuente: auth/*, accounts/server/service, clubs/server, permissions/server
+// y competitions/server (incluidos triggers y relaciones consultadas por _count).
 export const PREVIEW_PROJECT = 'loaztwwpwsaqzdtdtvvj';
 export const PREVIEW_ROLE = 'gestor_ligas_preview';
 export const PREVIEW_MARKER = `PDGLD_PRUEBAS_ONLY=${PREVIEW_PROJECT}`;
@@ -10,19 +11,46 @@ const read = ['audit_logs', 'authentication_events', 'categories', 'charges', 'c
   'people', 'permissions', 'player_registrations', 'referee_assignments', 'referees', 'role_permissions',
   'roles', 'schedule_proposals', 'season_categories', 'season_teams', 'seasons', 'sessions', 'sports',
   'teams', 'team_enrollment_operations', 'user_roles', 'users'];
+// Lecturas de reglas, cierre y dependencias: una tabla vacía también exige SELECT
+// y una política RLS para que _count no oculte referencias que impiden retirar filas.
+read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competition_rule_parameters',
+  'competition_stages', 'document_requirements', 'imports', 'matchdays', 'match_results',
+  'match_statuses', 'official_documents', 'publications', 'season_awards', 'season_breaks',
+  'standing_versions', 'venue_loans');
+// En dependencias solo se consultan identidad/contexto para COUNT y joins.
+// No se necesitan importaciones, contenido de documentos ni resultados completos.
+const readColumns = {
+  billing_plans: ['id', 'season_id'], club_team_changes: ['id', 'season_id'],
+  competition_rules: ['id', 'season_id', 'version_number', 'status', 'created_at'],
+  // create() sin select devuelve también validated_by, aunque nunca lo escriba.
+  competition_rule_parameters: ['id', 'competition_rule_id', 'parameter_key', 'parameter_value', 'requires_validation', 'validated_by'],
+  competition_stages: ['id', 'season_category_id', 'season_id'],
+  document_requirements: ['id', 'season_category_id'], imports: ['id', 'season_id'],
+  matchdays: ['id', 'season_id'], match_results: ['id', 'match_id'], match_statuses: ['id', 'code'],
+  official_documents: ['id', 'season_id'], publications: ['id', 'season_id'],
+  season_awards: ['id', 'season_category_id', 'season_id'], season_breaks: ['id', 'season_id'],
+  standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
+};
 const insert = {
   // Prisma también materializa defaults escalares (now(), 0, 1, true) en INSERT.
   audit_logs: ['user_id', 'action', 'table_name', 'entity_id', 'previous_data', 'new_data', 'reason', 'occurred_at'],
   authentication_events: ['user_id', 'action', 'occurred_at'],
+  categories: ['league_id', 'sport_id', 'name'],
+  competition_rules: ['season_id', 'version_number', 'status', 'created_at'],
+  competition_rule_parameters: ['competition_rule_id', 'parameter_key', 'parameter_value', 'requires_validation'],
   club_affiliations: ['season_id', 'club_id', 'league_id', 'reference_number', 'status', 'requested_by',
     'club_name', 'uniform_colors', 'submission_key', 'submission_hash', 'review_version'],
   club_affiliation_categories: ['affiliation_id', 'season_id', 'category_id'],
   club_officers: ['affiliation_id', 'person_id', 'office', 'starts_at', 'signature_file_id'],
   clubs: ['name', 'league_id', 'reference_number', 'status', 'created_at'],
   files: ['id', 'storage_key', 'original_name', 'mime_type', 'size_bytes', 'sha256', 'uploaded_by', 'created_at'],
+  groups: ['season_id', 'season_category_id', 'name'],
+  leagues: ['name', 'timezone', 'is_active'],
   people: ['first_name', 'paternal_surname', 'maternal_surname', 'created_at'],
   role_permissions: ['role_id', 'permission_id', 'context_only'],
   sessions: ['user_id', 'token_hash', 'created_at', 'last_activity_at', 'expires_at'],
+  seasons: ['league_id', 'sport_id', 'name', 'start_date', 'end_date', 'status', 'version'],
+  season_categories: ['season_id', 'category_id', 'competition_rule_id', 'hierarchy_order', 'type', 'eligibility_pending', 'competition_format'],
   teams: ['club_id', 'name', 'reference_number', 'created_at'],
   season_teams: ['team_id', 'club_id', 'season_id', 'season_category_id', 'group_id', 'status', 'enrolled_by', 'enrolled_at', 'enrollment_key', 'enrollment_hash'],
   team_enrollment_operations: ['actor_id', 'enrollment_key', 'club_id', 'fingerprint', 'outcome', 'enrollment_id', 'finalized_at'],
@@ -33,23 +61,28 @@ const update = {
   club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version'],
   club_affiliation_categories: ['authorized_by', 'authorized_at'],
   club_officers: ['person_id', 'signature_file_id'],
+  groups: ['name'],
   role_permissions: ['context_only'],
   sessions: ['revoked_at', 'last_activity_at', 'expires_at'],
+  seasons: ['name', 'start_date', 'end_date', 'version', 'status', 'team_registration_closed_at', 'competition_starts_at', 'closed_at'],
+  season_categories: ['competition_rule_id', 'hierarchy_order', 'type', 'competition_format',
+    'player_policy', 'minimum_age', 'maximum_age', 'age_cutoff_date', 'eligibility_pending'],
+  season_teams: ['group_id'],
   users: ['password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version'],
 };
-const remove = ['role_permissions', 'club_affiliation_categories'];
+const remove = ['role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons'];
 const lock = ['categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
   'match_events', 'match_reports', 'matches', 'payments', 'people', 'permissions', 'player_registrations',
   'referee_assignments', 'referees', 'roles', 'schedule_proposals', 'season_categories', 'season_teams',
   'seasons', 'teams', 'user_roles'];
 
-export const runtimePrivileges = Object.freeze({ read, insert, update, remove, lock });
+export const runtimePrivileges = Object.freeze({ read, readColumns, insert, update, remove, lock });
 const literal = value => `'${value.replaceAll("'", "''")}'`;
 const array = values => `ARRAY[${values.map(literal).join(',')}]::text[]`;
 
 /** Mismo plan en provisión y mantenimiento; una desviación desconocida aborta. */
 export function previewRuntimeSql() {
-  const tables = read.map(table => `(${literal(table)},${array(insert[table] ?? [])},${array(update[table] ?? [])},${remove.includes(table)},${lock.includes(table)})`).join(',\n');
+  const tables = read.map(table => `(${literal(table)},${array(readColumns[table] ?? [])},${array(insert[table] ?? [])},${array(update[table] ?? [])},${remove.includes(table)},${lock.includes(table)})`).join(',\n');
   return `
 SET LOCAL lock_timeout = '10s';
 SET LOCAL statement_timeout = '30s';
@@ -87,8 +120,12 @@ BEGIN
   THEN RAISE EXCEPTION 'Preview no debe ser propietario ni tener CREATE'; END IF;
   GRANT USAGE ON SCHEMA sports_management TO gestor_ligas_preview;
   -- No se cambia LOGIN, contraseña, atributos ni valores de conexión existentes.
-  FOR spec IN SELECT * FROM (VALUES ${tables}) AS t(name,ins,upd,del,locking) LOOP
+  FOR spec IN SELECT * FROM (VALUES ${tables}) AS t(name,sel,ins,upd,del,locking) LOOP
     table_oid := format('sports_management.%I',spec.name)::regclass;
+    IF EXISTS(SELECT 1 FROM pg_policy WHERE polrelid=table_oid
+      AND (0=ANY(polroles) OR runtime_oid=ANY(polroles))
+      AND polname NOT IN ('preview_backend_read','preview_backend_insert','preview_backend_update','preview_backend_delete','preview_backend_lock'))
+    THEN RAISE EXCEPTION 'Política desconocida en %: revisar sin sobrescribir',spec.name; END IF;
     -- Validar políticas conocidas antes de normalizar sus ACL. Nunca sobrescribir
     -- una política desconocida ni ensancharla para hacer pasar las pruebas.
     FOREACH cmd IN ARRAY ARRAY['read','insert','update','delete','lock'] LOOP
@@ -108,7 +145,12 @@ BEGIN
     EXECUTE format('REVOKE SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON sports_management.%I FROM gestor_ligas_preview',spec.name);
     SELECT string_agg(quote_ident(attname),',') INTO cols FROM pg_attribute WHERE attrelid=table_oid AND attnum>0 AND NOT attisdropped;
     EXECUTE format('REVOKE SELECT (%s),INSERT (%s),UPDATE (%s),REFERENCES (%s) ON sports_management.%I FROM gestor_ligas_preview',cols,cols,cols,cols,spec.name);
-    EXECUTE format('GRANT SELECT ON sports_management.%I TO gestor_ligas_preview',spec.name);
+    IF cardinality(spec.sel)>0 THEN
+      SELECT string_agg(quote_ident(v),',') INTO cols FROM unnest(spec.sel) v;
+      EXECUTE format('GRANT SELECT (%s) ON sports_management.%I TO gestor_ligas_preview',cols,spec.name);
+    ELSE
+      EXECUTE format('GRANT SELECT ON sports_management.%I TO gestor_ligas_preview',spec.name);
+    END IF;
     EXECUTE format('CREATE POLICY preview_backend_read ON sports_management.%I FOR SELECT TO gestor_ligas_preview USING (true)',spec.name);
     IF cardinality(spec.ins)>0 THEN
       SELECT string_agg(quote_ident(v),',') INTO cols FROM unnest(spec.ins) v;
@@ -127,10 +169,11 @@ BEGIN
       EXECUTE format('GRANT DELETE ON sports_management.%I TO gestor_ligas_preview',spec.name);
       EXECUTE format('CREATE POLICY preview_backend_delete ON sports_management.%I FOR DELETE TO gestor_ligas_preview USING (true)',spec.name);
     END IF;
-    -- Fallar si PUBLIC u otra concesión deja columnas de escritura adicionales.
+    -- Fallar si PUBLIC u otra concesión deja columnas adicionales de lectura/escritura.
     FOR column_spec IN SELECT attname FROM pg_attribute WHERE attrelid=table_oid AND attnum>0 AND NOT attisdropped LOOP
-      IF has_column_privilege(runtime_oid,table_oid,column_spec.attname,'INSERT') <> (column_spec.attname=ANY(spec.ins))
-        OR has_column_privilege(runtime_oid,table_oid,column_spec.attname,'UPDATE') <> (column_spec.attname=ANY(spec.upd) OR (spec.locking AND column_spec.attname='id'))
+      IF has_column_privilege(runtime_oid,table_oid,column_spec.attname,'SELECT') <> (cardinality(spec.sel)=0 OR column_spec.attname=ANY(spec.sel))
+        OR has_column_privilege(runtime_oid,table_oid,column_spec.attname,'INSERT') <> (column_spec.attname=ANY(spec.ins))
+        OR has_column_privilege(runtime_oid,table_oid,column_spec.attname,'UPDATE') <> (column_spec.attname=ANY(spec.upd) OR (spec.locking AND cardinality(spec.upd)=0 AND column_spec.attname='id'))
       THEN RAISE EXCEPTION 'Privilegios efectivos inesperados en %',spec.name; END IF;
     END LOOP;
     IF has_table_privilege(runtime_oid,table_oid,'DELETE') <> spec.del
@@ -140,7 +183,7 @@ BEGIN
         WHERE rel.oid=table_oid AND acl.privilege_type='MAINTAIN'
           AND CASE WHEN acl.grantee=0 THEN true ELSE pg_has_role(runtime_oid,acl.grantee,'USAGE') END)
     THEN RAISE EXCEPTION 'Privilegios de tabla inesperados en %',spec.name; END IF;
-    IF spec.locking AND EXISTS(SELECT 1 FROM pg_policy
+    IF spec.locking AND cardinality(spec.upd)=0 AND EXISTS(SELECT 1 FROM pg_policy
       WHERE polrelid=table_oid AND polcmd IN ('w','*') AND polname<>'preview_backend_lock'
         AND (0=ANY(polroles) OR runtime_oid=ANY(polroles)))
     THEN RAISE EXCEPTION 'Otra política permite modificar una tabla de solo bloqueo: %',spec.name; END IF;
