@@ -128,6 +128,8 @@ jobs:
         run: npm run test:competitions
       - name: Probar Preview con rol limitado, RLS, afiliaciones y operaciones por HTTP
         run: npm run test:preview-runtime
+      - name: Probar competencias, distribución y mantenimiento con rol Preview y RLS
+        run: npm run test:preview-competitions
       - name: Probar seed, integridad, rollback e idempotencia
         run: npm run test:seed -- --existing
 

@@ -135,6 +135,33 @@ export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl, preview 
           WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code='SUPERADMIN' AND p.module='competitions' AND p.action='CREATE'`);
         assert.match(await submit(admin,{name:'Formulario antiguo'}),/FORBIDDEN/);
       });
+      await t.test('liga: acción real exige autoridad global y conserva rechazo por alcance', async () => {
+        // Solo fixtures de esta base desechable; no modifica la matriz del producto.
+        await db.query("INSERT INTO sports_management.permissions(module,action) VALUES ('leagues','CREATE') ON CONFLICT DO NOTHING");
+        await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
+          SELECT r.id,p.id,false FROM sports_management.roles r CROSS JOIN sports_management.permissions p
+          WHERE r.code='SUPERADMIN' AND p.module='leagues' AND p.action='CREATE' ON CONFLICT DO NOTHING`);
+        await db.query("INSERT INTO sports_management.user_roles(user_id,role_id) SELECT $1,id FROM sports_management.roles WHERE code='SUPERADMIN'", [users.underscore.id]);
+        const global = new Browser(baseUrl);
+        await global.login(users.underscore.email,fixturePassword);
+        const url='/competitions/leagues/new';
+        const page=await global.request(url);
+        assert.equal(page.status,200);
+        const action=(await page.text()).match(/name="(\$ACTION_ID_[^"]+)"/)[1];
+        const name=`Liga sintética ${randomUUID()}`;
+        const create=async browser=>{
+          const body=new FormData(); body.set(action,'');
+          for(const [key,value] of Object.entries({name,timezone:'America/Mexico_City',reason:'PDGLD-38: probar provisión de liga'})) body.set(key,value);
+          const response=await browser.request(url,{method:'POST',headers:{origin:baseUrl},body});
+          assert.equal(response.status,303); return response.headers.get('location');
+        };
+        assert.match(await create(admin),/FORBIDDEN/);
+        assert.match(await create(reader),/FORBIDDEN/);
+        assert.match(await create(global),/created=1/);
+        const result=(await db.query('SELECT id FROM sports_management.leagues WHERE name=$1',[name])).rows;
+        assert.equal(result.length,1);
+        assert.equal((await db.query("SELECT count(*)::int n FROM sports_management.audit_logs WHERE table_name='leagues' AND entity_id=$1 AND action='INSERT'",[result[0].id])).rows[0].n,1);
+      });
     });
   } finally {
     try {
