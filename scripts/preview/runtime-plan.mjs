@@ -10,10 +10,23 @@ const read = ['audit_logs', 'authentication_events', 'categories', 'charges', 'c
   'people', 'permissions', 'player_registrations', 'referee_assignments', 'referees', 'role_permissions',
   'roles', 'schedule_proposals', 'season_categories', 'season_teams', 'seasons', 'sessions', 'sports',
   'teams', 'team_enrollment_operations', 'user_roles', 'users'];
+// Lecturas para configuración y comprobación de referencias antes de retirar
+// temporadas/categorías vacías; no conceden escrituras a estos otros módulos.
+read.push('competition_rules', 'competition_rule_parameters', 'competition_stages',
+  'document_requirements', 'season_awards', 'standing_versions', 'match_results', 'match_statuses',
+  'billing_plans', 'club_team_changes', 'imports', 'matchdays', 'official_documents',
+  'publications', 'season_breaks', 'venue_loans');
 const insert = {
   // Prisma también materializa defaults escalares (now(), 0, 1, true) en INSERT.
   audit_logs: ['user_id', 'action', 'table_name', 'entity_id', 'previous_data', 'new_data', 'reason', 'occurred_at'],
   authentication_events: ['user_id', 'action', 'occurred_at'],
+  leagues: ['name', 'timezone', 'is_active'],
+  seasons: ['league_id', 'sport_id', 'name', 'start_date', 'end_date', 'status', 'version'],
+  categories: ['league_id', 'sport_id', 'name'],
+  competition_rules: ['season_id', 'version_number', 'status', 'created_at'],
+  competition_rule_parameters: ['competition_rule_id', 'parameter_key', 'parameter_value', 'requires_validation'],
+  season_categories: ['season_id', 'category_id', 'competition_rule_id', 'hierarchy_order', 'type', 'eligibility_pending', 'competition_format'],
+  groups: ['season_id', 'season_category_id', 'name'],
   club_affiliations: ['season_id', 'club_id', 'league_id', 'reference_number', 'status', 'requested_by',
     'club_name', 'uniform_colors', 'submission_key', 'submission_hash', 'review_version'],
   club_affiliation_categories: ['affiliation_id', 'season_id', 'category_id'],
@@ -30,6 +43,12 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at'],
 };
 const update = {
+  seasons: ['name', 'start_date', 'end_date', 'status', 'version', 'team_registration_closed_at', 'competition_starts_at', 'closed_at'],
+  competition_rules: ['status', 'approved_by', 'approved_at'],
+  competition_rule_parameters: ['requires_validation', 'validated_by'],
+  season_categories: ['competition_rule_id', 'hierarchy_order', 'type', 'competition_format', 'player_policy', 'minimum_age', 'maximum_age', 'age_cutoff_date', 'eligibility_pending'],
+  groups: ['name'],
+  season_teams: ['group_id'],
   club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version'],
   club_affiliation_categories: ['authorized_by', 'authorized_at'],
   club_officers: ['person_id', 'signature_file_id'],
@@ -37,7 +56,7 @@ const update = {
   sessions: ['revoked_at', 'last_activity_at', 'expires_at'],
   users: ['password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version'],
 };
-const remove = ['role_permissions', 'club_affiliation_categories'];
+const remove = ['role_permissions', 'club_affiliation_categories', 'seasons', 'season_categories', 'groups'];
 const lock = ['categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
   'match_events', 'match_reports', 'matches', 'payments', 'people', 'permissions', 'player_registrations',
   'referee_assignments', 'referees', 'roles', 'schedule_proposals', 'season_categories', 'season_teams',
@@ -130,7 +149,7 @@ BEGIN
     -- Fallar si PUBLIC u otra concesión deja columnas de escritura adicionales.
     FOR column_spec IN SELECT attname FROM pg_attribute WHERE attrelid=table_oid AND attnum>0 AND NOT attisdropped LOOP
       IF has_column_privilege(runtime_oid,table_oid,column_spec.attname,'INSERT') <> (column_spec.attname=ANY(spec.ins))
-        OR has_column_privilege(runtime_oid,table_oid,column_spec.attname,'UPDATE') <> (column_spec.attname=ANY(spec.upd) OR (spec.locking AND column_spec.attname='id'))
+        OR has_column_privilege(runtime_oid,table_oid,column_spec.attname,'UPDATE') <> (column_spec.attname=ANY(spec.upd) OR (spec.locking AND cardinality(spec.upd)=0 AND column_spec.attname='id'))
       THEN RAISE EXCEPTION 'Privilegios efectivos inesperados en %',spec.name; END IF;
     END LOOP;
     IF has_table_privilege(runtime_oid,table_oid,'DELETE') <> spec.del
@@ -140,7 +159,7 @@ BEGIN
         WHERE rel.oid=table_oid AND acl.privilege_type='MAINTAIN'
           AND CASE WHEN acl.grantee=0 THEN true ELSE pg_has_role(runtime_oid,acl.grantee,'USAGE') END)
     THEN RAISE EXCEPTION 'Privilegios de tabla inesperados en %',spec.name; END IF;
-    IF spec.locking AND EXISTS(SELECT 1 FROM pg_policy
+    IF spec.locking AND cardinality(spec.upd)=0 AND EXISTS(SELECT 1 FROM pg_policy
       WHERE polrelid=table_oid AND polcmd IN ('w','*') AND polname<>'preview_backend_lock'
         AND (0=ANY(polroles) OR runtime_oid=ANY(polroles)))
     THEN RAISE EXCEPTION 'Otra política permite modificar una tabla de solo bloqueo: %',spec.name; END IF;

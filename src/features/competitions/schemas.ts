@@ -47,6 +47,7 @@ export const associateCategorySchema = z.strictObject({
 const groupVersion = { expectedSeasonVersion: z.number().int().positive(), reason: z.string().trim().min(1).max(1000) };
 export const configurationDeleteSchema = z.strictObject(groupVersion);
 export const seasonCloseSchema = z.strictObject({ ...groupVersion, confirm: z.literal("CERRAR") });
+export const ruleApprovalSchema = z.strictObject({ ...groupVersion, confirm: z.literal("APROBAR") });
 
 export const playerPolicySchema = z.strictObject({
   referenceYear: z.number().int().min(2000).max(2200),

@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 test("PDGLD-95: doble envío, acuse inválido, conflictos y descarte", { timeout: 45000 }, async () => {
  const bundle = await build({write:false,bundle:true,platform:"browser",format:"iife",define:{"process.env.NODE_ENV":'"development"'},
- plugins:[{name:"router-fixture",setup(p){p.onResolve({filter:/^next\/navigation$/},()=>({path:"router",namespace:"fixture"}));p.onLoad({filter:/.*/,namespace:"fixture"},()=>({contents:"export function useRouter(){return {refresh(){window.refreshes++}}}"}));}}],
+ plugins:[{name:"router-fixture",setup(p){p.onResolve({filter:/^next\/navigation$/},()=>({path:"router",namespace:"fixture"}));p.onLoad({filter:/.*/,namespace:"fixture"},()=>({contents:"export function useRouter(){return {refresh(){window.refreshes++;queueMicrotask(()=>window.afterRefresh?.())}}}"}));}}],
  stdin:{resolveDir:process.cwd(),loader:"tsx",contents:`
  import React from 'react';
  import {createRoot} from 'react-dom/client';
@@ -31,7 +31,11 @@ test("PDGLD-95: doble envío, acuse inválido, conflictos y descarte", { timeout
  flushSync(()=>root.render(fixture()));set('reason','Prueba sintética');send();send();
  check(posts.length===1,'double submit sent two requests');check(document.querySelector('fieldset').disabled,'pending controls enabled');
  check(JSON.parse(posts[0].init.body).expectedSeasonVersion===7,'lost expected version');
+ // Reenvío en el microtask del acuse, antes de que React confirme el render.
+ // Esto reproduce la carrera sin depender de la velocidad de Windows o Linux.
+ window.afterRefresh=()=>document.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
  resolve(new Response(JSON.stringify({id:'synthetic-id'}),{status:200}));await wait(()=>window.refreshes===1);
+ window.afterRefresh=null;
  send();check(posts.length===1,'acknowledged operation resent');
  mount(fixture());set('reason','Resultado inválido');send();resolve(new Response('{}',{status:200}));await wait(()=>document.body.textContent.includes('No se pudo confirmar'));
  send();check(posts.length===2,'invalid ack allowed retry');check(window.refreshes===1,'invalid ack treated as success');

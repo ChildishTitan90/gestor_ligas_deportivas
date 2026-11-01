@@ -10,19 +10,29 @@ import { runGroupTests } from './competition-groups.test.mjs';
 import { runGeneralTableTests } from './competition-general-table.test.mjs';
 import { runMaintenanceTests } from './competition-maintenance.test.mjs';
 import { runLifecycleTests } from './competition-lifecycle.test.mjs';
+import { runRuleApprovalTests } from './competition-rule-approval.test.mjs';
 
-export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl }) {
+export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl, preview = false }) {
   const target = new URL(databaseUrl);
   assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(target.hostname));
   assert.match(target.pathname, /^\/pdgld48_test_[a-f0-9]{16}$/);
   const db = new pg.Client({ connectionString: databaseUrl });
   await db.connect();
+  let previousCompetitionGrants;
   try {
     const users = await createAuthFixtures(db);
     const league = (await db.query('INSERT INTO sports_management.leagues(name) VALUES ($1) RETURNING id', [`PD38-${randomUUID()}`])).rows[0].id;
     const other = (await db.query('INSERT INTO sports_management.leagues(name) VALUES ($1) RETURNING id', [`PD38-${randomUUID()}`])).rows[0].id;
     await db.query("SELECT set_config('app.user_id',$1,false),set_config('app.reason','PDGLD-38: prueba aislada',false)", [users.operational.id]);
-    for (const [role, actions] of [['SUPERADMIN', ['READ', 'CREATE', 'UPDATE']], ['SECRETARY', ['READ']]]) {
+    if (preview) {
+      // Aislar los perfiles de esta suite del catálogo RF22 instalado antes.
+      previousCompetitionGrants = (await db.query(`SELECT rp.* FROM sports_management.role_permissions rp
+        JOIN sports_management.roles r ON r.id=rp.role_id JOIN sports_management.permissions p ON p.id=rp.permission_id
+        WHERE r.code IN ('SUPERADMIN','SECRETARY') AND p.module='competitions'`)).rows;
+      await db.query(`DELETE FROM sports_management.role_permissions rp USING sports_management.roles r,sports_management.permissions p
+        WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code IN ('SUPERADMIN','SECRETARY') AND p.module='competitions'`);
+    }
+    for (const [role, actions] of [['SUPERADMIN', ['READ', 'CREATE', 'UPDATE', 'APPROVE']], ['SECRETARY', ['READ']]]) {
       for (const action of actions) {
         await db.query("INSERT INTO sports_management.permissions(module,action) VALUES ('competitions',$1) ON CONFLICT DO NOTHING", [action]);
         await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
@@ -94,6 +104,7 @@ export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl }) {
       });
       await runRuleDraftTests({ t, db, baseUrl, admin, reader, league, other });
       await runCategoryTests({ t, db, baseUrl, admin, reader, league, other });
+      await runRuleApprovalTests({ t, db, baseUrl, admin, reader, league, other, users });
       await runGroupTests({ t, db, baseUrl, admin, reader, league, other });
       await runGeneralTableTests({ t, db, baseUrl, admin, reader, league, users });
       await runMaintenanceTests({ t, db, baseUrl, admin, reader, league, other });
@@ -125,5 +136,14 @@ export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl }) {
         assert.match(await submit(admin,{name:'Formulario antiguo'}),/FORBIDDEN/);
       });
     });
-  } finally { await db.end(); }
+  } finally {
+    try {
+      if (previousCompetitionGrants) {
+        await db.query(`DELETE FROM sports_management.role_permissions rp USING sports_management.roles r,sports_management.permissions p
+          WHERE rp.role_id=r.id AND rp.permission_id=p.id AND r.code IN ('SUPERADMIN','SECRETARY') AND p.module='competitions'`);
+        for (const grant of previousCompetitionGrants) await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES($1,$2,$3)`,
+          [grant.role_id, grant.permission_id, grant.context_only]);
+      }
+    } finally { await db.end(); }
+  }
 }

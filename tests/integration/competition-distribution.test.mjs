@@ -172,8 +172,34 @@ export async function runPendingDistributionTests({t,db,admin,reader,delegate,cl
     const blocked=await request(admin,start,'POST',{expectedSeasonVersion:7,reason});
     assert.equal(blocked.status,409); assert.equal((await blocked.json()).code,'UNASSIGNED_TEAMS');
     const distribute=await request(reader,`${path}/distribution/automatic`,'POST',{expectedSeasonVersion:7,reason}); assert.equal(distribute.status,200);
-    const begin=await request(admin,start,'POST',{expectedSeasonVersion:8,reason}); assert.equal(begin.status,200);
+    const beforeStart=async()=>({ season:(await db.query('SELECT status,competition_starts_at,version FROM sports_management.seasons WHERE id=$1',[season])).rows[0],
+      audits:(await db.query('SELECT count(*)::int n FROM sports_management.audit_logs WHERE entity_id=$1',[season])).rows[0].n });
+    const before=await beforeStart();
+    const draft=await request(admin,start,'POST',{expectedSeasonVersion:8,reason});
+    assert.equal(draft.status,409); assert.equal((await draft.json()).code,'RULES_NOT_APPROVED');
+    assert.deepEqual(await beforeStart(),before,'Rechazar un borrador no inicia ni cambia versión o auditoría.');
+    // Aprobación explícita solo del fixture: no incorpora un flujo de aprobación
+    // de producto ni convierte borradores del usuario en reglamentos aprobados.
+    await db.query("UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=$2,approved_at=now() WHERE id=$1",[rule,users.operational.id]);
+    await db.query('INSERT INTO sports_management.competition_rules(season_id,version_number) VALUES($1,2)',[season]);
+    const begin=await Promise.all([request(admin,start,'POST',{expectedSeasonVersion:8,reason}),request(admin,start,'POST',{expectedSeasonVersion:8,reason})]);
+    assert.deepEqual(begin.map(response=>response.status).sort(),[200,409],'Solo un inicio gana; un borrador no vinculado no sustituye las reglas aprobadas.');
     const state=(await db.query('SELECT status,competition_starts_at,team_registration_closed_at,version FROM sports_management.seasons WHERE id=$1',[season])).rows[0];
     assert.equal(state.status,'ACTIVE'); assert.ok(state.competition_starts_at && state.team_registration_closed_at); assert.equal(state.version,9);
+  });
+  await t.test('inicio: sin categorías o con parámetros pendientes se deniega sin activar',async()=>{
+    const sid=(await db.query("INSERT INTO sports_management.seasons(league_id,sport_id,name,start_date,end_date,team_registration_closed_at) VALUES($1,$2,$3,'2026-01-01','2026-12-31',now()) RETURNING id",[league,sport,randomUUID()])).rows[0].id;
+    const endpoint=`/api/competitions/seasons/${sid}/lifecycle/start`;
+    const input={expectedSeasonVersion:1,reason};
+    const empty=await request(admin,endpoint,'POST',input);
+    assert.equal(empty.status,409); assert.equal((await empty.json()).code,'RULES_NOT_APPROVED');
+    const pendingRule=(await db.query('INSERT INTO sports_management.competition_rules(season_id,version_number) VALUES($1,1) RETURNING id',[sid])).rows[0].id;
+    await db.query("INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,requires_validation) VALUES($1,'points','{}',true)",[pendingRule]);
+    await db.query("UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=$2,approved_at=now() WHERE id=$1",[pendingRule,users.operational.id]);
+    await db.query("INSERT INTO sports_management.season_categories(season_id,category_id,competition_rule_id,hierarchy_order,type,age_cutoff_date) VALUES($1,$2,$3,1,'OPEN','2026-01-01')",[sid,category,pendingRule]);
+    const pending=await request(admin,endpoint,'POST',input);
+    assert.equal(pending.status,409); assert.equal((await pending.json()).code,'RULES_PENDING_VALIDATION');
+    const state=(await db.query('SELECT status,version,competition_starts_at FROM sports_management.seasons WHERE id=$1',[sid])).rows[0];
+    assert.deepEqual(state,{status:'PLANNED',version:1,competition_starts_at:null});
   });
 }

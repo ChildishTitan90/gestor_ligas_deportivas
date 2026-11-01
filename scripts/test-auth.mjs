@@ -273,6 +273,8 @@ try {
     await runAffiliationIntegrationSuite({ databaseUrl, baseUrl });
     const { runTeamEnrollmentIntegrationSuite } = await import('../tests/integration/team-enrollments.test.mjs');
     await runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, preview: true });
+    const { runSeasonIntegrationSuite } = await import('../tests/integration/seasons.test.mjs');
+    await runSeasonIntegrationSuite({ databaseUrl, baseUrl, preview: true });
     const { verifyPreviewRuntime } = await import('../tests/integration/preview-runtime.mjs');
     const fixture = new pg.Client({ connectionString: databaseUrl });
     await fixture.connect();
