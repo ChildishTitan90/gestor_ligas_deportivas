@@ -38,6 +38,7 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
   return <div className="mx-auto max-w-5xl space-y-6 p-6">
     <ActionLink href="/competitions/seasons" variant="secondary">Volver a temporadas</ActionLink>
     <h1 className="text-2xl font-semibold">{season.name}</h1><p>Configuración · Versión de temporada {season.version}</p>
+    {season.status === "PLANNED" && <p className="rounded-xl border border-border bg-surface p-4">Preparación de la temporada: crea una versión de reglas, crea las categorías en el catálogo y asócialas a esta temporada. Después configura las reglas de jugadores de cada categoría, incluidos los jugadores en cancha y los convocados. Las categorías del catálogo solo estarán disponibles para afiliación cuando estén asociadas a la temporada.</p>}
     {season.status === "CLOSED" && <p role="status">Temporada cerrada. La configuración se conserva para consulta.</p>}
     {editable && <ConfigurationForm modal title="Eliminar temporada vacía" endpoint={base} method="DELETE" version={season.version} successHref="/competitions/seasons"><p>La eliminación es definitiva. Solo se permite si no hay reglas, categorías ni otros datos relacionados.</p></ConfigurationForm>}
     {capabilities.update && season.status === "ACTIVE" && <ConfigurationForm key={`close-${season.version}`} modal title="Cerrar temporada" endpoint={`${base}/close`} version={season.version}><p>El cierre conserva el historial en solo lectura y no puede revertirse. Antes deben completarse los resultados de todos los partidos disputados. Los partidos cancelados no requieren marcador.</p><Field name="confirm" label="Escribe CERRAR para confirmar" /></ConfigurationForm>}
@@ -62,6 +63,7 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
           <p>Reglas: versión {rules.find(rule => rule.id === category.ruleId)?.version ?? "no disponible"} · {category.format === "GENERAL_TABLE" ? "Tabla general" : category.format === "GROUP_STAGE" ? "Fase de grupos" : "Grupos existentes"}</p>
           {category.eligibilityPending && <p>Elegibilidad pendiente de configurar. Esta asociación no habilita por sí sola el registro de jugadores.</p>}
           <PlayerPolicySummary value={category.playerPolicy} />
+          {!category.playerPolicy && <p>Sin reglas de jugadores guardadas: falta definir edades, documentos, días de registro, jugadores en cancha y convocados para esta categoría.</p>}
           {editable && <>
             <ConfigurationForm key={`edit-category-${category.id}-${season.version}`} modal title={`Editar categoría ${category.name}`} endpoint={endpoint} method="PATCH" version={season.version} numbers={["hierarchyOrder"]}>
               <label>Reglamento<SelectField name="ruleId" required defaultValue={category.ruleId} options={rules.map(rule => ({ value: rule.id, label: `Versión ${rule.version}` }))} /></label>
@@ -83,7 +85,8 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
         </article>;
       })}
     </section>
-    {capabilities.create && season.status !== "CLOSED" && <ConfigurationForm title="Crear categoría en el catálogo de la liga" endpoint="/api/competitions/categories" version={season.version} fixed={{ leagueId: season.leagueId }}><Field name="name" label="Nombre de categoría" /></ConfigurationForm>}
+    {!!data.catalog.items.length && <section className="rounded-2xl border border-border bg-surface p-5"><h2 className="text-xl font-semibold">Categorías disponibles en el catálogo de la liga</h2><ul className="mt-3 space-y-2">{data.catalog.items.map(category => <li key={category.id}>{category.name} · {data.categories.items.some(item => item.categoryId === category.id) ? "Asociada a esta temporada" : "Pendiente de asociar a esta temporada"}</li>)}</ul>{editable && !rules.length && <p className="mt-3">Primero completa «Crear nueva versión en borrador» en Reglas de esta temporada. Después aparecerá el formulario para asociar estas categorías; no necesitas crearlas de nuevo.</p>}</section>}
+    {capabilities.create && season.status !== "CLOSED" && <ConfigurationForm key={`catalog-${data.catalog.items.length}`} title="Crear categoría en el catálogo de la liga" endpoint="/api/competitions/categories" version={season.version} fixed={{ leagueId: season.leagueId }}><p>Esto crea una categoría reutilizable en la liga. Para usarla en afiliación, asóciala después a esta temporada.</p><Field name="name" label="Nombre de categoría" /></ConfigurationForm>}
     {editable && !!rules.length && !!data.catalog.items.length && <ConfigurationForm key={`associate-${season.version}`} title="Asociar categoría a la temporada" endpoint={`${base}/categories`} version={season.version} numbers={["hierarchyOrder"]}>
       <label>Categoría<SelectField name="categoryId" required options={data.catalog.items.map(category => ({ value: category.id, label: category.name }))} /></label>
       <label>Versión de reglas<SelectField name="ruleId" required options={rules.map(rule => ({ value: rule.id, label: `Versión ${rule.version} · ${rule.status}` }))} /></label>

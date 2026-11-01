@@ -56,6 +56,13 @@ test("PDGLD-95: doble envío, acuse inválido, conflictos y descarte", { timeout
  resolve(new Response(JSON.stringify({id:'synthetic-id'}),{status:200}));await wait(()=>window.refreshes===2);
  mount(<ConfigurationForm title="Cerrar temporada" endpoint="/synthetic/close" version={9}><input name="confirm" defaultValue="CERRAR" /></ConfigurationForm>);
  set('reason','Cierre sintético');send();resolve(new Response(JSON.stringify({code:'UNRESOLVED_MATCHES'}),{status:409}));await wait(()=>document.body.textContent.includes('El capturista debe completarlos'));
+ mount(<ConfigurationForm title="Crear categoría" endpoint="/api/competitions/categories" version={9} fixed={{leagueId:'synthetic-league'}}><input name="name" defaultValue="Sub-15" /></ConfigurationForm>);
+ set('reason','Categoría duplicada');send();resolve(new Response(JSON.stringify({code:'CATEGORY_ALREADY_EXISTS'}),{status:409}));
+ await wait(()=>document.body.textContent.includes('Ese nombre ya existe en el catálogo'));
+ check(!document.querySelector('fieldset').disabled,'duplicate catalog name blocked correction');
+ const beforeRetry=posts.length;set('name','Sub-16');send();check(posts.length===beforeRetry+1,'corrected name could not be submitted');
+ check(JSON.parse(posts[posts.length-1].init.body).name==='Sub-16','retry lost corrected name');
+ resolve(new Response(JSON.stringify({id:'new-category'}),{status:201}));await wait(()=>document.querySelector('fieldset').disabled);
  root.unmount();return true;
  })();
  `}});

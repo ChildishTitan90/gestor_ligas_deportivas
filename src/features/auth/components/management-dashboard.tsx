@@ -10,6 +10,8 @@ import { SelectField } from "@/components/ui/select-field";
 
 // Texto de presentación para destinos existentes; la capacidad la decide el servidor.
 const tools = {
+  "/competitions/seasons": { title: "Temporadas y reglas", description: "Consulta las temporadas y sus categorías, grupos y reglas de jugadores. Configura cuando tengas permiso.", action: "Ver temporadas", icon: ClipboardCheck },
+  "/competitions/leagues/new": { title: "Crear liga", description: "Registra una liga para configurar sus temporadas y categorías.", action: "Crear liga", icon: FilePenLine },
   "/affiliations/new": { title: "Mis afiliaciones", description: "Consulta tu solicitud, atiende correcciones o inicia la afiliación de tu club.", action: "Abrir mis solicitudes", icon: FilePenLine },
   "/affiliations/review": { title: "Revisión de afiliaciones", description: "Busca solicitudes y consulta su estado. Revisa y autoriza cuando tengas permiso.", action: "Consultar afiliaciones", icon: ClipboardCheck },
   "/teams/registrations": { title: "Inscripción y equipos", description: "Consulta las inscripciones de tus clubes. Registra equipos cuando esté habilitado.", action: "Abrir equipos", icon: UsersRound },
