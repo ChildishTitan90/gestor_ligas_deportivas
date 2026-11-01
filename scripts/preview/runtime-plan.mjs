@@ -24,7 +24,7 @@ const insert = {
   role_permissions: ['role_id', 'permission_id', 'context_only'],
   sessions: ['user_id', 'token_hash', 'created_at', 'last_activity_at', 'expires_at'],
   teams: ['club_id', 'name', 'reference_number', 'created_at'],
-  season_teams: ['team_id', 'club_id', 'season_id', 'group_id', 'status', 'enrolled_by', 'enrolled_at', 'enrollment_key', 'enrollment_hash'],
+  season_teams: ['team_id', 'club_id', 'season_id', 'season_category_id', 'group_id', 'status', 'enrolled_by', 'enrolled_at', 'enrollment_key', 'enrollment_hash'],
   team_enrollment_operations: ['actor_id', 'enrollment_key', 'club_id', 'fingerprint', 'outcome', 'enrollment_id', 'finalized_at'],
   user_roles: ['user_id', 'role_id', 'league_id', 'club_id', 'starts_at'],
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at'],
