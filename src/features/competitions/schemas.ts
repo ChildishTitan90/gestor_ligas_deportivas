@@ -26,7 +26,7 @@ export const ruleDraftSchema = z.strictObject({
   reason: z.string().trim().min(1).max(1000),
   announcement: z.string().trim().min(1).max(12000),
   points: z.strictObject({ win: z.number().int(), draw: z.number().int(), loss: z.number().int() }),
-  tieBreakers: z.array(z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/)).min(1).max(20)
+  tieBreakers: z.array(z.string().trim().min(1).max(4000)).min(1).max(20)
     .refine(values => new Set(values).size === values.length, "No repitas criterios de desempate."),
   calendar: z.strictObject({
     rounds: z.number().int().positive(),

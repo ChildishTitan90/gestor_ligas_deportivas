@@ -1,4 +1,5 @@
 import { RuleParameter } from "@/features/competitions/components/rule-parameter";
+import { TieBreakerFields } from "@/features/competitions/components/tie-breaker-fields";
 import { PlayerPolicyFields, PlayerPolicySummary } from "@/features/competitions/components/player-policy-fields";
 import { redirect } from "next/navigation";
 import { ActionLink } from "@/components/ui/action-link";
@@ -52,7 +53,8 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
     {capabilities.update && season.status !== "CLOSED" && <ConfigurationForm key={`rules-${season.version}`} title="Crear nueva versión en borrador" endpoint={`${base}/configuration`} version={season.version}>
       <label className="block">Convocatoria<textarea name="announcement" required maxLength={12000} className={control} /></label>
       <div className="grid gap-4 sm:grid-cols-3"><Field name="win" label="Puntos por victoria" type="number" /><Field name="draw" label="Puntos por empate" type="number" /><Field name="loss" label="Puntos por derrota" type="number" /></div>
-      <Field name="tieBreakers" label="Códigos de desempate en orden, separados por coma" /><Field name="rounds" label="Vueltas" type="number" /><Field name="matchDurationMinutes" label="Duración del partido (minutos)" type="number" />
+      <TieBreakerFields />
+      <Field name="rounds" label="Vueltas" type="number" /><Field name="matchDurationMinutes" label="Duración del partido (minutos)" type="number" />
       <p>El borrador conserva las versiones anteriores. Su creación no publica ni aprueba las reglas.</p>
     </ConfigurationForm>}
     <section className="space-y-4"><h2 className="text-xl font-semibold">Categorías de la temporada</h2>

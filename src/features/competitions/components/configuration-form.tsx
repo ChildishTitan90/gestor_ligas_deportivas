@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { FormDialog } from "@/components/ui/form-dialog";
 
 const conflicts: Record<string, string> = {
+  INVALID_CONFIGURATION: "Revisa los campos: escribe los criterios de desempate sin repetir y usa números positivos para vueltas y duración.",
   STALE_CONFIGURATION: "Otra persona modificó la temporada. Consulta la versión actual antes de continuar.",
   SEASON_DATES_IN_USE: "No se pueden cambiar las fechas: la temporada ya tiene categorías o actividad relacionada.",
   GROUP_IN_USE: "El grupo tiene equipos, partidos o clasificaciones relacionados y no puede modificarse ni eliminarse.",
@@ -55,7 +56,7 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
     if ("announcement" in payload) {
       payload.points = { win: Number(fields.win), draw: Number(fields.draw), loss: Number(fields.loss) };
       payload.calendar = { rounds: Number(fields.rounds), matchDurationMinutes: Number(fields.matchDurationMinutes) };
-      payload.tieBreakers = String(fields.tieBreakers).split(",").map(value => value.trim());
+      payload.tieBreakers = formData.getAll("tieBreakers").flatMap(value => String(value).split(",")).map(value => value.trim()).filter(Boolean);
       for (const key of ["win", "draw", "loss", "rounds", "matchDurationMinutes", "tieBreakers"]) if (key !== "tieBreakers") delete payload[key];
     }
     try {

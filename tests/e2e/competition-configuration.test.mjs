@@ -17,6 +17,7 @@ test("PDGLD-95: doble envío, acuse inválido, conflictos y descarte", { timeout
  import {ConfigurationForm} from './src/features/competitions/components/configuration-form';
  import {RuleParameter} from './src/features/competitions/components/rule-parameter';
  import {PlayerPolicyFields} from './src/features/competitions/components/player-policy-fields';
+ import {TieBreakerFields} from './src/features/competitions/components/tie-breaker-fields';
  const check=(v,m)=>{if(!v)throw Error(m)};
  const wait=async fn=>{for(let n=0;n<300;n++){if(fn())return;await new Promise(r=>setTimeout(r,10))}throw Error('timeout '+fn)};
  const set=(name,value)=>{const input=document.querySelector('dialog[open] [name="'+name+'"]')??document.querySelector('[name="'+name+'"]');const proto=input.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;flushSync(()=>{Object.getOwnPropertyDescriptor(proto,'value').set.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));});};
@@ -63,6 +64,18 @@ test("PDGLD-95: doble envío, acuse inválido, conflictos y descarte", { timeout
  const beforeRetry=posts.length;set('name','Sub-16');send();check(posts.length===beforeRetry+1,'corrected name could not be submitted');
  check(JSON.parse(posts[posts.length-1].init.body).name==='Sub-16','retry lost corrected name');
  resolve(new Response(JSON.stringify({id:'new-category'}),{status:201}));await wait(()=>document.querySelector('fieldset').disabled);
+ mount(<ConfigurationForm title="Crear reglas" endpoint="/synthetic/configuration" version={10}><input name="announcement" defaultValue="Prueba"/><input name="win" defaultValue="3"/><input name="draw" defaultValue="1"/><input name="loss" defaultValue="0"/><input name="rounds" defaultValue="1"/><input name="matchDurationMinutes" defaultValue="60"/><TieBreakerFields /></ConfigurationForm>);
+ const pick=async(index,label)=>{flushSync(()=>document.querySelectorAll('[role=combobox]')[index].click());await wait(()=>document.querySelectorAll('[role=option]').length>0);const option=Array.from(document.querySelectorAll('[role=option]')).find(el=>el.textContent.includes(label));check(option,'missing tie breaker option');flushSync(()=>option.click());};
+ await pick(0,'Diferencia de goles');
+ flushSync(()=>document.querySelectorAll('[role=combobox]')[1].click());await wait(()=>document.querySelectorAll('[role=option]').length>0);
+ const duplicate=Array.from(document.querySelectorAll('[role=option]')).find(el=>el.textContent.includes('Diferencia de goles'));
+ check(!duplicate||duplicate.getAttribute('aria-disabled')==='true','duplicate option is selectable');
+ const red=Array.from(document.querySelectorAll('[role=option]')).find(el=>el.textContent.includes('Tarjetas rojas'));flushSync(()=>red.click());
+ await pick(2,'Tarjetas amarillas');set('reason','Orden elegido por organizador');send();
+ check(JSON.stringify(JSON.parse(posts[posts.length-1].init.body).tieBreakers)==='["GOAL_DIFFERENCE","RED_CARDS","YELLOW_CARDS"]','lost selected tie breaker order');
+ resolve(new Response(JSON.stringify({id:'rules-with-order'}),{status:201}));await wait(()=>document.querySelector('form > fieldset').disabled);
+ mount(<RuleParameter parameter={{key:'tieBreakers',value:['RED_CARDS','YELLOW_CARDS','Texto histórico'],requiresValidation:true}}/>);
+ check(document.body.textContent.includes('menos es mejor')&&document.body.textContent.includes('Texto histórico'),'lost card meaning or historical rules');
  root.unmount();return true;
  })();
  `}});

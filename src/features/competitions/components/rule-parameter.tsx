@@ -4,6 +4,7 @@ const labels: Record<string, string> = {
   matchDurationMinutes: "Duración del partido", win: "Victoria", draw: "Empate", loss: "Derrota",
   POINTS: "Puntos", GOAL_DIFFERENCE: "Diferencia de goles", GOALS_FOR: "Goles a favor",
   GOALS_AGAINST: "Goles en contra", HEAD_TO_HEAD: "Enfrentamiento directo", FAIR_PLAY: "Juego limpio",
+  RED_CARDS: "Tarjetas rojas · menos es mejor", YELLOW_CARDS: "Tarjetas amarillas · menos es mejor",
 };
 
 function Value({ value, field }: { value: unknown; field: string }) {
