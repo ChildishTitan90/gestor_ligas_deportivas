@@ -125,7 +125,7 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
     await t.test("dos instalaciones concurrentes crean un perfil y las 127 concesiones aprobadas", async () => {
       const results = await Promise.all([seedDemoDatabase(prisma, approvedCatalog), seedDemoDatabase(prisma, approvedCatalog)]);
       assert.equal(results.filter(result => result.alreadyInstalled).length, 1);
-      assert.equal(await prisma.role_permissions.count(), 129);
+      assert.equal(await prisma.role_permissions.count(), 131);
       const extension = await prisma.role_permissions.findMany({ where: { permissions: { module: "leagues", action: "CREATE" } }, include: { roles: true } });
       assert.deepEqual(extension.map(grant => grant.roles.code).sort(), ["SECRETARY", "SUPERADMIN"]);
       assert.ok(extension.every(grant => !grant.context_only));
@@ -136,7 +136,7 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
         grants.map(grant => JSON.stringify([grant.roleCode, grant.module, grant.action, grant.contextOnly])).sort();
       assert.deepEqual(normalize(installed.map(grant => ({ roleCode: grant.roles.code,
         module: grant.permissions.module, action: grant.permissions.action, contextOnly: grant.context_only }))),
-      normalize(approvedCatalog), "Cada fila instalada conserva rol, módulo, acción y contexto exactos de RF22.");
+      normalize([...approvedCatalog, ...["CREATE", "UPDATE"].map(action => ({ roleCode: "SECRETARY", module: "competitions", action, contextOnly: false }))]), "Cada fila instalada conserva rol, módulo, acción y contexto exactos de RF22.");
       assert.equal(await prisma.audit_logs.count({ where: { id: DEMO_INSTALLATION.id } }), 1);
       const users = await prisma.users.findMany({ where: { person_id: { in: DEMO_ACCOUNTS.map(account => account.personId) } }, include: { user_roles: true } });
       assert.equal(users.length, 7);
@@ -156,7 +156,7 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
       assert.equal(actor.user_roles.length, 0);
       assert.equal(await prisma.user_roles.count({ where: { roles: { code: "GUEST" } } }), 0);
       assert.equal(await prisma.club_affiliations.count({ where: { season_id: DEMO_CONTEXT.seasonId, league_id: DEMO_CONTEXT.leagueId, club_id: { in: [DEMO_CONTEXT.clubAId, DEMO_CONTEXT.clubBId] }, status: "PENDING" } }), 2);
-      assert.equal(await prisma.audit_logs.count({ where: { table_name: "role_permissions", action: "INSERT" } }), approvedCatalog.length + 2, "El trigger genera un único evento por concesión.");
+      assert.equal(await prisma.audit_logs.count({ where: { table_name: "role_permissions", action: "INSERT" } }), approvedCatalog.length + 4, "El trigger genera un único evento por concesión.");
       assert.equal(await prisma.audit_logs.count({ where: { table_name: "user_roles", action: "INSERT" } }), 7);
       assert.deepEqual(await prisma.users.findUnique({ where: { id: legacy.id } }), legacy, "Se conserva la cuenta previa de desarrollo sin reactivar ni restablecer credenciales.");
     });

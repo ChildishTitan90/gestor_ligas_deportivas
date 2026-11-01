@@ -54,7 +54,7 @@ export async function installSecretaryCompetitionPermissions(tx: Prisma.Transact
   await tx.$queryRaw`SELECT set_config('app.user_id', ${actorId}, true), set_config('app.reason', ${reason}, true)`;
   const role = await tx.roles.findUniqueOrThrow({ where: { code: "SECRETARY" }, select: { id: true } });
   for (const action of ["CREATE", "UPDATE"] as const) {
-    const permission = await tx.permissions.findUniqueOrThrow({ where: { module_action: { module: "competitions", action } }, select: { id: true } });
+    const permission = await tx.permissions.upsert({ where: { module_action: { module: "competitions", action } }, update: {}, create: { module: "competitions", action }, select: { id: true } });
     const existing = await tx.role_permissions.findFirst({ where: { role_id: role.id, permission_id: permission.id } });
     if (!existing) await tx.role_permissions.create({ data: { role_id: role.id, permission_id: permission.id, context_only: false } });
   }

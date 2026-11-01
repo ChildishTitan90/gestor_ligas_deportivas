@@ -94,6 +94,11 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
     const leagueA = await db.leagues.create({ data: { name: scopeA } });
     const leagueB = await db.leagues.create({ data: { name: scopeB } });
     const club = await db.clubs.create({ data: { league_id: leagueB.id, name: clubName, reference_number: `navigation-${suffix}` } });
+    // Aislar las capacidades de este escenario y restaurarlas al terminar.
+    for (const action of ["CREATE", "UPDATE"]) {
+      const permissionId = await ensureGrant("SECRETARY", "competitions", action, false);
+      await write(tx => tx.role_permissions.delete({ where: { role_id_permission_id: { role_id: roleId("SECRETARY"), permission_id: permissionId } } }));
+    }
     const readClub = await ensureGrant("SECRETARY", "clubs", "READ", false);
     const updateClub = await ensureGrant("SECRETARY", "clubs", "UPDATE", false);
     await ensureGrant("PLAYER", "players", "READ", true);
