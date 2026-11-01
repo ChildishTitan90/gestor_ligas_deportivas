@@ -10,15 +10,16 @@ export const tieBreakerOptions = [
   { value: "YELLOW_CARDS", label: "Tarjetas amarillas · menos es mejor" },
 ];
 
-export function TieBreakerFields() {
-  const [values, setValues] = useState(["", "", ""]);
+export function TieBreakerFields({ initialValues = [] }: { initialValues?: string[] }) {
+  const [values, setValues] = useState(() => Array.from({ length: Math.max(3, initialValues.length) }, (_, index) => initialValues[index] ?? ""));
+  const options = [...tieBreakerOptions, ...initialValues.filter(value => !tieBreakerOptions.some(option => option.value === value)).map(value => ({ value, label: value }))];
   return <fieldset className="space-y-4"><legend>Criterios de desempate, en orden</legend>
     <p>Elige el primer criterio y, si quieres, un segundo y un tercero. No se puede repetir un criterio. En tarjetas, se favorece al equipo con menos tarjetas.</p>
-    {values.map((value, index) => <div key={index}><label htmlFor={`tie-breaker-${index}`}>{["Primer", "Segundo", "Tercer"][index]} criterio{index > 0 ? " (opcional)" : ""}</label>
+    {values.map((value, index) => <div key={index}><label htmlFor={`tie-breaker-${index}`}>{["Primer", "Segundo", "Tercer"][index] ?? `${index + 1}.º`} criterio{index > 0 ? " (opcional)" : ""}</label>
       <SelectField id={`tie-breaker-${index}`} name="tieBreakers" required={index === 0} value={value}
         onValueChange={next => setValues(previous => previous.map((current, position) => position === index ? next : current))}
         options={[...(index > 0 ? [{ value: "", label: "Sin otro criterio" }] : []),
-          ...tieBreakerOptions.map(option => ({ ...option, disabled: values.some((selected, position) => position !== index && selected === option.value) }))]} />
+          ...options.map(option => ({ ...option, disabled: values.some((selected, position) => position !== index && selected === option.value) }))]} />
     </div>)}
   </fieldset>;
 }

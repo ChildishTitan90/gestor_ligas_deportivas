@@ -148,6 +148,25 @@ test("errores 400/409/413 conservan pendiente hasta un resultado definitivo; con
   assert.equal((await s.api.submit(capture)).kind, "unconfirmed"); assert.ok(s.api.pending());
 });
 
+test("equipo duplicado cancela la intención antes de liberar la captura; una cancelación incierta conserva el pendiente", async () => {
+  const cancelled = setup((path) => path.endsWith('/cancel')
+    ? response({ enrollmentKey: id(101), clubId: id(1), outcome: 'CANCELLED', enrollment: null })
+    : response({ code: 'TEAM_ALREADY_ENROLLED' }, 409));
+  const result = await cancelled.api.submit(capture);
+  assert.equal(result.kind, 'correctable');
+  assert.match(result.kind === 'correctable' ? result.message ?? '' : '', /No se realizó la inscripción/);
+  assert.equal(cancelled.api.pending(), null);
+  assert.equal(cancelled.calls.filter(call => call.path.endsWith('/cancel')).length, 1);
+  const uncertain = setup(path => path.endsWith('/cancel') ? response({}, 503) : response({ code: 'TEAM_ALREADY_ENROLLED' }, 409));
+  assert.equal((await uncertain.api.submit(capture)).kind, 'unconfirmed');
+  assert.ok(uncertain.api.pending());
+  const racing = setup(path => path.endsWith('/cancel')
+    ? response({ enrollmentKey: id(101), clubId: id(1), outcome: 'CONFIRMED', enrollment: { ...receipt, replayed: true } })
+    : response({ code: 'TEAM_ALREADY_ENROLLED' }, 409));
+  assert.equal((await racing.api.submit(capture)).kind, 'confirmed');
+  assert.equal(racing.api.pending(), null);
+});
+
 test("fallo de almacenamiento impide enviar; pendiente corrupto no se borra", async () => {
   const store = memory(); store.setItem("synthetic-user", "invalid");
   const s = setup(() => response(receipt, 201), store);

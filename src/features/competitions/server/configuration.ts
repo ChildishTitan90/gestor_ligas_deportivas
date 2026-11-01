@@ -20,12 +20,13 @@ export async function getCompetitionConfiguration(seasonId: string) {
     const season = await tx.seasons.findUniqueOrThrow({ where: { id: seasonId }, select: {
       id: true, name: true, league_id: true, version: true, status: true,
     } });
+    const registration = await tx.$queryRaw<{ team_registration_closed_at: Date | null }[]>`SELECT team_registration_closed_at FROM sports_management.seasons WHERE id=${seasonId}::uuid`;
     const rules = await tx.competition_rules.findMany({ where: { season_id: seasonId },
       select: { id: true, version_number: true, status: true, created_at: true,
         competition_rule_parameters: { select: { parameter_key: true, parameter_value: true, requires_validation: true }, orderBy: { parameter_key: "asc" } } },
       orderBy: { version_number: "desc" },
     });
-    return { season: { id: season.id, name: season.name, leagueId: season.league_id, version: season.version, status: season.status },
+    return { season: { id: season.id, name: season.name, leagueId: season.league_id, version: season.version, status: season.status, teamRegistrationClosed: registration[0]?.team_registration_closed_at != null },
       rules: rules.map(rule => ({ id: rule.id, version: rule.version_number, status: rule.status,
         createdAt: rule.created_at.toISOString(), parameters: rule.competition_rule_parameters.map(parameter => ({
           key: parameter.parameter_key, value: parameter.parameter_value, requiresValidation: parameter.requires_validation,

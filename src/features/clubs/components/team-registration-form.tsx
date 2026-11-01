@@ -65,8 +65,6 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
     </header>
     {!options.clubs.length && <p>No hay clubes disponibles para inscribir equipos en tu ámbito.</p>}
     {!!Object.keys(errors).length && <p role="alert" className="text-danger">Revisa los campos señalados.</p>}
-    {state.message && <p ref={messageRef} tabIndex={-1} role={["confirmed", "cancelled"].includes(state.outcome) ? "status" : "alert"}
-      className={["confirmed", "cancelled"].includes(state.outcome) ? "text-primary" : "text-danger"}>{state.message}</p>}
     <div className="grid gap-5 sm:grid-cols-2">
       {select("clubId", "Club", options.clubs, !options.clubs.length)}
       {select("seasonId", "Temporada", seasons, !club || !seasons.length)}
@@ -96,6 +94,8 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
       className="min-h-12 rounded-xl primary-action px-5 py-3 text-sm font-semibold disabled:opacity-50">
       {submitting ? "Enviando inscripción…" : "Inscribir equipo"}
     </button>
+    {state.message && <p ref={messageRef} tabIndex={-1} role={["confirmed", "cancelled"].includes(state.outcome) ? "status" : "alert"}
+      className={`rounded-xl border border-border p-4 font-semibold ${["confirmed", "cancelled"].includes(state.outcome) ? "bg-soft text-primary" : "text-danger"}`}>{state.message}</p>}
     {state.retryAvailable && <button type="button" className={controlClass} disabled={disabled || submitting || !season?.canEnroll} onClick={() => void controller.retry()}>Recuperar resultado con el mismo envío</button>}
     {["confirmed", "cancelled"].includes(state.outcome) && !state.pendingCleanup && <button type="button" className={controlClass} onClick={() => { controller.reset(); onContextChange?.("", ""); }}>Iniciar otra inscripción</button>}
     {submitting && <p role="status">Espera mientras se procesa el envío.</p>}

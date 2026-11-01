@@ -39,7 +39,8 @@ export function enrollmentMessage(code: string) {
     AFFILIATION_NOT_APPROVED: "La afiliación aún no está aprobada.",
     CATEGORY_NOT_AUTHORIZED: "La categoría no está autorizada para esta temporada.",
     SEASON_CLOSED: "La temporada está cerrada para nuevas inscripciones.",
-    TEAM_ALREADY_ENROLLED: "El equipo ya está inscrito. Consulta la inscripción existente; no cambies su grupo.",
+    TEAM_REGISTRATION_CLOSED: "Las inscripciones de equipos ya están cerradas para esta temporada.",
+    TEAM_ALREADY_ENROLLED: "El equipo ya está inscrito en esta temporada o ya existe otro con ese nombre en la categoría. Consulta las inscripciones existentes.",
     IDEMPOTENCY_CONFLICT: "La clave corresponde a otra captura. Verifica el resultado antes de continuar.",
     OPERATION_CANCELLED: "La clave tiene una cancelación registrada. Consulta el resultado para confirmarla.",
     PAYLOAD_TOO_LARGE: "La captura excede el tamaño permitido.",
@@ -221,6 +222,16 @@ export function createEnrollmentApi(fetcher: typeof fetch, storage: Storage, sto
           const receipt = receiptSchema.parse(data);
           if (receipt.replayed !== (response.status === 200) || (response.status === 201 && receipt.status !== "REGISTERED") || !matches(payload, receipt)) throw new Error();
           return finish({ kind: "confirmed", teamId: receipt.teamId, seasonTeamId: receipt.id, status: receipt.status, replayed: receipt.replayed });
+        }
+        if (response.status === 409 && data?.code === "TEAM_ALREADY_ENROLLED") {
+          // Cancelar la clave en el servidor antes de liberarla: otro envío con
+          // la misma clave podría seguir en curso aunque este haya sido rechazado.
+          const resolved = await operation("cancel");
+          if (resolved.kind === "cancelled" && !resolved.pendingCleanup)
+            return { kind: "correctable", message: "No se realizó la inscripción. El equipo ya está inscrito o existe otro con ese nombre en esta categoría. Revisa los datos y vuelve a intentarlo." };
+          if (resolved.kind === "unconfirmed")
+            return { kind: "unconfirmed", retryAllowed: resolved.retryAllowed, message: "No pudimos confirmar el resultado. Consulta la inscripción antes de volver a intentarlo." };
+          return resolved;
         }
         return { kind: "unconfirmed", retryAllowed: true,
           message: `${enrollmentMessage(typeof data?.code === "string" ? data.code : "UNAVAILABLE")} Conservamos cuerpo y clave; consulta o cancela la intención antes de iniciar otra.` };

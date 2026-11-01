@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "@/server/auth/session";
 import { teamEnrollmentSchema } from "../team-enrollment";
-import { assertEnrollmentActor, assertEnrollmentDelegate, lockEnrollmentCategory, lockEnrollmentSeason, TeamEnrollmentError } from "./team-enrollment-access";
+import { assertEnrollmentActor, assertEnrollmentPermission, lockEnrollmentCategory, lockEnrollmentSeason, TeamEnrollmentError } from "./team-enrollment-access";
 
 import { enrollmentFingerprint, enrollmentResult, enrollmentSelect, findEnrollmentOperation, lockEnrollmentOperation } from "./team-enrollment-record";
 
@@ -18,7 +18,7 @@ export async function enrollTeam(input: unknown, expectedActorId?: string) {
 
   try {
     return await getPrisma().$transaction(async (tx) => {
-      await assertEnrollmentDelegate(tx, actor.id, data.clubId);
+      await assertEnrollmentPermission(tx, actor.id, data.clubId);
       await lockEnrollmentOperation(tx, actor.id, data.enrollmentKey);
       const prior = await findEnrollmentOperation(tx, actor.id, data.enrollmentKey);
       if (prior) {
@@ -31,6 +31,7 @@ export async function enrollTeam(input: unknown, expectedActorId?: string) {
       }
       const season = await lockEnrollmentSeason(tx, data.clubId, data.seasonId);
       if (season.status === "CLOSED") throw new TeamEnrollmentError("SEASON_CLOSED", 409);
+      if (season.team_registration_closed_at) throw new TeamEnrollmentError("TEAM_REGISTRATION_CLOSED", 409);
       const { groupId, participationId } = await lockEnrollmentCategory(tx, data);
       await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true),
         set_config('app.reason', 'PDGLD-62: inscripción de equipo', true)`;
@@ -46,6 +47,15 @@ export async function enrollTeam(input: unknown, expectedActorId?: string) {
         if (await tx.season_teams.findUnique({ where: { team_id_season_id: { team_id: teamId, season_id: data.seasonId } }, select: { id: true } }))
           throw new TeamEnrollmentError("TEAM_ALREADY_ENROLLED", 409);
       } else {
+        // Dos equipos diferentes pueden compartir nombre en distintas categorías.
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended('team-name:' || ${data.clubId} || ':' || ${data.seasonId} || ':' || ${data.categoryId} || ':' || lower(regexp_replace(btrim(${data.team.name}), '[[:space:]]+', ' ', 'g')), 0))::text`;
+        const duplicates = await tx.$queryRaw<{ id: string }[]>`
+          SELECT t.id FROM sports_management.teams t
+          JOIN sports_management.season_teams st ON st.team_id = t.id
+          WHERE t.club_id = ${data.clubId}::uuid AND st.season_id = ${data.seasonId}::uuid AND st.season_category_id = ${participationId}::uuid
+            AND lower(regexp_replace(btrim(t.name), '[[:space:]]+', ' ', 'g')) = lower(regexp_replace(btrim(${data.team.name}), '[[:space:]]+', ' ', 'g'))
+          LIMIT 1`;
+        if (duplicates.length) throw new TeamEnrollmentError("TEAM_ALREADY_ENROLLED", 409);
         const team = await tx.teams.create({ data: { club_id: data.clubId, name: data.team.name,
           reference_number: `TEAM-${randomUUID()}` }, select: { id: true } });
         teamId = team.id;

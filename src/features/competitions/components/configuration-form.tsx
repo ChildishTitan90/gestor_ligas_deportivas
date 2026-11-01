@@ -4,6 +4,9 @@ import { useRouter } from "next/navigation";
 import { FormDialog } from "@/components/ui/form-dialog";
 
 const conflicts: Record<string, string> = {
+  TEAM_REGISTRATION_ALREADY_CLOSED: "Las inscripciones de equipos ya están cerradas.",
+  TEAM_REGISTRATION_STILL_OPEN: "Primero cierra las inscripciones de equipos.",
+  UNASSIGNED_TEAMS: "Hay equipos inscritos sin grupo asignado. Asígnalos antes de iniciar la competencia.",
   INVALID_CONFIGURATION: "Revisa los campos: escribe los criterios de desempate sin repetir y usa números positivos para vueltas y duración.",
   STALE_CONFIGURATION: "Otra persona modificó la temporada. Consulta la versión actual antes de continuar.",
   SEASON_DATES_IN_USE: "No se pueden cambiar las fechas: la temporada ya tiene categorías o actividad relacionada.",

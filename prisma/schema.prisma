@@ -1772,6 +1772,7 @@ model seasons {
   end_date                  DateTime                    @db.Date
   status                    String                      @default("PLANNED")
   competition_starts_at     DateTime?                   @db.Timestamptz(6)
+  team_registration_closed_at DateTime?                 @db.Timestamptz(6)
   closed_at                 DateTime?                   @db.Timestamptz(6)
   version                   Int                         @default(1)
   billing_plans             billing_plans[]

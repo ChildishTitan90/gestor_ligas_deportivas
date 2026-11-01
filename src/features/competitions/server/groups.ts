@@ -11,6 +11,7 @@ function validIds(seasonId: string, participationId: string) {
   if (!z.uuid().safeParse(seasonId).success || !z.uuid().safeParse(participationId).success)
     throw new CompetitionError("INVALID_CONFIGURATION");
 }
+
 async function participation(tx: Prisma.TransactionClient, seasonId: string, participationId: string) {
   const item = await tx.season_categories.findFirst({ where: { id: participationId, season_id: seasonId }, select: { id: true } });
   if (!item) throw new CompetitionError("INVALID_CONTEXT");
@@ -21,8 +22,13 @@ export async function listCompetitionGroups(seasonId: string, participationId: s
   return getPrisma().$transaction(async tx => {
     await assertPermission(tx, actor.id, { module: "competitions", action: "READ", context: { seasonId } });
     await participation(tx, seasonId, participationId);
-    return { items: await tx.groups.findMany({ where: { season_id: seasonId, season_category_id: participationId },
-      select: { id: true, name: true, _count: { select: { season_teams: true } } }, orderBy: [{ name: "asc" }, { id: "asc" }] }) };
+    const [items, total, unassigned] = await Promise.all([
+      tx.groups.findMany({ where: { season_id: seasonId, season_category_id: participationId },
+        select: { id: true, name: true, _count: { select: { season_teams: true } } }, orderBy: [{ name: "asc" }, { id: "asc" }] }),
+      tx.season_teams.count({ where: { season_id: seasonId, season_category_id: participationId } }),
+      tx.season_teams.count({ where: { season_id: seasonId, season_category_id: participationId, group_id: null, status: { in: ["REGISTERED", "ACTIVE"] } } }),
+    ]);
+    return { items, total, unassigned };
   });
 }
 

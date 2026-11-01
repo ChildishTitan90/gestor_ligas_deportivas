@@ -148,4 +148,32 @@ export async function runPendingDistributionTests({t,db,admin,reader,delegate,cl
     assert.equal(again.status,200); assert.deepEqual((await again.json()).assignments,[]);
     assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.audit_logs WHERE table_name='season_teams' AND action='UPDATE' AND entity_id IN (SELECT id FROM sports_management.season_teams WHERE season_category_id=$1)",[participation])).rows[0].n,4);
   });
+  await t.test('cierre de inscripciones e inicio: autorización, pendientes, concurrencia y conservación',async()=>{
+    const pendingBody={...body,enrollmentKey:randomUUID(),team:{mode:'new',name:'Inicio pendiente sintético'}};
+    assert.equal((await request(delegate,'/api/team-enrollments','POST',pendingBody)).status,201);
+    const close=`/api/competitions/seasons/${season}/lifecycle/close-registrations`;
+    const start=`/api/competitions/seasons/${season}/lifecycle/start`;
+    const closeBody={expectedSeasonVersion:6,reason};
+    assert.equal((await request(reader,close,'POST',closeBody)).status,403);
+    const early=await request(admin,start,'POST',closeBody); assert.equal(early.status,409); assert.equal((await early.json()).code,'TEAM_REGISTRATION_STILL_OPEN');
+    await db.query(`CREATE FUNCTION pg_temp.reject_registration_close_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.table_name='seasons' THEN RAISE EXCEPTION 'Fallo sintético'; END IF; RETURN NEW; END $$; CREATE TRIGGER test_registration_close_audit BEFORE INSERT ON sports_management.audit_logs FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_registration_close_audit()`);
+    try {
+      assert.equal((await request(admin,close,'POST',closeBody)).status,503);
+      const unchanged=(await db.query('SELECT team_registration_closed_at,version FROM sports_management.seasons WHERE id=$1',[season])).rows[0];
+      assert.equal(unchanged.team_registration_closed_at,null); assert.equal(unchanged.version,6);
+    } finally { await db.query('DROP TRIGGER test_registration_close_audit ON sports_management.audit_logs'); }
+    const closures=await Promise.all([request(admin,close,'POST',closeBody),request(admin,close,'POST',closeBody)]);
+    assert.deepEqual(closures.map(response=>response.status).sort(),[200,409]);
+    const replay=await request(delegate,'/api/team-enrollments','POST',pendingBody); assert.equal(replay.status,200); assert.equal((await replay.json()).replayed,true);
+    await assert.rejects(db.query(`INSERT INTO sports_management.season_teams(team_id,club_id,season_id,season_category_id,group_id,status)
+      SELECT team_id,club_id,season_id,season_category_id,NULL::uuid,status FROM sports_management.season_teams WHERE season_id=$1 LIMIT 1`,[season]),error=>error.code==='23514');
+    const rejected=await request(delegate,'/api/team-enrollments','POST',{...pendingBody,enrollmentKey:randomUUID(),team:{mode:'new',name:'Inscripción tardía'}});
+    assert.equal(rejected.status,409); assert.equal((await rejected.json()).code,'TEAM_REGISTRATION_CLOSED');
+    const blocked=await request(admin,start,'POST',{expectedSeasonVersion:7,reason});
+    assert.equal(blocked.status,409); assert.equal((await blocked.json()).code,'UNASSIGNED_TEAMS');
+    const distribute=await request(reader,`${path}/distribution/automatic`,'POST',{expectedSeasonVersion:7,reason}); assert.equal(distribute.status,200);
+    const begin=await request(admin,start,'POST',{expectedSeasonVersion:8,reason}); assert.equal(begin.status,200);
+    const state=(await db.query('SELECT status,competition_starts_at,team_registration_closed_at,version FROM sports_management.seasons WHERE id=$1',[season])).rows[0];
+    assert.equal(state.status,'ACTIVE'); assert.ok(state.competition_starts_at && state.team_registration_closed_at); assert.equal(state.version,9);
+  });
 }
