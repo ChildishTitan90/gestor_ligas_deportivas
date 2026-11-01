@@ -5,7 +5,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { accountApplicationPlan, accountWorkerTimeout, independentInstallPlan } from './verification/account-independent-dependencies.mjs';
 import {
-  RUN_ID, createDelegatePlan, childEnvironment, executeDelegateMatrix, cleanupDelegateResources,
+  RUN_ID, ISOLATED_TEMP_ROOT, createDelegatePlan, childEnvironment, executeDelegateMatrix, cleanupDelegateResources,
   isMissingDockerResource,
 } from './ci/delegate-isolated-runtime.mjs';
 
@@ -131,10 +131,10 @@ async function worker(config, signal, accountIntegration = false, accountMode = 
 
 async function main() {
   const { runId, mode, accountIntegration, accountMode } = parseDelegateArguments(process.argv.slice(2));
-  const scratch = `/private/tmp/pdgld106-${runId}`;
+  const scratch = `${ISOLATED_TEMP_ROOT}/pdgld106-${runId}`;
   if (mode === 'plan') {
     const plan = createDelegatePlan(runId, '0'.repeat(32));
-    console.log(JSON.stringify({ mode, newAgreedRuleChecks: !accountIntegration ? ['distinct-deputies-capacity', 'authorization-inclusive-start-exclusive-end', 'representation-change-preserves-authorship'] : undefined, suite: accountIntegration ? accountSuiteNames[accountMode] : 'PDGLD-106 SQL',
+    console.log(JSON.stringify({ mode, newAgreedRuleChecks: !accountIntegration ? ['distinct-deputies-capacity', 'equal-capabilities-scoped-authorship', 'authorization-inclusive-start-exclusive-end', 'representation-change-preserves-authorship'] : undefined, suite: accountIntegration ? accountSuiteNames[accountMode] : 'PDGLD-106 SQL',
       applicationPorts: accountIntegration ? ['127.0.0.1:56515', '127.0.0.1:56517'] : undefined,
       browser: accountMode === 'browser' ? { profile: `${scratch}/chrome-pg15/17`, debugging: 'solo loopback, puerto efímero de Chrome', artifacts: `${scratch}/evidence-pg15/17` } : undefined,
       application: accountIntegration ? plan.versions.map(item => {

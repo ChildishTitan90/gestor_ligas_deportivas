@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, writeFile, readFile, readlink, rm, symlink } from 'node:fs/promises';
 import {
-  createDelegatePlan, containerArgs, labels, assertIsolatedContainer,
+  ISOLATED_TEMP_ROOT, isolatedTemporaryRoot, createDelegatePlan, containerArgs, labels, assertIsolatedContainer,
   childEnvironment, executeDelegateMatrix, cleanupDelegateResources,
   isMissingDockerResource,
 } from './delegate-isolated-runtime.mjs';
@@ -144,7 +146,7 @@ test('CDP solo acepta el endpoint local de un navegador propio', () => {
 });
 
 test('la copia elimina solo sus archivos, conserva dependencias y rechaza symlinks de origen', async () => {
-  const root = await mkdtemp('/private/tmp/pdgld107-copy-test-');
+  const root = await mkdtemp(join(tmpdir(), 'pdgld107-copy-test-'));
   try {
     await mkdir(`${root}/src`); await mkdir(`${root}/node_modules`);
     await writeFile(`${root}/src/example.ts`, 'export const fixture = true;');
@@ -259,7 +261,7 @@ test('la recuperación valida el registro completo antes de acceder a Docker', (
 
 test('plan ejecutable sin Docker disponible no crea archivos ni conecta servicios', async () => {
   const execution = randomUUID();
-  const path = `/private/tmp/pdgld106-${execution}`;
+  const path = `${ISOLATED_TEMP_ROOT}/pdgld106-${execution}`;
   assert.equal(existsSync(path), false);
   for (const extra of [[], ['--account-integration'], ['--account-browser'], ['--account-preview']]) {
     const output = await new Promise((resolve, reject) => execFile(process.execPath,
@@ -276,7 +278,7 @@ test('plan ejecutable sin Docker disponible no crea archivos ni conecta servicio
 
 // Node resolution is a precondition, not evidence that Turbopack resolves the same graph.
 test('Node resuelve una dependencia transitiva desde la copia sin copiar dependencias ni entorno', async () => {
-  const root = await mkdtemp('/private/tmp/pdgld107-resolution-test-');
+  const root = await mkdtemp(join(tmpdir(), 'pdgld107-resolution-test-'));
   try {
     await mkdir(`${root}/src`);
     await mkdir(`${root}/node_modules/fixture-adapter`, { recursive: true });
@@ -321,8 +323,8 @@ test('browser y Preview usan dependencias propias por PG y Turbopack, con plazo 
 });
 
 test('copias browser y Preview conservan lockfile y configuración sin raíz adicional ni dependencias externas', async () => {
-  const source = await mkdtemp('/private/tmp/account-profile-source-');
-  const execution = randomUUID(); const scratch = `/private/tmp/pdgld106-${execution}`;
+  const source = await mkdtemp(join(tmpdir(), 'account-profile-source-'));
+  const execution = randomUUID(); const scratch = `${ISOLATED_TEMP_ROOT}/pdgld106-${execution}`;
   try {
     await mkdir(`${source}/src`);
     await mkdir(scratch, { mode: 0o700 });
@@ -368,4 +370,15 @@ test('las regresiones rechazan destinos ajenos antes de consultar o cargar guard
   for (const url of ['postgresql://localhost:5432/gestor_ligas_dev', 'postgresql://remote.example.test:55415/pdgld106_model_0123456789abcdef',
     'postgresql://127.0.0.1:55415/pdgld106_model_0123456789abcdef?schema=other'])
     await assert.rejects(verifyRepresentativeAgreedRules(db, url), error => error.message !== 'must not query');
+});
+
+// Linux CI has no /private; both plans must retain exact UUID/parent checks.
+test('rutas temporales portables conservan validación estricta y no aceptan raíces ajenas', () => {
+  assert.equal(isolatedTemporaryRoot('linux'), '/tmp');
+  assert.equal(isolatedTemporaryRoot('darwin'), '/private/tmp');
+  assert.equal(ISOLATED_TEMP_ROOT, process.platform === 'darwin' ? '/private/tmp' : '/tmp');
+  const runtime = accountApplicationPlan({ runId, major: 15, verificationMode: 'browser' });
+  assert.equal(runtime.directory, `${ISOLATED_TEMP_ROOT}/pdgld106-${runId}`);
+  for (const directory of ['/other/pdgld106-' + runId, runtime.directory + '/nested'])
+    assert.throws(() => independentInstallPlan({ ...runtime, directory }));
 });

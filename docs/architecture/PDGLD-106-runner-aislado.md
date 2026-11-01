@@ -1,5 +1,14 @@
 # PDGLD-106 — Runner PostgreSQL exclusivo
 
+Portabilidad corregida el 1 de noviembre de 2026: las ejecuciones y todos sus
+workers usan raíz fija /private/tmp en macOS y /tmp en Linux; los fixtures puros
+genéricos usan os.tmpdir(). No se admiten raíces arbitrarias desde CLI/entorno.
+UUID, propiedad, destinos, aislamiento y limpieza mantienen sus comprobaciones.
+La regresión de capacidades compartidas aprobó en PG15/17 (E7), con limpieza
+verificada: ver [resultados](../validation/representative-agreed-rule-tests.md).
+E8 aprobó carreras HTTP por cargo sin repetir la suite SQL independiente.
+
+
 Implementado como entrada separada. PostgreSQL 15 y 17 se ejecutaron y aprobaron
 en la ejecución autorizada 0829cdc5-5cb2-4df5-bbe3-c86c46af553c. Véase la
 [evidencia de validación](../validation/PDGLD-106-postgresql-aislado.md). Cualquier

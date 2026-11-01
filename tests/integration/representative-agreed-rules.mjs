@@ -69,6 +69,47 @@ export async function verifyRepresentativeAgreedRules(db, databaseUrl) {
     assert.equal((await db.query('SELECT count(*)::int n FROM sports_management.user_roles WHERE club_id=$1 AND user_id=$2', [deputyClub, second.userId])).rows[0].n, 0);
     checks.push({ case: 'distinct-deputies-capacity', passed: true });
 
+    // Both positions are ordinary CLUB_DELEGATE assignments, concurrently active.
+    const sharedClub = await club(); const outsideClub = await club();
+    const representatives = [await person(), await person()];
+    for (const [index, user] of representatives.entries())
+      await designate(user, sharedClub, index === 0 ? 'PRIMARY' : 'DEPUTY', new Date(Date.now() - 60_000).toISOString());
+    for (const user of representatives) {
+      await prisma.$transaction(async tx => {
+        for (const action of ['CREATE', 'READ', 'UPDATE']) {
+          assert.ok((await assertPermission(tx, user.userId, { module: 'clubs', action, context: { clubId: sharedClub } })).length);
+          await assert.rejects(assertPermission(tx, user.userId, { module: 'clubs', action, context: { clubId: outsideClub } }), forbidden);
+        }
+      });
+    }
+    const updateGrant = (await db.query(`SELECT rp.* FROM sports_management.role_permissions rp
+      JOIN sports_management.permissions p ON p.id=rp.permission_id
+      WHERE rp.role_id=$1 AND p.module='clubs' AND p.action='UPDATE'`, [role])).rows[0];
+    assert.ok(updateGrant);
+    await db.query('DELETE FROM sports_management.role_permissions WHERE id=$1', [updateGrant.id]);
+    try {
+      for (const user of representatives) await prisma.$transaction(tx =>
+        assert.rejects(assertPermission(tx, user.userId, { module: 'clubs', action: 'UPDATE', context: { clubId: sharedClub } }), forbidden));
+    } finally {
+      await db.query(`INSERT INTO sports_management.role_permissions(id,role_id,permission_id,context_only)
+        VALUES ($1,$2,$3,$4)`, [updateGrant.id, updateGrant.role_id, updateGrant.permission_id, updateGrant.context_only]);
+    }
+    // Each actor owns one correction. Equal UPDATE does not grant the other's authorship.
+    for (const owner of representatives) {
+      const peer = representatives.find(user => user.userId !== owner.userId);
+      const season = await id(`INSERT INTO sports_management.seasons(league_id,sport_id,name,start_date,end_date,status)
+        SELECT $1,id,$2,'2026-01-01','2026-12-31','ACTIVE' FROM sports_management.sports WHERE code='SOCCER' RETURNING id`, [league, randomUUID()]);
+      const affiliation = await id(`INSERT INTO sports_management.club_affiliations(club_id,season_id,league_id,reference_number,
+        uniform_colors,status,requested_by,review_reason)
+        VALUES ($1,$2,$3,$4,'Azul','PENDING',$5,'Corregir captura sintética') RETURNING id`, [sharedClub, season, league, randomUUID(), owner.userId]);
+      await prisma.$transaction(async tx => {
+        assert.equal((await assertSignatureUploadAccess(tx, owner.userId, { clubId: sharedClub, seasonId: season })).clubId, sharedClub);
+        await assert.rejects(assertSignatureUploadAccess(tx, peer.userId, { clubId: sharedClub, seasonId: season }), forbidden);
+      });
+      assert.equal((await db.query('SELECT requested_by FROM sports_management.club_affiliations WHERE id=$1', [affiliation])).rows[0].requested_by, owner.userId);
+    }
+    checks.push({ case: 'equal-capabilities-scoped-authorship', positions: ['PRIMARY', 'DEPUTY'], passed: true });
+
     // Exact microsecond equality is tested against the real SQL authorization predicate.
     for (const position of ['PRIMARY', 'DEPUTY']) {
       const user = await person(); const clubId = await club();

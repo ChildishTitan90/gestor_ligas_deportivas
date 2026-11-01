@@ -4,22 +4,22 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { childEnvironment, RUN_ID } from '../ci/delegate-isolated-runtime.mjs';
+import { ISOLATED_TEMP_ROOT, childEnvironment, RUN_ID } from '../ci/delegate-isolated-runtime.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 
 export function independentInstallPlan(plan) {
   let work;
-  if (plan.directory.startsWith('/private/tmp/pdgld-startup-')) {
-    const id = plan.directory.slice('/private/tmp/pdgld-startup-'.length);
+  if (plan.directory.startsWith(`${ISOLATED_TEMP_ROOT}/pdgld-startup-`)) {
+    const id = plan.directory.slice(`${ISOLATED_TEMP_ROOT}/pdgld-startup-`.length);
     assert.match(id, RUN_ID);
     assert.equal(plan.app, `${plan.directory}/app`);
     assert.equal(plan.major, undefined);
     work = `${plan.directory}/npm-work`;
   } else {
-    const id = plan.directory.slice('/private/tmp/pdgld106-'.length);
+    const id = plan.directory.slice(`${ISOLATED_TEMP_ROOT}/pdgld106-`.length);
     assert.match(id, RUN_ID);
-    assert.equal(plan.directory, `/private/tmp/pdgld106-${id}`);
+    assert.equal(plan.directory, `${ISOLATED_TEMP_ROOT}/pdgld106-${id}`);
     assert.ok([15, 17].includes(plan.major));
     assert.equal(plan.app, `${plan.directory}/app-pg${plan.major}`);
     work = `${plan.directory}/npm-work-pg${plan.major}`;
@@ -35,7 +35,7 @@ export function accountApplicationPlan({ runId, major, verificationMode }) {
   assert.ok([15, 17].includes(major));
   assert.ok(['http', 'browser', 'preview'].includes(verificationMode));
   const independent = verificationMode !== 'http';
-  const directory = `/private/tmp/pdgld106-${runId}`;
+  const directory = `${ISOLATED_TEMP_ROOT}/pdgld106-${runId}`;
   return { directory, app: `${directory}/app-pg${major}`, major,
     evidence: `${directory}/evidence-pg${major}`,
     dependencies: independent ? 'independent' : 'linked',

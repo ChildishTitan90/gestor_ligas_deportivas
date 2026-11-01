@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import { childEnvironment, RUN_ID } from '../ci/delegate-isolated-runtime.mjs';
+import { ISOLATED_TEMP_ROOT, childEnvironment, RUN_ID } from '../ci/delegate-isolated-runtime.mjs';
 import { createAccountAppCopy, configureAccountTurbopack } from './account-app-copy.mjs';
 import { prepareAccountDelegateFixtures, verifyAccountDelegateHTTP } from '../../tests/integration/account-delegates-http.mjs';
 import { preparePreviewRuntime, verifyPreviewRuntime } from '../../tests/integration/preview-runtime.mjs';
@@ -127,10 +127,17 @@ process.once('message', async config => {
     controller.signal.throwIfAborted();
     if (config.verificationMode === 'browser') {
       await verifyAccountDelegateBrowser({ db, baseUrl, fixture, signal: controller.signal,
-        profileDirectory: `/private/tmp/pdgld106-${config.runId}/chrome-pg${config.major}`,
-        artifactsDirectory: `/private/tmp/pdgld106-${config.runId}/evidence-pg${config.major}`, diagnosticContext });
+        profileDirectory: `${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/chrome-pg${config.major}`,
+        artifactsDirectory: `${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/evidence-pg${config.major}`, diagnosticContext });
     } else {
-      await verifyAccountDelegateHTTP({ db, baseUrl, fixture });
+      const concurrentChecks = await verifyAccountDelegateHTTP({ db, baseUrl, fixture,
+        concurrentPositions: config.verificationMode === 'http' });
+      if (config.verificationMode === 'http') {
+        await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
+        await writeFile(`${applicationPlan.evidence}/concurrent-http.json`,
+          JSON.stringify({ scope: 'isolated-http-same-position', checks: concurrentChecks }, null, 2),
+          { flag: 'wx', mode: 0o600 });
+      }
       if (runtimeConnection) {
         await verifyAccountPreviewRuntime({ owner: db, connection: runtimeConnection, fixture });
         await verifyScopedAccountPreview({ owner: db, baseUrl, fixture });
@@ -142,7 +149,7 @@ process.once('message', async config => {
     diagnostic = { ...accountDiagnostic(error, diagnosticContext), startup: startupObserver.summary() };
     // Only a validated execution can create diagnostic artifacts.
     if (RUN_ID.test(config.runId) && [15, 17].includes(config.major)) {
-      try { await writeAccountDiagnostic(`/private/tmp/pdgld106-${config.runId}/evidence-pg${config.major}`, diagnostic); }
+      try { await writeAccountDiagnostic(`${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/evidence-pg${config.major}`, diagnostic); }
       catch { diagnostic.artifactWriteFailed = true; }
     }
   }

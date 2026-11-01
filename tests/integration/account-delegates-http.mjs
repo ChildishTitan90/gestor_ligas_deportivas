@@ -40,7 +40,7 @@ export async function prepareAccountDelegateFixtures(db, { databaseName } = {}) 
   return { actor, legacy, ordinary, password, leagueId, clubs };
 }
 
-export async function verifyAccountDelegateHTTP({ db, baseUrl, fixture }) {
+export async function verifyAccountDelegateHTTP({ db, baseUrl, fixture, concurrentPositions = false }) {
   assert.equal(new URL(baseUrl).hostname, '127.0.0.1');
   const admin = new Browser(baseUrl);
   assert.equal((await admin.login(fixture.actor.email, fixture.password)).searchParams.has('error'), false);
@@ -123,4 +123,62 @@ export async function verifyAccountDelegateHTTP({ db, baseUrl, fixture }) {
     await db.query('INSERT INTO sports_management.role_permissions(id,role_id,permission_id,context_only) VALUES ($1,$2,$3,$4)',
       [createGrant.id, createGrant.role_id, createGrant.permission_id, createGrant.context_only]);
   }
+  const concurrentChecks = [];
+  // Enabled only by the isolated HTTP worker, not browser/Preview historical runs.
+  if (concurrentPositions) {
+    const contenders = [new Browser(baseUrl), new Browser(baseUrl)];
+    for (const browser of contenders)
+      assert.equal((await browser.login(fixture.actor.email, fixture.password)).searchParams.has('error'), false);
+    const period = { startsAt: new Date(Date.now() + 3_600_000).toISOString(),
+      endsAt: new Date(Date.now() + 7_200_000).toISOString() };
+    // This interval precedes the existing tomorrow/day-after PRIMARY fixtures.
+    for (const position of ['PRIMARY', 'DEPUTY']) {
+      const inputs = [payload(fixture.clubs[2], position, period), payload(fixture.clubs[2], position, period)];
+      for (const input of inputs) input.person.firstName = `Carrera-${randomUUID()}`;
+      assert.notEqual(inputs[0].username, inputs[1].username);
+      assert.notEqual(inputs[0].email, inputs[1].email);
+      assert.notEqual(inputs[0].person.firstName, inputs[1].person.firstName);
+      const before = await totals();
+      const clubsBefore = (await db.query('SELECT count(*)::int n FROM sports_management.clubs')).rows[0].n;
+      // Start both HTTP requests before awaiting either; no direct assignment SQL.
+      const responses = await Promise.all(inputs.map((input, index) => contenders[index].request('/api/accounts', {
+        method: 'POST', headers: { 'content-type': 'application/json', origin: baseUrl },
+        body: JSON.stringify(input), signal: AbortSignal.timeout(30_000),
+      })));
+      assert.deepEqual(responses.map(response => response.status).sort(), [201, 409]);
+      const winner = responses.findIndex(response => response.status === 201); const loser = 1 - winner;
+      const created = await responses[winner].json();
+      assert.equal((await responses[loser].json()).code, 'DELEGATE_POSITION_OCCUPIED');
+      assert.equal(created.assignments.length, 1);
+      assert.equal(created.assignments[0].delegatePosition, position);
+      const saved = (await db.query(`SELECT u.id,u.person_id,ur.id AS assignment_id,ur.delegate_position,
+        ur.starts_at,ur.ends_at FROM sports_management.users u
+        JOIN sports_management.user_roles ur ON ur.user_id=u.id
+        WHERE ur.club_id=$1 AND ur.delegate_position=$2
+          AND tstzrange(ur.starts_at,ur.ends_at,'[)') && tstzrange($3::timestamptz,$4::timestamptz,'[)')`,
+      [fixture.clubs[2], position, period.startsAt, period.endsAt])).rows;
+      assert.equal(saved.length, 1); assert.equal(saved[0].id, created.id);
+      assert.equal(saved[0].person_id, created.personId);
+      assert.equal(saved[0].assignment_id, created.assignments[0].id);
+      assert.equal(saved[0].starts_at.toISOString(), period.startsAt);
+      assert.equal(saved[0].ends_at.toISOString(), period.endsAt);
+      assert.equal((await db.query(`SELECT count(*)::int n FROM sports_management.users
+        WHERE username=$1 OR email=$2`, [inputs[loser].username, inputs[loser].email])).rows[0].n, 0);
+      assert.equal((await db.query('SELECT count(*)::int n FROM sports_management.people WHERE first_name=$1',
+        [inputs[loser].person.firstName])).rows[0].n, 0);
+      const after = await totals();
+      for (const key of ['people', 'users', 'assignments']) assert.equal(Number(after[key]) - Number(before[key]), 1);
+      // One user event plus one baseline assignment event, no event from the loser.
+      assert.equal(Number(after.audit) - Number(before.audit), 2);
+      assert.equal((await db.query('SELECT count(*)::int n FROM sports_management.clubs')).rows[0].n, clubsBefore);
+      const events = (await db.query(`SELECT table_name,entity_id,user_id,action FROM sports_management.audit_logs
+        WHERE entity_id=ANY($1::uuid[]) ORDER BY table_name`, [[created.id, saved[0].assignment_id]])).rows;
+      assert.equal(events.length, 2);
+      assert.deepEqual(events.map(event => event.table_name).sort(), ['user_roles', 'users']);
+      assert.ok(events.every(event => event.user_id === fixture.actor.id && event.action === 'INSERT'));
+      concurrentChecks.push({ case: 'concurrent-http-same-position', position,
+        statuses: [201, 409], conflict: 'DELEGATE_POSITION_OCCUPIED', noResiduals: true, passed: true });
+    }
+  }
+  return concurrentChecks;
 }

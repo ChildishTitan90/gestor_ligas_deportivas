@@ -19,6 +19,9 @@ test("cargos sin selección inicial, cupo agotado y regularización accesibles",
     const html = renderToStaticMarkup(<DelegatePositionSelect id="cargo" value="" onChange={() => {}}
       status="ready" options={options(rows)} className="control" />);
     assert.match(html, /name="delegatePosition"/);
+    assert.match(html, /mismas capacidades de CLUB_DELEGATE/);
+    assert.match(html, /No hay modo sustitución/);
+    assert.match(html, /conserva su autoría/);
     assert.match(html, /type="hidden"[^>]*name="delegatePosition" value=""/);
     assert.match(html, /role="combobox"/);
     assert.match(html, /placeholder="Selecciona un cargo"/);

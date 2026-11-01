@@ -1,16 +1,27 @@
 # PDGLD-106 — Cargos de representantes (parte de PDGLD-93)
 
+## Alcance vigente — acuerdo de Víctor, 1 de noviembre de 2026
+
+Un titular y un subdelegado vigentes por club, personas distintas. Ambos operan
+normalmente con las mismas capacidades CLUB_DELEGATE según permisos, ámbito y
+vigencias, sin modo sustitución. La igualdad no transfiere autoría de solicitudes
+ni firmas. Reemplazos, cierres e historial administrativo completo quedan fuera
+de este incremento, no están implementados y requieren seguimiento separado.
+Se conservan datos, periodos y auditoría. La matriz actualizada prevalece sobre
+los pendientes de alcance anteriores en la cronología de este documento.
+
+
 Estado actualizado al 30 de octubre de 2026: SQL, alta HTTP/SSR, navegador real
 y runtime Preview/RLS temporal aprobaron en PostgreSQL 15/17. La limpieza fue
 verificada y las evidencias originales se archivaron privadamente fuera del repo.
-El formulario PDGLD-107 está conciliado con develop/PDGLD-110. **PDGLD-108 sigue
-incompleto**: no existe todavía reemplazo atómico autorizado, concurrencia de
-reemplazos ni consulta de historial; quedan casos de prueba y decisiones de
-facultades. Véase la [matriz por criterio](../validation/account-delegate-acceptance-matrix.md).
-La migración solo se ejecutó en bases temporales exclusivas en estas validaciones.
-La persona responsable confirmó que la migración nueva no se aplicó ni compartió;
-solo se reescribe `20261028010000_pdgld106_delegate_positions`, aún sin seguimiento.
-Las migraciones compartidas permanecen intactas.
+El formulario PDGLD-107 está conciliado con develop/PDGLD-110. El incremento
+vigente conserva titular y subdelegado operativos con las mismas capacidades;
+la prueba simultánea E7 aprobó en PG15/17, igual que las carreras HTTP E8. Reemplazos,
+cierres e historial administrativo completo requieren seguimiento separado.
+Véase la [matriz por criterio](../validation/account-delegate-acceptance-matrix.md).
+La migración se validó en bases temporales; ya está publicada en el PR #37.
+Esta revisión no la reescribe ni aplica migraciones. Las migraciones compartidas
+permanecen intactas; no se afirma despliegue de esta migración en producción.
 
 ## Restricciones y motivo
 

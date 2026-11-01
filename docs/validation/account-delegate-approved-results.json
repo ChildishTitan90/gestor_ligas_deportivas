@@ -1,5 +1,5 @@
 {
-  "documentedOn": "2026-10-30",
+  "documentedOn": "2026-11-01",
   "timezone": "America/Mexico_City",
   "baseCommit": "fb64b4f068b6121063475333320524725436e0c0",
   "uncommittedWorkingTree": true,
@@ -221,5 +221,201 @@
     "projectIntegrityVerified": true,
     "verifiedAt": "2026-10-30T20:24:12.193Z",
     "scope": "SQL fixture changes do not validate an authorized replacement service"
+  },
+  "scopeAgreement": {
+    "documentedOn": "2026-11-01",
+    "positions": [
+      "PRIMARY",
+      "DEPUTY"
+    ],
+    "sameRoleCapabilities": true,
+    "substitutionMode": false,
+    "authorshipTransferred": false,
+    "outOfIncrement": [
+      "authorized-replacement",
+      "administrative-closure",
+      "full-administrative-history"
+    ]
+  },
+  "pendingNewChecks": [],
+  "equalCapabilitiesRegressionRun": {
+    "reference": "E7",
+    "runId": "43a36e41-31cf-4dae-b1c1-042464fc41f7",
+    "postgresql": [
+      {
+        "postgresqlMajor": 15,
+        "passed": true,
+        "cleaned": true,
+        "pending": false,
+        "containerAbsent": true,
+        "networkAbsent": true,
+        "checks": [
+          {
+            "case": "distinct-deputies-capacity",
+            "passed": true
+          },
+          {
+            "case": "equal-capabilities-scoped-authorship",
+            "passed": true,
+            "positions": [
+              "PRIMARY",
+              "DEPUTY"
+            ]
+          },
+          {
+            "case": "authorization-inclusive-start-exclusive-end",
+            "passed": true,
+            "positions": [
+              "PRIMARY",
+              "DEPUTY"
+            ],
+            "clock": "test-sql-adapter"
+          },
+          {
+            "case": "representation-change-preserves-authorship",
+            "passed": true,
+            "positions": [
+              "PRIMARY",
+              "DEPUTY"
+            ],
+            "handover": "sql-fixture-not-service"
+          }
+        ]
+      },
+      {
+        "postgresqlMajor": 17,
+        "passed": true,
+        "cleaned": true,
+        "pending": false,
+        "containerAbsent": true,
+        "networkAbsent": true,
+        "checks": [
+          {
+            "case": "distinct-deputies-capacity",
+            "passed": true
+          },
+          {
+            "case": "equal-capabilities-scoped-authorship",
+            "passed": true,
+            "positions": [
+              "PRIMARY",
+              "DEPUTY"
+            ]
+          },
+          {
+            "case": "authorization-inclusive-start-exclusive-end",
+            "passed": true,
+            "positions": [
+              "PRIMARY",
+              "DEPUTY"
+            ],
+            "clock": "test-sql-adapter"
+          },
+          {
+            "case": "representation-change-preserves-authorship",
+            "passed": true,
+            "positions": [
+              "PRIMARY",
+              "DEPUTY"
+            ],
+            "handover": "sql-fixture-not-service"
+          }
+        ]
+      }
+    ],
+    "portsFree": true,
+    "ownedProcessesAbsent": true,
+    "projectIntegrityVerified": true,
+    "verifiedAt": "2026-11-01T19:52:54.805390+00:00",
+    "scope": "SQL authorization guards; fixture handover does not validate an authorized replacement service"
+  },
+  "concurrentHttpRun": {
+    "reference": "E8",
+    "runId": "6bd8ef26-16ef-4ac1-aec3-cd7f6fc7f09d",
+    "postgresql": [
+      {
+        "postgresqlMajor": 15,
+        "passed": true,
+        "cleaned": true,
+        "pending": false,
+        "containerAbsent": true,
+        "networkAbsent": true,
+        "localDirectoriesAbsent": true,
+        "checks": [
+          {
+            "case": "concurrent-http-same-position",
+            "position": "PRIMARY",
+            "statuses": [
+              201,
+              409
+            ],
+            "conflict": "DELEGATE_POSITION_OCCUPIED",
+            "noResiduals": true,
+            "passed": true
+          },
+          {
+            "case": "concurrent-http-same-position",
+            "position": "DEPUTY",
+            "statuses": [
+              201,
+              409
+            ],
+            "conflict": "DELEGATE_POSITION_OCCUPIED",
+            "noResiduals": true,
+            "passed": true
+          }
+        ]
+      },
+      {
+        "postgresqlMajor": 17,
+        "passed": true,
+        "cleaned": true,
+        "pending": false,
+        "containerAbsent": true,
+        "networkAbsent": true,
+        "localDirectoriesAbsent": true,
+        "checks": [
+          {
+            "case": "concurrent-http-same-position",
+            "position": "PRIMARY",
+            "statuses": [
+              201,
+              409
+            ],
+            "conflict": "DELEGATE_POSITION_OCCUPIED",
+            "noResiduals": true,
+            "passed": true
+          },
+          {
+            "case": "concurrent-http-same-position",
+            "position": "DEPUTY",
+            "statuses": [
+              201,
+              409
+            ],
+            "conflict": "DELEGATE_POSITION_OCCUPIED",
+            "noResiduals": true,
+            "passed": true
+          }
+        ]
+      }
+    ],
+    "portsFree": true,
+    "ownedProcessesAbsent": true,
+    "projectIntegrityVerified": true,
+    "verifiedAt": "2026-11-01T20:13:35.894961+00:00",
+    "scope": "Concurrent HTTP creation for distinct identities and the same club, position and interval; not representative replacement",
+    "validatedAssertionsPerRace": {
+      "peopleCreated": 1,
+      "accountsCreated": 1,
+      "assignmentsCreated": 1,
+      "auditEventsCreated": 2,
+      "newClubs": 0,
+      "loserPeople": 0,
+      "loserAccounts": 0,
+      "loserAuditEvents": 0
+    },
+    "bundler": "webpack",
+    "dependencies": "linked"
   }
 }

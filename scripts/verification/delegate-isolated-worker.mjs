@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import pg from 'pg';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { verifyDelegatePositionMigration } from '../../tests/integration/delegate-positions-migration.mjs';
-import { RUN_ID } from '../ci/delegate-isolated-runtime.mjs';
+import { ISOLATED_TEMP_ROOT, RUN_ID } from '../ci/delegate-isolated-runtime.mjs';
 
 process.once('message', async config => {
   let admin;
@@ -29,7 +29,7 @@ process.once('message', async config => {
     const url = new URL(`postgresql://postgres@127.0.0.1:${config.port}/${config.parentDatabase}`);
     url.password = config.password;
     const checks = await verifyDelegatePositionMigration(url.href, { expectedPort: config.port, databaseName: config.modelDatabase });
-    const evidence = `/private/tmp/pdgld106-${config.runId}/evidence-pg${config.major}`;
+    const evidence = `${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/evidence-pg${config.major}`;
     await mkdir(evidence, { recursive: true, mode: 0o700 });
     await writeFile(`${evidence}/agreed-rules.json`, JSON.stringify({ scope: 'new-agreed-rule-tests', checks }, null, 2), { flag: 'wx', mode: 0o600 });
   } catch (error) { failure = error; }

@@ -1,5 +1,16 @@
 # PDGLD-108 — Contrato de representantes pendiente de validación
 
+## Alcance vigente — acuerdo de Víctor, 1 de noviembre de 2026
+
+Un titular y un subdelegado vigentes por club, personas distintas. Ambos operan
+normalmente con las mismas capacidades CLUB_DELEGATE según permisos, ámbito y
+vigencias, sin modo sustitución. La igualdad no transfiere autoría de solicitudes
+ni firmas. Reemplazos, cierres e historial administrativo completo quedan fuera
+de este incremento, no están implementados y requieren seguimiento separado.
+Se conservan datos, periodos y auditoría. La matriz actualizada prevalece sobre
+los pendientes de alcance anteriores en la cronología de este documento.
+
+
 Estado: **propuesta conservada, no aprobada y no implementada**. No autoriza
 crear rutas, columna de versión, función SQL privilegiada, permisos o concesiones.
 La implementación se mantiene bloqueada hasta resolver las decisiones señaladas.
@@ -132,8 +143,10 @@ Hay dos asuntos diferentes, ambos pendientes de resolver:
 Ratificar autoridad temporal para cierre, lectura de motivos, candidatos en
 ámbito local, estado admisible del entrante, alta de una persona nueva, herencia
 de vigencia y recuperación idempotente. Después revisar seguridad de runtime,
-contratos y pruebas de servicio/concurrencia/historial. Las facultades sobre
-solicitudes y firmas conservan su comportamiento actual hasta decisión explícita.
+contratos y pruebas de servicio/concurrencia/historial. Estas decisiones del
+contrato administrativo no bloquean el incremento básico. Las mismas capacidades
+CLUB_DELEGATE de ambos cargos están acordadas; solicitudes y firmas conservan
+las protecciones de autoría existentes, sin transferencia de propiedad.
 
 Las [regresiones de reglas acordadas](../validation/representative-agreed-rule-tests.md)
 son trabajo separado: no validan ni implementan este contrato pendiente.

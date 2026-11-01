@@ -6,7 +6,7 @@ import { chmod, cp, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } f
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { RUN_ID, childEnvironment } from '../ci/delegate-isolated-runtime.mjs';
+import { ISOLATED_TEMP_ROOT, RUN_ID, childEnvironment } from '../ci/delegate-isolated-runtime.mjs';
 import { createAccountAppCopy, configureAccountTurbopack } from './account-app-copy.mjs';
 import { independentInstallPlan, installIndependentDependencies } from './account-independent-dependencies.mjs';
 import { nextStartupObserver } from './account-diagnostics.mjs';
@@ -17,7 +17,7 @@ export function startupProbePlan(args) {
   const independent = pending[0] === '--independent-dependencies';
   const rest = independent ? pending.slice(1) : pending;
   assert.equal(rest.length, 2); assert.equal(rest[0], '--run-id'); assert.match(rest[1], RUN_ID);
-  const directory = `/private/tmp/pdgld-startup-${rest[1]}`;
+  const directory = `${ISOLATED_TEMP_ROOT}/pdgld-startup-${rest[1]}`;
   return { execute, directory, app: `${directory}/app`, url: 'http://127.0.0.1:56515',
     route: '/api/auth/csrf', database: false, docker: false, chrome: false,
     dependencies: independent ? 'independent' : 'linked', installation: independent ? 'npm ci' : null };

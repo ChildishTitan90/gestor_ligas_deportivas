@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 
 export const RUN_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+// Fixed OS-owned temporary root; never derived from environment or CLI input.
+export function isolatedTemporaryRoot(platform = process.platform) {
+  return platform === 'darwin' ? '/private/tmp' : '/tmp';
+}
+export const ISOLATED_TEMP_ROOT = isolatedTemporaryRoot();
 const DATA = '/var/lib/postgresql/data';
 
 export function isMissingDockerResource(kind, name, stderr) {

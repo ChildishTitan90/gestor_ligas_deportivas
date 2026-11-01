@@ -20,6 +20,7 @@ export function DelegatePositionSelect({ id, value, onChange, options, status, e
         options?.positions.some(position => position.reason === "LEGACY") ? "Hay una asignación con cargo no identificado en este periodo. Se necesita regularización." :
         options?.positions.every(position => !position.available) ? "No hay cargos disponibles en el periodo seleccionado." : "La disponibilidad se confirma al crear la cuenta. No se asigna un cargo automáticamente."}
     </p>
+    <p className="mt-2 text-sm text-muted">Titular y subdelegado operan con las mismas capacidades de CLUB_DELEGATE, según permisos vigentes y ámbito. No hay modo sustitución. Cada solicitud y firma conserva su autoría.</p>
     {error && <p id={`${id}-error`} className="mt-2 text-sm text-danger">{error}</p>}
   </div>;
 }

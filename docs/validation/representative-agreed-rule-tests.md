@@ -83,3 +83,35 @@ procesos propios antes de afirmar limpieza.
 Limpieza de PG15 verificada antes de PG17; ambas limpias al terminar.
 Verificación registrada: 2026-10-30T20:24:12.193Z. Evidencia privada duradera y
 resumen saneado enlazados desde la matriz. No reutilizar este run-id.
+
+## Incremento acordado el 1 de noviembre — aprobado E7
+
+Se añade equal-capabilities-scoped-authorship, sin retirar las tres regresiones
+aprobadas E6. Crea PRIMARY y DEPUTY de personas distintas vigentes en el mismo
+club; comprueba CREATE/READ/UPDATE en club propio y denegación en club ajeno para
+ambos. Revoca UPDATE del catálogo solo en el fixture desechable, exige denegación
+para ambos y restaura exactamente la concesión. Cada actor tiene una corrección
+propia en otra temporada: el guard de carga permite la propia y deniega la del
+otro, manteniendo requested_by. No necesita que el titular esté ausente.
+
+**Aprobado E7 en PostgreSQL 15 y 17**, con limpieza verificada entre versiones
+y al terminar. No se atribuye este cuarto caso a E6. test:ci no ejecuta base.
+Evidencia privada duradera, hashes y resultados saneados enlazados desde la matriz.
+
+Comando histórico autorizado y ejecutado; run-id consumido:
+
+```sh
+npm run test:delegate-isolated -- --execute --run-id 43a36e41-31cf-4dae-b1c1-042464fc41f7
+```
+
+PG15 → limpieza verificada → PG17 → limpieza. Contenedores/redes
+pdgld106-43a36e41-31cf-4dae-b1c1-042464fc41f7-pg15/17 y sufijo -net; tmpfs,
+768 MiB y 2 CPU por contenedor; solo loopback 55415/55417. Bases padre
+pdgld48_test_43a36e4131cf4d15/17 e interiores pdgld106_model_43a36e4131cf4d15/17.
+Raíz privada macOS /private/tmp/pdgld106-<UUID> (Linux: /tmp), sin montajes.
+Aplica migraciones SQL y fixtures solo ahí; no seeds, Next, npm ci, Chrome o
+Preview. Conserva evidencia saneada; elimina únicamente recursos propios
+verificados. Ambas versiones aprobaron. Reemplazos/cierres/historial completo
+son seguimiento separado, sin bloquear el incremento básico. E8 aprobó además
+las carreras HTTP de alta por cargo en 15/17, sin repetir esta suite SQL;
+ver la [matriz](account-delegate-acceptance-matrix.md).

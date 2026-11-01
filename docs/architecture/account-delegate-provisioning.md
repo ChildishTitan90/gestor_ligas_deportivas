@@ -1,5 +1,16 @@
 # PDGLD-107 — Alta de representantes con cargo explícito
 
+## Alcance vigente — acuerdo de Víctor, 1 de noviembre de 2026
+
+Un titular y un subdelegado vigentes por club, personas distintas. Ambos operan
+normalmente con las mismas capacidades CLUB_DELEGATE según permisos, ámbito y
+vigencias, sin modo sustitución. La igualdad no transfiere autoría de solicitudes
+ni firmas. Reemplazos, cierres e historial administrativo completo quedan fuera
+de este incremento, no están implementados y requieren seguimiento separado.
+Se conservan datos, periodos y auditoría. La matriz actualizada prevalece sobre
+los pendientes de alcance anteriores en la cronología de este documento.
+
+
 Implementación sobre la rama de PDGLD-106, sin reescribir sus migraciones ni alterar
 facultades del subdelegado, propiedad de solicitudes o acceso a firmas. La evidencia
 SQL 15/17 de PDGLD-106 sigue siendo válida para el modelo. La ampliación HTTP/SSR
