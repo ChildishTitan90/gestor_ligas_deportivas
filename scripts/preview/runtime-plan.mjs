@@ -21,8 +21,9 @@ read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competitio
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
   billing_plans: ['id', 'season_id'], club_team_changes: ['id', 'season_id'],
-  competition_rules: ['id', 'season_id', 'version_number', 'status', 'created_at'],
-  // create() sin select devuelve también validated_by, aunque nunca lo escriba.
+  // update() de aprobación devuelve todos los escalares, incluido file_id.
+  competition_rules: ['id', 'season_id', 'version_number', 'status', 'created_at', 'file_id', 'approved_by', 'approved_at'],
+  // create() sin select devuelve también validated_by.
   competition_rule_parameters: ['id', 'competition_rule_id', 'parameter_key', 'parameter_value', 'requires_validation', 'validated_by'],
   competition_stages: ['id', 'season_category_id', 'season_id'],
   document_requirements: ['id', 'season_category_id'], imports: ['id', 'season_id'],
@@ -58,6 +59,8 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at'],
 };
 const update = {
+  competition_rules: ['status', 'approved_by', 'approved_at'],
+  competition_rule_parameters: ['requires_validation', 'validated_by'],
   club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version'],
   club_affiliation_categories: ['authorized_by', 'authorized_at'],
   club_officers: ['person_id', 'signature_file_id'],

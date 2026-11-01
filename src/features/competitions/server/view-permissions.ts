@@ -10,6 +10,6 @@ export async function getConfigurationCapabilities(seasonId: string) {
       try { await assertPermission(tx, actor.id, { module, action, context: { seasonId } }); return true; }
       catch (error) { if (error instanceof AuthorizationError) return false; throw error; }
     }
-    return { create: await allowed("competitions", "CREATE"), update: await allowed("competitions", "UPDATE"), distribute: await allowed("clubs", "APPROVE") };
+    return { create: await allowed("competitions", "CREATE"), update: await allowed("competitions", "UPDATE"), approve: await allowed("competitions", "APPROVE"), distribute: await allowed("clubs", "APPROVE") };
   });
 }

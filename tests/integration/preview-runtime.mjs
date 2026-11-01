@@ -75,19 +75,19 @@ export async function verifyPreviewRuntime(client) {
       'UPDATE sports_management.user_roles SET id=id',
       'UPDATE sports_management.roles SET id=id',
       'UPDATE sports_management.groups SET id=id',
+      'UPDATE sports_management.groups SET season_id=season_id',
       'UPDATE sports_management.categories SET name=name',
       'UPDATE sports_management.seasons SET league_id=league_id',
       'UPDATE sports_management.season_categories SET category_id=category_id',
       'UPDATE sports_management.season_teams SET team_id=team_id',
-      "UPDATE sports_management.competition_rules SET status='APPROVED'",
-      'UPDATE sports_management.competition_rule_parameters SET requires_validation=false',
+      'UPDATE sports_management.competition_rules SET season_id=season_id',
+      'UPDATE sports_management.competition_rule_parameters SET parameter_value=parameter_value',
       'DELETE FROM sports_management.competition_rules',
       'DELETE FROM sports_management.competition_rule_parameters',
       'DELETE FROM sports_management.match_results',
       'SELECT * FROM sports_management.imports',
       'SELECT * FROM sports_management.official_documents',
       'SELECT home_score FROM sports_management.match_results',
-      'SELECT approved_by FROM sports_management.competition_rules',
       'TRUNCATE sports_management.groups',
       'CREATE TABLE sports_management.preview_forbidden(id uuid)',
       'UPDATE sports_management.teams SET name=name',
@@ -101,6 +101,21 @@ export async function verifyPreviewRuntime(client) {
       await client.query('SAVEPOINT denied');
       await assert.rejects(client.query(sql), { code: '42501' });
       await client.query('ROLLBACK TO SAVEPOINT denied');
+    }
+    // La aprobación explícita escribe estado/validador; sus triggers mantienen
+    // inmutable la versión aprobada también usando el LOGIN limitado.
+    const approved = (await client.query(`SELECT r.id FROM sports_management.competition_rules r
+      WHERE r.status='APPROVED' AND EXISTS(SELECT 1 FROM sports_management.competition_rule_parameters p
+        WHERE p.competition_rule_id=r.id) LIMIT 1`)).rows[0];
+    if (approved) {
+      for (const sql of [
+        "UPDATE sports_management.competition_rules SET status='DRAFT' WHERE id=$1",
+        'UPDATE sports_management.competition_rule_parameters SET requires_validation=true WHERE competition_rule_id=$1',
+      ]) {
+        await client.query('SAVEPOINT approved_history');
+        await assert.rejects(client.query(sql, [approved.id]), { code: 'P0001' });
+        await client.query('ROLLBACK TO SAVEPOINT approved_history');
+      }
     }
     await client.query('RESET ROLE');
     await client.query('COMMIT');

@@ -55,7 +55,7 @@ export async function runLifecycleTests({t,db,admin,reader,baseUrl,league,users}
  });
  await t.test('cierre: partidos pendientes bloquean API y SQL; resultado definitivo habilita cierre',async()=>{
   // Reutiliza solo el fixture aislado de distribución, nunca la base del usuario.
-  const group=(await db.query(`SELECT e.season_id,e.group_id,array_agg(e.id) teams FROM sports_management.season_teams e JOIN sports_management.seasons s ON s.id=e.season_id WHERE s.status IN ('PLANNED','ACTIVE') AND e.group_id IS NOT NULL GROUP BY e.season_id,e.group_id HAVING count(*)>=2 LIMIT 1`)).rows[0];assert.ok(group);
+  const group=(await db.query(`SELECT e.season_id,e.group_id,array_agg(e.id) teams FROM sports_management.season_teams e JOIN sports_management.seasons s ON s.id=e.season_id WHERE s.league_id=$1 AND s.status IN ('PLANNED','ACTIVE') AND e.group_id IS NOT NULL GROUP BY e.season_id,e.group_id HAVING count(*)>=2 LIMIT 1`,[league])).rows[0];assert.ok(group);
   const sid=group.season_id;
   const matchday=(await db.query("INSERT INTO sports_management.matchdays(season_id,number,start_date,end_date) SELECT $1,coalesce(max(number),0)+1,'2026-02-01','2026-02-02' FROM sports_management.matchdays WHERE season_id=$1 RETURNING id",[sid])).rows[0].id;
   const match=(await db.query("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id) VALUES($1,$2,$3,'Cierre-1',$4,$5) RETURNING id",[sid,group.group_id,matchday,group.teams[0],group.teams[1]])).rows[0].id;

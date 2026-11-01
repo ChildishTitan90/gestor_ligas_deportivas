@@ -5,10 +5,15 @@
 - Rama aislada: `fix/PDGLD-38-permisos-preview`.
 - Base: cabeza remota del PR #38, `1a16f8657fcf81af6cea0a2c73d148fa9995452f`.
   Incluye `origin/develop` en `fb64b4f068b6121063475333320524725436e0c0`.
+- Integración de conflictos del PR #40: incorpora la actualización de Checo
+  `649b9e83df6f4483b9256ac5b35311dc64feaff2`, incluida su aprobación explícita
+  de reglamentos y la protección del inicio de competencia.
 - El trabajo de PDGLD-13/14 permanece en su rama y copia originales.
 - Corrección preparada en código. **Permisos remotos sin aplicar; Vercel sin verificar.**
 - No cambia migraciones, producción, matriz de permisos de negocio ni criterios
-  de aprobación de reglas. Los ejemplos de política y puntuación en pruebas son
+  de aprobación de reglas definidos por Checo. Crear o iniciar no aprueba reglas;
+  se conserva su confirmación explícita y permiso independiente APPROVE.
+  Los ejemplos de política y puntuación en pruebas son
   sintéticos; no representan acuerdos oficiales de la Liga.
 
 ## Diagnóstico y alcance del plan
@@ -28,6 +33,7 @@ provisión y mantenimiento. Las ampliaciones corresponden a estas llamadas:
 | Crear liga (acción existente del PR) | `leagues`, autorización y auditoría | INSERT nombre, zona y default `is_active` |
 | Consultar/crear/editar temporadas | `seasons`, `leagues`, `sports` | INSERT datos de alta y defaults; UPDATE nombre, fechas y versión |
 | Guardar borradores versionados | `competition_rules`, `competition_rule_parameters`, `seasons` | INSERT borrador/parámetros y defaults; UPDATE versión de temporada |
+| Aprobación explícita existente de Checo | reglas, parámetros y temporada | UPDATE estado/responsable/fecha de regla y validación/responsable de parámetros; UPDATE versión de temporada |
 | Catálogo y participación de categoría | `categories`, `season_categories`, reglas | INSERT catálogo/participación; UPDATE regla, orden y tipo |
 | Formatos y políticas de jugadores | participación, grupos, afiliaciones, registros de jugadores | UPDATE formato, política, edades, corte y pendiente; INSERT grupo General |
 | Crear/editar/retirar grupos vacíos | `groups`, equipos, partidos, `standing_versions` | INSERT grupo; UPDATE nombre; DELETE grupo |
@@ -62,6 +68,12 @@ Las políticas conocidas con otra expresión, comando o destinatario también
 se rechazan. Se conservan comprobaciones de proyecto, TLS, propietario, marca
 de pruebas, RLS, membresías, ACL efectivas y ledger de Prisma. No se cambia
 LOGIN, contraseña, atributos, RLS ni permisos de `anon`/`authenticated`.
+
+La resolución conserva los permisos de aprobación añadidos por Checo, así como
+la lectura de los escalares que devuelve su `update()` de reglas. Las pruebas
+negativas siguen rechazando cambios de identidad y contenido de parámetros;
+los triggers impiden modificar una versión aprobada incluso con el rol limitado.
+Los archivos de aplicación del resultado son idénticos a los de su rama vigente.
 
 ## Pruebas reproducibles
 
@@ -99,7 +111,7 @@ de cuentas, afiliaciones e inscripción legada.
 El job `database` del CI ejecuta ambas suites secuencialmente en PostgreSQL 15 y
 17. No realizan consultas a las API de CURP/INE ni usan Supabase remoto.
 
-Resultado local final: 54 pruebas de competencias/mantenimiento aprobadas;
+Resultado de la primera entrega, antes de integrar `649b9e8`: 54 pruebas de competencias/mantenimiento aprobadas;
 regresión Preview con 67 aprobadas, cero fallos y dos omisiones explícitas del
 runner (reconstrucción de migración legada y comprobación de Docker sin RLS,
 reservadas a sus suites específicas). Los 27 controles de `test:ci`, TypeScript,
@@ -107,6 +119,15 @@ ESLint completo y `git diff --check` pasaron. Se usó una base temporal en el
 PostgreSQL 15 local de Docker, puerto 5433, sin activar RLS en la base persistente.
 No se ejecutó PostgreSQL 17 localmente ni el CI remoto, build de producción o
 recorrido en navegador de Vercel. Tampoco se aplicaron permisos en Supabase.
+
+Resultado de la integración del PR #40 con `649b9e8`: `test:preview-competitions`
+aprueba 59 casos y `test:preview-runtime` aprueba 125, sin fallos y con las mismas
+dos omisiones previstas. El autorizador de Preview ejecutado en proceso separado
+también pasa. Pasan los 27 controles de `test:ci`, las tres pruebas puras de
+política de jugadores, TypeScript, ESLint y `git diff --check`. Chrome headless
+pasa el caso de doble envío/acuse/conflicto/descarte con respuestas sintéticas.
+Se conserva la distinción entre esas pruebas locales y Vercel/Supabase remotos,
+que siguen sin modificarse ni verificarse en esta integración.
 
 ## Procedimiento pendiente para Supabase de pruebas y Vercel
 
@@ -143,7 +164,10 @@ historial completo. No trasladar archivos desde la rama de jugadores.
    acuerda comprobarla dos veces; no requiere redeploy por sí misma.
 6. Con cuentas sintéticas ya autorizadas, verificar en Vercel las lecturas y
    escrituras de la tabla anterior, tanto General como fase de grupos. Comprobar
-   cuenta sin permiso y liga ajena; mantener reglas como borradores pendientes.
+   cuenta sin permiso y liga ajena. Las reglas pendientes de la Liga se conservan
+   como borradores. Para probar el inicio usar solo reglas sintéticas revisadas y
+   aprobadas explícitamente por una cuenta autorizada; esto no acredita reglas
+   oficiales ni resuelve decisiones pendientes con Claudio o la Liga.
    Usar temporadas desechables: inicio y cierre tienen barreras irreversibles de
    negocio y no se deben probar sobre temporadas que el equipo quiera conservar.
    Comprobar reintento de inscripción, distribución, versiones y rechazo de borrado
