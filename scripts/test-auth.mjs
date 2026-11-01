@@ -46,7 +46,8 @@ function command(commandArgs, env, showTestOutput = false) {
     child.once('exit', (code) => {
       if (showTestOutput) {
         let safe = output.replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, '[conexión omitida]');
-        for (const key of ['DATABASE_URL', 'DIRECT_URL', 'NEXTAUTH_SECRET'])
+        safe=safe.replace(/https?:\/\/[^\s"']*\/storage\/v1\/[^\s"']+/gi,'[enlace privado omitido]');
+        for (const key of ['DATABASE_URL', 'DIRECT_URL', 'NEXTAUTH_SECRET','SUPABASE_URL','SUPABASE_STORAGE_SERVER_KEY'])
           if (env[key]) safe = safe.replaceAll(env[key], '[secreto omitido]');
         safe = safe.replace(/\$argon2(?:id|i|d)\$[^\s"']+/g, '[hash omitido]');
         console.log(safe);
@@ -183,12 +184,17 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--players'].includes(arg)))
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--players','--documents-real'].includes(arg)))
     throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --players].');
   if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
   }
   const target = localConnection();
+  let documentStorageTest;
+  if(process.argv.includes('--documents-real')){
+    const {readPlayerDocumentTestConfiguration}=await import('./verification/player-document-test-config.mjs');
+    documentStorageTest=await readPlayerDocumentTestConfiguration();
+  }
   stage = 'conexión al PostgreSQL local';
   admin = new pg.Client({ connectionString: target.href, connectionTimeoutMillis: 8_000 });
   await admin.connect();
@@ -203,6 +209,9 @@ try {
     NEXT_TELEMETRY_DISABLED: '1', AUTH_TEST_RUN: '1', AUTH_IDLE_TIMEOUT_MINUTES: '30',
     AUTH_MAX_FAILED_ATTEMPTS: '5', AUTH_LOCKOUT_MINUTES: '15', NODE_ENV: 'development' };
   delete childEnv.NEXTAUTH_URL_INTERNAL;
+  delete childEnv.PLAYER_DOCUMENT_STORAGE_REAL_TEST;
+  delete childEnv.PLAYER_DOCUMENT_TEST_POLICY;
+  delete childEnv.PLAYER_DOCUMENT_HTTP_BASE_URL;
   // Las suites automatizadas nunca usan el Storage real configurado en .env.
   // La demostración manual conserva su configuración explícita.
   if (!process.argv.includes('--demo')) {
@@ -210,6 +219,14 @@ try {
     delete childEnv.VMX_API_KEY;
     childEnv.SUPABASE_URL = 'https://storage.example.test';
     childEnv.SUPABASE_STORAGE_SERVER_KEY = 'test-only-no-real-storage';
+  }
+  if(documentStorageTest){
+    Object.assign(childEnv,documentStorageTest);
+    childEnv.PLAYER_DOCUMENT_STORAGE_REAL_TEST='1';
+    childEnv.PLAYER_DOCUMENT_HTTP_BASE_URL=baseUrl;
+    childEnv.PLAYER_DOCUMENT_TEST_POLICY=JSON.stringify({referenceDate:'2026-01-01',opensAt:new Date(Date.now()-60000).toISOString(),closesAt:new Date(Date.now()+3600000).toISOString()});
+    childEnv.PLAYER_DOCUMENT_TEST_MANIFEST=fileURLToPath(new URL(`player-documents-${databaseName}.json`,new URL(`file:///${process.env.TEMP.replaceAll('\\','/')}/`)));
+    console.log(`Manifiesto privado de objetos sintéticos: ${childEnv.PLAYER_DOCUMENT_TEST_MANIFEST}`);
   }
   if (process.argv.includes('--benchmark-options')) {
     childEnv.ACCOUNT_OPTIONS_METRICS = '1';
@@ -234,16 +251,20 @@ try {
     childEnv.DATABASE_URL = runtimeUrl.href;
     delete childEnv.DATABASE_CA_CERT;
   }
-  if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments') || process.argv.includes('--players')) {
+  if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments') || process.argv.includes('--players') || documentStorageTest) {
     stage = 'comparación de migraciones y esquema';
     await command(['node_modules/prisma/build/index.js', 'migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code'], childEnv, true);
   }
   stage = 'inicio de Next.js';
   if (!process.argv.includes('--players')) await startServer();
-  if (process.argv.includes('--players')) {
+  if (process.argv.includes('--players') || documentStorageTest) {
     stage = 'integridad y permisos del servicio de jugadores en PostgreSQL temporal';
     await command(['--conditions=react-server', '--import', 'tsx', '--test',
       'tests/integration/player-registrations.test.ts'], childEnv, true);
+    if(documentStorageTest && process.env.PLAYER_DOCUMENT_KEEP_SERVER==='1'){
+      console.log('Servidor aislado disponible para revisión. Los accesos sintéticos están en el archivo privado .session.json junto al manifiesto. Enter o Ctrl+C cierra y elimina solo la BD temporal.');
+      await new Promise(resolve=>{process.stdin.once('data',resolve);process.stdin.once('end',resolve);process.stdin.resume();});
+    }
   } else if (process.argv.includes('--demo') || process.argv.includes('--affiliation-demo')) {
     stage = 'carga de datos sintéticos';
     const client = new pg.Client({ connectionString: databaseUrl });

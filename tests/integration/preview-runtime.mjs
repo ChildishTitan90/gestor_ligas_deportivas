@@ -61,6 +61,13 @@ export async function verifyPreviewRuntime(client) {
     const permission = (await client.query('SELECT id FROM sports_management.permissions LIMIT 1')).rows[0];
     assert.ok(permission);
     await client.query('SELECT id FROM sports_management.user_roles FOR SHARE');
+    await client.query('SELECT id FROM sports_management.document_requirements FOR SHARE');
+    await client.query('SELECT id FROM sports_management.document_types FOR SHARE');
+    await client.query('SELECT id,registration_id,file_id,status FROM sports_management.player_documents LIMIT 0');
+    await client.query(`INSERT INTO sports_management.player_documents(registration_id,document_type_id,file_id,status)
+      SELECT gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'PENDING' WHERE false`);
+    await client.query(`INSERT INTO sports_management.audit_logs(id,user_id,action,table_name,entity_id)
+      SELECT gen_random_uuid(),gen_random_uuid(),'PLAYER_DOCUMENT_PREPARED','player_documents',gen_random_uuid() WHERE false`);
     for (const sql of [
       `UPDATE sports_management.permissions SET id=id WHERE id='${permission.id}'`,
       'UPDATE sports_management.user_roles SET id=id',
@@ -70,6 +77,9 @@ export async function verifyPreviewRuntime(client) {
       'UPDATE sports_management.season_teams SET status=status',
       'UPDATE sports_management.club_affiliations SET id=id',
       'UPDATE sports_management.club_affiliation_categories SET category_id=category_id',
+      'UPDATE sports_management.player_documents SET status=status',
+      'UPDATE sports_management.document_requirements SET quantity=quantity',
+      'UPDATE sports_management.document_types SET name=name',
       'UPDATE sports_management.team_enrollment_operations SET outcome=outcome',
       'DELETE FROM sports_management.team_enrollment_operations',
       'SELECT * FROM public._prisma_migrations',
@@ -92,6 +102,7 @@ export async function verifyPreviewRuntime(client) {
     for (const mutation of [
       `COMMENT ON DATABASE "${(await client.query('SELECT current_database() name')).rows[0].name}" IS ''`,
       'ALTER TABLE sports_management.groups DISABLE ROW LEVEL SECURITY',
+      'ALTER TABLE sports_management.club_affiliations DISABLE TRIGGER guard_submission_identity',
       'GRANT SELECT ON public._prisma_migrations TO gestor_ligas_preview',
       'GRANT DELETE ON sports_management.teams TO PUBLIC',
       'GRANT anon TO gestor_ligas_preview',

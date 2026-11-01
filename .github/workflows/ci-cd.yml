@@ -59,7 +59,7 @@ jobs:
       - name: Probar firmas de afiliación
         run: npm run test:signatures
       - name: Probar validación local de identidad de jugadores
-        run: npm run test:player-identity && npm run test:curp-provider
+        run: npm run test:player-identity && npm run test:curp-provider && npm run test:player-dossier && npm run test:player-document-storage
       - name: Probar recuperación de inscripciones y capacidades del cliente
         run: npm run test:team-enrollment-client
       - name: Revisar el código

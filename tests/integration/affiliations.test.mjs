@@ -503,6 +503,8 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           assert.equal(result.reviewPhase, 'AWAITING_REVIEW'); assert.equal(result.version, 2);
           const row = (await db.query('SELECT submission_key,submission_hash FROM sports_management.club_affiliations WHERE id=$1', [legacy.id])).rows[0];
           assert.equal(row.submission_key, request.submissionKey); assert.ok(row.submission_hash);
+          await assert.rejects(db.query('UPDATE sports_management.club_affiliations SET submission_key=$1 WHERE id=$2',[randomUUID(),legacy.id]),{code:'42501'});
+          assert.equal((await db.query('SELECT submission_key FROM sports_management.club_affiliations WHERE id=$1',[legacy.id])).rows[0].submission_key,request.submissionKey);
           assert.equal(Number((await db.query('SELECT count(*) FROM sports_management.club_officers WHERE affiliation_id=$1',[legacy.id])).rows[0].count),3);
           assert.equal(Number((await db.query('SELECT count(*) FROM sports_management.club_affiliation_categories WHERE affiliation_id=$1',[legacy.id])).rows[0].count),legacyContext.categories.length);
           assert.equal((await send(request)).status, 409);

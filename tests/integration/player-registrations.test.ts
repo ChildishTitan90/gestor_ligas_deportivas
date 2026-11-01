@@ -11,6 +11,10 @@ import { registerPlayerForActor } from "../../src/features/players/server/servic
 import { readPlayerRegistrationForActor } from "../../src/features/players/server/queries";
 import { PlayerRegistrationError } from "../../src/features/players/server/access";
 import {reviewDetailForActor,decideIdentityReviewForActor} from "../../src/features/players/server/identity-review";
+import {readPlayerDossierForActor} from "../../src/features/players/server/document-queries";
+import {preparePlayerDocumentForActor,confirmPlayerDocumentForActor,readPlayerDocumentUploadForActor,PlayerDocumentError} from "../../src/features/players/server/document-service";
+import {validatePrivateFileContent} from "../../src/server/files/private-file-validation";
+import {PDFDocument} from "pdf-lib";
 import { readPlayerCurpStatusForActor, verifyPlayerCurpForActor } from "../../src/features/players/server/curp-verification-service";
 import { CurpVerificationError } from "../../src/features/players/server/curp-check-record";
 import { createVerificamexCurpAdapter, type CurpProvider } from "../../src/features/players/server/verificamex-curp";
@@ -237,6 +241,123 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
       const result=await Promise.allSettled(["DISTINCT_IDENTITIES_CONFIRMED","DOCUMENTS_INSUFFICIENT"].map(reason=>decideIdentityReviewForActor(actors.admin,first.registrationId,{fingerprint:full.fingerprint,reason})));
       assert.equal(result.filter(r=>r.status==="fulfilled").length,1);
       assert.equal(await db.audit_logs.count({where:{entity_id:first.registrationId,action:"PLAYER_IDENTITY_REVIEWED"}}),1);
+    });
+
+    await t.test("PDGLD-100: expediente reutiliza inscripción y deniega otro club",async()=>{
+      const registered=await registerPlayerForActor(actors.delegate,input(team.id,"1982-11-12"));
+      await assert.rejects(readPlayerDossierForActor(actors.other,registered.registrationId),error=>error instanceof AuthorizationError);
+      await assert.rejects(readPlayerDossierForActor("",registered.registrationId),error=>error instanceof AuthorizationError);
+      const dossier=await readPlayerDossierForActor(actors.delegate,registered.registrationId);
+      assert.equal(dossier.configuration,"MISSING");assert.equal(dossier.approvalAllowed,false);
+      assert.equal(JSON.stringify(dossier).includes("storage_key"),false);
+    });
+
+    await t.test("PDGLD-100: carga simulada, confirmación, reemplazo y recuperación sin duplicados",async()=>{
+      const registered=await registerPlayerForActor(actors.delegate,input(team.id,"1982-03-20"));
+      const type=await db.document_types.findUniqueOrThrow({where:{code:"CURP"}});
+      const requirement=await db.document_requirements.create({data:{season_category_id:registered.seasonCategoryId,document_type_id:type.id}});
+      const pdf=await PDFDocument.create();pdf.addPage();
+      const bytes=await pdf.save();const file=await validatePrivateFileContent(bytes,"application/pdf");
+      const body={operationKey:randomUUID(),registrationId:registered.registrationId,requirementId:requirement.id,slot:1,
+        replacesDocumentId:null as string|null,mimeType:file.mimeType,sizeBytes:file.sizeBytes,sha256:file.sha256};
+      const policy={referenceDate:"2026-01-01",opensAt:new Date(Date.now()-60_000),closesAt:new Date(Date.now()+600_000)};
+      const code=(value:string)=>(error:unknown)=>error instanceof PlayerDocumentError && error.code===value;
+      await assert.rejects(preparePlayerDocumentForActor(actors.delegate,body),code("CONFIGURATION_REQUIRED"));
+      await assert.rejects(preparePlayerDocumentForActor(actors.other,body,policy),error=>error instanceof AuthorizationError);
+      const prepared=await preparePlayerDocumentForActor(actors.delegate,body,policy);
+      assert.equal((await readPlayerDocumentUploadForActor(actors.delegate,prepared.uploadId)).state,"PENDING_STORAGE");
+      assert.deepEqual(await preparePlayerDocumentForActor(actors.delegate,body,policy),prepared);
+      await assert.rejects(preparePlayerDocumentForActor(actors.delegate,{...body,sha256:"0".repeat(64)},policy),code("UPLOAD_CONFLICT"));
+      assert.equal(await db.player_documents.count({where:{registration_id:registered.registrationId}}),0);
+      const unavailable={read:async()=>{throw new Error("synthetic network failure");}};
+      await assert.rejects(confirmPlayerDocumentForActor(actors.delegate,prepared.uploadId,unavailable,policy),code("STORAGE_UNCONFIRMED"));
+      assert.equal((await readPlayerDossierForActor(actors.delegate,registered.registrationId)).requirements[0].missing,1);
+      let calls=0;
+      const storage={read:async(key:string,max:number)=>{calls++;assert.ok(key.startsWith("player-documents/v1/"));assert.ok(max>=bytes.length);return bytes;}};
+      await assert.rejects(confirmPlayerDocumentForActor(actors.other,prepared.uploadId,storage,policy),error=>error instanceof AuthorizationError);
+      assert.equal(calls,0);
+      const outcomes=await Promise.all([confirmPlayerDocumentForActor(actors.delegate,prepared.uploadId,storage,policy),confirmPlayerDocumentForActor(actors.delegate,prepared.uploadId,storage,policy)]);
+      assert.equal(outcomes[0].documentId,outcomes[1].documentId);
+      assert.equal((await readPlayerDocumentUploadForActor(actors.delegate,prepared.uploadId)).state,"CONFIRMED");
+      assert.equal(await db.player_documents.count({where:{registration_id:registered.registrationId}}),1);
+      assert.equal((await readPlayerDossierForActor(actors.delegate,registered.registrationId)).requirements[0].missing,0);
+      const oldId=outcomes[0].documentId;
+      await db.player_documents.update({where:{id:oldId},data:{status:"VALIDATED",reviewed_by:actors.secretary}});
+      const replacement={...body,operationKey:randomUUID(),replacesDocumentId:oldId};
+      const a=await preparePlayerDocumentForActor(actors.delegate,replacement,policy);
+      const b=await preparePlayerDocumentForActor(actors.delegate,{...replacement,operationKey:randomUUID()},policy);
+      const attempts=await Promise.allSettled([confirmPlayerDocumentForActor(actors.delegate,a.uploadId,storage,policy),confirmPlayerDocumentForActor(actors.delegate,b.uploadId,storage,policy)]);
+      assert.equal(attempts.filter(result=>result.status==="fulfilled").length,1);
+      assert.equal(await db.player_documents.count({where:{registration_id:registered.registrationId}}),2);
+      const dossier=await readPlayerDossierForActor(actors.delegate,registered.registrationId);
+      assert.equal(dossier.documents.filter(d=>d.superseded).length,1);
+      assert.equal(dossier.requirements[0].approved,0);
+      assert.equal(dossier.approvalAllowed,false);
+      assert.equal((await db.player_documents.findUniqueOrThrow({where:{id:oldId}})).status,"VALIDATED");
+      assert.equal(JSON.stringify(dossier).includes("storage_key"),false);
+      const active=dossier.documents.find(d=>!d.superseded)!;
+      const late=await preparePlayerDocumentForActor(actors.delegate,{...replacement,operationKey:randomUUID(),replacesDocumentId:active.id},policy);
+      await assert.rejects(confirmPlayerDocumentForActor(actors.delegate,late.uploadId,{read:async()=>new Uint8Array([1,2,3])},policy));
+      assert.equal(await db.player_documents.count({where:{registration_id:registered.registrationId}}),2);
+      await db.$executeRaw`CREATE FUNCTION pdgld97_test_clock.reject_document_receipt() RETURNS trigger LANGUAGE plpgsql AS
+        'BEGIN IF NEW.action=''PLAYER_DOCUMENT_CONFIRMED'' THEN RAISE EXCEPTION ''synthetic receipt failure''; END IF; RETURN NEW; END'`;
+      await db.$executeRaw`CREATE TRIGGER p100_reject_receipt BEFORE INSERT ON sports_management.audit_logs FOR EACH ROW EXECUTE FUNCTION pdgld97_test_clock.reject_document_receipt()`;
+      const beforeFiles=await db.files.count();
+      try{await assert.rejects(confirmPlayerDocumentForActor(actors.delegate,late.uploadId,storage,policy));}
+      finally{await db.$executeRaw`DROP TRIGGER p100_reject_receipt ON sports_management.audit_logs`;}
+      assert.equal(await db.files.count(),beforeFiles);
+      assert.equal(await db.player_documents.count({where:{registration_id:registered.registrationId}}),2);
+      await confirmPlayerDocumentForActor(actors.delegate,late.uploadId,storage,policy);
+      assert.equal(await db.player_documents.count({where:{registration_id:registered.registrationId}}),3);
+      await db.people.update({where:{id:registered.personId},data:{first_name:"Alvara"}});
+      assert.equal((await readPlayerDossierForActor(actors.delegate,registered.registrationId)).requirements[0].missing,1);
+      await db.document_requirements.delete({where:{id:requirement.id}});
+    });
+
+    await t.test("PDGLD-100: credencial estudiantil solo opcional y para menores según referencia explícita",async()=>{
+      const minorInput=input(team.id,"2009-05-06");minorInput.identity.curp=syntheticCurp("2009-05-06","SIAA","A");
+      const minor=await registerPlayerForActor(actors.delegate,minorInput);
+      const adult=await registerPlayerForActor(actors.delegate,input(team.id,"1981-05-06"));
+      const type=await db.document_types.create({data:{code:"STUDENT_ID",name:"Credencial de estudiante sintética"}});
+      const requirement=await db.document_requirements.create({data:{season_category_id:minor.seasonCategoryId,document_type_id:type.id,is_required:false}});
+      const pdf=await PDFDocument.create();pdf.addPage();const bytes=await pdf.save();
+      const file=await validatePrivateFileContent(bytes,"application/pdf");
+      const body={operationKey:randomUUID(),registrationId:minor.registrationId,requirementId:requirement.id,slot:1,replacesDocumentId:null,
+        mimeType:file.mimeType,sizeBytes:file.sizeBytes,sha256:file.sha256};
+      const policy={referenceDate:"2026-01-01",opensAt:new Date(Date.now()-60_000),closesAt:new Date(Date.now()+600_000)};
+      const prepared=await preparePlayerDocumentForActor(actors.delegate,body,policy);
+      assert.equal((await readPlayerDossierForActor(actors.delegate,minor.registrationId)).requirements[0].missing,0);
+      await confirmPlayerDocumentForActor(actors.delegate,prepared.uploadId,{read:async()=>bytes},policy);
+      await assert.rejects(preparePlayerDocumentForActor(actors.delegate,{...body,operationKey:randomUUID(),registrationId:adult.registrationId},policy));
+      await db.document_requirements.update({where:{id:requirement.id},data:{is_required:true}});
+      await assert.rejects(preparePlayerDocumentForActor(actors.delegate,{...body,operationKey:randomUUID()},policy));
+      await db.document_requirements.delete({where:{id:requirement.id}});
+    });
+
+    await t.test("PDGLD-100: edad al registro y recepción documental sin heredar la ventana de altas",async()=>{
+      const payload=input(team.id,"2008-10-27");payload.identity.curp=syntheticCurp("2008-10-27","SIAA","A");
+      const registered=await registerPlayerForActor(actors.delegate,payload);
+      await db.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','PDGLD-100: fecha sintética de registro para probar edad cumplida',true)`;
+        await tx.player_registrations.update({where:{id:registered.registrationId},data:{registered_at:new Date("2026-10-26T12:00:00-06:00")}});
+      });
+      const type=await db.document_types.findUniqueOrThrow({where:{code:"CURP"}});
+      const requirement=await db.document_requirements.create({data:{season_category_id:registered.seasonCategoryId,document_type_id:type.id}});
+      const dossier=await readPlayerDossierForActor(actors.delegate,registered.registrationId);
+      assert.equal(dossier.referenceDate,"2026-10-26");assert.equal(dossier.minorAtRegistration,true);
+      assert.ok(dossier.configurationIssues.includes("MISSING_GUARDIAN_REQUIREMENT"));
+      const pdf=await PDFDocument.create();pdf.addPage();const file=await validatePrivateFileContent(await pdf.save(),"application/pdf");
+      await setClock("2026-10-31T12:00:00-06:00");
+      try{const prepared=await preparePlayerDocumentForActor(actors.delegate,{operationKey:randomUUID(),registrationId:registered.registrationId,requirementId:requirement.id,slot:1,replacesDocumentId:null,mimeType:file.mimeType,sizeBytes:file.sizeBytes,sha256:file.sha256},
+        {referenceDate:"2026-10-26",window:"PENDING_DOSSIER_V1"});assert.ok(prepared.uploadId);}
+      finally{await setClock("2026-10-26T12:00:00-06:00");await db.document_requirements.delete({where:{id:requirement.id}});}
+      assert.equal((await readPlayerDossierForActor(actors.delegate,registered.registrationId)).approvalAllowed,false);
+    });
+
+    if(process.env.PLAYER_DOCUMENT_STORAGE_REAL_TEST==="1")await t.test("PDGLD-100: HTTP y transporte real exclusivamente en Supabase de pruebas",async()=>{
+      const registered=await registerPlayerForActor(actors.delegate,input(team.id,"1980-12-13"));
+      const {runPlayerDocumentStorageReal}=await import("./player-document-storage-real");
+      await runPlayerDocumentStorageReal(db,{delegate:actors.delegate,other:actors.other},registered);
     });
 
     await t.test("el índice de base protege pertenencia también ante escritores sin locks del servicio", async () => {

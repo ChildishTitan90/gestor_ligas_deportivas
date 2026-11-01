@@ -8,6 +8,7 @@ import { playerRequest, PlayerRequestError, playerListSchema, playerResultSchema
 import { playerErrorMessages } from "../player-feedback";
 import type { PlayerListItem, PlayerTeamOption } from "../types";
 import { CurpVerificationPanel } from "./curp-verification-panel";
+import Link from "next/link";
 
 export function PlayerRegistrationWorkspace({ actorId, teams, providerConfigured, fetcher = fetch }: {
   actorId: string; teams: readonly PlayerTeamOption[]; providerConfigured: boolean; fetcher?: typeof fetch;
@@ -128,7 +129,7 @@ export function PlayerRegistrationWorkspace({ actorId, teams, providerConfigured
     </form>
     {team && <section className="space-y-4" aria-label="Jugadores del equipo"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold text-primary">Jugadores de {team.teamName}</h2><button type="button" onClick={() => setRefresh(value => value + 1)} className={secondary}>Actualizar listado</button></div>
       {listMessage && <p role="status" className="rounded-xl border border-border bg-surface p-4">{listMessage}</p>}
-      <ul className="grid gap-3">{rows.map(row => <li key={row.registrationId} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4"><div><p className="font-semibold">{row.displayName}</p><p className="mt-1 text-sm text-muted">{row.status === "INELIGIBLE" ? "Pendiente de validación deportiva" : row.status === "ACTIVE" ? "Activo" : row.status === "WITHDRAWN" ? "Baja registrada" : "Suspendido"}{row.identityReviewStatus === "REQUIRED" ? " · Revisión de identidad pendiente" : ""}</p></div><button type="button" onClick={() => setSelectedRecord(row.registrationId)} className={secondary}>Consultar CURP</button></li>)}</ul>
+      <ul className="grid gap-3">{rows.map(row => <li key={row.registrationId} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4"><div><p className="font-semibold">{row.displayName}</p><p className="mt-1 text-sm text-muted">{row.status === "INELIGIBLE" ? "Pendiente de validación deportiva" : row.status === "ACTIVE" ? "Activo" : row.status === "WITHDRAWN" ? "Baja registrada" : "Suspendido"}{row.identityReviewStatus === "REQUIRED" ? " · Revisión de identidad pendiente" : ""}</p></div><div className="flex flex-wrap gap-3"><Link href={`/players/registrations/${row.registrationId}/documents`} className={secondary}>Expediente documental</Link><button type="button" onClick={() => setSelectedRecord(row.registrationId)} className={secondary}>Consultar CURP</button></div></li>)}</ul>
     </section>}
     {selectedRecord && <CurpVerificationPanel key={`${actorId}:${selectedRecord}`} actorId={actorId} registrationId={selectedRecord} providerConfigured={providerConfigured} fetcher={fetcher} />}
   </div>;

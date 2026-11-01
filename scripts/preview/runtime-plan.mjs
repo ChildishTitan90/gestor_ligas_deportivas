@@ -6,13 +6,14 @@ export const PREVIEW_MARKER = `PDGLD_PRUEBAS_ONLY=${PREVIEW_PROJECT}`;
 
 const read = ['audit_logs', 'authentication_events', 'categories', 'charges', 'club_affiliations',
   'club_affiliation_categories', 'club_officers', 'clubs', 'correction_authorizations', 'disciplinary_cases',
-  'files', 'groups', 'leagues', 'match_events', 'match_reports', 'matches', 'payment_voids', 'payments',
+  'document_requirements','document_types','player_documents','files', 'groups', 'leagues', 'match_events', 'match_reports', 'matches', 'payment_voids', 'payments',
   'people', 'permissions', 'player_registrations', 'player_curp_checks', 'referee_assignments', 'referees', 'role_permissions',
   'roles', 'schedule_proposals', 'season_categories', 'season_teams', 'seasons', 'sessions', 'sports',
   'teams', 'team_enrollment_operations', 'user_roles', 'users'];
 const insert = {
   // Prisma también materializa defaults escalares (now(), 0, 1, true) en INSERT.
-  audit_logs: ['user_id', 'action', 'table_name', 'entity_id', 'previous_data', 'new_data', 'reason', 'occurred_at'],
+  audit_logs: ['id','user_id', 'action', 'table_name', 'entity_id', 'previous_data', 'new_data', 'reason', 'occurred_at'],
+  player_documents:['registration_id','document_type_id','file_id','status'],
   authentication_events: ['user_id', 'action', 'occurred_at'],
   club_affiliations: ['season_id', 'club_id', 'league_id', 'reference_number', 'status', 'requested_by',
     'club_name', 'uniform_colors', 'submission_key', 'submission_hash', 'review_version'],
@@ -32,7 +33,7 @@ const insert = {
 };
 const update = {
   player_curp_checks: ['status', 'mismatched_fields', 'finished_at'],
-  club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version'],
+  club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version','submission_key','submission_hash'],
   club_affiliation_categories: ['authorized_by', 'authorized_at'],
   club_officers: ['person_id', 'signature_file_id'],
   role_permissions: ['context_only'],
@@ -40,7 +41,7 @@ const update = {
   users: ['password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version'],
 };
 const remove = ['role_permissions', 'club_affiliation_categories'];
-const lock = ['categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
+const lock = ['document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
   'match_events', 'match_reports', 'matches', 'payments', 'people', 'permissions', 'player_registrations',
   'referee_assignments', 'referees', 'roles', 'schedule_proposals', 'season_categories', 'season_teams',
   'seasons', 'teams', 'user_roles'];
@@ -77,6 +78,10 @@ BEGIN
   IF EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='sports_management' AND c.relkind IN ('r','p') AND NOT c.relrowsecurity)
   THEN RAISE EXCEPTION 'La provisión exige RLS activo en todas las tablas'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='sports_management.club_affiliations'::regclass
+    AND tgname='guard_submission_identity' AND tgenabled='O'
+    AND tgfoid=to_regprocedure('sports_management.guard_affiliation_submission_identity()'))
+  THEN RAISE EXCEPTION 'Falta la protección de claves de afiliación; aplique primero la migración aditiva'; END IF;
   IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=${literal(PREVIEW_ROLE)}) THEN
     CREATE ROLE gestor_ligas_preview NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
   END IF;
