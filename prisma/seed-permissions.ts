@@ -19,6 +19,7 @@ function fingerprint(catalog: readonly PermissionGrant[]) {
 
 /** Extensión independiente de RF22; se instala una vez y nunca restaura revocaciones. */
 export async function installLeagueCreationPermission(tx: Prisma.TransactionClient, actorId: string) {
+  await installSecretaryCompetitionPermissions(tx, actorId);
   const id = "54000000-0000-4000-8000-000000000053";
   const tableName = "seed_league_creation_permission";
   const existing = await tx.audit_logs.findUnique({ where: { id } });
@@ -37,6 +38,28 @@ export async function installLeagueCreationPermission(tx: Prisma.TransactionClie
   }
   await tx.audit_logs.create({ data: { id, user_id: actorId, action: "INSTALL", table_name: tableName,
     entity_id: id, reason, new_data: { module: "leagues", action: "CREATE", roles: ["SUPERADMIN", "SECRETARY"] } } });
+}
+
+/** Ampliación autorizada en PDGLD-38, independiente de la matriz inicial RF22. */
+export async function installSecretaryCompetitionPermissions(tx: Prisma.TransactionClient, actorId: string) {
+  const id = "54000000-0000-4000-8000-000000000054";
+  const tableName = "seed_secretary_competition_permissions";
+  const previous = await tx.audit_logs.findUnique({ where: { id } });
+  if (previous) {
+    if (previous.table_name !== tableName || previous.action !== "INSTALL")
+      throw new SeedConfigurationError("Marcador de permisos de Secretaría ocupado; no se modificó.");
+    return;
+  }
+  const reason = "PDGLD-38: habilitar gestión de temporadas para Secretaría dentro de sus ámbitos asignados";
+  await tx.$queryRaw`SELECT set_config('app.user_id', ${actorId}, true), set_config('app.reason', ${reason}, true)`;
+  const role = await tx.roles.findUniqueOrThrow({ where: { code: "SECRETARY" }, select: { id: true } });
+  for (const action of ["CREATE", "UPDATE"] as const) {
+    const permission = await tx.permissions.findUniqueOrThrow({ where: { module_action: { module: "competitions", action } }, select: { id: true } });
+    const existing = await tx.role_permissions.findFirst({ where: { role_id: role.id, permission_id: permission.id } });
+    if (!existing) await tx.role_permissions.create({ data: { role_id: role.id, permission_id: permission.id, context_only: false } });
+  }
+  await tx.audit_logs.create({ data: { id, user_id: actorId, action: "INSTALL", table_name: tableName,
+    entity_id: id, reason, new_data: { role: "SECRETARY", module: "competitions", actions: ["CREATE", "UPDATE"], source: "PDGLD-38" } } });
 }
 
 /** El llamador mantiene el bloqueo (54,2026) y la transacción de instalación. */
