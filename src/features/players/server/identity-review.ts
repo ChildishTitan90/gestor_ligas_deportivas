@@ -8,6 +8,7 @@ import { AuthorizationError, getPermissionGrants } from "@/server/auth/authoriza
 import { adjacentBirthDates } from "../identity-rules";
 import { findPossibleIdentityMatches, identityFromPerson, personIdentitySelect } from "./identity-matches";
 import { lockPlayerTeamContext, PlayerRegistrationError } from "./access";
+import {activateVerifiedAdultForActor} from "./automatic-activation";
 
 export async function canReviewPlayerIdentity() {
   const actor = await requireOperationalUser();
@@ -84,7 +85,7 @@ export async function getIdentityReviewQueue() {
 export async function decideIdentityReviewForActor(actorId: string, id: string, input: unknown) {
   const body = z.strictObject({ fingerprint:z.string().regex(/^[a-f0-9]{64}$/), reason:z.enum(["DISTINCT_IDENTITIES_CONFIRMED","DOCUMENTS_INSUFFICIENT"]) }).safeParse(input);
   if(!body.success || !z.uuid().safeParse(id).success) throw new PlayerRegistrationError("VALIDATION_ERROR",400);
-  return getPrisma().$transaction(async tx => {
+  const result=await getPrisma().$transaction(async tx => {
     const data = await snapshot(tx,actorId,id);
     await tx.$queryRaw`SELECT id FROM sports_management.player_registrations WHERE id=${id}::uuid FOR UPDATE`;
     const prior = await tx.audit_logs.findFirst({where:{entity_id:id,action:"PLAYER_IDENTITY_REVIEWED",new_data:{path:["fingerprint"],equals:body.data.fingerprint}},orderBy:{occurred_at:"desc"}});
@@ -97,13 +98,8 @@ export async function decideIdentityReviewForActor(actorId: string, id: string, 
       reason:body.data.reason,new_data:{fingerprint:data.fingerprint,identityFingerprint:data.identityFingerprint,decision:body.data.reason}}});
     return {confirmed:true};
   },{timeout:15000});
-}
-export async function hasCurrentIdentityResolution(tx:Prisma.TransactionClient,id:string,personId:string,matches:string[]) {
-  const rows=await tx.people.findMany({where:{id:{in:[personId,...matches]}},select:{id:true,identity_version:true},orderBy:{id:"asc"}});
-  const hash=createHash("sha256").update(JSON.stringify(rows.map(p=>[p.id,p.identity_version]))).digest("hex");
-  const last=await tx.audit_logs.findFirst({where:{entity_id:id,action:"PLAYER_IDENTITY_REVIEWED"},orderBy:[{occurred_at:"desc"},{id:"desc"}],select:{new_data:true}});
-  const data=last?.new_data as {identityFingerprint?:string;decision?:string}|undefined;
-  return data?.identityFingerprint === hash && data.decision === "DISTINCT_IDENTITIES_CONFIRMED";
+  if(body.data.reason==="DISTINCT_IDENTITIES_CONFIRMED")await activateVerifiedAdultForActor(actorId,id,"APPROVE");
+  return result;
 }
 export async function decideIdentityReview(id:string,input:unknown,expectedActor?:string) {
   const actor=await requireOperationalUser();

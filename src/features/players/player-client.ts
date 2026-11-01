@@ -22,5 +22,6 @@ export async function playerRequest(actorId: string, path: string, body?: unknow
 export const playerResultSchema = z.object({ registrationId: z.uuid(), status: z.string(), identityReviewStatus: z.string().nullable() });
 export const playerListSchema = z.array(playerResultSchema.extend({ displayName: z.string() }));
 export const curpStateSchema = z.object({ registrationId: z.uuid(), identityVersion: z.number().int().positive(), checkId: z.uuid().nullable(),
+  registrationStatus:z.string().optional(),identityReviewStatus:z.string().nullable().optional(),
   status: z.enum([...curpCheckOutcomes, "PENDING", "NOT_PERFORMED", "NOT_CONFIGURED"]),
   mismatchedFields: z.array(z.enum(identityFields)), checkedAt: z.string().nullable(), replayed: z.boolean() });

@@ -12,12 +12,18 @@ import { readPlayerRegistrationForActor } from "../../src/features/players/serve
 import { PlayerRegistrationError } from "../../src/features/players/server/access";
 import {reviewDetailForActor,decideIdentityReviewForActor} from "../../src/features/players/server/identity-review";
 import {readPlayerDossierForActor} from "../../src/features/players/server/document-queries";
-import {preparePlayerDocumentForActor,confirmPlayerDocumentForActor,readPlayerDocumentUploadForActor,PlayerDocumentError} from "../../src/features/players/server/document-service";
+import {preparePlayerDocumentForActor,uploadPlayerDocumentForActor,confirmPlayerDocumentForActor,readPlayerDocumentUploadForActor,PlayerDocumentError} from "../../src/features/players/server/document-service";
+import {createPlayerDocumentDownloadForActor} from "../../src/features/players/server/document-download";
 import {validatePrivateFileContent} from "../../src/server/files/private-file-validation";
 import {PDFDocument} from "pdf-lib";
 import { readPlayerCurpStatusForActor, verifyPlayerCurpForActor } from "../../src/features/players/server/curp-verification-service";
 import { CurpVerificationError } from "../../src/features/players/server/curp-check-record";
 import { createVerificamexCurpAdapter, type CurpProvider } from "../../src/features/players/server/verificamex-curp";
+import sharp from "sharp";
+import {verifyPlayerIneForActor,readPlayerIneStatusForActor,readIneReviewQueueForActor,downloadPlayerIneEvidenceForActor,IneVerificationError} from "../../src/features/players/server/ine-verification-service";
+import type {PlayerDocumentTransport} from "../../src/features/players/server/document-storage";
+import {createVerificamexIneAdapter} from "../../src/features/players/server/verificamex-ine";
+import {activateVerifiedAdultForActor} from "../../src/features/players/server/automatic-activation";
 
 function syntheticCurp(date: string, root = "SIAA", differentiator = "0") {
   const prefix = `${root}${date.slice(2).replaceAll("-", "")}HMNLRR${differentiator}`;
@@ -468,7 +474,8 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
       assert.equal(status.status, "VERIFIED");
       assert.equal((await verifyPlayerCurpForActor(actors.delegate, registered.registrationId, intention(), { provider, policy })).status, "VERIFIED");
       assert.equal(calls, 1);
-      assert.equal((await db.player_registrations.findUniqueOrThrow({ where: { id: registered.registrationId } })).status, "INELIGIBLE");
+      assert.equal((await db.player_registrations.findUniqueOrThrow({ where: { id: registered.registrationId } })).status, "ACTIVE");
+      assert.equal(await db.audit_logs.count({where:{entity_id:registered.registrationId,action:"PLAYER_AUTO_ACTIVATED"}}),1);
       const nextSeason = await registerPlayerForActor(actors.delegate, { ...source, seasonTeamId: next.id });
       const reused = await verifyPlayerCurpForActor(actors.delegate, nextSeason.registrationId, intention(), { provider, policy });
       assert.equal(reused.checkId, status.checkId);
@@ -534,6 +541,231 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
       const retried = await verifyPlayerCurpForActor(actors.delegate, registered.registrationId,
         { ...retry, acknowledgePossiblePreviousCharge: true }, { provider, policy });
       assert.notEqual(retried.checkId, result.checkId); assert.equal(calls, 2);
+    });
+
+    await t.test("Activación automática: adulto CURP verificada sin archivo, expediente posterior y límites de categoría",async()=>{
+      const registered=await registerPlayerForActor(actors.delegate,input(team.id,"1986-12-17",undefined,"Carlos"));
+      let calls=0;const provider=fake(async()=>{calls++;return{status:"VERIFIED",mismatchedFields:[]};});
+      const status=await verifyPlayerCurpForActor(actors.delegate,registered.registrationId,intention(),{provider,policy});
+      assert.equal(status.registrationStatus,"ACTIVE");assert.equal(calls,1);
+      const dossier=await readPlayerDossierForActor(actors.delegate,registered.registrationId);
+      assert.equal(dossier.canUpload,true);assert.equal(dossier.documents.length,0);
+      await assert.rejects(activateVerifiedAdultForActor(actors.other,registered.registrationId),e=>e instanceof AuthorizationError);
+      await Promise.all([activateVerifiedAdultForActor(actors.delegate,registered.registrationId),activateVerifiedAdultForActor(actors.delegate,registered.registrationId)]);
+      assert.equal(await db.player_status_history.count({where:{registration_id:registered.registrationId,new_status:"ACTIVE"}}),1);
+      const type=await db.document_types.findUniqueOrThrow({where:{code:"CURP"}});
+      const requirement=await db.document_requirements.create({data:{season_category_id:registered.seasonCategoryId,document_type_id:type.id,is_required:true}});
+      try{
+        const pdf=await PDFDocument.create();pdf.addPage();const bytes=await pdf.save(),file=await validatePrivateFileContent(bytes,"application/pdf");
+        const data={operationKey:randomUUID(),registrationId:registered.registrationId,requirementId:requirement.id,slot:1,replacesDocumentId:null,mimeType:file.mimeType,sizeBytes:file.sizeBytes,sha256:file.sha256};
+        const documentPolicy={referenceDate:dossier.referenceDate,window:"PENDING_DOSSIER_V1" as const};
+        const prepared=await preparePlayerDocumentForActor(actors.delegate,data,documentPolicy);
+        await confirmPlayerDocumentForActor(actors.delegate,prepared.uploadId,{read:async()=>bytes},documentPolicy);
+        assert.equal((await readPlayerDossierForActor(actors.delegate,registered.registrationId)).requirements.find(r=>r.id===requirement.id)?.recorded,1);
+        assert.equal((await readPlayerCurpStatusForActor(actors.delegate,registered.registrationId)).registrationStatus,"ACTIVE");
+        assert.equal(calls,1,"Carga y acuse no vuelven a consultar al proveedor");
+      }finally{await db.document_requirements.delete({where:{id:requirement.id}});}
+      const updateStatus=async(status:string)=>db.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Estado sintético para impedir reactivación',true)`;
+        await tx.player_registrations.update({where:{id:registered.registrationId},data:{status}});
+      });
+      await updateStatus("SUSPENDED");await activateVerifiedAdultForActor(actors.delegate,registered.registrationId);
+      assert.equal((await db.player_registrations.findUniqueOrThrow({where:{id:registered.registrationId}})).status,"SUSPENDED");
+      const minorData=input(team.id,"2012-12-16",undefined,"Patricia");minorData.identity.curp=syntheticCurp("2012-12-16","SIAA","A");
+      const minor=await registerPlayerForActor(actors.delegate,minorData);
+      assert.equal((await verifyPlayerCurpForActor(actors.delegate,minor.registrationId,intention(),{provider,policy})).registrationStatus,"INELIGIBLE");
+      const veteran=await registerPlayerForActor(actors.delegate,input(team.id,"1980-12-11",undefined,"Diego"));
+      const category=await db.season_categories.findUniqueOrThrow({where:{id:veteran.seasonCategoryId}});
+      const configure=async(type:string,minimum_age:number|null)=>db.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Límites sintéticos de activación por categoría',true)`;
+        await tx.season_categories.update({where:{id:category.id},data:{type,minimum_age}});
+      });
+      try{
+        await configure("VETERANS",35);
+        assert.equal((await verifyPlayerCurpForActor(actors.delegate,veteran.registrationId,intention(),{provider,policy})).registrationStatus,"INELIGIBLE");
+        await configure("OPEN",100);
+        await activateVerifiedAdultForActor(actors.delegate,veteran.registrationId);
+        assert.equal((await readPlayerCurpStatusForActor(actors.delegate,veteran.registrationId)).registrationStatus,"INELIGIBLE","No elude el límite de edad configurado");
+      }finally{await configure(category.type,category.minimum_age);}
+    });
+
+    await t.test("Activación automática: coincidencias requieren resolución vigente y fallos locales se recuperan sin gastar",async()=>{
+      const first=await registerPlayerForActor(actors.delegate,input(team.id,"1988-12-14","SIAA","Lucía"));
+      await registerPlayerForActor(actors.delegate,input(team.id,"1988-12-14","SABA","Lucía"));
+      let calls=0;const provider=fake(async()=>{calls++;return{status:"VERIFIED",mismatchedFields:[]};});
+      const result=await verifyPlayerCurpForActor(actors.delegate,first.registrationId,intention(),{provider,policy});
+      assert.equal(result.registrationStatus,"INELIGIBLE");assert.equal(result.identityReviewStatus,"REQUIRED");
+      const review=await reviewDetailForActor(actors.secretary,first.registrationId);
+      await decideIdentityReviewForActor(actors.secretary,first.registrationId,{fingerprint:review.fingerprint,reason:"DISTINCT_IDENTITIES_CONFIRMED"});
+      assert.equal((await db.player_registrations.findUniqueOrThrow({where:{id:first.registrationId}})).status,"ACTIVE");assert.equal(calls,1);
+      const single=await registerPlayerForActor(actors.delegate,input(team.id,"1989-12-13",undefined,"Roberto"));
+      await db.$executeRaw`CREATE FUNCTION pdgld97_test_clock.reject_activation_history() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN IF NEW.new_status=''ACTIVE'' THEN RAISE EXCEPTION ''synthetic activation failure''; END IF; RETURN NEW; END'`;
+      await db.$executeRaw`CREATE TRIGGER reject_auto_activation BEFORE INSERT ON sports_management.player_status_history FOR EACH ROW EXECUTE FUNCTION pdgld97_test_clock.reject_activation_history()`;
+      const request=intention();
+      try{await assert.rejects(verifyPlayerCurpForActor(actors.delegate,single.registrationId,request,{provider,policy}));}
+      finally{await db.$executeRaw`DROP TRIGGER reject_auto_activation ON sports_management.player_status_history`;}
+      assert.equal((await readPlayerCurpStatusForActor(actors.delegate,single.registrationId)).status,"VERIFIED");
+      assert.equal((await db.player_registrations.findUniqueOrThrow({where:{id:single.registrationId}})).status,"INELIGIBLE");
+      const before=calls;
+      await activateVerifiedAdultForActor(actors.delegate,single.registrationId);
+      assert.equal((await db.player_registrations.findUniqueOrThrow({where:{id:single.registrationId}})).status,"ACTIVE");assert.equal(calls,before);
+      assert.equal(await db.audit_logs.count({where:{entity_id:single.registrationId,action:"PLAYER_AUTO_ACTIVATED"}}),1);
+    });
+
+    await t.test("Foto del jugador: opcional en expediente pendiente, privada, versionada y sin sustituir selfie",async()=>{
+      const adult=await registerPlayerForActor(actors.delegate,input(team.id,"1987-09-17"));
+      const minorInput=input(team.id,"2013-08-19");minorInput.identity.curp=syntheticCurp("2013-08-19","SIAA","A");
+      const minor=await registerPlayerForActor(actors.delegate,minorInput);
+      const photoType=await db.document_types.findUniqueOrThrow({where:{code:"PHOTO"}});
+      for(const id of [adult.registrationId,minor.registrationId]){
+        const dossier=await readPlayerDossierForActor(actors.delegate,id);
+        const photo=dossier.requirements.find(r=>r.typeId===photoType.id)!;
+        assert.ok(photo);assert.equal(photo.required,false);assert.equal(photo.quantity,1);assert.equal(photo.recorded,0);
+        assert.equal(dossier.approvalAllowed,false);
+        assert.equal(await db.document_requirements.count({where:{id:photo.id}}),0,"La posición opcional no modifica la configuración de categoría");
+      }
+      const dossier=await readPlayerDossierForActor(actors.delegate,adult.registrationId);
+      const requirement=dossier.requirements.find(r=>r.typeId===photoType.id)!;
+      const bytes=new Uint8Array(await sharp({create:{width:40,height:50,channels:3,background:"white"}}).png().toBuffer());
+      const image=await validatePrivateFileContent(bytes,"image/png");
+      const inputPhoto={operationKey:randomUUID(),registrationId:adult.registrationId,requirementId:requirement.id,slot:1,replacesDocumentId:null as string|null,mimeType:image.mimeType,sizeBytes:image.sizeBytes,sha256:image.sha256};
+      const policy={referenceDate:dossier.referenceDate,window:"PENDING_DOSSIER_V1" as const};
+      const isDocument=(code:string)=>(e:unknown)=>e instanceof PlayerDocumentError && e.code===code;
+      await assert.rejects(preparePlayerDocumentForActor(actors.other,inputPhoto,policy),e=>e instanceof AuthorizationError);
+      await assert.rejects(preparePlayerDocumentForActor(actors.delegate,{...inputPhoto,mimeType:"application/pdf"},policy),isDocument("INVALID_DOCUMENT"));
+      await assert.rejects(preparePlayerDocumentForActor(actors.delegate,{...inputPhoto,slot:2},policy),isDocument("INVALID_DOCUMENT"));
+      const objects=new Map<string,{bytes:Uint8Array;mimeType:string}>();let reads=0;
+      const storage:PlayerDocumentTransport={async put(key,file){assert.ok(!objects.has(key));objects.set(key,file);return{replayed:false};},async read(key){reads++;const found=objects.get(key);if(!found)throw Error("synthetic missing");return found.bytes;},async createDownloadUrl(){return{downloadUrl:"https://example.test/synthetic-photo",expiresInSeconds:60};}};
+      const prepared=await preparePlayerDocumentForActor(actors.delegate,inputPhoto,policy);
+      assert.deepEqual(await preparePlayerDocumentForActor(actors.delegate,inputPhoto,policy),prepared);
+      await assert.rejects(uploadPlayerDocumentForActor(actors.delegate,prepared.uploadId,new Uint8Array([1,2,3]),"image/png",storage,policy));
+      assert.equal(objects.size,0);
+      await uploadPlayerDocumentForActor(actors.delegate,prepared.uploadId,bytes,"image/png",storage,policy);
+      const confirmed=await confirmPlayerDocumentForActor(actors.delegate,prepared.uploadId,storage,policy);
+      assert.equal((await confirmPlayerDocumentForActor(actors.delegate,prepared.uploadId,storage,policy)).documentId,confirmed.documentId);
+      await assert.rejects(createPlayerDocumentDownloadForActor(actors.other,confirmed.documentId,storage),e=>e instanceof AuthorizationError);
+      assert.equal((await createPlayerDocumentDownloadForActor(actors.secretary,confirmed.documentId,storage)).expiresInSeconds,60);
+      const replacement={...inputPhoto,operationKey:randomUUID(),replacesDocumentId:confirmed.documentId};
+      const revised=await preparePlayerDocumentForActor(actors.delegate,replacement,policy);
+      const racing=await preparePlayerDocumentForActor(actors.delegate,{...replacement,operationKey:randomUUID()},policy);
+      await uploadPlayerDocumentForActor(actors.delegate,revised.uploadId,bytes,"image/png",storage,policy);
+      await uploadPlayerDocumentForActor(actors.delegate,racing.uploadId,bytes,"image/png",storage,policy);
+      const results=await Promise.allSettled([confirmPlayerDocumentForActor(actors.delegate,revised.uploadId,storage,policy),confirmPlayerDocumentForActor(actors.delegate,racing.uploadId,storage,policy)]);
+      assert.equal(results.filter(r=>r.status==="fulfilled").length,1);
+      const current=await readPlayerDossierForActor(actors.delegate,adult.registrationId);
+      assert.equal(current.documents.filter(d=>d.typeId===photoType.id && !d.superseded).length,1);
+      assert.equal(current.documents.filter(d=>d.superseded).length,1);
+      assert.equal((await readPlayerIneStatusForActor(actors.delegate,adult.registrationId)).status,"NOT_STARTED");
+      assert.equal((await db.player_registrations.findUniqueOrThrow({where:{id:adult.registrationId}})).status,"INELIGIBLE");
+      assert.ok(reads>0);
+      await db.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Cierre sintético del expediente para prueba de foto',true)`;
+        await tx.player_registrations.update({where:{id:adult.registrationId},data:{status:"WITHDRAWN",withdrawn_at:new Date()}});
+      });
+      assert.equal((await readPlayerDossierForActor(actors.delegate,adult.registrationId)).canUpload,false);
+      await assert.rejects(preparePlayerDocumentForActor(actors.delegate,{...inputPhoto,operationKey:randomUUID()},policy),isDocument("CONTEXT_UNAVAILABLE"));
+    });
+
+    await t.test("INE sintética: Veteranos, alcance, evidencia privada, idempotencia concurrente y revisión sin aprobación", async () => {
+      const registered = await registerPlayerForActor(actors.delegate, input(team.id,"1961-03-07"));
+      const id = registered.registrationId;
+      const bytes = new Uint8Array(await sharp({create:{width:32,height:32,channels:3,background:"white"}}).png().toBuffer());
+      const raw = {front:{bytes,mimeType:"image/png"},back:{bytes,mimeType:"image/png"},selfie:{bytes,mimeType:"image/png"}};
+      const objects = new Map<string,{bytes:Uint8Array;mimeType:string}>();
+      const storage:PlayerDocumentTransport = {
+        async put(key,object){assert.ok(!objects.has(key));objects.set(key,object);return {replayed:false};},
+        async read(key){const found=objects.get(key);if(!found)throw new Error("synthetic missing");return found.bytes;},
+        async createDownloadUrl(){return {downloadUrl:"https://example.test/synthetic-private",expiresInSeconds:60};},
+      };
+      let calls=0;
+      const dependencies={storage,provider:{configured:true,async verify(){calls++;return {status:"ADMIN_REVIEW_REQUIRED" as const,readings:[]};}},limits:{daily:100,actorDaily:100}};
+      const intention = (version=1) => ({operationKey:randomUUID(),identityVersion:version,acknowledgeCharge:true,retryOf:null as string|null,acknowledgePossiblePreviousCharge:false});
+      const isIne = (code:string)=>(error:unknown)=>error instanceof IneVerificationError && error.code===code;
+      await assert.rejects(verifyPlayerIneForActor(actors.delegate,id,intention(),raw,dependencies),isIne("CONTEXT_UNAVAILABLE"));
+      assert.equal(calls,0);assert.equal(objects.size,0);
+      const category=await db.season_categories.findFirstOrThrow({where:{season_id:team.seasonId,category_id:team.categoryId},select:{id:true}});
+      await db.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Política explícita: categoría Veteranos sintética',true)`;
+        await tx.season_categories.update({where:{id:category.id},data:{type:"VETERANS"}});
+      });
+      try {
+        const state=await readPlayerIneStatusForActor(actors.delegate,id);
+        assert.equal(state.applicable,true);
+        await assert.rejects(verifyPlayerIneForActor(actors.other,id,intention(state.identityVersion),raw,dependencies),error=>error instanceof AuthorizationError);
+        await assert.rejects(verifyPlayerIneForActor(actors.delegate,id,{...intention(state.identityVersion),acknowledgeCharge:false},raw,dependencies),isIne("INVALID_PAYLOAD"));
+        await assert.rejects(verifyPlayerIneForActor(actors.delegate,id,intention(state.identityVersion),{...raw,selfie:{bytes:new Uint8Array([1,2,3]),mimeType:"image/png"}},dependencies));
+        assert.equal(calls,0);
+        const request=intention(state.identityVersion);
+        const results=await Promise.all([verifyPlayerIneForActor(actors.delegate,id,request,raw,dependencies),verifyPlayerIneForActor(actors.delegate,id,request,raw,dependencies)]);
+        const receipt=await readPlayerIneStatusForActor(actors.delegate,id);
+        assert.equal(calls,1);assert.equal(objects.size,3);assert.equal(receipt.status,"ADMIN_REVIEW_REQUIRED");assert.equal(receipt.approvalAllowed,false);
+        assert.equal(results[0].attemptId,results[1].attemptId);
+        await verifyPlayerIneForActor(actors.delegate,id,request,raw,dependencies);assert.equal(calls,1);
+        assert.equal((await db.player_registrations.findUniqueOrThrow({where:{id}})).status,"INELIGIBLE");
+        const queue=await readIneReviewQueueForActor(actors.secretary);assert.ok(queue.some(r=>r.id===id));
+        await assert.rejects(readIneReviewQueueForActor(actors.delegate),error=>error instanceof AuthorizationError);
+        await assert.rejects(downloadPlayerIneEvidenceForActor(actors.other,id,receipt.attemptId!,"selfie",storage),error=>error instanceof AuthorizationError);
+        assert.equal((await downloadPlayerIneEvidenceForActor(actors.secretary,id,receipt.attemptId!,"selfie",storage)).expiresInSeconds,60);
+        const audit=await db.audit_logs.findMany({where:{entity_id:id,action:{in:["PLAYER_INE_PREPARED","PLAYER_INE_RESULT"]}}});
+        assert.equal(audit.length,2);assert.ok(!JSON.stringify(audit.map(a=>a.new_data)).includes("base64"));
+        await assert.rejects(verifyPlayerIneForActor(actors.delegate,id,intention(state.identityVersion),raw,dependencies),isIne("RETRY_CONFIRMATION_REQUIRED"));
+        const retry={...intention(state.identityVersion),retryOf:receipt.attemptId,acknowledgePossiblePreviousCharge:true};
+        await assert.rejects(verifyPlayerIneForActor(actors.delegate,id,retry,raw,{...dependencies,limits:{daily:0,actorDaily:0}}),isIne("USAGE_LIMIT_REACHED"));assert.equal(calls,1);
+        const failedStorage=await verifyPlayerIneForActor(actors.delegate,id,retry,raw,{...dependencies,storage:{...storage,async put(){throw new Error("synthetic offline");}}});
+        assert.equal(failedStorage.status,"STORAGE_FAILED");assert.equal(calls,1);
+        const uncertain=await verifyPlayerIneForActor(actors.delegate,id,{...intention(state.identityVersion),retryOf:failedStorage.attemptId,acknowledgePossiblePreviousCharge:true},raw,{...dependencies,provider:{configured:true,async verify(){calls++;throw new Error("synthetic response lost");}}});
+        assert.equal(uncertain.status,"UNCERTAIN");assert.equal(calls,2);
+        const altered=new Uint8Array(await sharp({create:{width:32,height:32,channels:3,background:"black"}}).png().toBuffer());
+        await assert.rejects(verifyPlayerIneForActor(actors.delegate,id,request,{...raw,selfie:{bytes:altered,mimeType:"image/png"}},dependencies),isIne("OPERATION_CONFLICT"));
+        const changed=await verifyPlayerIneForActor(actors.delegate,id,{...intention(state.identityVersion),retryOf:uncertain.attemptId,acknowledgePossiblePreviousCharge:true},raw,{...dependencies,provider:{configured:true,async verify(){
+          const row=await db.player_registrations.findUniqueOrThrow({where:{id},select:{person_id:true}});
+          await db.$transaction(async tx=>{
+            await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Cambio sintético de identidad durante proveedor simulado',true)`;
+            await tx.people.update({where:{id:row.person_id},data:{first_name:"Identidad modificada"}});
+          });return {status:"PROVIDER_PASSED" as const,readings:[]};
+        }}});
+        assert.equal(changed.status,"STALE");assert.equal(changed.approvalAllowed,false);
+        const revoke=async(ends_at:Date|null)=>db.$transaction(async tx=>{
+          await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Revocación sintética durante verificación de INE',true)`;
+          await tx.user_roles.updateMany({where:{user_id:actors.delegate},data:{ends_at}});
+        });
+        try {
+          await assert.rejects(verifyPlayerIneForActor(actors.delegate,id,{...intention(changed.identityVersion),retryOf:changed.attemptId,acknowledgePossiblePreviousCharge:true},raw,{...dependencies,provider:{configured:true,async verify(){await revoke(new Date());return {status:"ADMIN_REVIEW_REQUIRED" as const,readings:[]};}}}),error=>error instanceof AuthorizationError);
+          assert.equal(await db.audit_logs.count({where:{entity_id:id,action:"PLAYER_INE_RESULT"}}),5,"El acuse persiste aunque el actor pierda permisos");
+        } finally {await revoke(null);}
+        let latest=await readPlayerIneStatusForActor(actors.delegate,id);
+        const person=await db.player_registrations.findUniqueOrThrow({where:{id},select:{people:{select:{curp:true,first_name:true,paternal_surname:true,maternal_surname:true,birth_date:true}}}});
+        const entries=[{type:"Name",source:"OCR",value:person.people.first_name},{type:"FatherSurname",source:"MRZ",value:person.people.paternal_surname},{type:"MotherSurname",source:"MRZ",value:person.people.maternal_surname ?? ""},{type:"DateOfBirth",source:"OCR",value:person.people.birth_date!.toISOString().slice(0,10).split("-").reverse().join("/")},{type:"PersonalNumber",source:"OCR",value:person.people.curp}];
+        for(const documentData of [[],entries.map(e=>e.type==="Name"?{...e,value:"Otra persona"}:e)]){
+          const provider=createVerificamexIneAdapter({apiKey:"synthetic-ine",transport:async()=>Response.json({data:{object:"ine_validations",status:true,documentInformation:{documentData}}})});
+          const review=await verifyPlayerIneForActor(actors.delegate,id,{...intention(latest.identityVersion),retryOf:latest.attemptId,acknowledgePossiblePreviousCharge:true},raw,{...dependencies,provider});
+          assert.equal(review.status,"ADMIN_REVIEW_REQUIRED","Proveedor favorable sin igualdad completa no verifica identidad");
+          latest=review;
+        }
+        let favorableCalls=0;
+        const favorable={...dependencies,provider:createVerificamexIneAdapter({apiKey:"synthetic-ine",transport:async()=>{favorableCalls++;return Response.json({data:{object:"ine_validations",status:true,documentInformation:{documentData:entries}}});}})};
+        const passed=await verifyPlayerIneForActor(actors.delegate,id,{...intention(latest.identityVersion),retryOf:latest.attemptId,acknowledgePossiblePreviousCharge:true},raw,favorable);
+        assert.equal(passed.status,"IDENTITY_VERIFIED");assert.equal(passed.approvalAllowed,false);
+        assert.ok(!(await readIneReviewQueueForActor(actors.secretary)).some(r=>r.id===id),"El cotejo completo sale de revisión INE");
+        assert.equal((await db.player_registrations.findUniqueOrThrow({where:{id}})).status,"INELIGIBLE");
+        const stored=await db.audit_logs.findFirstOrThrow({where:{entity_id:id,action:"PLAYER_INE_RESULT",new_data:{path:["attemptId"],equals:passed.attemptId!}},select:{new_data:true}});
+        assert.deepEqual(stored.new_data,{attemptId:passed.attemptId,outcome:"IDENTITY_VERIFIED",matchingVersion:1,missingFields:[],mismatchedFields:[]});
+        assert.ok(!JSON.stringify(stored.new_data).includes(person.people.curp!));
+        const replay=await verifyPlayerIneForActor(actors.delegate,id,{...intention(latest.identityVersion),retryOf:passed.attemptId,acknowledgePossiblePreviousCharge:true},raw,favorable);
+        assert.equal(replay.attemptId,passed.attemptId);assert.equal(favorableCalls,1,"Un resultado favorable no permite otro cobro");
+        // Acuse de la versión previa: un dictamen global no se promueve retroactivamente.
+        const previousIntent=await db.audit_logs.findUniqueOrThrow({where:{id:passed.attemptId!},select:{new_data:true}});
+        const legacyAttempt=randomUUID();
+        await db.audit_logs.create({data:{id:legacyAttempt,user_id:actors.delegate,action:"PLAYER_INE_PREPARED",table_name:"player_registrations",entity_id:id,reason:"Acuse sintético de versión anterior sin cotejo",new_data:previousIntent.new_data!}});
+        await db.audit_logs.create({data:{user_id:actors.delegate,action:"PLAYER_INE_RESULT",table_name:"player_registrations",entity_id:id,reason:"Resultado sintético anterior sin cotejo",new_data:{attemptId:legacyAttempt,outcome:"PROVIDER_PASSED"}}});
+        assert.equal((await readPlayerIneStatusForActor(actors.delegate,id,legacyAttempt)).status,"ADMIN_REVIEW_REQUIRED");
+        assert.equal(favorableCalls,1,"Leer un acuse antiguo no consulta al proveedor");
+      } finally {
+        await db.$transaction(async tx=>{
+          await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Restaurar categoría de fixture aislado',true)`;
+          await tx.season_categories.update({where:{id:category.id},data:{type:"OPEN"}});
+        });
+      }
     });
 
     await t.test("CURP externa: tabla privada, Docker sin RLS y bloque Supabase deniega roles API", async () => {

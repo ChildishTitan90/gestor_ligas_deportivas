@@ -18,6 +18,18 @@ Infraestructura: el usuario reportó creado el bucket privado expedientes-jugado
 
 ## Primer entregable de código
 
+Actualización posterior: [habilitación automática de adultos por CURP](player-automatic-activation.md). La constancia se solicita para completar el expediente, pero su ausencia no impide esa habilitación. Un ACTIVE creado por esa política puede completar CURP/foto con acuse y versión vigentes mientras su constancia no esté revisada. No concede esa ventana a ACTIVE históricos/manuales, menores o Veteranos. El resto de requisitos conserva sus controles.
+
+### Foto del jugador: incorporación posterior
+
+Por decisión posterior de Víctor, se permite añadir o sustituir la foto después del alta mientras el expediente esté pendiente, para menores, mayores y Veteranos. Usa PHOTO existente y no bloquea el alta ni añade condiciones de habilitación deportiva. No sustituye selfie, INE, CURP ni autorización de tutor; no se reutiliza automáticamente entre temporadas.
+
+Se reutilizan preparación, PUT, confirmación, acuse, descarga privada, hashes, versiones e idempotencia. Solo PNG/JPEG hasta 10 MiB, con validación binaria. Una posición y una versión vigente; sustituciones conservan historial. Se mantienen permisos READ/UPDATE por club y estado pendiente cualquier día.
+
+Sin requisito PHOTO explícito, se ofrece una posición opcional cuyo UUID deriva de player-photo:v1 y la categoría. No se insertan requisitos ni se modifica configuración; el UUID se comprueba contra el contexto servidor en cada operación. Un requisito explícito prevalece; no puede eludirse con la posición opcional. PHOTO obligatorio o con varias posiciones se señala para revisión, sin cambiarlo por iniciativa del agente. La foto no convierte una configuración documental ausente en completa.
+
+La cámara se comparte mediante DevicePhotoCamera con INE. Foto con cámara frontal preferida, un único selector y vista previa local. Nunca se remite a Verificamex. Probado con PostgreSQL desechable y transportes simulados: 25 casos de integración con regresiones previas, alcance, formatos, concurrencia de sustitución y bloqueo al cerrar cargas. Sin objetos remotos nuevos. La cámara física sigue pendiente de aceptación humana.
+
 Validador binario compartido en server/files/private-file-validation: PNG/JPEG reales decodificados y PDF parseado, máximo 10 MiB, 10 millones de píxeles y 50 páginas. Son límites técnicos; no acreditan originalidad ni titularidad. Firmas conserva sus contratos y códigos de error mediante un adaptador, sin importar internals de clubes desde jugadores.
 
 document-service implementa preparación, confirmación y consulta de acuse. Deriva contexto autorizado de la inscripción, exige READ/UPDATE y categoría afiliada autorizada. document-policy resuelve edad y ventana del servidor; no se aceptan desde el navegador. Las pruebas aisladas pueden inyectar referencia y ventana explícitas solo con AUTH_TEST_RUN y una BD loopback pdgld48_test_<16hex>; ese fixture no se habilita en bases habituales. La preparación reserva intención de 15 minutos sin crear files/player_documents. Solo admite CURP, INE, GUARDIAN_CONSENT y STUDENT_ID configurados. STUDENT_ID solo es opcional para menores; STUDENT_CERTIFICATE significa constancia de estudios y no se adopta silenciosamente como credencial. No se alteró el catálogo habitual ni sus requisitos.

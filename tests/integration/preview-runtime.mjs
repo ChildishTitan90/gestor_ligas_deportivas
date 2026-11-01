@@ -63,6 +63,9 @@ export async function verifyPreviewRuntime(client) {
     await client.query('SELECT id FROM sports_management.user_roles FOR SHARE');
     await client.query('SELECT id FROM sports_management.document_requirements FOR SHARE');
     await client.query('SELECT id FROM sports_management.document_types FOR SHARE');
+    await client.query('SELECT id FROM sports_management.player_registrations FOR SHARE');
+    await client.query(`UPDATE sports_management.player_registrations SET status=status,identity_review_status=identity_review_status WHERE false`);
+    await client.query(`INSERT INTO sports_management.player_status_history(registration_id,previous_status,new_status,user_id,reason,created_at) SELECT gen_random_uuid(),'INELIGIBLE','ACTIVE',gen_random_uuid(),'synthetic',now() WHERE false`);
     await client.query('SELECT id,registration_id,file_id,status FROM sports_management.player_documents LIMIT 0');
     await client.query(`INSERT INTO sports_management.player_documents(registration_id,document_type_id,file_id,status)
       SELECT gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'PENDING' WHERE false`);
@@ -78,6 +81,7 @@ export async function verifyPreviewRuntime(client) {
       'UPDATE sports_management.club_affiliations SET id=id',
       'UPDATE sports_management.club_affiliation_categories SET category_id=category_id',
       'UPDATE sports_management.player_documents SET status=status',
+      'UPDATE sports_management.player_registrations SET person_id=person_id',
       'UPDATE sports_management.document_requirements SET quantity=quantity',
       'UPDATE sports_management.document_types SET name=name',
       'UPDATE sports_management.team_enrollment_operations SET outcome=outcome',

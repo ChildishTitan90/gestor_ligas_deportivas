@@ -5,7 +5,7 @@ import {playerRequest} from "../player-client";
 export function IdentityReviewForm({actorId,id,fingerprint,blocked}:{actorId:string;id:string;fingerprint:string;blocked:boolean}) {
   const [reason,setReason]=useState("");const [busy,setBusy]=useState(false);const [message,setMessage]=useState("");const lock=useRef(false);
   return <form className="space-y-4" onSubmit={async event=>{event.preventDefault();if(lock.current || !reason)return;lock.current=true;setBusy(true);
-    try{await playerRequest(actorId,`/api/player-registrations/${id}/identity-review`,{fingerprint,reason});setMessage("Decisión guardada. La inscripción sigue pendiente de aprobación deportiva.");}
+    try{await playerRequest(actorId,`/api/player-registrations/${id}/identity-review`,{fingerprint,reason});setMessage("Decisión guardada. Si es un adulto con CURP verificada y cumple las reglas de su categoría, puede quedar activo. Consulta el listado actualizado.");}
     catch{setMessage("No se pudo confirmar la decisión. Recarga el expediente para consultar el resultado antes de volver a decidir.");}
     finally{setBusy(false);lock.current=false;}}}>
     <label htmlFor="review-reason">Resultado motivado de la revisión</label>

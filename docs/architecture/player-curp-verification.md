@@ -1,5 +1,7 @@
 # PDGLD-97 — Integración CURP con Verificamex, entrega 2
 
+Actualización del 1/11/2026: la comprobación externa sigue separada del alta, pero ahora puede disparar la [habilitación automática de adultos](player-automatic-activation.md). El texto de esta entrega describe el avance del 31/10; consultar la política posterior para activación, carga de constancia y recuperación sin nuevos cobros.
+
 31 de octubre de 2026. Complementa el [contrato de identidad e inscripción](player-identity.md). Esta entrega no implementa las vistas de PDGLD-98 ni INE/selfie.
 
 ## Contrato externo revisado

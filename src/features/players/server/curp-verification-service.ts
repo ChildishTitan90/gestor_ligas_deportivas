@@ -6,6 +6,7 @@ import { AuthorizationError } from "@/server/auth/authorization";
 import { curpCheckOutcomes, curpVerificationRequestSchema, identityFields, type CurpVerificationStatus } from "../curp-verification";
 import { curpCheckSelect, curpStatus, CurpVerificationError, lockCurpSnapshot } from "./curp-check-record";
 import { getVerificamexCurpProvider, type CurpProvider } from "./verificamex-curp";
+import {activateVerifiedAdultForActor} from "./automatic-activation";
 
 // Límites de gasto conservadores de esta entrega; compartidos por todos los procesos en PostgreSQL.
 const defaultPolicy = { globalDailyLimit: 3, actorDailyLimit: 2, cooldownMs: 60_000 };
@@ -69,7 +70,11 @@ export async function verifyPlayerCurpForActor(actorId: string, registrationId: 
       fingerprint: snapshot.fingerprint, status: "PENDING" }, select: curpCheckSelect });
     return { snapshot, check, provider };
   }, { timeout: 15_000 });
-  if (prepared.done) return prepared.done;
+  if (prepared.done) {
+    if(prepared.done.status==="NOT_CONFIGURED")return prepared.done;
+    if(prepared.done.status==="VERIFIED")await activateVerifiedAdultForActor(actorId,registrationId);
+    return readPlayerCurpStatusForActor(actorId,registrationId,prepared.done.checkId ?? undefined);
+  }
   const { snapshot, check, provider } = prepared;
   // No hay transacción de BD abierta durante la consulta, ni reintentos automáticos.
   let outcome;
@@ -82,13 +87,14 @@ export async function verifyPlayerCurpForActor(actorId: string, registrationId: 
       const [person] = await tx.$queryRaw<{ version: number }[]>`SELECT identity_version AS version
         FROM sports_management.people WHERE id=${snapshot.personId}::uuid FOR SHARE`;
       await tx.$queryRaw`SELECT set_config('app.user_id',${actorId},true),
-        set_config('app.reason','PDGLD-97: resultado de consulta CURP sin aprobación deportiva',true)`;
+        set_config('app.reason','PDGLD-97: resultado de consulta CURP; habilitación evaluada por política separada',true)`;
       await tx.player_curp_checks.update({ where: { id: check.id }, data: {
         status: person?.version === snapshot.version ? outcome.status : "STALE",
         mismatched_fields: person?.version === snapshot.version ? outcome.mismatchedFields : [], finished_at: new Date() } });
     });
   } catch { throw new CurpVerificationError("SERVICE_UNAVAILABLE", 503); }
   // Guardar el acuse aunque haya revocación, pero comprobar permisos vigentes antes de responder.
+  if(outcome.status==="VERIFIED")await activateVerifiedAdultForActor(actorId,registrationId);
   return readPlayerCurpStatusForActor(actorId, registrationId, check.id);
 }
 
@@ -106,6 +112,7 @@ export async function readPlayerCurpStatusForActor(actorId: string, registration
     const row = await tx.player_curp_checks.findFirst({ where: { person_id: snapshot.personId,
       ...(checkId ? { id: checkId } : {}) },
       orderBy: [{ created_at: "desc" }, { id: "desc" }], select: curpCheckSelect });
-    return curpStatus(snapshot, row, true);
+    const registration=await tx.player_registrations.findUniqueOrThrow({where:{id:registrationId},select:{status:true,identity_review_status:true}});
+    return {...curpStatus(snapshot, row, true),registrationStatus:registration.status,identityReviewStatus:registration.identity_review_status};
   });
 }

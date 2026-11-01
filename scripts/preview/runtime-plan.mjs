@@ -7,13 +7,14 @@ export const PREVIEW_MARKER = `PDGLD_PRUEBAS_ONLY=${PREVIEW_PROJECT}`;
 const read = ['audit_logs', 'authentication_events', 'categories', 'charges', 'club_affiliations',
   'club_affiliation_categories', 'club_officers', 'clubs', 'correction_authorizations', 'disciplinary_cases',
   'document_requirements','document_types','player_documents','files', 'groups', 'leagues', 'match_events', 'match_reports', 'matches', 'payment_voids', 'payments',
-  'people', 'permissions', 'player_registrations', 'player_curp_checks', 'referee_assignments', 'referees', 'role_permissions',
+  'people', 'permissions', 'player_registrations', 'player_status_history', 'player_curp_checks', 'referee_assignments', 'referees', 'role_permissions',
   'roles', 'schedule_proposals', 'season_categories', 'season_teams', 'seasons', 'sessions', 'sports',
   'teams', 'team_enrollment_operations', 'user_roles', 'users'];
 const insert = {
   // Prisma también materializa defaults escalares (now(), 0, 1, true) en INSERT.
   audit_logs: ['id','user_id', 'action', 'table_name', 'entity_id', 'previous_data', 'new_data', 'reason', 'occurred_at'],
   player_documents:['registration_id','document_type_id','file_id','status'],
+  player_status_history:['registration_id','previous_status','new_status','user_id','reason','created_at'],
   authentication_events: ['user_id', 'action', 'occurred_at'],
   club_affiliations: ['season_id', 'club_id', 'league_id', 'reference_number', 'status', 'requested_by',
     'club_name', 'uniform_colors', 'submission_key', 'submission_hash', 'review_version'],
@@ -32,6 +33,7 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at'],
 };
 const update = {
+  player_registrations:['status','identity_review_status'],
   player_curp_checks: ['status', 'mismatched_fields', 'finished_at'],
   club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version','submission_key','submission_hash'],
   club_affiliation_categories: ['authorized_by', 'authorized_at'],
@@ -42,7 +44,7 @@ const update = {
 };
 const remove = ['role_permissions', 'club_affiliation_categories'];
 const lock = ['document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
-  'match_events', 'match_reports', 'matches', 'payments', 'people', 'permissions', 'player_registrations',
+  'match_events', 'match_reports', 'matches', 'payments', 'people', 'permissions',
   'referee_assignments', 'referees', 'roles', 'schedule_proposals', 'season_categories', 'season_teams',
   'seasons', 'teams', 'user_roles'];
 

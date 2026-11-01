@@ -1,0 +1,23 @@
+# INE y selfie en el expediente
+
+El panel vive dentro de `/players/registrations/[registrationId]/documents`, después de las cargas documentales existentes. Conserva ManagementShell y el único `main` de gestión, tokens de superficie/borde, acción principal `primary-action` y botones secundarios con contorno. No añade navegación, encabezados, selectores ni otra paleta.
+
+Solo aparece para el tipo real VETERANS. Un operador con READ puede consultar acuse/evidencia; la captura requiere además UPDATE y contexto pendiente autorizado. El servidor vuelve a comprobarlo en cada entrada.
+
+Recorrido de cuatro pasos: frente de INE → reverso → selfie → confirmar. La guía de credencial gira en 3D al pasar del frente al reverso y respeta movimiento reducido. La ilustración orienta la captura; no simula lectura, escaneo ni validación. Cada paso ofrece cámara integrada y un único selector para elegir una foto del dispositivo, vista previa y continuación explícita. Se retiró el selector redundante que solicitaba cámara nativa mediante capture. Volver o repetir conserva las demás fotos en memoria. Al cambiar de paso se enfoca su título; el progreso usa aria-current=step.
+
+PNG/JPEG hasta 10 MiB por imagen. Es evidencia privada de verificación separada de los requisitos documentales; no sustituye CURP, INE documental ni autorización de tutor. No presupone disponibilidad de cámara ni permite PDF. Solo el último paso muestra revisión conjunta, confirmación de costo y envío. Avanzar entre pasos no transmite imágenes ni consume créditos. Se liberan las URLs locales de vista previa al sustituir fotos o desmontar el panel.
+
+La cámara integrada usa getUserMedia únicamente al pulsar Activar cámara, sin audio. Solicita cámara trasera para INE y frontal para selfie como preferencia; la cámara concreta depende del dispositivo. Video local en la página, captura JPEG de hasta 1920 px en el lado mayor, sin recorte ni inversión de texto. El usuario revisa el encuadre y puede repetir antes de continuar. No se transmite video, no hay reconocimiento en vivo ni captura automática.
+
+Cancelar activación, apagar, capturar, cambiar de paso, ocultar pestaña, pagehide o desmontar detienen los tracks. Si el permiso llega después de cancelar o salir, el stream se detiene sin mostrarse. Una cámara desconectada o permiso denegado produce mensaje y conserva el único selector de archivo como alternativa. Requiere HTTPS o localhost para la cámara en página; una IP local por HTTP puede impedirla, aunque el selector de archivos siga disponible. No se cambia ningún permiso del navegador automáticamente.
+
+La casilla requerida explica transmisión a Verificamex y consumo publicado de 20 tokens con selfie, sin QR. Un segundo intento requiere además reconocer posible cargo previo y referencia al último intento. El acuse se puede consultar antes de cualquier envío y no llama al proveedor.
+
+Mientras envía se congela la captura y se impide doble envío con un bloqueo inmediato. Una respuesta incierta bloquea otra consulta desde esa pantalla y ofrece consultar acuse; cerrar no cancela la operación. Hay aviso al abandonar durante envío/incertidumbre, sin prometer persistencia local de imágenes ni borrador guardado. Tras recargar se recupera el último intento desde servidor al consultar el expediente.
+
+Los estados se expresan con texto y `role=status`, no solo color. Una validación desfavorable/incompleta o datos diferentes derivan a revisión administrativa; no muestra rechazo del jugador. Tras resultado favorable e igualdad de los cinco datos, muestra Identidad verificada y bloquea otro envío. Sigue distinguiéndose de aprobación documental/deportiva. La bandeja de Secretaría muestra los casos que requieren intervención y omite IDENTITY_VERIFIED; conserva las revisiones independientes de posibles duplicados de PDGLD-13. Resultados antiguos favorables sin cotejo no se promueven automáticamente.
+
+Validación: Chrome headless con respuestas sintéticas para secuencia, preservación de fotos al volver/repetir, foco del título, captura/confirmación, solo lectura, doble envío e incertidumbre. Build, tipos y lint correctos. Capturas del componente real aislado con datos sintéticos y CSS compilado en oscuro, frente y reverso; no se consultó al proveedor. Las comprobaciones de servicios con PostgreSQL de la entrega anterior se conservan; este ajuste solo cambia UI. Sigue pendiente la revisión completa en claro/oscuro, escritorio/móvil, teclado y sesión/backend reales. No se declara verificada la cámara física ni el recorrido externo.
+
+Referencias: [contrato y recuperación](../architecture/player-ine-verification.md), [evidencia y límites de validación](../validation/ine-selfie-20261101.md).

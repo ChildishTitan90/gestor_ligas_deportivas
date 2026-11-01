@@ -6,7 +6,7 @@ import { AuthorizationError, getPermissionGrants } from "@/server/auth/authoriza
 import type { PlayerRegistrationContext } from "../types";
 import { assertPlayerRegistrationRead, PlayerRegistrationError } from "./access";
 import { findPossibleIdentityMatches, identityFromPerson, personIdentitySelect } from "./identity-matches";
-import { hasCurrentIdentityResolution } from "./identity-review";
+import { hasCurrentIdentityResolution } from "./identity-resolution";
 
 export async function getPlayerRegistrationContext(registrationId: string): Promise<PlayerRegistrationContext | null> {
   const actor = await requireOperationalUser();

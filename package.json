@@ -30,6 +30,8 @@
     "test:player-dossier": "node --import tsx --test src/features/players/document-rules.test.ts src/features/players/document-upload.client.test.ts",
     "test:player-document-storage": "node --conditions=react-server --import tsx --test src/features/players/server/supabase-document-storage.test.ts",
     "test:curp-provider": "node --conditions=react-server --import tsx --test src/features/players/server/verificamex-curp.test.ts",
+    "test:ine-provider": "node --conditions=react-server --import tsx --test src/features/players/server/verificamex-ine.test.ts src/features/players/ine-identity-match.test.ts",
+    "test:ine-browser": "node --test tests/e2e/ine-verification.test.mjs",
     "test:player-registrations": "node scripts/test-auth.mjs --players",
     "verify:player-document-storage": "node scripts/test-auth.mjs --documents-real",
     "test:authorization": "node scripts/test-auth.mjs --authorization",

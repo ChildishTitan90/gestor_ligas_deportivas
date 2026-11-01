@@ -53,13 +53,13 @@ jobs:
       - name: Probar interfaz de inscripción y actividad de sesión sin base
         run: npm run test:team-registration
       - name: Probar inscripción en Chrome con datos sintéticos
-        run: npm run test:team-registration-browser
+        run: npm run test:team-registration-browser && npm run test:ine-browser
         env:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Probar firmas de afiliación
         run: npm run test:signatures
       - name: Probar validación local de identidad de jugadores
-        run: npm run test:player-identity && npm run test:curp-provider && npm run test:player-dossier && npm run test:player-document-storage
+          run: npm run test:player-identity && npm run test:curp-provider && npm run test:ine-provider && npm run test:player-dossier && npm run test:player-document-storage
       - name: Probar recuperación de inscripciones y capacidades del cliente
         run: npm run test:team-enrollment-client
       - name: Revisar el código

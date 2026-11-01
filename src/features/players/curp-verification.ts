@@ -8,6 +8,8 @@ export const identityFields = ["curp", "firstName", "paternalSurname", "maternal
 export type CurpMismatch = typeof identityFields[number];
 export type CurpProviderResult = { status: CurpCheckOutcome; mismatchedFields: CurpMismatch[] };
 export type CurpVerificationStatus = {
+  registrationStatus?:string;
+  identityReviewStatus?:string|null;
   registrationId: string;
   identityVersion: number;
   checkId: string | null;

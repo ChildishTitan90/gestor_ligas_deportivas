@@ -1,5 +1,7 @@
 # PDGLD-13 / PDGLD-97 — Identidad e inscripción local, entrega 1
 
+Actualización del 1/11/2026: el alta local mantiene INELIGIBLE y no consulta proveedores. Después de una CURP verificada, los adultos elegibles pueden pasar a ACTIVE mediante la [política de habilitación automática](player-automatic-activation.md), sin esperar el archivo CURP. Menores/Veteranos, coincidencias pendientes y otros requisitos conservan sus controles. El resto del documento conserva la evidencia de esta primera entrega.
+
 Fecha: 31 de octubre de 2026. Contrato propuesto para integrar PDGLD-14/15; requiere revisión del equipo. No declara terminadas la historia ni sus subtareas.
 
 La [entrega 2 de Verificamex CURP](player-curp-verification.md) añade la comprobación externa separada y su registro de intentos. El alta local sigue sin hacer consultas ni aprobar deportivamente. Las vistas de PDGLD-98 continúan pendientes.

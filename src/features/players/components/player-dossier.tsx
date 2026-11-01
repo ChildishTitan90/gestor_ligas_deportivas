@@ -5,6 +5,14 @@ import {SelectField} from "@/components/ui/select-field";
 import {playerDossierSchema,type PlayerDossier as Dossier} from "../document-types";
 import {playerRequest,PlayerRequestError} from "../player-client";
 import {sendPlayerDocumentOperation,type PendingDocumentUpload} from "../document-upload.client";
+import {DevicePhotoCamera} from "./device-photo-camera";
+
+function LocalPhotoPreview({file}:{file:File}){
+  const image=useRef<HTMLImageElement>(null);
+  useEffect(()=>{const url=URL.createObjectURL(file);if(image.current)image.current.src=url;return()=>URL.revokeObjectURL(url);},[file]);
+  // eslint-disable-next-line @next/next/no-img-element -- Vista previa local, sin optimizador ni envío de la foto.
+  return <img ref={image} alt="Vista previa de la foto del jugador" className="max-h-64 max-w-full rounded-xl border border-border object-contain"/>;
+}
 
 const messages:Record<string,string>={CONFIGURATION_REQUIRED:"Falta configurar la política o este requisito documental.",CONTEXT_UNAVAILABLE:"El expediente ya no permite cargas en su estado actual.",UPLOAD_CONFLICT:"Los datos o la versión cambiaron. Consulta el expediente antes de preparar otra carga.",UPLOAD_EXPIRED:"La intención venció. Prepara una nueva carga después de consultar su estado.",INVALID_FILE:"El contenido del archivo no corresponde a un PNG, JPEG o PDF válido.",FILE_TOO_LARGE:"El archivo supera los 10 MiB permitidos.",FORBIDDEN:"Tu cuenta ya no tiene acceso a esta operación.",UNAUTHENTICATED:"Tu sesión ya no está disponible. Inicia sesión nuevamente."};
 export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:string;initial:Dossier;storageConfigured:boolean}){
@@ -12,6 +20,7 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
   const [phase,setPhase]=useState<"EDITING"|"SENDING"|"UNCERTAIN"|"CONFIRMED">("EDITING"),[message,setMessage]=useState("");
   const lock=useRef(false),pending=useRef<PendingDocumentUpload|null>(null),form=useRef<HTMLFormElement>(null);
   const requirement=dossier.requirements.find(r=>r.id===requirementId);
+  const photo=dossier.documentTypes.find(t=>t.id===requirement?.typeId)?.code==="PHOTO";
   const selectedCurrent=dossier.documents.find(d=>d.requirementId===requirementId && d.slot===Number(slot) && !d.superseded);
   const endpoint=`/api/player-registrations/${dossier.registrationId}/documents`;
   const secondary="min-h-12 rounded-xl border border-border bg-surface px-4 py-3 font-semibold text-primary disabled:opacity-50";
@@ -35,7 +44,7 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
   }
   async function submit(event:FormEvent<HTMLFormElement>){
     event.preventDefault();if(lock.current || frozen || !requirement || !file)return;
-    if(!["application/pdf","image/png","image/jpeg"].includes(file.type) || !file.size || file.size>10485760){setMessage("Selecciona un PNG, JPEG o PDF de hasta 10 MiB. El servidor también comprobará su contenido.");return;}
+    if(!(photo?["image/png","image/jpeg"]:["application/pdf","image/png","image/jpeg"]).includes(file.type) || !file.size || file.size>10485760){setMessage(photo?"Selecciona una foto PNG o JPEG de hasta 10 MiB.":"Selecciona un PNG, JPEG o PDF de hasta 10 MiB. El servidor también comprobará su contenido.");return;}
     lock.current=true;setPhase("SENDING");
     try{const bytes=new Uint8Array(await file.arrayBuffer());const hash=await crypto.subtle.digest("SHA-256",bytes);
       const sha256=Array.from(new Uint8Array(hash),value=>value.toString(16).padStart(2,"0")).join("");
@@ -61,11 +70,12 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
   }
   return <div className="space-y-7">
     <div className="rounded-xl border border-border bg-surface p-5 space-y-2"><p>Edad evaluada en el registro del {dossier.referenceDate}: {dossier.minorAtRegistration===null?"fecha de nacimiento pendiente":dossier.minorAtRegistration?"menor de edad":"mayor de edad"}.</p>
-      <p className="text-sm text-muted">Las cargas y sustituciones se permiten cualquier día mientras el expediente esté pendiente. Recibir archivos no autoriza al jugador para competir.</p>
+      <p className="text-sm text-muted">{dossier.registrationStatus==="ACTIVE"?(dossier.canUpload?"Jugador activo. Puedes completar su constancia CURP y foto mientras el expediente siga pendiente; las cargas no cambian su habilitación.":"Jugador activo. El estado actual del expediente no permite nuevas cargas."):"Las cargas y sustituciones se permiten cualquier día mientras el expediente esté pendiente. Recibir archivos no autoriza al jugador para competir."}</p>
       {dossier.minorAtRegistration && <p>La autorización del tutor requiere acreditación y revisión. La credencial estudiantil es opcional y no la sustituye.</p>}
+      <p className="text-sm text-muted">Puedes añadir o sustituir la foto del jugador en este expediente mientras esté pendiente. Es distinta de la selfie de verificación de Veteranos y no bloquea el alta inicial.</p>
     </div>
     <section className="space-y-3" aria-label="Requisitos documentales"><h2 className="text-xl font-semibold">Requisitos del expediente</h2>
-      {(dossier.configuration==="MISSING" || dossier.configurationIssues.length>0) && <p role="status" className="rounded-xl border border-border p-4">La configuración documental está incompleta o requiere corrección por administración. El expediente no puede aprobarse.</p>}
+      {(dossier.configuration==="MISSING" || dossier.configurationIssues.length>0) && <p role="status" className="rounded-xl border border-border p-4">La configuración documental está incompleta o requiere corrección por administración. El expediente no puede darse por completo.</p>}
       <ul className="grid gap-3 sm:grid-cols-2">{dossier.requirements.map(r=><li key={r.id} className="rounded-xl border border-border bg-surface p-4"><p className="font-semibold">{dossier.documentTypes.find(t=>t.id===r.typeId)?.name} · {r.required?"Obligatorio":"Opcional"}</p><p className="mt-2 text-sm">Recibidos vigentes: {r.recorded} de {r.quantity} · Revisados: {r.approved}{r.required?` · Faltantes: ${r.missing}`:""}</p></li>)}</ul>
     </section>
     <form ref={form} onSubmit={submit} className="space-y-4 rounded-xl border border-border bg-surface p-5" aria-label="Cargar documento">
@@ -73,11 +83,13 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
       {!storageConfigured && <p role="status">El almacenamiento privado no está configurado.</p>}
       {!dossier.canUpload && <p role="status">El estado del expediente no permite nuevas cargas.</p>}
       <fieldset disabled={frozen || !storageConfigured || !dossier.canUpload} className="grid gap-4 sm:grid-cols-2"><legend className="sr-only">Archivo y requisito</legend>
-        <div><label htmlFor="document-requirement">Documento</label><SelectField id="document-requirement" name="requirementId" value={requirementId} onValueChange={value=>{setRequirementId(value);setSlot("1");}} options={dossier.requirements.map(r=>({value:r.id,label:dossier.documentTypes.find(t=>t.id===r.typeId)?.name ?? "Documento",disabled:dossier.documentTypes.find(t=>t.id===r.typeId)?.code==="STUDENT_ID" && r.required}))} required /></div>
+        <div><label htmlFor="document-requirement">Documento</label><SelectField id="document-requirement" name="requirementId" value={requirementId} onValueChange={value=>{setRequirementId(value);setSlot("1");setFile(null);form.current?.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach(input=>{input.value="";});}} options={dossier.requirements.map(r=>({value:r.id,label:dossier.documentTypes.find(t=>t.id===r.typeId)?.name ?? "Documento",disabled:(dossier.documentTypes.find(t=>t.id===r.typeId)?.code==="STUDENT_ID" && r.required) || (dossier.documentTypes.find(t=>t.id===r.typeId)?.code==="PHOTO" && (r.required || r.quantity!==1))}))} required /></div>
         <div><label htmlFor="document-slot">Posición del requisito</label><SelectField id="document-slot" name="slot" value={slot} onValueChange={setSlot} disabled={!requirement} searchable={false} options={Array.from({length:requirement?.quantity ?? 0},(_,i)=>({value:String(i+1),label:`Archivo ${i+1}`}))} required /></div>
-        <div><label htmlFor="document-file">Archivo del dispositivo</label><input id="document-file" type="file" accept="application/pdf,image/jpeg,image/png" aria-describedby="dossier-file-help dossier-upload-message" className="mt-2 block w-full" onChange={event=>setFile(event.target.files?.[0] ?? null)} /></div>
-        <div><label htmlFor="document-camera">Tomar una foto (si está disponible)</label><input id="document-camera" type="file" accept="image/jpeg,image/png" capture="environment" aria-describedby="dossier-file-help dossier-upload-message" className="mt-2 block w-full" onChange={event=>setFile(event.target.files?.[0] ?? null)} /></div>
+        {photo && !frozen && storageConfigured && dossier.canUpload && <div className="sm:col-span-2"><DevicePhotoCamera selfie captureLabel="Vista en vivo para foto del jugador" onCapture={setFile}/></div>}
+        <div><label htmlFor="document-file">{photo?"Elegir foto del jugador":"Archivo del dispositivo"}</label><input id="document-file" type="file" accept={photo?"image/jpeg,image/png":"application/pdf,image/jpeg,image/png"} aria-describedby="dossier-file-help dossier-upload-message" className="mt-2 block w-full" onChange={event=>setFile(event.target.files?.[0] ?? null)} /></div>
+        {!photo && <div><label htmlFor="document-camera">Tomar una foto (si está disponible)</label><input id="document-camera" type="file" accept="image/jpeg,image/png" capture="environment" aria-describedby="dossier-file-help dossier-upload-message" className="mt-2 block w-full" onChange={event=>setFile(event.target.files?.[0] ?? null)} /></div>}
       </fieldset>
+      {photo && file && ["image/png","image/jpeg"].includes(file.type) && <LocalPhotoPreview file={file}/>}
       {file && <p className="break-all text-sm">Seleccionado: {file.name} · {Math.ceil(file.size/1024)} KiB</p>}
       {selectedCurrent && <p className="text-sm">Esta carga sustituirá la versión vigente. La versión anterior se conservará y la nueva necesitará revisión.</p>}
       <div className="flex flex-wrap gap-3">
@@ -87,7 +99,7 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
         {phase==="CONFIRMED" && <button type="button" className={secondary} onClick={()=>{pending.current=null;setFile(null);form.current?.reset();setPhase("EDITING");setMessage("");}}>Adjuntar otro archivo</button>}
       </div>
       <p id="dossier-upload-message" role="status" className={message?"rounded-xl border border-border p-4 text-sm leading-6":"sr-only"}>{message}</p>
-      <p id="dossier-file-help" className="text-xs leading-6 text-muted">PNG, JPEG o PDF de hasta 10 MiB. El archivo solo se conserva en esta pantalla; al salir o recargar tendrás que seleccionarlo otra vez. Una fotografía no demuestra por sí sola la originalidad del documento.</p>
+      <p id="dossier-file-help" className="text-xs leading-6 text-muted">{photo?"Foto del jugador: PNG o JPEG de hasta 10 MiB.":"PNG, JPEG o PDF de hasta 10 MiB."} El archivo solo se conserva en esta pantalla; al salir o recargar tendrás que seleccionarlo otra vez. Una fotografía no demuestra por sí sola la originalidad del documento.</p>
     </form>
     <section className="space-y-3" aria-label="Archivos del expediente"><h2 className="text-xl font-semibold">Archivos recibidos e historial</h2>
       {!dossier.documents.length && <p>No se han recibido archivos.</p>}

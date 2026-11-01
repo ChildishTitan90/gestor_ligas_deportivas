@@ -131,6 +131,6 @@ export function PlayerRegistrationWorkspace({ actorId, teams, providerConfigured
       {listMessage && <p role="status" className="rounded-xl border border-border bg-surface p-4">{listMessage}</p>}
       <ul className="grid gap-3">{rows.map(row => <li key={row.registrationId} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4"><div><p className="font-semibold">{row.displayName}</p><p className="mt-1 text-sm text-muted">{row.status === "INELIGIBLE" ? "Pendiente de validación deportiva" : row.status === "ACTIVE" ? "Activo" : row.status === "WITHDRAWN" ? "Baja registrada" : "Suspendido"}{row.identityReviewStatus === "REQUIRED" ? " · Revisión de identidad pendiente" : ""}</p></div><div className="flex flex-wrap gap-3"><Link href={`/players/registrations/${row.registrationId}/documents`} className={secondary}>Expediente documental</Link><button type="button" onClick={() => setSelectedRecord(row.registrationId)} className={secondary}>Consultar CURP</button></div></li>)}</ul>
     </section>}
-    {selectedRecord && <CurpVerificationPanel key={`${actorId}:${selectedRecord}`} actorId={actorId} registrationId={selectedRecord} providerConfigured={providerConfigured} fetcher={fetcher} />}
+    {selectedRecord && <CurpVerificationPanel key={`${actorId}:${selectedRecord}`} actorId={actorId} registrationId={selectedRecord} providerConfigured={providerConfigured} fetcher={fetcher} onRegistrationChange={()=>setRefresh(value=>value+1)} />}
   </div>;
 }

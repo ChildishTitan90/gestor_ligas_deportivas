@@ -5,6 +5,8 @@ import {requireOperationalUser} from "@/server/auth/session";
 import {AuthorizationError} from "@/server/auth/authorization";
 import {assertPlayerRegistrationRead,lockPlayerTeamContext} from "./access";
 import {summarizeDossier,minorAtDate} from "../document-rules";
+import {optionalPlayerPhotoRequirement,requiredPlayerCurpRequirement} from "./player-photo-requirement";
+import {canCompleteActivatedDossier} from "./automatic-activation";
 
 export async function getPlayerDossier(registrationId:string){
   return readPlayerDossierForActor((await requireOperationalUser()).id,registrationId);
@@ -27,17 +29,27 @@ export async function readPlayerDossierForActor(actorId:string,registrationId:st
     const superseded=new Set(revisions.map(r=>r.replacesDocumentId));
     const referenceDate=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Mexico_City"}).format(registration.registered_at);
     const minor=minorAtDate(registration.people.birth_date?.toISOString().slice(0,10) ?? null,referenceDate);
-    const requirements=configured.filter(r=>!["GUARDIAN_CONSENT","STUDENT_ID"].includes(r.document_types.code) || minor===true);
+    const completingActive=registration.status==="ACTIVE" && await canCompleteActivatedDossier(tx,registrationId,registration.people.identity_version);
+    const requirements=configured.filter(r=>(!["GUARDIAN_CONSENT","STUDENT_ID"].includes(r.document_types.code) || minor===true) && (!completingActive || ["CURP","PHOTO"].includes(r.document_types.code)));
+    if(!requirements.some(r=>r.document_types.code==="CURP")){
+      const curp=await requiredPlayerCurpRequirement(tx,context.seasonCategoryId);if(curp)requirements.push(curp);
+    }
+    if(!requirements.some(r=>r.document_types.code==="PHOTO")){
+      const photo=await optionalPlayerPhotoRequirement(tx,context.seasonCategoryId);if(photo)requirements.push(photo);
+    }
     const configurationIssues:string[]=[];
     if(minor===null)configurationIssues.push("UNKNOWN_AGE");
     if(!requirements.some(r=>r.document_types.code==="CURP" && r.is_required))configurationIssues.push("MISSING_CURP_REQUIREMENT");
     if(minor===true && !requirements.some(r=>r.document_types.code==="GUARDIAN_CONSENT" && r.is_required))configurationIssues.push("MISSING_GUARDIAN_REQUIREMENT");
     if(requirements.some(r=>r.document_types.code==="STUDENT_ID" && r.is_required))configurationIssues.push("STUDENT_ID_MUST_BE_OPTIONAL");
-    if(requirements.some(r=>!["CURP","INE","GUARDIAN_CONSENT","STUDENT_ID"].includes(r.document_types.code)))configurationIssues.push("UNSUPPORTED_REQUIREMENT");
+    if(requirements.some(r=>r.document_types.code==="PHOTO" && (r.is_required || r.quantity!==1)))configurationIssues.push("PHOTO_POLICY_REQUIRES_REVIEW");
+    if(requirements.some(r=>!["CURP","INE","GUARDIAN_CONSENT","STUDENT_ID","PHOTO"].includes(r.document_types.code)))configurationIssues.push("UNSUPPORTED_REQUIREMENT");
     return {registrationId,...summarizeDossier(requirements.map(r=>({id:r.id,typeId:r.document_type_id,quantity:r.quantity,required:r.is_required})),
       documents.filter(d=>!superseded.has(d.id)).map(d=>({id:d.id,typeId:d.document_type_id,status:d.status,storageConfirmed:confirmed.has(d.id)}))),
-      configurationIssues,minorAtRegistration:minor,referenceDate,canUpload:canUpdate && registration.status==="INELIGIBLE" && !registration.withdrawn_at && context.seasonStatus!=="CLOSED" && context.teamStatus!=="WITHDRAWN" && context.affiliationStatus==="APPROVED" && context.categoryAuthorized,
-      documentTypes:requirements.map(r=>({id:r.document_type_id,...r.document_types})),
+      configuration:configured.length?"CONFIGURED" as const:"MISSING" as const,
+      registrationStatus:registration.status,
+      configurationIssues,minorAtRegistration:minor,referenceDate,canUpload:canUpdate && (registration.status==="INELIGIBLE" || completingActive) && !registration.withdrawn_at && context.seasonStatus!=="CLOSED" && context.teamStatus!=="WITHDRAWN" && context.affiliationStatus==="APPROVED" && context.categoryAuthorized,
+      documentTypes:requirements.map(r=>({id:r.document_type_id,...r.document_types,...(r.document_types.code==="PHOTO"?{name:"Foto del jugador"}:{})})),
       documents:documents.map(d=>({id:d.id,typeId:d.document_type_id,reviewStatus:d.status,superseded:superseded.has(d.id),requirementId:(events.find(e=>(e.new_data as {documentId:string}).documentId===d.id)?.new_data as {requirementId?:string}|undefined)?.requirementId,
         slot:(events.find(e=>(e.new_data as {documentId:string}).documentId===d.id)?.new_data as {slot?:number}|undefined)?.slot,storageConfirmation:confirmed.has(d.id)?"CONFIRMED" as const:"NOT_CHECKED" as const})),
       guardianConsent:minor===true?"REQUIRES_ACCREDITATION" as const:minor===false?"NOT_REQUIRED" as const:"UNKNOWN_AGE" as const};

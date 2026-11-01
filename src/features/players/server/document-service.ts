@@ -9,6 +9,8 @@ import {PRIVATE_FILE_MAX_BYTES,validatePrivateFileContent} from "@/server/files/
 import {lockPlayerTeamContext,assertPlayerRegistrationRead} from "./access";
 import type {PrivatePlayerDocumentStorage,PlayerDocumentTransport} from "./document-storage";
 import {isCalendarDate} from "../identity-rules";
+import {optionalPlayerPhotoRequirement,playerPhotoRequirementId,requiredPlayerCurpRequirement,playerCurpRequirementId} from "./player-photo-requirement";
+import {canCompleteActivatedDossier} from "./automatic-activation";
 
 export class PlayerDocumentError extends Error {
   constructor(public readonly code:"INVALID_DOCUMENT"|"CONFIGURATION_REQUIRED"|"CONTEXT_UNAVAILABLE"|"UPLOAD_CONFLICT"|"STORAGE_UNCONFIRMED"|"UPLOAD_EXPIRED",public readonly status=409){super(code);}
@@ -33,13 +35,26 @@ async function authorize(tx:Prisma.TransactionClient,actorId:string,input:Upload
   if("window" in policy && policy.referenceDate!==new Intl.DateTimeFormat("en-CA",{timeZone:"America/Mexico_City"}).format(reg.registered_at))throw new PlayerDocumentError("UPLOAD_CONFLICT");
   const now=Date.now();
   const windowOpen="window" in policy || (Number.isFinite(policy.opensAt.getTime()) && Number.isFinite(policy.closesAt.getTime()) && now>=policy.opensAt.getTime() && now<=policy.closesAt.getTime());
-  if(!windowOpen || reg.withdrawn_at || reg.status!=="INELIGIBLE" || row.seasonStatus==="CLOSED" || row.teamStatus==="WITHDRAWN" || row.affiliationStatus!=="APPROVED" || !row.categoryAuthorized)throw new PlayerDocumentError("CONTEXT_UNAVAILABLE");
+  const completingActive=reg.status==="ACTIVE" && await canCompleteActivatedDossier(tx,input.registrationId,reg.people.identity_version);
+  if(!windowOpen || reg.withdrawn_at || (reg.status!=="INELIGIBLE" && !completingActive) || row.seasonStatus==="CLOSED" || row.teamStatus==="WITHDRAWN" || row.affiliationStatus!=="APPROVED" || !row.categoryAuthorized)throw new PlayerDocumentError("CONTEXT_UNAVAILABLE");
   await tx.$queryRaw`SELECT id FROM sports_management.document_requirements WHERE id=${input.requirementId}::uuid FOR SHARE`;
-  const requirement=await tx.document_requirements.findUnique({where:{id:input.requirementId},select:{season_category_id:true,document_type_id:true,quantity:true,is_required:true,document_types:{select:{code:true}}}});
+  let requirement=await tx.document_requirements.findUnique({where:{id:input.requirementId},select:{season_category_id:true,document_type_id:true,quantity:true,is_required:true,document_types:{select:{code:true}}}});
+  if(!requirement && input.requirementId===playerPhotoRequirementId(row.seasonCategoryId)){
+    const photo=await optionalPlayerPhotoRequirement(tx,row.seasonCategoryId);
+    // No permitir una posición alternativa que eluda un requisito explícito ya configurado.
+    if(photo && !await tx.document_requirements.findFirst({where:{season_category_id:row.seasonCategoryId,document_type_id:photo.document_type_id},select:{id:true}}))requirement=photo;
+  }
+  if(!requirement && input.requirementId===playerCurpRequirementId(row.seasonCategoryId)){
+    const curp=await requiredPlayerCurpRequirement(tx,row.seasonCategoryId);
+    if(curp && !await tx.document_requirements.findFirst({where:{season_category_id:row.seasonCategoryId,document_type_id:curp.document_type_id},select:{id:true}}))requirement=curp;
+  }
   if(!requirement || requirement.season_category_id!==row.seasonCategoryId || input.slot>requirement.quantity)throw new PlayerDocumentError("INVALID_DOCUMENT",400);
   await tx.$queryRaw`SELECT id FROM sports_management.document_types WHERE id=${requirement.document_type_id}::uuid FOR SHARE`;
   const code=requirement.document_types.code;
-  if(!["CURP","INE","GUARDIAN_CONSENT","STUDENT_ID"].includes(code))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
+  if(completingActive && !["CURP","PHOTO"].includes(code))throw new PlayerDocumentError("CONTEXT_UNAVAILABLE");
+  if(!["CURP","INE","GUARDIAN_CONSENT","STUDENT_ID","PHOTO"].includes(code))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
+  if(code==="PHOTO" && (requirement.is_required || requirement.quantity!==1))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
+  if(code==="PHOTO" && !["image/png","image/jpeg"].includes(input.mimeType))throw new PlayerDocumentError("INVALID_DOCUMENT",400);
   const dob=reg.people.birth_date.toISOString().slice(0,10);
   const age=Number(policy.referenceDate.slice(0,4))-Number(dob.slice(0,4))-Number(policy.referenceDate.slice(5)<dob.slice(5));
   if(!Number.isFinite(age) || age<0 || ((code==="STUDENT_ID" || code==="GUARDIAN_CONSENT") && age>=18) || (code==="STUDENT_ID" && requirement.is_required))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
