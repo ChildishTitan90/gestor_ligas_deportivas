@@ -61,7 +61,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
         ON CONFLICT(role_id,permission_id) DO UPDATE SET context_only=true`, [roleId, permission]);
     }
     const secretaryRoleId = (await db.query("SELECT id FROM sports_management.roles WHERE code='SECRETARY'")).rows[0].id;
-    for (const action of ['READ', 'APPROVE']) {
+    for (const action of ['READ', 'CREATE', 'APPROVE']) {
       const permission = (await db.query(`INSERT INTO sports_management.permissions(module,action) VALUES ('clubs',$1)
         ON CONFLICT(module,action) DO UPDATE SET module=EXCLUDED.module RETURNING id`, [action])).rows[0].id;
       const prior = (await db.query('SELECT context_only FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [secretaryRoleId, permission])).rows[0];
@@ -97,7 +97,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
       method: 'POST', headers: { origin: baseUrl, 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
     });
     const payload = (ctx = context, extra = {}) => ({ enrollmentKey: randomUUID(), clubId, seasonId: ctx.id,
-      categoryId: ctx.categories[0].id, groupId: ctx.categories[0].groups[0], team: { mode: 'new', name: 'Equipo sintético PD62' }, ...extra });
+      categoryId: ctx.categories[0].id, groupId: ctx.categories[0].groups[0], team: { mode: 'new', name: `Equipo sintético ${randomUUID()}` }, ...extra });
     const counts = async () => (await db.query(`SELECT
       (SELECT count(*)::int FROM sports_management.teams WHERE club_id=$1) teams,
       (SELECT count(*)::int FROM sports_management.season_teams WHERE club_id=$1) enrollments,
@@ -198,11 +198,37 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
       // Otra temporada: fixture explícito para pruebas aisladas de inscripción.
       // Los siguientes casos aíslan inscripción, además del recorrido real anterior.
       await approvedFixture(context, clubId, [context.categories[0].id]);
+      await t.test('Secretaría con CREATE en su liga puede crear e inscribir equipo autorizado', async () => {
+        const options = await secretary.browser.request(`/api/team-enrollments/catalogs?clubId=${clubId}`);
+        assert.equal(options.status, 200);
+        assert.equal((await options.json()).capabilities.canCreateTeam, true);
+        const response = await post(secretary.browser, payload(context, { team: { mode: 'new', name: 'Equipo Secretaría' } }));
+        assert.equal(response.status, 201);
+        assert.equal((await response.json()).status, 'REGISTERED');
+        await deny(secretary.browser, payload(context, { team: { mode: 'new', name: '  equipo   secretaría  ' } }), 409, 'TEAM_ALREADY_ENROLLED');
+      });
+      await t.test('altas simultáneas con el mismo nombre crean una sola inscripción', async () => {
+        const body1 = payload(context, { team: { mode: 'new', name: 'Equipo simultáneo' } });
+        const body2 = payload(context, { team: { mode: 'new', name: '  EQUIPO   SIMULTÁNEO ' } });
+        const results = await Promise.all([post(actor.browser, body1), post(secretary.browser, body2)]);
+        assert.deepEqual(results.map(response => response.status).sort(), [201, 409]);
+        assert.equal((await results.find(response => response.status === 409).json()).code, 'TEAM_ALREADY_ENROLLED');
+      });
+      await t.test('equipos diferentes pueden compartir nombre en categorías distintas', async () => {
+        const second = context.categories[1];
+        await db.query('UPDATE sports_management.club_affiliation_categories SET authorized_by=$3,authorized_at=now() WHERE season_id=$1 AND category_id=$2', [context.id, second.id, secretary.id]);
+        try {
+          const response = await post(secretary.browser, payload(context, { categoryId: second.id, groupId: second.groups[0], team: { mode: 'new', name: 'Equipo Secretaría' } }));
+          assert.equal(response.status, 201);
+          assert.equal((await response.json()).categoryId, second.id);
+          await deny(secretary.browser, payload(context, { categoryId: second.id, groupId: second.groups[0], team: { mode: 'new', name: 'equipo secretaría' } }), 409, 'TEAM_ALREADY_ENROLLED');
+        } finally { await db.query('UPDATE sports_management.club_affiliation_categories SET authorized_by=NULL,authorized_at=NULL WHERE season_id=$1 AND category_id=$2', [context.id, second.id]); }
+      });
       await t.test('sesión operativa y alcance: anónimo, cambio de contraseña, sin permiso y otros clubes', async () => {
         await deny(new Browser(baseUrl), payload(), 401, 'UNAUTHENTICATED');
         await deny(restricted.browser, payload(), 403, 'PASSWORD_CHANGE_REQUIRED');
         await deny(ordinary.browser, payload(), 403, 'FORBIDDEN');
-        await deny(secretary.browser, payload(), 403, 'FORBIDDEN');
+        await deny(secretary.browser, payload(context, { clubId: foreignClub }), 403, 'FORBIDDEN');
         for (const id of [otherClub, foreignClub]) await deny(actor.browser, payload(context, { clubId: id }), 403, 'FORBIDDEN');
         for (const path of ['/api/team-enrollments/options', `/api/team-enrollments?clubId=${clubId}`]) {
           assert.equal((await new Browser(baseUrl).request(path)).status, 401);
@@ -565,7 +591,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
         try { await deny(actor.browser, body, 403, 'FORBIDDEN'); }
         finally { await db.query("UPDATE sports_management.clubs SET status='ACTIVE' WHERE id=$1", [clubId]); }
       });
-      await t.test('no mezcla CREATE de Secretaría ni de otro club con una asignación de delegado sin CREATE', async () => {
+      await t.test('CREATE debe proceder de una asignación válida para el club', async () => {
         const permission = savedGrants.find(g => g.roleId === roleId && g.action === 'CREATE').permission;
         await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [roleId, permission]);
         const extra = (await db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id)
@@ -575,10 +601,9 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
           assert.equal(response.status, 200);
           assert.equal((await response.json()).capabilities.canCreateTeam, false);
           await deny(actor.browser, payload(), 403, 'FORBIDDEN');
-          // Ni siquiera CREATE del mismo club, pero de otro rol, sustituye la concesión del delegado.
+          // Una concesión de Secretaría del mismo club sí permite actuar en ese ámbito.
           await db.query('UPDATE sports_management.user_roles SET club_id=$1 WHERE id=$2', [clubId, extra]);
-          assert.equal((await (await actor.browser.request(`/api/team-enrollments/options?clubId=${clubId}`)).json()).capabilities.canCreateTeam, false);
-          await deny(actor.browser, payload(), 403, 'FORBIDDEN');
+          assert.equal((await (await actor.browser.request(`/api/team-enrollments/options?clubId=${clubId}`)).json()).capabilities.canCreateTeam, true);
         } finally {
           await db.query('DELETE FROM sports_management.user_roles WHERE id=$1', [extra]);
           await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [roleId, permission]);
@@ -613,6 +638,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
           WHERE season_id=$1 AND category_id=$2`, [context.id, context.categories[0].id]), { code: '23514' });
       });
       await t.test('temporada cerrada bloquea nuevas altas; reintento confirmado y lectura conservan historial', async () => {
+        await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1", [context.id]);
         await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1", [context.id]);
         await deny(actor.browser, payload(), 409, 'SEASON_CLOSED');
         const before = await counts();
@@ -702,7 +728,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
           const options = await selected.json();
           assert.equal(options.clubs[0].id, firstPage.clubs[0].id);
           assert.equal(options.capabilities.clubId, selectedClub);
-          assert.equal(options.capabilities.canCreateTeam, false);
+          assert.equal(options.capabilities.canCreateTeam, true);
           assert.ok(options.seasons.length);
           const secondPage = await (await secretary.browser.request(`/api/team-enrollments/catalogs?limit=1&clubAfter=${firstPage.nextClubAfter}`)).json();
           assert.notEqual(secondPage.clubs[0].id, firstPage.clubs[0].id);

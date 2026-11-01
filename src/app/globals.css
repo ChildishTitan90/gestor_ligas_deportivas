@@ -36,6 +36,24 @@ body {
   outline-offset: 4px;
 }
 
+/* El foco de los campos queda dentro del recuadro, sin invadir etiquetas. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+button:not(:disabled), [role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+button:disabled { cursor: not-allowed; }
+
+label > input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]),
+label > textarea {
+  display: block;
+  margin-top: 0.5rem;
+}
+
 ::selection {
   background: var(--soft);
   color: var(--primary);

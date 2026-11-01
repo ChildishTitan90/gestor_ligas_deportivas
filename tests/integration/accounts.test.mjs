@@ -42,7 +42,7 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
     }
     const admin = await fixture('admin', 'SUPERADMIN', null);
     await db.query("SELECT set_config('app.user_id',$1,false),set_config('app.reason','PDGLD-54: concesiones aisladas de prueba, no matriz RF22',false)", [admin.id]);
-    for (const [module, action] of [['users', 'READ'], ['users', 'CREATE'], ['users', 'UPDATE'], ['clubs', 'CREATE']]) {
+    for (const [module, action] of [['users', 'READ'], ['users', 'CREATE'], ['users', 'UPDATE'], ['clubs', 'CREATE'], ['competitions', 'CREATE'], ['competitions', 'UPDATE']]) {
       await db.query(`INSERT INTO sports_management.permissions(module,action) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [module, action]);
       await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
         SELECT r.id,p.id,false FROM sports_management.roles r,sports_management.permissions p
@@ -119,8 +119,12 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         const options = await response.json();
         assert.deepEqual(options.leagues.map((league) => league.id), [leagueA]);
         assert.ok(!options.roles.some((role) => role.code === 'SUPERADMIN'));
+        assert.ok(!options.roles.some((role) => role.code === 'SECRETARY'));
         assert.equal((await local.browser.request(`/api/accounts?leagueId=${leagueB}`)).status, 403);
-        assert.equal((await post(local.browser, payload())).status, 201);
+        // Secretaría ahora incluye CREATE/UPDATE de competencias (PDGLD-38).
+        // Este operador no los posee ni tiene users:APPROVE para delegarlos.
+        await deny(local.browser, payload(), 403, 'FORBIDDEN');
+        assert.equal((await post(local.browser, payload({ roles: ['CLUB_DELEGATE'], club: { kind: 'existing', id: clubs[0] } }))).status, 201);
         await deny(local.browser, payload({ leagueId: leagueB }), 403, 'FORBIDDEN');
         await deny(local.browser, payload({ roles: ['SUPERADMIN'], leagueId: undefined }), 403, 'FORBIDDEN');
         // Poder crear no habilita roles cuyas capacidades no posee, ni altas de clubes.

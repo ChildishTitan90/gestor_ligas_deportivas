@@ -22,6 +22,26 @@ function fetcher(handler: (url: string, init: RequestInit) => Response | Promise
   return (async (url, init = {}) => handler(String(url), init)) as typeof fetch;
 }
 
+test("recuperación sin grupo conserva el cuerpo y acepta tanto pendiente como distribución posterior", async () => {
+  for (const groupId of [null, randomUUID()]) {
+    const storage = new MemoryStorage();
+    const body = input();
+    delete body.groupId;
+    const recovery = createEnrollmentRecovery(actorId, storage, fetcher((_url, init) => {
+      const sent = JSON.parse(String(init.body));
+      assert.equal(Object.hasOwn(sent, "groupId"), false);
+      assert.equal(sent.enrollmentKey, body.enrollmentKey);
+      return Response.json({ ...result(body), groupId }, { status: 200 });
+    }));
+    const saved = recovery.remember(body);
+    assert.equal(Object.hasOwn(saved, "groupId"), false);
+    const outcome = await recovery.retry(saved);
+    assert.equal(outcome.outcome, "CONFIRMED");
+    if (outcome.outcome === "CONFIRMED") assert.equal(outcome.enrollment.groupId, groupId);
+    assert.equal(storage.length, 0);
+  }
+});
+
 test("cada operación conserva la identidad del dueño tras cambiar la cuenta activa y mantiene el pendiente", async () => {
   for (const action of ["retry", "check", "cancel"] as const) {
     const storage = new MemoryStorage();

@@ -331,8 +331,10 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
       });
       await t.test('temporada cerrada impide nuevas solicitudes y conserva reenvíos sin escrituras', async () => {
         const closed = await season();
+        await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1", [closed.id]);
         await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1", [closed.id]);
         await deny(actor.browser, payload(closed), 409, 'SEASON_CLOSED');
+        await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1", [context.id]);
         await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1", [context.id]);
         const before = await counts();
         assert.equal((await post(actor.browser, body)).status, 200);

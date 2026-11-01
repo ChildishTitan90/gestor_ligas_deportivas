@@ -13,7 +13,7 @@ const moduleLabels: Record<string, string> = {
   competitions: "Temporadas, categorías y reglas", clubs: "Clubes y equipos", players: "Jugadores",
   venues: "Canchas", scheduling: "Programación y partidos", "match-reports": "Cédulas",
   discipline: "Disciplina, recursos y bajas", billing: "Cobranza", refereeing: "Arbitraje",
-  portal: "Publicación en el portal", users: "Usuarios y roles", audit: "Auditoría",
+  portal: "Publicación en el portal", users: "Usuarios y roles", leagues: "Creación de ligas", audit: "Auditoría",
 };
 const actionLabels: Record<PermissionAction, string> = {
   CREATE: "Crear", READ: "Consultar", UPDATE: "Actualizar", APPROVE: "Aprobar", PUBLISH: "Publicar", IMPORT: "Importar",
@@ -43,6 +43,8 @@ export async function readAccessOverview(tx: Prisma.TransactionClient, actorId: 
   const grouped = new Map<string, { context: AuthorizationContext; grants: PermissionGrant[] }>();
   for (const grant of grants) {
     if (!Object.hasOwn(moduleLabels, grant.module)) continue;
+    // Crear una liga requiere alcance global, aunque el rol también tenga asignaciones locales.
+    if (grant.module === "leagues" && (grant.leagueId || grant.clubId || grant.contextOnly)) continue;
     const key = `${grant.leagueId ?? ""}:${grant.clubId ?? ""}`;
     const group = grouped.get(key) ?? { context: {
       ...(grant.leagueId ? { leagueId: grant.leagueId } : {}), ...(grant.clubId ? { clubId: grant.clubId } : {}),

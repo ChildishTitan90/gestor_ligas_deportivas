@@ -21,7 +21,7 @@ export type TeamRegistrationFormOptions = {
       canEnroll: boolean;
       canCreateTeam: boolean;
       teams: readonly TeamRegistrationOption[];
-      categories: readonly (TeamRegistrationOption & { groups: readonly TeamRegistrationOption[] })[];
+      categories: readonly (TeamRegistrationOption & { format?: "LEGACY_GROUPS" | "GENERAL_TABLE" | "GROUP_STAGE"; groups: readonly TeamRegistrationOption[] })[];
     })[];
   })[];
 };
@@ -31,7 +31,7 @@ export type TeamRegistrationSubmission = {
   clubId: string;
   seasonId: string;
   categoryId: string;
-  groupId: string;
+  groupId?: string;
   team: { kind: "existing"; id: string } | { kind: "new"; name: string };
 };
 export type TeamRegistrationField = "clubId" | "seasonId" | "teamMode" | "teamId" | "teamName" | "categoryId" | "groupId";
