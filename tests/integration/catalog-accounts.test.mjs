@@ -110,7 +110,8 @@ export async function runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl, 
           JOIN sports_management.permissions p ON p.id=rp.permission_id`)).rows;
         const comparable = (grants) => grants.map(({ roleCode, module, action, contextOnly }) =>
           JSON.stringify({ roleCode, module, action, contextOnly })).sort();
-        assert.deepEqual(comparable(actual), comparable(catalog));
+        assert.deepEqual(comparable(actual.filter((grant) => grant.module !== 'leagues')), comparable(catalog));
+        assert.deepEqual(actual.filter((grant) => grant.module === 'leagues').map((grant) => grant.roleCode).sort(), ['SECRETARY', 'SUPERADMIN']);
         assert.equal(actual.some((grant) => ['accounts', 'user_roles', 'role_permissions'].includes(grant.module)), false);
         const marker = (await db.query('SELECT new_data FROM sports_management.audit_logs WHERE id=$1', [MATRIX_INSTALLATION.id])).rows[0];
         assert.equal(marker.new_data.grantCount, 127);

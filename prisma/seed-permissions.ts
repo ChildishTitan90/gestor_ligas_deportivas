@@ -17,6 +17,28 @@ function fingerprint(catalog: readonly PermissionGrant[]) {
   return createHash("sha256").update(JSON.stringify(sorted)).digest("hex");
 }
 
+/** Extensión independiente de RF22; se instala una vez y nunca restaura revocaciones. */
+export async function installLeagueCreationPermission(tx: Prisma.TransactionClient, actorId: string) {
+  const id = "54000000-0000-4000-8000-000000000053";
+  const tableName = "seed_league_creation_permission";
+  const existing = await tx.audit_logs.findUnique({ where: { id } });
+  if (existing) {
+    if (existing.table_name !== tableName || existing.action !== "INSTALL") throw new SeedConfigurationError("Marcador de permiso de ligas ocupado; no se modificó.");
+    return;
+  }
+  const reason = "Instalación inicial del permiso global de creación de ligas";
+  await tx.$queryRaw`SELECT set_config('app.user_id', ${actorId}, true), set_config('app.reason', ${reason}, true)`;
+  if (await tx.permissions.findUnique({ where: { module_action: { module: "leagues", action: "CREATE" } } }))
+    throw new SeedConfigurationError("El permiso para crear ligas ya existe sin marcador; revisa su procedencia.");
+  const permission = await tx.permissions.create({ data: { module: "leagues", action: "CREATE" } });
+  for (const code of ["SUPERADMIN", "SECRETARY"]) {
+    const role = await tx.roles.findUniqueOrThrow({ where: { code }, select: { id: true } });
+    await tx.role_permissions.create({ data: { role_id: role.id, permission_id: permission.id, context_only: false } });
+  }
+  await tx.audit_logs.create({ data: { id, user_id: actorId, action: "INSTALL", table_name: tableName,
+    entity_id: id, reason, new_data: { module: "leagues", action: "CREATE", roles: ["SUPERADMIN", "SECRETARY"] } } });
+}
+
 /** El llamador mantiene el bloqueo (54,2026) y la transacción de instalación. */
 export async function installPermissionCatalog(tx: Prisma.TransactionClient, catalog: readonly PermissionGrant[], actorId: string) {
   const previous = await tx.audit_logs.findUnique({ where: { id: MATRIX_INSTALLATION.id } });
@@ -63,6 +85,8 @@ export async function seedPermissionDatabase(prisma: PrismaClient, input: unknow
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(54, 2026)::text`;
     await seedBaseDatabase(tx);
     const actor = await tx.users.findUniqueOrThrow({ where: { person_id: SEED_ACTOR.personId }, select: { id: true } });
-    return installPermissionCatalog(tx, catalog, actor.id);
+    const matrix = await installPermissionCatalog(tx, catalog, actor.id);
+    await installLeagueCreationPermission(tx, actor.id);
+    return matrix;
   }, { maxWait: 10_000, timeout: 30_000 });
 }

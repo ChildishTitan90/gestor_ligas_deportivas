@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+/** Datos iniciales de una liga; la autoridad se comprueba en servidor. */
+export const createLeagueSchema = z.strictObject({
+  name: z.string().trim().min(1).max(160),
+  timezone: z.string().trim().min(1).max(100).refine(value => {
+    try { new Intl.DateTimeFormat("es", { timeZone: value }); return true; }
+    catch { return false; }
+  }, "Selecciona una zona horaria válida."),
+  reason: z.string().trim().min(1).max(1000),
+});
+
 /** Fechas de calendario de la edición; PV-04 define las ventanas de jugadores. */
 export const createSeasonSchema = z.strictObject({
   leagueId: z.uuid(),

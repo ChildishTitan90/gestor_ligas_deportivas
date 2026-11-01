@@ -281,12 +281,14 @@ test("Entrada pública de fútbol y panel con permisos vigentes por contexto", {
       const permission = await ensureGrant("SUPERADMIN", "users", "READ", true);
       await write((tx) => tx.user_roles.create({ data: { user_id: actor.id, role_id: roleId("SUPERADMIN") } }));
       let scopes = await db.$transaction((tx) => readAccessOverview(tx, actor.id));
-      assert.ok(!scopes.some((scope) => scope.title === "Gestión general"));
+      assert.deepEqual(scopes.find((scope) => scope.title === "Gestión general")?.modules,
+        [{ name: "Creación de ligas", actions: [{ label: "Crear", contextOnly: false }] }]);
       await write((tx) => tx.role_permissions.update({ where: { role_id_permission_id: { role_id: roleId("SUPERADMIN"), permission_id: permission } },
         data: { context_only: false } }));
       scopes = await db.$transaction((tx) => readAccessOverview(tx, actor.id));
       assert.deepEqual(scopes.find((scope) => scope.title === "Gestión general")?.modules,
-        [{ name: "Usuarios y roles", actions: [{ label: "Consultar", contextOnly: false }] }]);
+        [{ name: "Usuarios y roles", actions: [{ label: "Consultar", contextOnly: false }] },
+          { name: "Creación de ligas", actions: [{ label: "Crear", contextOnly: false }] }]);
       await write((tx) => tx.user_roles.deleteMany({ where: { user_id: actor.id, role_id: roleId("SUPERADMIN") } }));
     });
 
