@@ -13,6 +13,7 @@ import { verifyAccountDelegateBrowser } from '../../tests/e2e/account-delegates-
 import { accountDiagnostic, nextStartupObserver, writeAccountDiagnostic } from './account-diagnostics.mjs';
 import { accountApplicationPlan, independentInstallPlan, installIndependentDependencies } from './account-independent-dependencies.mjs';
 import { privateStartupCapture } from './account-startup-probe.mjs';
+import { runAccountProvisioningSuite } from './account-provisioning-entry.mjs';
 import { PREVIEW_ROLE } from '../preview/runtime-plan.mjs';
 
 process.once('message', async config => {
@@ -38,7 +39,7 @@ process.once('message', async config => {
   process.once('SIGINT', stop); process.once('SIGTERM', stop); process.once('disconnect', stop);
   try {
     assert.match(config.runId, RUN_ID); assert.ok([15, 17].includes(config.major));
-    assert.ok(['http', 'browser', 'preview'].includes(config.verificationMode));
+    assert.ok(['http', 'browser', 'preview', 'accounts'].includes(config.verificationMode));
     assert.equal(config.host, '127.0.0.1'); assert.equal(config.port, 55400 + config.major);
     const stem = config.runId.replaceAll('-', '').slice(0, 14);
     assert.equal(config.parentDatabase, `pdgld48_test_${stem}${config.major}`);
@@ -52,7 +53,7 @@ process.once('message', async config => {
     for (const database of [config.parentDatabase, config.modelDatabase]) {
       controller.signal.throwIfAborted(); await admin.query(`CREATE DATABASE "${database}"`); created.push(database);
     }
-    const applicationDatabase = config.verificationMode === 'preview' ? config.parentDatabase : config.modelDatabase;
+    const applicationDatabase = ['preview', 'accounts'].includes(config.verificationMode) ? config.parentDatabase : config.modelDatabase;
     db = new pg.Client({ host: config.host, port: config.port, database: applicationDatabase, user: 'postgres',
       password: config.password, ssl: false, connectionTimeoutMillis: 5_000, statement_timeout: 15_000 });
     await db.connect();
@@ -62,13 +63,13 @@ process.once('message', async config => {
     for (const name of names.filter(name => name < target)) {
       controller.signal.throwIfAborted(); await db.query(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
     }
-    const fixture = await prepareAccountDelegateFixtures(db, config.verificationMode === 'preview' ? { databaseName: applicationDatabase } : {});
+    const fixture = config.verificationMode === 'accounts' ? null : await prepareAccountDelegateFixtures(db, config.verificationMode === 'preview' ? { databaseName: applicationDatabase } : {});
     for (const name of names.filter(name => name >= target)) {
       controller.signal.throwIfAborted(); await db.query(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
     }
     diagnosticContext.stage = 'application-copy';
     const root = fileURLToPath(new URL('../../', import.meta.url));
-    app = await createAccountAppCopy(root, applicationPlan.app, { dependencies: applicationPlan.dependencies });
+    app = await createAccountAppCopy(root, applicationPlan.app, { dependencies: applicationPlan.dependencies, verification: config.verificationMode === 'accounts' });
     if (applicationPlan.dependencies === 'independent') {
       diagnosticContext.case = 'dependency-installation';
       await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
@@ -125,7 +126,15 @@ process.once('message', async config => {
     diagnosticContext.safeValues = false;
     diagnosticContext.stage = 'account-verification';
     controller.signal.throwIfAborted();
-    if (config.verificationMode === 'browser') {
+    if (config.verificationMode === 'accounts') {
+      diagnosticContext.case = 'account-provisioning';
+      await runAccountProvisioningSuite({ databaseUrl: databaseUrl.href, baseUrl }, { signal: controller.signal, application: applicationPlan });
+      await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
+      await writeFile(`${applicationPlan.evidence}/accounts-suite.json`, JSON.stringify({
+        suite: 'tests/integration/accounts.test.mjs', preparation: 'existing-catalog-account-suite',
+        passed: true, expected: { deputyCreation: 201, primaryCreation: 201, occupiedPrimary: 409 },
+      }, null, 2), { flag: 'wx', mode: 0o600 });
+    } else if (config.verificationMode === 'browser') {
       await verifyAccountDelegateBrowser({ db, baseUrl, fixture, signal: controller.signal,
         profileDirectory: `${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/chrome-pg${config.major}`,
         artifactsDirectory: `${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/evidence-pg${config.major}`, diagnosticContext });

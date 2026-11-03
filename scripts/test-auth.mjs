@@ -10,6 +10,8 @@ import { createAuthFixtures } from '../tests/integration/auth-fixtures.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet: true });
+const previewCompetitions = process.argv.includes('--preview-competitions');
+const previewRuntime = process.argv.includes('--preview') || previewCompetitions;
 
 function localConnection() {
   let target;
@@ -183,8 +185,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview'].includes(arg)))
-    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview].');
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--preview-competitions', '--competitions'].includes(arg)))
+    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --preview-competitions | --competitions].');
   if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
   }
@@ -216,7 +218,7 @@ try {
   stage = 'aplicación de migraciones en base temporal';
   console.log('PDGLD-48: preparando PostgreSQL temporal y servidor local.');
   await command(['node_modules/prisma/build/index.js', 'migrate', 'deploy'], childEnv);
-  if (process.argv.includes('--preview')) {
+  if (previewRuntime) {
     stage = 'provisión del runtime limitado con RLS';
     const { preparePreviewRuntime } = await import('../tests/integration/preview-runtime.mjs');
     const fixture = new pg.Client({ connectionString: databaseUrl });
@@ -228,9 +230,12 @@ try {
     runtimeUrl.username = 'gestor_ligas_preview';
     runtimeUrl.password = runtimePassword;
     childEnv.DATABASE_URL = runtimeUrl.href;
+    // La aplicación recibe únicamente la conexión limitada, incluso si algún
+    // consumidor futuro consulta DIRECT_URL por error. Las migraciones ya terminaron.
+    childEnv.DIRECT_URL = runtimeUrl.href;
     delete childEnv.DATABASE_CA_CERT;
   }
-  if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments')) {
+  if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments') || process.argv.includes('--competitions')) {
     stage = 'comparación de migraciones y esquema';
     await command(['node_modules/prisma/build/index.js', 'migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code'], childEnv, true);
   }
@@ -273,10 +278,38 @@ try {
     await runAffiliationIntegrationSuite({ databaseUrl, baseUrl });
     const { runTeamEnrollmentIntegrationSuite } = await import('../tests/integration/team-enrollments.test.mjs');
     await runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, preview: true });
+    const { runSeasonIntegrationSuite } = await import('../tests/integration/seasons.test.mjs');
+    await runSeasonIntegrationSuite({ databaseUrl, baseUrl, preview: true });
     const { verifyPreviewRuntime } = await import('../tests/integration/preview-runtime.mjs');
     const fixture = new pg.Client({ connectionString: databaseUrl });
     await fixture.connect();
     try { await verifyPreviewRuntime(fixture); } finally { await fixture.end(); }
+  } else if (process.argv.includes('--competitions') || previewCompetitions) {
+    stage = previewCompetitions ? 'competencias por HTTP con gestor_ligas_preview y RLS' : 'configuración de temporadas';
+    const { runSeasonIntegrationSuite } = await import('../tests/integration/seasons.test.mjs');
+    await runSeasonIntegrationSuite({ databaseUrl, baseUrl });
+    if (previewCompetitions) {
+      stage = 'mantenimiento repetible y restricciones del rol tras competencias';
+      const { verifyPreviewMaintenance } = await import('../tests/integration/preview-runtime.mjs');
+      const { test } = await import('node:test');
+      const owner = new pg.Client({ connectionString: databaseUrl });
+      await owner.connect();
+      try {
+        // El pool de Next que atendió los endpoints conserva conexiones del rol
+        // limitado; los únicos clientes propietarios son los fixtures del harness.
+        await test('Preview: pool de Next limitado y mantenimiento repetible después de competencias', async () => {
+          const active = await owner.query('SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND usename=$2', [databaseName, 'gestor_ligas_preview']);
+          if (!active.rows.length) throw new Error('No se comprobó el pool limitado de Next.');
+          await verifyPreviewMaintenance(owner);
+        });
+      } finally { await owner.end(); }
+      const runtime = new pg.Client({ connectionString: childEnv.DATABASE_URL });
+      await runtime.connect();
+      try {
+        const { rows: [identity] } = await runtime.query('SELECT current_user AS actor, session_user AS login');
+        if (identity.actor !== 'gestor_ligas_preview' || identity.login !== identity.actor) throw new Error('Identidad SQL de Preview inesperada.');
+      } finally { await runtime.end(); }
+    }
   } else if (process.argv.includes('--team-enrollments')) {
     stage = 'pruebas HTTP de inscripción PDGLD-62/64';
     const { runTeamEnrollmentIntegrationSuite } = await import('../tests/integration/team-enrollments.test.mjs');
@@ -329,11 +362,11 @@ try {
     'Las pruebas solo aceptan PostgreSQL loopback en puertos 5432/5433.',
     'DIRECT_URL contiene parámetros no permitidos para pruebas locales.',
     'Detén el servidor npm run dev antes de ejecutar estas pruebas.',
-    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview].',
+    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --preview-competitions | --competitions].',
     'Next.js no quedó disponible para las pruebas locales.',
   ]);
   console.error(safeMessages.has(error.message) ? error.message : `No se completó la fase: ${stage}.`);
-  if (process.argv.includes('--preview') && [
+  if (previewRuntime && [
     'Destino de provisión de Preview no autorizado', 'No se reconoce la instalación de pruebas',
     'La provisión exige RLS activo en todas las tablas', 'El rol de Preview debe ser limitado y sin membresías',
     'Preview no debe ser propietario ni tener CREATE', 'Preview tiene acceso al ledger de Prisma',

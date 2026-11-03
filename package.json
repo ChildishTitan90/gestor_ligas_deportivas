@@ -16,6 +16,8 @@
     "fsevents": false
   },
   "scripts": {
+    "test:competitions": "node --import tsx --test src/features/competitions/player-policy.test.ts && node scripts/test-auth.mjs --competitions",
+    "test:competition-ui": "node --test tests/e2e/competition-configuration.test.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -31,6 +33,7 @@
     "test:account-preview-isolated": "node scripts/test-delegate-isolated.mjs --account-preview",
     "test:delegate-runner": "node --test scripts/ci/delegate-isolated-runtime.test.mjs",
     "test:preview-runtime": "node scripts/test-auth.mjs --preview",
+    "test:preview-competitions": "node scripts/test-auth.mjs --preview-competitions",
     "preview:maintain": "node scripts/preview/maintain.mjs",
     "test:database-config": "node --conditions=react-server --import tsx --test src/server/db/connection-options.test.ts",
     "test:authorization": "node scripts/test-auth.mjs --authorization",

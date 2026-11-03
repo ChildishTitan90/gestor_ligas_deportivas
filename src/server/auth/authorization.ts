@@ -9,7 +9,7 @@ export const permissionActions = ["CREATE", "READ", "UPDATE", "APPROVE", "PUBLIS
 export type PermissionAction = typeof permissionActions[number];
 
 /** RF22 has one authority boundary for accounts, roles and permission policy. */
-export const authorityPermissionModules = ["users"] as const;
+export const authorityPermissionModules = ["users", "leagues"] as const;
 export function isAuthorityPermissionModule(module: string): boolean {
   return (authorityPermissionModules as readonly string[]).includes(module);
 }
@@ -274,6 +274,9 @@ export async function assertRolePermissionCoverage(
 ) {
   let operationalApproval: readonly PermissionGrant[] | undefined;
   for (const permission of permissions) {
+    // Crear ligas solo tiene efecto con una asignación global. Una asignación
+    // a una liga o club no delega esa autoridad, aunque el rol la incluya.
+    if (permission.module === "leagues" && resolved.hasContext) continue;
     const grants = await readGrants(permission.module, permission.action);
     // Direct backing uses the target assignment's complete scope and duration.
     const allowed = grants.some((grant) => grant.endsAt === null && grantCoversContext(grant, resolved));

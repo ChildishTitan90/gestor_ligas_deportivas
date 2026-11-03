@@ -8,11 +8,12 @@ export function accountCopyAllowed(name) {
 }
 
 /** Source copy, never a mount; Next may only load env files from this empty root. */
-export async function createAccountAppCopy(root, directory, { dependencies = 'linked' } = {}) {
+export async function createAccountAppCopy(root, directory, { dependencies = 'linked', verification = false } = {}) {
   assert.ok(['linked', 'independent'].includes(dependencies));
+  assert.equal(typeof verification, 'boolean');
   await mkdir(directory, { mode: 0o700 });
   try {
-    for (const name of accountAppFiles) {
+    for (const name of [...accountAppFiles, ...(verification ? ['scripts', 'tests'] : [])]) {
       try { await lstat(join(root, name)); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
       await cp(join(root, name), join(directory, name), { recursive: true, filter: async source => {
         if (!accountCopyAllowed(basename(source))) return false;

@@ -11,14 +11,14 @@ const optionsSchema = z.object({
   nextClubAfter: uuid.nullable(), nextSeasonAfter: uuid.nullable(), nextTeamAfter: uuid.nullable(),
   seasons: z.array(option.extend({ status: z.string() })),
   teams: z.array(option.extend({ clubId: uuid, referenceNumber: z.string(), enrolledSeasonIds: z.array(uuid) })),
-  categories: z.array(option.extend({ seasonId: uuid, seasonCategoryId: uuid })),
+  categories: z.array(option.extend({ seasonId: uuid, seasonCategoryId: uuid, format: z.enum(["LEGACY_GROUPS", "GENERAL_TABLE", "GROUP_STAGE"]).optional() })),
   groups: z.array(option.extend({ categoryId: uuid, seasonId: uuid })),
 });
 export type EnrollmentOptions = z.infer<typeof optionsSchema>;
 const receiptSchema = z.object({ id: uuid, teamId: uuid, clubId: uuid, seasonId: uuid,
-  categoryId: uuid, groupId: uuid, status, replayed: z.boolean() });
+  categoryId: uuid, groupId: uuid.nullable(), status, replayed: z.boolean() });
 const listSchema = z.object({ items: z.array(receiptSchema.omit({ replayed: true }).extend({
-  seasonName: z.string(), teamName: z.string(), teamReferenceNumber: z.string(), categoryName: z.string(), groupName: z.string(),
+  seasonName: z.string(), teamName: z.string(), teamReferenceNumber: z.string(), categoryName: z.string(), groupName: z.string().nullable(),
 })), nextAfter: uuid.nullable() });
 const operationSchema = z.discriminatedUnion("outcome", [
   z.object({ enrollmentKey: uuid, clubId: uuid, outcome: z.literal("CONFIRMED"), enrollment: receiptSchema }),
@@ -39,7 +39,8 @@ export function enrollmentMessage(code: string) {
     AFFILIATION_NOT_APPROVED: "La afiliación aún no está aprobada.",
     CATEGORY_NOT_AUTHORIZED: "La categoría no está autorizada para esta temporada.",
     SEASON_CLOSED: "La temporada está cerrada para nuevas inscripciones.",
-    TEAM_ALREADY_ENROLLED: "El equipo ya está inscrito. Consulta la inscripción existente; no cambies su grupo.",
+    TEAM_REGISTRATION_CLOSED: "Las inscripciones de equipos ya están cerradas para esta temporada.",
+    TEAM_ALREADY_ENROLLED: "El equipo ya está inscrito en esta temporada o ya existe otro con ese nombre en la categoría. Consulta las inscripciones existentes.",
     IDEMPOTENCY_CONFLICT: "La clave corresponde a otra captura. Verifica el resultado antes de continuar.",
     OPERATION_CANCELLED: "La clave tiene una cancelación registrada. Consulta el resultado para confirmarla.",
     PAYLOAD_TOO_LARGE: "La captura excede el tamaño permitido.",
@@ -59,7 +60,7 @@ export function registrationOptions(data: EnrollmentOptions, clubId = "", season
 }
 export function enrollmentPayload(capture: TeamRegistrationSubmission, enrollmentKey: string) {
   return teamEnrollmentSchema.parse({ enrollmentKey, clubId: capture.clubId, seasonId: capture.seasonId,
-    categoryId: capture.categoryId, groupId: capture.groupId,
+    categoryId: capture.categoryId, ...(capture.groupId ? { groupId: capture.groupId } : {}),
     team: capture.team.kind === "existing" ? { mode: "existing", teamId: capture.team.id } : { mode: "new", name: capture.team.name },
   });
 }
@@ -107,7 +108,7 @@ export function createEnrollmentApi(fetcher: typeof fetch, storage: Storage, sto
     }
   }
   function matches(payload: Payload, receipt: z.infer<typeof receiptSchema>) {
-    return (["clubId", "seasonId", "categoryId", "groupId"] as const).every(key => receipt[key] === payload[key]) &&
+    return (["clubId", "seasonId", "categoryId"] as const).every(key => receipt[key] === payload[key]) && (!payload.groupId || receipt.groupId === payload.groupId) &&
       (payload.team.mode !== "existing" || receipt.teamId === payload.team.teamId);
   }
   function finish(result: Extract<TeamRegistrationResult, { kind: "confirmed" | "cancelled" }>): TeamRegistrationResult {
@@ -195,7 +196,7 @@ export function createEnrollmentApi(fetcher: typeof fetch, storage: Storage, sto
         if (data.items.some(item => item.clubId !== clubId || (seasonId && item.seasonId !== seasonId))) throw new Error();
         return { nextAfter: data.nextAfter, items: data.items.map(item => ({
           teamId: item.teamId, seasonTeamId: item.id, teamName: item.teamName, seasonName: item.seasonName,
-          categoryName: item.categoryName, groupName: item.groupName, status: item.status,
+          categoryName: item.categoryName, groupName: item.groupName ?? "Pendiente de asignación", status: item.status,
         } satisfies TeamRegistrationItem)) };
       } catch (error) { if (error instanceof EnrollmentReadError) throw error; throw new EnrollmentReadError("INVALID_RESPONSE"); }
     },
@@ -222,6 +223,16 @@ export function createEnrollmentApi(fetcher: typeof fetch, storage: Storage, sto
           if (receipt.replayed !== (response.status === 200) || (response.status === 201 && receipt.status !== "REGISTERED") || !matches(payload, receipt)) throw new Error();
           return finish({ kind: "confirmed", teamId: receipt.teamId, seasonTeamId: receipt.id, status: receipt.status, replayed: receipt.replayed });
         }
+        if (response.status === 409 && data?.code === "TEAM_ALREADY_ENROLLED") {
+          // Cancelar la clave en el servidor antes de liberarla: otro envío con
+          // la misma clave podría seguir en curso aunque este haya sido rechazado.
+          const resolved = await operation("cancel");
+          if (resolved.kind === "cancelled" && !resolved.pendingCleanup)
+            return { kind: "correctable", message: "No se realizó la inscripción. El equipo ya está inscrito o existe otro con ese nombre en esta categoría. Revisa los datos y vuelve a intentarlo." };
+          if (resolved.kind === "unconfirmed")
+            return { kind: "unconfirmed", retryAllowed: resolved.retryAllowed, message: "No pudimos confirmar el resultado. Consulta la inscripción antes de volver a intentarlo." };
+          return resolved;
+        }
         return { kind: "unconfirmed", retryAllowed: true,
           message: `${enrollmentMessage(typeof data?.code === "string" ? data.code : "UNAVAILABLE")} Conservamos cuerpo y clave; consulta o cancela la intención antes de iniciar otra.` };
       } catch (error) { if (error instanceof EnrollmentReadError && [401, 403].includes(error.status)) throw error; }
@@ -231,6 +242,7 @@ export function createEnrollmentApi(fetcher: typeof fetch, storage: Storage, sto
 }
 export type EnrollmentApi = ReturnType<typeof createEnrollmentApi>;
 export function pendingCapture(payload: Payload): TeamRegistrationSubmission {
-  return { clubId: payload.clubId, seasonId: payload.seasonId, categoryId: payload.categoryId, groupId: payload.groupId,
+  // Captura visual sin selección; el cuerpo persistido conserva la omisión real.
+  return { clubId: payload.clubId, seasonId: payload.seasonId, categoryId: payload.categoryId, groupId: payload.groupId ?? "",
     team: payload.team.mode === "existing" ? { kind: "existing", id: payload.team.teamId } : { kind: "new", name: payload.team.name } };
 }

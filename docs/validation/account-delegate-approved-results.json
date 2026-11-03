@@ -1,5 +1,5 @@
 {
-  "documentedOn": "2026-11-01",
+  "documentedOn": "2026-11-02",
   "timezone": "America/Mexico_City",
   "baseCommit": "fb64b4f068b6121063475333320524725436e0c0",
   "uncommittedWorkingTree": true,
@@ -417,5 +417,51 @@
     },
     "bundler": "webpack",
     "dependencies": "linked"
+  },
+  "accountProvisioningRun": {
+    "reference": "E9",
+    "runId": "4a69fa41-74a6-4f7c-ae1a-5cf49a7e5172",
+    "headUnderValidation": "3e60d87ca3ac712eeaf09751c3a1e4ec519eb3c0",
+    "integratedDevelop": "2f87af87daaf97626df40a3487002a2f8f89c35d",
+    "uncommittedFixtureCorrectionsUnderValidation": true,
+    "postgresql": [
+      {
+        "postgresqlMajor": 15,
+        "passed": true,
+        "cleaned": true,
+        "pending": false,
+        "containerAbsent": true,
+        "networkAbsent": true,
+        "localDirectoriesAbsent": true,
+        "suite": "tests/integration/accounts.test.mjs",
+        "preparation": "existing-catalog-account-suite",
+        "validatedStatuses": {
+          "deputyCreation": 201,
+          "primaryCreation": 201,
+          "occupiedPrimary": 409
+        }
+      },
+      {
+        "postgresqlMajor": 17,
+        "passed": true,
+        "cleaned": true,
+        "pending": false,
+        "containerAbsent": true,
+        "networkAbsent": true,
+        "localDirectoriesAbsent": true,
+        "suite": "tests/integration/accounts.test.mjs",
+        "preparation": "existing-catalog-account-suite",
+        "validatedStatuses": {
+          "deputyCreation": 201,
+          "primaryCreation": 201,
+          "occupiedPrimary": 409
+        }
+      }
+    ],
+    "portsFree": true,
+    "ownedProcessesAbsent": true,
+    "protectedFilesIntegrityVerified": true,
+    "verifiedAt": "2026-11-03T04:38:57.928283+00:00",
+    "scope": "Full accounts suite after existing catalog preparation on the combined PR/develop tree; not a remote CI result"
   }
 }

@@ -263,14 +263,14 @@ test('plan ejecutable sin Docker disponible no crea archivos ni conecta servicio
   const execution = randomUUID();
   const path = `${ISOLATED_TEMP_ROOT}/pdgld106-${execution}`;
   assert.equal(existsSync(path), false);
-  for (const extra of [[], ['--account-integration'], ['--account-browser'], ['--account-preview']]) {
+  for (const extra of [[], ['--account-integration'], ['--account-browser'], ['--account-preview'], ['--account-provisioning']]) {
     const output = await new Promise((resolve, reject) => execFile(process.execPath,
       ['scripts/test-delegate-isolated.mjs', '--run-id', execution, ...extra], { env: { PATH: '/nonexistent' } },
       (error, stdout) => error ? reject(error) : resolve(stdout)));
     const data = JSON.parse(output);
     assert.equal(data.mode, 'plan');
     if (extra.length) assert.deepEqual(data.applicationPorts, ['127.0.0.1:56515', '127.0.0.1:56517']);
-    if (extra.some(flag => ['--account-browser', '--account-preview'].includes(flag)))
+    if (extra.some(flag => ['--account-browser', '--account-preview', '--account-provisioning'].includes(flag)))
       assert.ok(data.application.every(app => app.installation.command === 'npm' && app.bundler === '--turbopack'));
   }
   assert.equal(existsSync(path), false);
@@ -381,4 +381,39 @@ test('rutas temporales portables conservan validación estricta y no aceptan ra�
   assert.equal(runtime.directory, `${ISOLATED_TEMP_ROOT}/pdgld106-${runId}`);
   for (const directory of ['/other/pdgld106-' + runId, runtime.directory + '/nested'])
     assert.throws(() => independentInstallPlan({ ...runtime, directory }));
+});
+
+// This profile must exercise the failing accounts suite, not the delegate-only HTTP suite.
+test('provisión de cuentas es explícita, aislada y sin efectos en modo plan', async () => {
+  const { validateAccountProvisioningTarget } = await import('../verification/account-provisioning-entry.mjs');
+  assert.equal(parseDelegateArguments(['--run-id', runId, '--account-provisioning']).accountMode, 'accounts');
+  for (const extra of ['--account-browser', '--account-preview', '--account-integration', '--account-provisioning'])
+    assert.throws(() => parseDelegateArguments(['--run-id', runId, '--account-provisioning', extra]));
+  for (const major of [15, 17]) {
+    const runtime = accountApplicationPlan({ runId, major, verificationMode: 'accounts' });
+    assert.equal(runtime.dependencies, 'independent'); assert.equal(runtime.bundler, '--turbopack');
+    assert.equal(accountWorkerTimeout('accounts'), 1_200_000);
+    const target = { databaseUrl: `postgresql://postgres@127.0.0.1:${55400+major}/pdgld48_test_0123456789abcd${major}`, baseUrl: `http://127.0.0.1:${56500+major}` };
+    assert.equal(validateAccountProvisioningTarget(target).baseUrl, target.baseUrl);
+    for (const patch of [{ baseUrl: 'http://remote.example.test:56515' },
+      { databaseUrl: 'postgresql://postgres@127.0.0.1:5432/gestor_ligas_dev' },
+      { databaseUrl: target.databaseUrl + '?schema=other' },
+      { databaseUrl: target.databaseUrl.replace('127.0.0.1', 'remote.example.test') }])
+      assert.throws(() => validateAccountProvisioningTarget({ ...target, ...patch }));
+  }
+});
+
+test('la copia de verificación incluye suites junto al cliente propio y excluye .env', async () => {
+  const source = await mkdtemp(join(tmpdir(), 'accounts-suite-copy-'));
+  try {
+    await mkdir(`${source}/scripts`); await mkdir(`${source}/tests`);
+    await writeFile(`${source}/scripts/entry.mjs`, 'export const fixture = true;');
+    await writeFile(`${source}/tests/accounts.mjs`, 'export const fixture = true;');
+    await writeFile(`${source}/tests/.env`, 'SYNTHETIC');
+    const app = await createAccountAppCopy(source, `${source}/copy`, { dependencies: 'independent', verification: true });
+    assert.equal(await readFile(`${app}/tests/accounts.mjs`, 'utf8'), 'export const fixture = true;');
+    assert.equal(await readFile(`${app}/scripts/entry.mjs`, 'utf8'), 'export const fixture = true;');
+    assert.equal(existsSync(`${app}/tests/.env`), false);
+    assert.equal(existsSync(`${app}/node_modules`), false);
+  } finally { await rm(source, { recursive: true, force: true }); }
 });

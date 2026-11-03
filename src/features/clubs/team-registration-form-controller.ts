@@ -15,7 +15,7 @@ export function registrationChoices(options: TeamRegistrationFormOptions, draft:
   return { club, season, category, seasons: club?.seasons ?? [], teams: season?.teams ?? [],
     categories: season?.categories ?? [], groups: category?.groups ?? [],
     hasRequiredOptions: !!season && season.canEnroll && !!season.categories.length &&
-      (category ? category.groups.length > 0 : season.categories.some(item => item.groups.length > 0)) &&
+      (category ? category.format === "GROUP_STAGE" || category.groups.length > 0 : season.categories.some(item => item.format === "GROUP_STAGE" || item.groups.length > 0)) &&
       (draft.teamMode === "new" ? season.canCreateTeam : season.teams.length > 0) };
 }
 function reconcile(options: TeamRegistrationFormOptions, draft: TeamRegistrationDraft): TeamRegistrationDraft {
@@ -27,7 +27,7 @@ function reconcile(options: TeamRegistrationFormOptions, draft: TeamRegistration
     teamName: mode === "new" ? draft.teamName : "",
     teamId: mode === "existing" && season.teams.some(item => item.id === draft.teamId) ? draft.teamId : "",
     categoryId: category?.id ?? "",
-    groupId: category?.groups.some(item => item.id === draft.groupId) ? draft.groupId : "" };
+    groupId: (!category?.format || category.format === "LEGACY_GROUPS") && category?.groups.some(item => item.id === draft.groupId) ? draft.groupId : "" };
 }
 
 export function createTeamRegistrationFormController(initialOptions: TeamRegistrationFormOptions, initialSubmit: TeamRegistrationSubmit) {
@@ -64,11 +64,13 @@ export function createTeamRegistrationFormController(initialOptions: TeamRegistr
       else if (draft.teamName.trim().length > 200) errors.teamName = "El nombre admite hasta 200 caracteres.";
     } else if (!teams.some(item => item.id === draft.teamId)) errors.teamId = "Selecciona un equipo disponible.";
     if (!category) errors.categoryId = "Selecciona una categoría disponible para la temporada.";
-    if (!groups.some(item => item.id === draft.groupId)) errors.groupId = "Selecciona un grupo de la categoría elegida.";
+    const manualGroup = !category?.format || category.format === "LEGACY_GROUPS";
+    if (manualGroup && !groups.some(item => item.id === draft.groupId)) errors.groupId = "Selecciona un grupo de la categoría elegida.";
+    if (category?.format === "GENERAL_TABLE" && !groups.some(item => item.name === "General")) errors.categoryId = "La tabla general no está configurada. Actualiza las opciones antes de continuar.";
     publish({ errors, message: "" });
     if (!recovering && Object.keys(errors).length) return;
     const capture: TeamRegistrationSubmission = recovering && lastCapture ? lastCapture : {
-      clubId: draft.clubId, seasonId: draft.seasonId, categoryId: draft.categoryId, groupId: draft.groupId,
+      clubId: draft.clubId, seasonId: draft.seasonId, categoryId: draft.categoryId, ...(manualGroup ? { groupId: draft.groupId } : {}),
       team: draft.teamMode === "new" ? { kind: "new", name: draft.teamName.trim() } : { kind: "existing", id: draft.teamId },
     };
     lastCapture = capture;
@@ -123,7 +125,7 @@ export function createTeamRegistrationFormController(initialOptions: TeamRegistr
     restore(capture: TeamRegistrationSubmission) {
       if (state.submitting) return;
       lastCapture = capture;
-      publish({ pendingCleanup: false, draft: { clubId: capture.clubId, seasonId: capture.seasonId, categoryId: capture.categoryId, groupId: capture.groupId,
+      publish({ pendingCleanup: false, draft: { clubId: capture.clubId, seasonId: capture.seasonId, categoryId: capture.categoryId, groupId: capture.groupId ?? "",
         teamMode: capture.team.kind, teamId: capture.team.kind === "existing" ? capture.team.id : "",
         teamName: capture.team.kind === "new" ? capture.team.name : "" }, outcome: "unconfirmed", retryAvailable: true,
         message: "Hay un envío sin confirmar. Conservamos su captura y clave; recupera el resultado antes de iniciar otro." });

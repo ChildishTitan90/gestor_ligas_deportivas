@@ -69,8 +69,9 @@ test("PDGLD-54: lectura de inscripciones reales exige permiso y propiedad", asyn
         await tx.$queryRaw`SELECT set_config('pdgld54_test.now', '2026-10-22T12:00:00-06:00', true)`;
         // DDL exclusivamente en esta transacción desechable; conserva el cuerpo
         // y los triggers activos. Restaurar antes de ejecutar la autorización.
-        await tx.$executeRaw`ALTER FUNCTION sports_management.validate_player_registration()
-          SET search_path TO pdgld54_test_clock, pg_catalog, sports_management, pg_temp`;
+        const [original] = await tx.$queryRaw<{ definition: string }[]>`SELECT pg_get_functiondef('sports_management.validate_player_registration()'::regprocedure) AS definition`;
+        // Referencia expl�cita: el plan PL/pgSQL puede conservar now() ya resuelto.
+        await tx.$executeRawUnsafe(original.definition.replace(/\bnow\(\)/g, "pdgld54_test_clock.now()"));
         const createRegistration = (personId: string, reference: string) => tx.player_registrations.create({
           data: { person_id: personId, season_id: season.id, season_team_id: seasonTeam.id, reference_number: reference },
         });
@@ -99,8 +100,7 @@ test("PDGLD-54: lectura de inscripciones reales exige permiso y propiedad", asyn
         await tx.$queryRaw`SELECT set_config('pdgld54_test.now', '2026-10-21T12:00:00-06:00', true)`;
         const own = await createRegistration(ownPerson.id, `own-${suffix}`);
         const other = await createRegistration(otherPerson.id, `other-${suffix}`);
-        await tx.$executeRaw`ALTER FUNCTION sports_management.validate_player_registration()
-          SET search_path TO sports_management, pg_temp`;
+        await tx.$executeRawUnsafe(original.definition);
         const [restoredConfig] = await tx.$queryRaw<{ settings: string[] }[]>`
           SELECT proconfig AS settings FROM pg_catalog.pg_proc
           WHERE oid = 'sports_management.validate_player_registration()'::regprocedure
