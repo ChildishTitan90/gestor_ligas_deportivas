@@ -15,7 +15,9 @@ export function validateAccountProvisioningTarget(config) {
   assert.ok(target.pathname.endsWith(target.port.slice(-2)));
   assert.equal(target.search + target.hash, '');
   assert.equal(config.baseUrl, `http://127.0.0.1:${56500 + Number(target.port.slice(-2))}`);
-  return { databaseUrl: target.href, baseUrl: config.baseUrl };
+  const suite = config.suite ?? 'accounts';
+  assert.ok(['accounts', 'seasons'].includes(suite));
+  return { databaseUrl: target.href, baseUrl: config.baseUrl, suite };
 }
 
 // node:test may record a failure without rejecting await test(). Require the child
@@ -40,7 +42,10 @@ export function runAccountProvisioningSuite(config, { signal, application } = {}
     child.once('close', code => {
       clearTimeout(force); signal?.removeEventListener('abort', stop);
       if (code === 0 && completed && !cancelled) resolve();
-      else reject(Object.assign(new Error('ACCOUNT_PROVISIONING_FAILED'), { code: 'ACCOUNT_PROVISIONING_FAILED' }));
+      else {
+        const code = target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
+        reject(Object.assign(new Error(code), { code }));
+      }
     });
     if (signal?.aborted) stop(); else child.send(target);
   });
@@ -51,12 +56,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   process.once('message', async config => {
     try {
       const target = validateAccountProvisioningTarget(config);
-      // Same existing catalog preparation/cleanup used before accounts in CI.
-      // Its approved permission installers act only inside this disposable DB.
-      const { runCatalogAccountIntegrationSuite } = await import('../../tests/integration/catalog-accounts.test.mjs');
-      await runCatalogAccountIntegrationSuite(target);
-      const { runAccountIntegrationSuite } = await import('../../tests/integration/accounts.test.mjs');
-      await runAccountIntegrationSuite(target);
+      if (target.suite === 'seasons') {
+        const { runSeasonIntegrationSuite } = await import('../../tests/integration/seasons.test.mjs');
+        await runSeasonIntegrationSuite(target);
+      } else {
+        // Same existing catalog preparation/cleanup used before accounts in CI.
+        // Its approved permission installers act only inside this disposable DB.
+        const { runCatalogAccountIntegrationSuite } = await import('../../tests/integration/catalog-accounts.test.mjs');
+        await runCatalogAccountIntegrationSuite(target);
+        const { runAccountIntegrationSuite } = await import('../../tests/integration/accounts.test.mjs');
+        await runAccountIntegrationSuite(target);
+      }
       process.send({ completed: true }, () => process.disconnect());
     } catch {
       process.exitCode = 1;

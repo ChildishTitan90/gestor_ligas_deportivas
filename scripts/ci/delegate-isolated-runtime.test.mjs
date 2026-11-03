@@ -263,14 +263,14 @@ test('plan ejecutable sin Docker disponible no crea archivos ni conecta servicio
   const execution = randomUUID();
   const path = `${ISOLATED_TEMP_ROOT}/pdgld106-${execution}`;
   assert.equal(existsSync(path), false);
-  for (const extra of [[], ['--account-integration'], ['--account-browser'], ['--account-preview'], ['--account-provisioning']]) {
+  for (const extra of [[], ['--account-integration'], ['--account-browser'], ['--account-preview'], ['--account-provisioning'], ['--competition-seasons']]) {
     const output = await new Promise((resolve, reject) => execFile(process.execPath,
       ['scripts/test-delegate-isolated.mjs', '--run-id', execution, ...extra], { env: { PATH: '/nonexistent' } },
       (error, stdout) => error ? reject(error) : resolve(stdout)));
     const data = JSON.parse(output);
     assert.equal(data.mode, 'plan');
     if (extra.length) assert.deepEqual(data.applicationPorts, ['127.0.0.1:56515', '127.0.0.1:56517']);
-    if (extra.some(flag => ['--account-browser', '--account-preview', '--account-provisioning'].includes(flag)))
+    if (extra.some(flag => ['--account-browser', '--account-preview', '--account-provisioning', '--competition-seasons'].includes(flag)))
       assert.ok(data.application.every(app => app.installation.command === 'npm' && app.bundler === '--turbopack'));
   }
   assert.equal(existsSync(path), false);
@@ -416,4 +416,20 @@ test('la copia de verificación incluye suites junto al cliente propio y excluye
     assert.equal(existsSync(`${app}/tests/.env`), false);
     assert.equal(existsSync(`${app}/node_modules`), false);
   } finally { await rm(source, { recursive: true, force: true }); }
+});
+
+test('temporadas selecciona la suite completa de forma explícita y conserva aislamiento', async () => {
+  const { validateAccountProvisioningTarget } = await import('../verification/account-provisioning-entry.mjs');
+  const parsed = parseDelegateArguments(['--run-id', runId, '--competition-seasons']);
+  assert.equal(parsed.mode, 'plan'); assert.equal(parsed.accountMode, 'seasons');
+  for (const flag of ['--account-integration', '--account-provisioning', '--account-browser', '--account-preview', '--competition-seasons'])
+    assert.throws(() => parseDelegateArguments(['--run-id', runId, '--competition-seasons', flag]));
+  for (const major of [15, 17]) {
+    const app = accountApplicationPlan({ runId, major, verificationMode: 'seasons' });
+    assert.equal(app.dependencies, 'independent'); assert.equal(app.bundler, '--turbopack');
+    assert.equal(accountWorkerTimeout('seasons'), independentInstallPlan(app).timeoutMs + 600_000);
+    const target = { databaseUrl: `postgresql://postgres@127.0.0.1:${55400+major}/pdgld48_test_0123456789abcd${major}`, baseUrl: `http://127.0.0.1:${56500+major}`, suite: 'seasons' };
+    assert.equal(validateAccountProvisioningTarget(target).suite, 'seasons');
+    assert.throws(() => validateAccountProvisioningTarget({ ...target, suite: 'arbitrary-script' }));
+  }
 });
