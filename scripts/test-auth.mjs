@@ -185,7 +185,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--preview-competitions', '--competitions'].includes(arg)))
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--preview-competitions', '--competitions', '--club-maintenance'].includes(arg)))
     throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --preview-competitions | --competitions].');
   if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
@@ -310,6 +310,9 @@ try {
         if (identity.actor !== 'gestor_ligas_preview' || identity.login !== identity.actor) throw new Error('Identidad SQL de Preview inesperada.');
       } finally { await runtime.end(); }
     }
+  } else if (process.argv.includes('--club-maintenance')) {
+    stage = 'mantenimiento de clubes y equipos PDGLD-121';
+    await command(['--conditions=react-server', '--import', 'tsx', '--test', 'tests/integration/authorization-club-maintenance.test.ts'], childEnv, true);
   } else if (process.argv.includes('--team-enrollments')) {
     stage = 'pruebas HTTP de inscripción PDGLD-62/64';
     const { runTeamEnrollmentIntegrationSuite } = await import('../tests/integration/team-enrollments.test.mjs');

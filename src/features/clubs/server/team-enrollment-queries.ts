@@ -26,7 +26,7 @@ export async function getTeamEnrollmentCatalogs(input: unknown, forRegistration 
       ...(seasonId ? { id: seasonId } : seasonAfter ? { id: { gt: seasonAfter } } : {}) },
       select: { id: true, name: true, status: true }, orderBy: { id: "asc" }, take: limit + 1 });
     const seasons = seasonRows.slice(0, limit);
-    const teams = forRegistration ? await tx.teams.findMany({ where: { club_id: clubId, ...(teamAfter ? { id: { gt: teamAfter } } : {}) },
+    const teams = forRegistration ? await tx.teams.findMany({ where: { club_id: clubId, status: "ACTIVE", ...(teamAfter ? { id: { gt: teamAfter } } : {}) },
       select: { id: true, name: true, reference_number: true, season_teams: { select: { season_id: true } } },
       orderBy: { id: "asc" }, take: limit + 1 }) : [];
     const affiliation = forRegistration && seasonId ? await tx.club_affiliations.findUnique({

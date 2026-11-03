@@ -40,7 +40,7 @@ export async function enrollTeam(input: unknown, expectedActorId?: string) {
       if (data.team.mode === "existing") {
         teamId = data.team.teamId;
         const team = await tx.$queryRaw<{ id: string }[]>`
-          SELECT id FROM sports_management.teams WHERE id = ${teamId}::uuid AND club_id = ${data.clubId}::uuid FOR SHARE
+          SELECT id FROM sports_management.teams WHERE id = ${teamId}::uuid AND club_id = ${data.clubId}::uuid AND status = 'ACTIVE' FOR SHARE
         `;
         if (!team.length) throw new TeamEnrollmentError("INVALID_CONTEXT");
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`PDGLD-62:team:${teamId}:${data.seasonId}`}, 0))::text`;

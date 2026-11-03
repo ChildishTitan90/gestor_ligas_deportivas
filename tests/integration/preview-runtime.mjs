@@ -90,7 +90,7 @@ export async function verifyPreviewRuntime(client) {
       'SELECT home_score FROM sports_management.match_results',
       'TRUNCATE sports_management.groups',
       'CREATE TABLE sports_management.preview_forbidden(id uuid)',
-      'UPDATE sports_management.teams SET name=name',
+      'UPDATE sports_management.teams SET club_id=club_id',
       'UPDATE sports_management.season_teams SET status=status',
       'UPDATE sports_management.club_affiliations SET id=id',
       'UPDATE sports_management.club_affiliation_categories SET category_id=category_id',

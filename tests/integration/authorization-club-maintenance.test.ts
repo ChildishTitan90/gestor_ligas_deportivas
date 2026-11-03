@@ -1,0 +1,94 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import test from "node:test";
+import { getPrisma } from "../../src/server/db/prisma";
+import { applyClubOrTeamMaintenance } from "../../src/features/clubs/server/maintenance";
+import { assertPermission, lockAuthorization } from "../../src/server/auth/authorization";
+import { hashPassword } from "../../src/server/auth/password";
+
+test("PDGLD-121: bajas, reactivación, concurrencia, ámbito e historial", async t => {
+  assert.equal(process.env.AUTH_TEST_RUN, "1");
+  const target = new URL(process.env.DATABASE_URL ?? "");
+  assert.ok(["localhost", "127.0.0.1", "[::1]"].includes(target.hostname));
+  assert.match(target.pathname, /^\/pdgld48_test_[a-f0-9]{16}$/);
+  const db = getPrisma();
+  const tag = randomUUID();
+  const league = await db.leagues.create({ data: { name: `Mantenimiento ${tag}` } });
+  const foreign = await db.leagues.create({ data: { name: `Otra liga ${tag}` } });
+  const club = await db.clubs.create({ data: { league_id: league.id, reference_number: randomUUID(), name: "Club de prueba" } });
+  const other = await db.clubs.create({ data: { league_id: foreign.id, reference_number: randomUUID(), name: "Club ajeno" } });
+  const team = await db.teams.create({ data: { club_id: club.id, reference_number: randomUUID(), name: "Equipo de prueba" } });
+  const role = await db.roles.create({ data: { code: `PD121-${tag}`, name: "Mantenimiento sintético" } });
+  const person = await db.people.create({ data: { first_name: "Sintético", paternal_surname: "Mantenimiento" } });
+  const password = `Synthetic-${randomUUID()}!aA`;
+  const actor = await db.users.create({ data: { person_id: person.id, username: `maintenance-${tag}`, email: `${tag}@example.test`, password_hash: await hashPassword(password), must_change_password: false } });
+  await db.$transaction(async tx => {
+    await lockAuthorization(tx, "exclusive");
+    await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true), set_config('app.reason', 'Preparar permisos sintéticos PDGLD-121', true)`;
+    for (const action of ["READ", "UPDATE", "APPROVE", "CREATE"]) {
+      const permission = await tx.permissions.upsert({ where: { module_action: { module: "clubs", action } }, create: { module: "clubs", action }, update: {} });
+      await tx.role_permissions.create({ data: { role_id: role.id, permission_id: permission.id, context_only: true } });
+    }
+    await tx.user_roles.create({ data: { user_id: actor.id, role_id: role.id, league_id: league.id } });
+  });
+  const input = (kind: "club" | "team", id: string, version: number, operation: string) => ({ kind, id, version, operation, reason: "Prueba de mantenimiento administrativo", confirmed: true });
+  try {
+    await t.test("pantalla real exige sesión y filtra por liga en servidor", async () => {
+      const { Browser } = await import("./auth.test.mjs");
+      const base = new URL(process.env.NEXTAUTH_URL!);
+      assert.equal(base.hostname, "127.0.0.1");
+      const browser = new Browser(base.origin);
+      const anonymous = await browser.request("/clubs");
+      assert.ok([302, 303, 307].includes(anonymous.status));
+      await browser.login(actor.email, password);
+      const page = await browser.request("/clubs");
+      assert.equal(page.status, 200);
+      const html = await page.text();
+      assert.ok(html.includes("Administrar clubes y equipos"));
+      assert.ok(html.includes(club.reference_number));
+      assert.ok(!html.includes(other.reference_number));
+      const filtered = await browser.request("/clubs?kind=team&q=NoExiste");
+      assert.ok((await filtered.text()).includes("No hay registros para estos filtros"));
+    });
+    await t.test("permiso de liga no permite operar sobre un club ajeno", async () => {
+      await assert.rejects(applyClubOrTeamMaintenance(actor.id, input("club", other.id, 1, "deactivate")), /FORBIDDEN/);
+      assert.equal((await db.clubs.findUniqueOrThrow({ where: { id: other.id } })).status, "ACTIVE");
+    });
+    await t.test("baja individual conserva equipo y registra exactamente un motivo", async () => {
+      await applyClubOrTeamMaintenance(actor.id, input("team", team.id, 1, "deactivate"));
+      const updated = await db.teams.findUniqueOrThrow({ where: { id: team.id } });
+      assert.equal(updated.status, "INACTIVE"); assert.equal(updated.club_id, club.id); assert.equal(updated.name, team.name);
+      assert.equal(await db.audit_logs.count({ where: { entity_id: team.id, table_name: "teams" } }), 1);
+      await assert.rejects(applyClubOrTeamMaintenance(actor.id, input("team", team.id, 1, "deactivate")), /CONFLICT/);
+      assert.equal(await db.audit_logs.count({ where: { entity_id: team.id, table_name: "teams" } }), 1);
+    });
+    await t.test("baja de club bloquea permisos operativos sin perder sus equipos", async () => {
+      await applyClubOrTeamMaintenance(actor.id, input("club", club.id, 1, "deactivate"));
+      await assert.rejects(db.$transaction(tx => assertPermission(tx, actor.id, { module: "clubs", action: "CREATE", context: { clubId: club.id } })), /FORBIDDEN/);
+      await assert.rejects(applyClubOrTeamMaintenance(actor.id, input("team", team.id, 2, "reactivate")), /INVALID_STATE/);
+      assert.equal(await db.teams.count({ where: { club_id: club.id } }), 1);
+    });
+    await t.test("reactivar club no reactiva equipos dados de baja individualmente", async () => {
+      await applyClubOrTeamMaintenance(actor.id, input("club", club.id, 2, "reactivate"));
+      assert.equal((await db.teams.findUniqueOrThrow({ where: { id: team.id } })).status, "INACTIVE");
+      await db.$transaction(tx => assertPermission(tx, actor.id, { module: "clubs", action: "CREATE", context: { clubId: club.id } }));
+    });
+    await t.test("dos cambios concurrentes de la misma versión solo confirman uno", async () => {
+      const results = await Promise.allSettled([1, 2].map(() => applyClubOrTeamMaintenance(actor.id, input("team", team.id, 2, "reactivate"))));
+      assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+      assert.equal(results.filter(result => result.status === "rejected").length, 1);
+      assert.equal((await db.teams.findUniqueOrThrow({ where: { id: team.id } })).version, 3);
+    });
+    await t.test("corrección de nombre conserva identidad y rechaza duplicados normalizados", async () => {
+      await db.teams.create({ data: { club_id: club.id, reference_number: randomUUID(), name: "Otro equipo" } });
+      await assert.rejects(applyClubOrTeamMaintenance(actor.id, { ...input("team", team.id, 3, "edit"), name: " OTRO   equipo " }), /DUPLICATE/);
+      await applyClubOrTeamMaintenance(actor.id, { ...input("team", team.id, 3, "edit"), name: "Nombre corregido" });
+      assert.equal((await db.teams.findUniqueOrThrow({ where: { id: team.id } })).reference_number, team.reference_number);
+      await assert.rejects(applyClubOrTeamMaintenance(actor.id, { ...input("club", club.id, 3, "edit"), name: "Cambio histórico" }), /FORMAL_CHANGE_REQUIRED/);
+    });
+    await t.test("confirmación y motivo se exigen también en servidor", async () => {
+      await assert.rejects(applyClubOrTeamMaintenance(actor.id, { ...input("club", club.id, 3, "deactivate"), confirmed: false }), /INVALID_INPUT/);
+      await assert.rejects(applyClubOrTeamMaintenance(actor.id, { ...input("club", club.id, 3, "deactivate"), reason: "" }), /INVALID_INPUT/);
+    });
+  } finally { await db.$disconnect(); }
+});

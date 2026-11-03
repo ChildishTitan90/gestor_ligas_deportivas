@@ -16,6 +16,8 @@
     "fsevents": false
   },
   "scripts": {
+    "test:club-maintenance-input": "node --import tsx --test src/features/clubs/maintenance.test.ts",
+    "test:club-maintenance": "npm run test:club-maintenance-input && node scripts/test-auth.mjs --club-maintenance",
     "test:competitions": "node --import tsx --test src/features/competitions/player-policy.test.ts && node scripts/test-auth.mjs --competitions",
     "test:competition-ui": "node --test tests/e2e/competition-configuration.test.mjs",
     "dev": "next dev",

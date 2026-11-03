@@ -7,6 +7,7 @@ import { getAffiliationReviewLeagueOptions } from "@/features/clubs/server/affil
 import { getTeamEnrollmentCatalogs } from "@/features/clubs/server/team-enrollment-queries";
 import { getSeasonWorkspace } from "@/features/competitions/server/seasons";
 import { canCreateLeague } from "@/features/competitions/server/leagues";
+import { getMaintenanceWorkspace } from "@/features/clubs/server/maintenance";
 import { AuthorizationError } from "@/server/auth/authorization";
 import { requireOperationalUser } from "@/server/auth/session";
 
@@ -23,19 +24,21 @@ async function allowed(check: () => Promise<boolean>): Promise<boolean> {
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
   await requireOperationalUser();
-  const [teams, capture, review, accounts, seasons, leagues] = await Promise.all([
+  const [teams, capture, review, accounts, seasons, leagues, maintenance] = await Promise.all([
     allowed(async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0),
     allowed(canAccessAffiliationCapture),
     allowed(async () => (await getAffiliationReviewLeagueOptions()).length > 0),
     allowed(async () => (await getAccountCreationOptions()).roles.length > 0),
     allowed(async () => (await getSeasonWorkspace()).leagues.length > 0),
     allowed(canCreateLeague),
+    allowed(async () => { await getMaintenanceWorkspace(); return true; }),
   ]);
 
   const groups: ManagementNavigationGroup[] = [
     { label: "General", items: [{ href: "/access", label: "Mi panel", icon: "overview" }] },
   ];
   const clubs: ManagementNavigationGroup = { label: "Clubes y equipos", items: [] };
+  if (maintenance) clubs.items.push({ href: "/clubs", label: "Administrar clubes y equipos", icon: "teams" });
   if (capture) clubs.items.push({ href: "/affiliations/new", label: "Mis solicitudes de afiliación", icon: "affiliations" });
   if (review) clubs.items.push({ href: "/affiliations/review", label: "Revisión de afiliaciones", icon: "review" });
   if (teams) clubs.items.push({ href: "/teams/registrations", label: "Inscripción y consulta de equipos", icon: "teams" });
