@@ -61,7 +61,20 @@ export async function getMaintenanceWorkspace(input: unknown = {}) {
         clubName: row.clubs.name, leagueName: row.clubs.leagues.name, status: row.status, clubStatus: row.clubs.status, version: row.version,
         canEdit: covers(edit, row.clubs), canChangeStatus: covers(change, row.clubs), hasHistory: row._count.season_teams > 0 }));
     }
-    return { items: items.slice(0, 50), nextAfter: items.length > 50 ? items[49].id : null };
+    const visible = items.slice(0, 50);
+    if (visible.length) {
+      const references = await tx.$queryRaw<{ id: string; blocked: boolean }[]>(Prisma.sql`
+        SELECT id, sports_management.maintenance_has_references(${kind}, id) AS blocked
+        FROM unnest(ARRAY[${Prisma.join(visible.map(row => Prisma.sql`${row.id}::uuid`))}]) AS ids(id)`);
+      const clubs = await tx.clubs.findMany({ where: { id: { in: visible.map(row => row.clubId) } }, select: { id: true, league_id: true } });
+      for (const row of visible) {
+        row.hasHistory = references.find(ref => ref.id === row.id)?.blocked ?? true;
+        const club = clubs.find(club => club.id === row.clubId);
+        row.canDelete = !!club && !row.hasHistory && ["ACTIVE", "INACTIVE"].includes(row.status)
+          && covers(change.filter(grant => !grant.clubId), club);
+      }
+    }
+    return { items: visible, nextAfter: items.length > 50 ? items[49].id : null };
   });
 }
 

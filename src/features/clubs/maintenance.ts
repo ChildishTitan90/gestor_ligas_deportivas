@@ -15,7 +15,7 @@ export const maintenanceSchema = z.strictObject({
 export type MaintenanceRow = {
   kind: "club" | "team"; id: string; clubId: string; name: string; reference: string;
   clubName: string; leagueName: string; status: string; clubStatus: string; version: number;
-  canEdit: boolean; canChangeStatus: boolean; hasHistory: boolean;
+  canEdit: boolean; canChangeStatus: boolean; hasHistory: boolean; canDelete?: boolean;
 };
 export function effectiveStatus(status: string, clubStatus: string) {
   return clubStatus !== "ACTIVE" ? "Bloqueado por baja del club" : administrativeStatus(status);

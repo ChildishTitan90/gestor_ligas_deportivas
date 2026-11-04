@@ -47,8 +47,46 @@ test("PDGLD-121: bajas, reactivación, concurrencia, ámbito e historial", async
       assert.ok(html.includes("Administrar clubes y equipos"));
       assert.ok(html.includes(club.reference_number));
       assert.ok(!html.includes(other.reference_number));
+      assert.ok(html.includes("Tiene referencias o historial"));
+      const teamsPage = await browser.request("/clubs?kind=team");
+      const teamsHtml = await teamsPage.text();
+      assert.ok(teamsHtml.includes(team.reference_number));
+      assert.ok(teamsHtml.includes("Eliminar definitivamente"));
+      assert.ok(!teamsHtml.includes(other.reference_number));
       const filtered = await browser.request("/clubs?kind=team&q=NoExiste");
       assert.ok((await filtered.text()).includes("No hay registros para estos filtros"));
+      if (process.env.CHROME_BIN) {
+        const { launchChrome } = await import("../e2e/chrome-session.mjs");
+        const chrome = await launchChrome(base.origin);
+        try {
+          await chrome.command("Network.setCookies", { cookies: [...browser.cookies].map(([name, value]) => ({ name, value, url: base.origin })) });
+          await chrome.command("Page.navigate", { url: `${base.origin}/clubs?kind=team` });
+          const waitFor = async (expression: string) => {
+            for (let i = 0; i < 100; i++) {
+              if (await chrome.evaluate(expression)) return;
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            assert.fail("El control de mantenimiento no estuvo disponible en el navegador");
+          };
+          await waitFor("document.body?.innerText.includes('Eliminar definitivamente')");
+          for (const width of [390, 1280]) {
+            await chrome.command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
+            for (const theme of ["light", "dark"]) {
+              await chrome.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+              await chrome.evaluate("(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='Eliminar definitivamente'); b.focus(); b.click();})()");
+              await waitFor("!!document.querySelector('dialog[open]')");
+              assert.ok(await chrome.evaluate("document.querySelector('dialog[open]').innerText.includes('no se puede deshacer')"));
+              assert.ok(await chrome.evaluate("document.querySelector('dialog[open]').contains(document.activeElement)"));
+              assert.ok(await chrome.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
+              await chrome.command("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+              await chrome.command("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+              await waitFor("!document.querySelector('dialog[open]')");
+              assert.equal(await chrome.evaluate("document.activeElement.textContent"), "Eliminar definitivamente");
+            }
+          }
+          console.log("PDGLD-123: diálogo real en móvil/escritorio, claro/oscuro, foco y Escape verificados.");
+        } finally { await chrome.close(); }
+      }
     });
     await t.test("permiso de liga no permite operar sobre un club ajeno", async () => {
       await assert.rejects(applyClubOrTeamMaintenance(actor.id, input("club", other.id, 1, "deactivate")), /FORBIDDEN/);
