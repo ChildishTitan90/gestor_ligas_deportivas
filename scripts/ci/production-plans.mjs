@@ -21,12 +21,23 @@ export const CURP_PLAN = Object.freeze({
   checksum: '53783b4250f3936ef2767825cb74d9755963d0842abc776d766fd5a1dad01525',
 });
 
+// PDGLD-38 usa una única tabla TEMP ON COMMIT DROP para restaurar el estado de
+// dos triggers tras proyectar categorías. No crea tablas persistentes ni ACL.
+// La excepción cubre solo este archivo exacto; modificarlo exige otra revisión.
+export const DISTRIBUTION_PLAN = Object.freeze({
+  migration: '20261029130000_pdgld38_pending_distribution',
+  checksum: '8cd0c79f5a5044ced2575e1648c38a0ec2bff72d6ba620af8684dca1893c76b9',
+});
+
 export function sqlChecksum(sql) {
   return createHash('sha256').update(sql.replace(/\r\n/g, '\n')).digest('hex');
 }
 
 /** Excepción exacta revisada en PR: ni nombres sueltos ni SQL suministrado por env. */
 export function assertProductionPlan(migrations, applied, readSql) {
+  if (migrations.has(DISTRIBUTION_PLAN.migration) && sqlChecksum(readSql(DISTRIBUTION_PLAN.migration)) !== DISTRIBUTION_PLAN.checksum) {
+    throw new Error('El plan PDGLD-38 exige la migración original de distribución y su checksum revisado.');
+  }
   const plan = AFFILIATION_PLAN;
   const pendingCreation = migrations.has(plan.migration) && !applied.has(plan.migration);
   const pendingSecurity = migrations.has(plan.securityMigration) && !applied.has(plan.securityMigration);
@@ -51,6 +62,7 @@ export function assertProductionPlan(migrations, applied, readSql) {
     if (name === plan.migration && pendingCreation) continue;
     if (name === ENROLLMENT_PLAN.migration && pendingEnrollmentCreation) continue;
     if (name === CURP_PLAN.migration && pendingCurpCreation) continue;
+    if (name === DISTRIBUTION_PLAN.migration) continue;
     assertProductionSql(readSql(name), name);
   }
   return { pendingCreation, pendingEnrollmentCreation, pendingCurpCreation };

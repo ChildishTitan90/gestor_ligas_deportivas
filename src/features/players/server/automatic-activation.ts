@@ -28,8 +28,8 @@ export async function activateVerifiedAdultForActor(actorId:string,id:string,act
     if(context.seasonStatus==="CLOSED" || context.teamStatus==="WITHDRAWN" || context.affiliationStatus!=="APPROVED" || !context.categoryAuthorized)return;
     const date=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Mexico_City"}).format(reg.registered_at);
     if(minorAtDate(dob,date)!==false)return;
-    const category=await tx.season_categories.findUniqueOrThrow({where:{id:context.seasonCategoryId},select:{type:true,minimum_age:true,maximum_age:true,age_cutoff_date:true}});
-    if(!["OPEN","YOUTH"].includes(category.type) || (category.type==="YOUTH" && category.maximum_age===null))return;
+    const category=await tx.season_categories.findUniqueOrThrow({where:{id:context.seasonCategoryId},select:{type:true,minimum_age:true,maximum_age:true,age_cutoff_date:true,eligibility_pending:true}});
+    if(category.eligibility_pending || !category.age_cutoff_date || !["OPEN","YOUTH"].includes(category.type) || (category.type==="YOUTH" && category.maximum_age===null))return;
     // Edad deportiva por año de referencia configurado; no aplicar excepciones automáticamente.
     const age=category.age_cutoff_date.getUTCFullYear()-Number(dob.slice(0,4));
     if(age<0 || (category.minimum_age!==null && age<category.minimum_age) || (category.maximum_age!==null && age>category.maximum_age))return;

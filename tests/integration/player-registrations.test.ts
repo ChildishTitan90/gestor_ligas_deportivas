@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import pg from "pg";
 import { assertCurpProductionSecurity } from "../../scripts/ci/production-plans.mjs";
 import { getPrisma } from "../../src/server/db/prisma";
-import { AuthorizationError } from "../../src/server/auth/authorization";
+import { AuthorizationError, lockAuthorization } from "../../src/server/auth/authorization";
 import { INITIAL_PERMISSION_GRANTS } from "../../prisma/permissions-data";
 import { registerPlayerForActor } from "../../src/features/players/server/service";
 import { readPlayerRegistrationForActor } from "../../src/features/players/server/queries";
@@ -121,10 +121,28 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
         [actors.admin, "SUPERADMIN", null, null],
         [actors.player, "PLAYER", league.id, clubs[0].id],
       ]) await tx.user_roles.create({ data: { user_id: actor!, role_id: roles.find(role => role.code === roleCode)!.id,
-        league_id: leagueId, club_id: clubId, starts_at: new Date(Date.now() - 60_000) } });
+        league_id: leagueId, club_id: clubId, starts_at: new Date(Date.now() - 60_000),
+        delegate_position: roleCode === "CLUB_DELEGATE" ? "PRIMARY" : null } });
       return { actors, team: contexts[0][0], alternative: contexts[0][1], next: contexts[0][2], other: contexts[1][0], foreign: contexts[2][0] };
     }, { timeout: 30_000 });
     const { actors, team, alternative, next, other, foreign } = fixture;
+    let revokedDelegateAssignment: string | undefined;
+    const changeDelegateAccess = async (enabled: boolean) => db.$transaction(async tx => {
+      await lockAuthorization(tx, "exclusive");
+      await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Revocación sintética y nueva designación, conservando historial PDGLD-106',true)`;
+      if (!enabled) {
+        const assignment = await tx.user_roles.findFirstOrThrow({ where: { user_id: actors.delegate, ends_at: null }, select: { id: true } });
+        // El reloj SQL evita fechar el cese antes de iniciar esta transacción.
+        await tx.$executeRaw`UPDATE sports_management.user_roles SET ends_at=clock_timestamp() WHERE id=${assignment.id}::uuid`;
+        revokedDelegateAssignment = assignment.id;
+      } else if (revokedDelegateAssignment) {
+        // Una designación vencida no se reabre: se crea el siguiente periodo.
+        await tx.$executeRaw`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id,delegate_position,starts_at)
+          SELECT user_id,role_id,league_id,club_id,delegate_position,clock_timestamp()
+          FROM sports_management.user_roles WHERE id=${revokedDelegateAssignment}::uuid`;
+        revokedDelegateAssignment = undefined;
+      }
+    });
     assert.equal(team.seasonId, other.seasonId, "Los dos clubes compiten en la misma temporada real.");
     const [config] = await db.$queryRaw<{ settings: string[] }[]>`SELECT proconfig AS settings FROM pg_proc
       WHERE oid = 'sports_management.validate_player_registration()'::regprocedure`;
@@ -509,15 +527,11 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
 
     await t.test("CURP externa: revocación durante la red conserva el acuse y deniega la respuesta", async () => {
       const registered = await registerPlayerForActor(actors.delegate, input(team.id, "1974-05-06"));
-      const changeRole = async (endsAt: Date | null) => db.$transaction(async tx => {
-        await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Prueba sintética de revocación',true)`;
-        await tx.user_roles.updateMany({ where: { user_id: actors.delegate }, data: { ends_at: endsAt } });
-      });
-      const provider = fake(async () => { await changeRole(new Date()); return { status: "VERIFIED", mismatchedFields: [] }; });
+      const provider = fake(async () => { await changeDelegateAccess(false); return { status: "VERIFIED", mismatchedFields: [] }; });
       try {
         await assert.rejects(verifyPlayerCurpForActor(actors.delegate, registered.registrationId, intention(), { provider, policy }), error => error instanceof AuthorizationError);
         assert.equal((await db.player_curp_checks.findFirstOrThrow({ where: { registration_id: registered.registrationId } })).status, "VERIFIED");
-      } finally { await changeRole(null); }
+      } finally { await changeDelegateAccess(true); }
     });
 
     await t.test("CURP externa: cuotas persistentes y recuperación incierta sin reintentos automáticos", async () => {
@@ -576,9 +590,9 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
       assert.equal((await verifyPlayerCurpForActor(actors.delegate,minor.registrationId,intention(),{provider,policy})).registrationStatus,"INELIGIBLE");
       const veteran=await registerPlayerForActor(actors.delegate,input(team.id,"1980-12-11",undefined,"Diego"));
       const category=await db.season_categories.findUniqueOrThrow({where:{id:veteran.seasonCategoryId}});
-      const configure=async(type:string,minimum_age:number|null)=>db.$transaction(async tx=>{
+      const configure=async(type:string,minimum_age:number|null,eligibility_pending=false,age_cutoff_date:Date|null=category.age_cutoff_date)=>db.$transaction(async tx=>{
         await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Límites sintéticos de activación por categoría',true)`;
-        await tx.season_categories.update({where:{id:category.id},data:{type,minimum_age}});
+        await tx.season_categories.update({where:{id:category.id},data:{type,minimum_age,eligibility_pending,age_cutoff_date}});
       });
       try{
         await configure("VETERANS",35);
@@ -586,7 +600,12 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
         await configure("OPEN",100);
         await activateVerifiedAdultForActor(actors.delegate,veteran.registrationId);
         assert.equal((await readPlayerCurpStatusForActor(actors.delegate,veteran.registrationId)).registrationStatus,"INELIGIBLE","No elude el límite de edad configurado");
-      }finally{await configure(category.type,category.minimum_age);}
+        for (const cutoff of [category.age_cutoff_date, null]) {
+          await configure("OPEN", null, true, cutoff);
+          await activateVerifiedAdultForActor(actors.delegate,veteran.registrationId);
+          assert.equal((await readPlayerCurpStatusForActor(actors.delegate,veteran.registrationId)).registrationStatus,"INELIGIBLE","Una categoría pendiente nunca habilita, tenga o no fecha de corte");
+        }
+      }finally{await configure(category.type,category.minimum_age,category.eligibility_pending,category.age_cutoff_date);}
     });
 
     await t.test("Activación automática: coincidencias requieren resolución vigente y fallos locales se recuperan sin gastar",async()=>{
@@ -725,14 +744,10 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
           });return {status:"PROVIDER_PASSED" as const,readings:[]};
         }}});
         assert.equal(changed.status,"STALE");assert.equal(changed.approvalAllowed,false);
-        const revoke=async(ends_at:Date|null)=>db.$transaction(async tx=>{
-          await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Revocación sintética durante verificación de INE',true)`;
-          await tx.user_roles.updateMany({where:{user_id:actors.delegate},data:{ends_at}});
-        });
         try {
-          await assert.rejects(verifyPlayerIneForActor(actors.delegate,id,{...intention(changed.identityVersion),retryOf:changed.attemptId,acknowledgePossiblePreviousCharge:true},raw,{...dependencies,provider:{configured:true,async verify(){await revoke(new Date());return {status:"ADMIN_REVIEW_REQUIRED" as const,readings:[]};}}}),error=>error instanceof AuthorizationError);
+          await assert.rejects(verifyPlayerIneForActor(actors.delegate,id,{...intention(changed.identityVersion),retryOf:changed.attemptId,acknowledgePossiblePreviousCharge:true},raw,{...dependencies,provider:{configured:true,async verify(){await changeDelegateAccess(false);return {status:"ADMIN_REVIEW_REQUIRED" as const,readings:[]};}}}),error=>error instanceof AuthorizationError);
           assert.equal(await db.audit_logs.count({where:{entity_id:id,action:"PLAYER_INE_RESULT"}}),5,"El acuse persiste aunque el actor pierda permisos");
-        } finally {await revoke(null);}
+        } finally {await changeDelegateAccess(true);}
         let latest=await readPlayerIneStatusForActor(actors.delegate,id);
         const person=await db.player_registrations.findUniqueOrThrow({where:{id},select:{people:{select:{curp:true,first_name:true,paternal_surname:true,maternal_surname:true,birth_date:true}}}});
         const entries=[{type:"Name",source:"OCR",value:person.people.first_name},{type:"FatherSurname",source:"MRZ",value:person.people.paternal_surname},{type:"MotherSurname",source:"MRZ",value:person.people.maternal_surname ?? ""},{type:"DateOfBirth",source:"OCR",value:person.people.birth_date!.toISOString().slice(0,10).split("-").reverse().join("/")},{type:"PersonalNumber",source:"OCR",value:person.people.curp}];

@@ -43,10 +43,15 @@ export async function getPlayerWorkspace() {
           club_affiliation_categories: { where: { authorized_at: { not: null }, authorized_by: { not: null } }, select: { category_id: true } } } },
         groups: { select: { name: true, season_categories: { select: { category_id: true, categories: { select: { name: true } } } } } } },
       orderBy: { id: "asc" } });
-    return rows.filter(row => row.club_affiliations.club_affiliation_categories.some(c => c.category_id === row.groups.season_categories.category_id))
-      .map((row): PlayerTeamOption => ({ id: row.id, teamName: row.teams.name, clubId: row.club_id, clubName: row.teams.clubs.name,
+    return rows.flatMap((row): PlayerTeamOption[] => {
+      // GROUP_STAGE admite equipos pendientes de distribución. El servicio de
+      // jugadores conserva su requisito de grupo asignado antes de registrar.
+      const group = row.groups;
+      if (!group || !row.club_affiliations.club_affiliation_categories.some(c => c.category_id === group.season_categories.category_id)) return [];
+      return [{ id: row.id, teamName: row.teams.name, clubId: row.club_id, clubName: row.teams.clubs.name,
         seasonId: row.season_id, seasonName: row.club_affiliations.seasons.name,
-        categoryName: row.groups.season_categories.categories.name, groupName: row.groups.name }));
+        categoryName: group.season_categories.categories.name, groupName: group.name }];
+    });
   });
   return { actorId: actor.id, teams, providerConfigured: Boolean(process.env.VMX_API_KEY?.trim()) };
 }

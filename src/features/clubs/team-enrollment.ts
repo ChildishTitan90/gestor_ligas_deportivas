@@ -8,7 +8,7 @@ export const teamEnrollmentSchema = z.strictObject({
   clubId: uuid,
   seasonId: uuid,
   categoryId: uuid,
-  groupId: uuid,
+  groupId: uuid.optional(),
   team: z.discriminatedUnion("mode", [
     z.strictObject({ mode: z.literal("existing"), teamId: uuid }),
     z.strictObject({ mode: z.literal("new"), name: z.string().trim().min(1).max(200) }),
@@ -35,7 +35,7 @@ export const enrollmentOperationQuerySchema = z.strictObject({ clubId: uuid, enr
 export const enrollmentCancellationSchema = z.union([teamEnrollmentSchema, enrollmentOperationQuerySchema]);
 
 export const teamEnrollmentResultSchema = z.object({
-  id: uuid, teamId: uuid, clubId: uuid, seasonId: uuid, categoryId: uuid, groupId: uuid,
+  id: uuid, teamId: uuid, clubId: uuid, seasonId: uuid, categoryId: uuid, groupId: uuid.nullable(),
   status: z.enum(["REGISTERED", "ACTIVE", "WITHDRAWN"]), replayed: z.boolean(),
 });
 

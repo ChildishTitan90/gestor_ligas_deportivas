@@ -43,6 +43,31 @@ function existing(controller: TeamRegistrationFormController) {
 }
 const render = (controller: TeamRegistrationFormController) => renderToStaticMarkup(<TeamRegistrationFormView controller={controller} />);
 
+test("tabla general omite selección y envío de grupo; cambiar formato limpia el grupo previo", async () => {
+  const next = structuredClone(options);
+  const season = next.clubs[0].seasons[0];
+  const configured: TeamRegistrationFormOptions = {clubs:[{...next.clubs[0],seasons:[{...season,categories:[
+    {...season.categories[0],format:"GENERAL_TABLE",groups:[{id:"automatic-general",name:"General"}]},
+  ]}]}]};
+  const {controller,calls}=setup();existing(controller);
+  controller.configure(configured,async capture=>{calls.push(capture);return confirmed;});
+  assert.equal(controller.getSnapshot().draft.groupId,"");
+  const html=render(controller);assert.doesNotMatch(html,/name="groupId"/);assert.match(html,/asignará automáticamente el grupo General/);
+  await controller.submit();assert.equal(calls.length,1);assert.equal("groupId" in calls[0],false);
+});
+
+test("fase de grupos permite inscribir sin grupos y conserva el envío original al recuperar", async () => {
+  const season=options.clubs[0].seasons[0];
+  const configured:TeamRegistrationFormOptions={clubs:[{...options.clubs[0],seasons:[{...season,categories:[{...season.categories[0],format:"GROUP_STAGE",groups:[]}]}]}]};
+  const calls:TeamRegistrationSubmission[]=[];
+  const controller=createTeamRegistrationFormController(configured,async capture=>{calls.push(capture);return calls.length===1?{kind:"unconfirmed",retryAllowed:true}:confirmed;});
+  chooseScope(controller);controller.change("teamId","team-a");controller.change("categoryId","category-a");
+  const html=render(controller);assert.doesNotMatch(html,/name="groupId"|No hay grupos disponibles/);assert.match(html,/pendiente de asignación de grupo/);
+  await controller.submit();assert.equal(calls.length,1);assert.equal("groupId" in calls[0],false);
+  controller.configure(options,async capture=>{calls.push(capture);return confirmed;});
+  await controller.retry();assert.deepEqual(calls[1],calls[0]);assert.equal(controller.getSnapshot().outcome,"confirmed");
+});
+
 test("opciones iniciales: padres obligatorios, sin nombre ni creación sin contexto", () => {
   const { controller } = setup(); const html = render(controller);
   assert.match(html, /role="combobox"/);

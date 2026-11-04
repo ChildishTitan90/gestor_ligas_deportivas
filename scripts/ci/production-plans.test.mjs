@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { readMigrations } from './migration-helpers.mjs';
-import { AFFILIATION_PLAN, ENROLLMENT_PLAN, CURP_PLAN, assertProductionPlan, sqlChecksum } from './production-plans.mjs';
+import { AFFILIATION_PLAN, ENROLLMENT_PLAN, CURP_PLAN, DISTRIBUTION_PLAN, assertProductionPlan, sqlChecksum } from './production-plans.mjs';
 
 const directory = fileURLToPath(new URL('../../prisma/migrations/', import.meta.url));
 const readSql = name => readFileSync(`${directory}/${name}/migration.sql`, 'utf8');
@@ -14,6 +14,15 @@ const operationsMigration = '20261026010000_pdgld64_enrollment_operations';
 // Aislar PDGLD-57 conserva todos los casos de su plan original.
 const migrations = new Map([...allMigrations].filter(([name]) => name !== operationsMigration));
 const applied = new Set(['0_init']);
+
+test('PDGLD-38 autoriza solo la tabla temporal de la migración exacta y rechaza alteraciones', () => {
+  assert.equal(sqlChecksum(readSql(DISTRIBUTION_PLAN.migration)), DISTRIBUTION_PLAN.checksum);
+  for (const history of [applied, new Set(allMigrations.keys())]) {
+    for (const extra of ['\n-- cambio', '\nCREATE TABLE arbitrary (id uuid);', '\nALTER TABLE sports_management.clubs DISABLE ROW LEVEL SECURITY;']) {
+      assert.throws(() => assertProductionPlan(allMigrations, history, n => readSql(n) + (n === DISTRIBUTION_PLAN.migration ? extra : '')), /PDGLD-38.*checksum/);
+    }
+  }
+});
 
 test('PDGLD-64 acepta solo el original revisado, incluso con CRLF', () => {
   assert.ok(allMigrations.has(operationsMigration));
@@ -43,7 +52,7 @@ test('el checksum revisado tolera finales de línea de Windows sin alterar el SQ
   assert.deepEqual(assertProductionPlan(migrations, applied, name => readSql(name).replace(/\r?\n/g, '\r\n')), { pendingCreation: true, pendingEnrollmentCreation: false, pendingCurpCreation: false });
 });
 test('rechaza cambios al SQL autorizado, incluso si conservan el mismo nombre', () => {
-  assert.throws(() => assertProductionPlan(migrations, applied, name => readSql(name) + '\n-- cambio'), /checksums/);
+  assert.throws(() => assertProductionPlan(migrations, applied, name => readSql(name) + (name === AFFILIATION_PLAN.migration ? '\n-- cambio' : '')), /checksums/);
 });
 test('exige la migración de seguridad y su checksum', () => {
   const missing = new Map(migrations); missing.delete(AFFILIATION_PLAN.securityMigration);

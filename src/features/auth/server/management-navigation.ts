@@ -5,6 +5,8 @@ import { getAccountCreationOptions } from "@/features/accounts/server/service";
 import { canAccessAffiliationCapture } from "@/features/clubs/server/affiliation-form-queries";
 import { getAffiliationReviewLeagueOptions } from "@/features/clubs/server/affiliation-review-service";
 import { getTeamEnrollmentCatalogs } from "@/features/clubs/server/team-enrollment-queries";
+import { getSeasonWorkspace } from "@/features/competitions/server/seasons";
+import { canCreateLeague } from "@/features/competitions/server/leagues";
 import { AuthorizationError } from "@/server/auth/authorization";
 import { requireOperationalUser } from "@/server/auth/session";
 import { canAccessPlayerRegistration } from "@/features/players/server/workspace-queries";
@@ -23,13 +25,15 @@ async function allowed(check: () => Promise<boolean>): Promise<boolean> {
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
   await requireOperationalUser();
-  const [teams, capture, review, accounts, players, playerReview] = await Promise.all([
+  const [teams, capture, review, accounts, players, playerReview, seasons, leagues] = await Promise.all([
     allowed(async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0),
     allowed(canAccessAffiliationCapture),
     allowed(async () => (await getAffiliationReviewLeagueOptions()).length > 0),
     allowed(async () => (await getAccountCreationOptions()).roles.length > 0),
     allowed(canAccessPlayerRegistration),
     allowed(canReviewPlayerIdentity),
+    allowed(async () => (await getSeasonWorkspace()).leagues.length > 0),
+    allowed(canCreateLeague),
   ]);
 
   const groups: ManagementNavigationGroup[] = [
@@ -44,6 +48,10 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if(players) playerLinks.items.push({href:"/players/registrations",label:"Registrar jugadores",icon:"players"});
   if(playerReview) playerLinks.items.push({href:"/players/review",label:"Revisión de identidad",icon:"review"});
   if(playerLinks.items.length) groups.push(playerLinks);
+  const competitions: ManagementNavigationGroup = { label: "Competencias", items: [] };
+  if (leagues) competitions.items.push({ href: "/competitions/leagues/new", label: "Crear liga", icon: "overview" });
+  if (seasons) competitions.items.push({ href: "/competitions/seasons", label: "Temporadas", icon: "overview" });
+  if (competitions.items.length) groups.push(competitions);
   if (accounts) groups.push({ label: "Administración", items: [{ href: "/accounts/new", label: "Crear cuenta", icon: "accounts" }] });
   return groups;
 }
