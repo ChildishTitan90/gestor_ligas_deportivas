@@ -24,6 +24,7 @@ import {verifyPlayerIneForActor,readPlayerIneStatusForActor,readIneReviewQueueFo
 import type {PlayerDocumentTransport} from "../../src/features/players/server/document-storage";
 import {createVerificamexIneAdapter} from "../../src/features/players/server/verificamex-ine";
 import {activateVerifiedAdultForActor} from "../../src/features/players/server/automatic-activation";
+import {buildGuardianSignatureRecord,guardianSignatureSchema} from "../../src/features/players/guardian-signature";
 
 function syntheticCurp(date: string, root = "SIAA", differentiator = "0") {
   const prefix = `${root}${date.slice(2).replaceAll("-", "")}HMNLRR${differentiator}`;
@@ -781,6 +782,33 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
           await tx.season_categories.update({where:{id:category.id},data:{type:"OPEN"}});
         });
       }
+    });
+
+    await t.test("Tutor: documento firmado conserva recepción pendiente sin acreditar consentimiento ni habilitar al menor", async () => {
+      const payload=input(team.id,"2011-11-03",undefined,"Menor sintético");
+      payload.identity.curp=syntheticCurp("2011-11-03","SIAA","A");
+      const registered=await registerPlayerForActor(actors.delegate,payload);
+      const type=await db.document_types.findUniqueOrThrow({where:{code:"GUARDIAN_CONSENT"}});
+      const requirement=await db.document_requirements.create({data:{season_category_id:registered.seasonCategoryId,document_type_id:type.id,is_required:true}});
+      const before=await db.guardian_consents.count();
+      try {
+        const data={registrationId:registered.registrationId,guardianName:"Persona responsable sintética",relationship:"MOTHER",acknowledgesRecord:true};
+        assert.equal(guardianSignatureSchema.safeParse({...data,approved:true}).success,false);
+        const png=await sharp({create:{width:600,height:200,channels:3,background:"black"}}).png().toBuffer();
+        const record=await buildGuardianSignatureRecord(data,new File([new Uint8Array(png)],"firma-sintetica.png",{type:"image/png"}));
+        const file=await validatePrivateFileContent(new Uint8Array(await record.arrayBuffer()),record.type);
+        const dossier=await readPlayerDossierForActor(actors.delegate,registered.registrationId);
+        const policy={referenceDate:dossier.referenceDate,window:"PENDING_DOSSIER_V1" as const};
+        const body={operationKey:randomUUID(),registrationId:registered.registrationId,requirementId:requirement.id,slot:1,replacesDocumentId:null,mimeType:file.mimeType,sizeBytes:file.sizeBytes,sha256:file.sha256};
+        await assert.rejects(preparePlayerDocumentForActor(actors.other,body,policy),error=>error instanceof AuthorizationError);
+        const intent=await preparePlayerDocumentForActor(actors.delegate,body,policy);
+        const confirmed=await confirmPlayerDocumentForActor(actors.delegate,intent.uploadId,{read:async()=>file.bytes},policy);
+        assert.equal((await db.player_documents.findUniqueOrThrow({where:{id:confirmed.documentId}})).status,"PENDING");
+        assert.equal(await db.guardian_consents.count(),before);
+        assert.equal((await db.player_registrations.findUniqueOrThrow({where:{id:registered.registrationId}})).status,"INELIGIBLE");
+        const after=await readPlayerDossierForActor(actors.delegate,registered.registrationId);
+        assert.equal(after.guardianConsent,"REQUIRES_ACCREDITATION");assert.equal(after.approvalAllowed,false);
+      } finally { await db.document_requirements.delete({where:{id:requirement.id}}); }
     });
 
     await t.test("CURP externa: tabla privada, Docker sin RLS y bloque Supabase deniega roles API", async () => {

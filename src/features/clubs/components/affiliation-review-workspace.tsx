@@ -1,6 +1,7 @@
 "use client";
 
 import { FormDialog } from "@/components/ui/form-dialog";
+import { SignatureReviewPreview } from "./signature-review-preview";
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { ActionLink } from "@/components/ui/action-link";
@@ -131,6 +132,11 @@ export function AffiliationReviewView({ controller, leagues = [] }: { controller
               <p>Sin firma registrada.</p>}
             {state.download && state.download.fileId === officer.signatureFileId && <div className="space-y-2">
               <p>Enlace temporal disponible durante un máximo de 60 segundos.</p>
+              <SignatureReviewPreview
+                url={state.download.url}
+                expiresAt={state.download.expiresAt}
+                label={officeNames[officer.office].toLowerCase()}
+              />
               <a href={state.download.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer"
                 className="inline-block rounded-xl border border-border px-4 py-3 font-semibold"
                 onClick={event => { if (Date.now() >= state.download!.expiresAt) { event.preventDefault(); controller.clearDownload(); } }}>

@@ -6,6 +6,7 @@ import {playerDossierSchema,type PlayerDossier as Dossier} from "../document-typ
 import {playerRequest,PlayerRequestError} from "../player-client";
 import {sendPlayerDocumentOperation,type PendingDocumentUpload} from "../document-upload.client";
 import {DevicePhotoCamera} from "./device-photo-camera";
+import {GuardianSignatureCapture} from "./guardian-signature-capture";
 
 function LocalPhotoPreview({file}:{file:File}){
   const image=useRef<HTMLImageElement>(null);
@@ -21,6 +22,7 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
   const lock=useRef(false),pending=useRef<PendingDocumentUpload|null>(null),form=useRef<HTMLFormElement>(null);
   const requirement=dossier.requirements.find(r=>r.id===requirementId);
   const photo=dossier.documentTypes.find(t=>t.id===requirement?.typeId)?.code==="PHOTO";
+  const guardian=dossier.minorAtRegistration===true && dossier.documentTypes.find(t=>t.id===requirement?.typeId)?.code==="GUARDIAN_CONSENT";
   const selectedCurrent=dossier.documents.find(d=>d.requirementId===requirementId && d.slot===Number(slot) && !d.superseded);
   const endpoint=`/api/player-registrations/${dossier.registrationId}/documents`;
   const secondary="min-h-12 rounded-xl border border-border bg-surface px-4 py-3 font-semibold text-primary disabled:opacity-50";
@@ -71,7 +73,7 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
   return <div className="space-y-7">
     <div className="rounded-xl border border-border bg-surface p-5 space-y-2"><p>Edad evaluada en el registro del {dossier.referenceDate}: {dossier.minorAtRegistration===null?"fecha de nacimiento pendiente":dossier.minorAtRegistration?"menor de edad":"mayor de edad"}.</p>
       <p className="text-sm text-muted">{dossier.registrationStatus==="ACTIVE"?(dossier.canUpload?"Jugador activo. Puedes completar su constancia CURP y foto mientras el expediente siga pendiente; las cargas no cambian su habilitación.":"Jugador activo. El estado actual del expediente no permite nuevas cargas."):"Las cargas y sustituciones se permiten cualquier día mientras el expediente esté pendiente. Recibir archivos no autoriza al jugador para competir."}</p>
-      {dossier.minorAtRegistration && <p>La autorización del tutor requiere acreditación y revisión. La credencial estudiantil es opcional y no la sustituye.</p>}
+      {dossier.minorAtRegistration && <p>La firma del padre, madre o tutor requiere acreditación y revisión. La credencial escolar o constancia de estudios corresponde al menor y se revisa por separado.</p>}
       <p className="text-sm text-muted">Puedes añadir o sustituir la foto del jugador en este expediente mientras esté pendiente. Es distinta de la selfie de verificación de Veteranos y no bloquea el alta inicial.</p>
     </div>
     <section className="space-y-3" aria-label="Requisitos documentales"><h2 className="text-xl font-semibold">Requisitos del expediente</h2>
@@ -86,8 +88,9 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
         <div><label htmlFor="document-requirement">Documento</label><SelectField id="document-requirement" name="requirementId" value={requirementId} onValueChange={value=>{setRequirementId(value);setSlot("1");setFile(null);form.current?.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach(input=>{input.value="";});}} options={dossier.requirements.map(r=>({value:r.id,label:dossier.documentTypes.find(t=>t.id===r.typeId)?.name ?? "Documento",disabled:(dossier.documentTypes.find(t=>t.id===r.typeId)?.code==="STUDENT_ID" && r.required) || (dossier.documentTypes.find(t=>t.id===r.typeId)?.code==="PHOTO" && (r.required || r.quantity!==1))}))} required /></div>
         <div><label htmlFor="document-slot">Posición del requisito</label><SelectField id="document-slot" name="slot" value={slot} onValueChange={setSlot} disabled={!requirement} searchable={false} options={Array.from({length:requirement?.quantity ?? 0},(_,i)=>({value:String(i+1),label:`Archivo ${i+1}`}))} required /></div>
         {photo && !frozen && storageConfigured && dossier.canUpload && <div className="sm:col-span-2"><DevicePhotoCamera selfie captureLabel="Vista en vivo para foto del jugador" onCapture={setFile}/></div>}
+        {guardian && <div className="sm:col-span-2"><GuardianSignatureCapture key={`${dossier.registrationId}:${requirementId}`} registrationId={dossier.registrationId} disabled={frozen || !storageConfigured || !dossier.canUpload} onPrepared={setFile}/></div>}
         <div><label htmlFor="document-file">{photo?"Elegir foto del jugador":"Archivo del dispositivo"}</label><input id="document-file" type="file" accept={photo?"image/jpeg,image/png":"application/pdf,image/jpeg,image/png"} aria-describedby="dossier-file-help dossier-upload-message" className="mt-2 block w-full" onChange={event=>setFile(event.target.files?.[0] ?? null)} /></div>
-        {!photo && <div><label htmlFor="document-camera">Tomar una foto (si está disponible)</label><input id="document-camera" type="file" accept="image/jpeg,image/png" capture="environment" aria-describedby="dossier-file-help dossier-upload-message" className="mt-2 block w-full" onChange={event=>setFile(event.target.files?.[0] ?? null)} /></div>}
+        {!photo && !guardian && <div><label htmlFor="document-camera">Tomar una foto (si está disponible)</label><input id="document-camera" type="file" accept="image/jpeg,image/png" capture="environment" aria-describedby="dossier-file-help dossier-upload-message" className="mt-2 block w-full" onChange={event=>setFile(event.target.files?.[0] ?? null)} /></div>}
       </fieldset>
       {photo && file && ["image/png","image/jpeg"].includes(file.type) && <LocalPhotoPreview file={file}/>}
       {file && <p className="break-all text-sm">Seleccionado: {file.name} · {Math.ceil(file.size/1024)} KiB</p>}

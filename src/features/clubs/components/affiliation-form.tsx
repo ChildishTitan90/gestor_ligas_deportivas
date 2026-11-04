@@ -1,5 +1,5 @@
 "use client";
-
+import { DirectSignatureField } from "./direct-signature-field";
 import { useId, useRef, useState, type FormEvent } from "react";
 import {
   affiliationFormSchema,
@@ -76,6 +76,9 @@ function AffiliationFormContent({
   const operationLock = useRef(false);
   const tasks = useRef<Partial<Record<Office, UploadTask>>>({});
   const pendingSubmission = useRef<unknown>(null);
+  const [signatureRevisions, setSignatureRevisions] = useState<
+  Partial<Record<Office, number>>
+>({});
 
   const [errors, setErrors] = useState<AffiliationFieldErrors>({});
   const [signatures, setSignatures] = useState<
@@ -107,22 +110,40 @@ function AffiliationFormContent({
     ) : null;
   }
 
-  function showErrors(nextErrors: AffiliationFieldErrors) {
-    setErrors(nextErrors);
+ function showErrors(nextErrors: AffiliationFieldErrors) {
+  setErrors(nextErrors);
 
-    const path = Object.keys(nextErrors)[0];
-    if (!path) return;
+  const path = Object.keys(nextErrors)[0];
+  if (!path) return;
 
-    const target = formRef.current?.elements.namedItem(path);
+  requestAnimationFrame(() => {
+    const form = formRef.current;
+    if (!form) return;
+
+    const office = affiliationOfficeCodes.find(
+      (code) => path === `signature.${code}`,
+    );
+
+    if (office) {
+      const canvas = form.querySelector<HTMLCanvasElement>(
+        `[data-signature-office="${office}"] canvas`,
+      );
+
+      canvas?.focus();
+      return;
+    }
+
+    const target = form.elements.namedItem(path);
 
     if (target instanceof HTMLElement) {
       target.focus();
     } else {
-      formRef.current
-        ?.querySelector<HTMLInputElement>("[name='categoryIds']")
+      form
+        .querySelector<HTMLInputElement>("[name='categoryIds']")
         ?.focus();
     }
-  }
+  });
+}
 
   function field(
     path: string,
@@ -222,7 +243,24 @@ function AffiliationFormContent({
       });
     }
   }
+function invalidateSignatureForOfficer(name: string) {
+  const office = affiliationOfficeCodes.find((code) =>
+    name.startsWith(`officers.${code}.`),
+  );
 
+  if (!office || operationLock.current || frozen) return;
+
+  delete tasks.current[office];
+
+  updateSignature(office, {
+    message: "Cambiaste los datos del firmante. Captura y confirma su firma.",
+  });
+
+  setSignatureRevisions((current) => ({
+    ...current,
+    [office]: (current[office] ?? 0) + 1,
+  }));
+}
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -369,12 +407,18 @@ function AffiliationFormContent({
     <form
       ref={formRef}
       onSubmit={submit}
-      onChange={() => {
-        if (!frozen) {
-          setChecked(false);
-          setErrors({});
-        }
-      }}
+    onChange={(event) => {
+  if (!frozen) {
+    setChecked(false);
+    setErrors({});
+
+    const target = event.target;
+
+    if (target instanceof HTMLInputElement) {
+      invalidateSignatureForOfficer(target.name);
+    }
+  }
+}}
       noValidate
       aria-labelledby={`${prefix}-title`}
       aria-busy={busy}
@@ -402,7 +446,7 @@ function AffiliationFormContent({
         </p>}
         <p className="mt-3 rounded-xl bg-soft p-3 text-sm leading-6">
           {correction ? "Revisa los datos solicitados y confirma las firmas antes de reenviar." : submissionContext
-            ? "Selecciona las tres firmas. Cada archivo se carga y valida antes de enviar la solicitud."
+            ? "Captura y confirma las tres firmas. Cada captura se carga y valida antes de enviar la solicitud."
             : "Esta vista permite revisar los datos. El envío todavía no está disponible desde esta pantalla."}
         </p>
       </header>
@@ -505,59 +549,69 @@ function AffiliationFormContent({
                 ),
               )}
             </div>
+{submissionContext && (
+  <div
+  className="mt-5 space-y-3"
+  data-signature-office={office}
+>
+   {correction?.signatureFileIds?.[office] &&
+signatures[office]?.id === correction.signatureFileIds[office] ? (
+  <div className="space-y-3 rounded-xl border border-border p-4">
+    <p className="font-semibold">
+      Firma de {officeNames[office].toLowerCase()} registrada
+    </p>
 
-            {submissionContext && (
-              <div className="mt-5 space-y-3">
-                <label
-                  htmlFor={`${prefix}-signature-${office}`}
-                  className="block text-sm font-medium"
-                >
-                  Firma de {officeNames[office].toLowerCase()} *
-                </label>
-                <p className="text-sm text-muted">
-                  PNG, JPEG o PDF. Máximo 10 MiB.
-                  Se carga al seleccionar el archivo.
-                </p>
-                <input
-                  id={`${prefix}-signature-${office}`}
-                  name={`signature.${office}`}
-                  type="file"
-                  disabled={!submissionContext.storageOrigin}
-                  accept="image/png,image/jpeg,application/pdf"
-                  onChange={(event) =>
-                    selectSignature(
-                      office,
-                      event.currentTarget.files?.[0],
-                    )
-                  }
-                  aria-invalid={Boolean(
-                    signatures[office]?.failed ||
-                    errors[`signature.${office}`],
-                  )}
-                  aria-describedby={`${prefix}-signature-${office}-status`}
-                  className={inputClass}
-                />
-                <p
-                  id={`${prefix}-signature-${office}-status`}
-                  role="status"
-                  className="text-sm"
-                >
-                  {signatures[office]?.message ?? "Firma pendiente."}
-                </p>
+    <p className="text-sm text-muted">
+      Se conservará el archivo existente al reenviar las correcciones.
+      No necesitas dibujar otra firma si los datos del firmante
+      no cambiaron.
+    </p>
 
-                {errorFor(`signature.${office}`)}
+    {!finished && (
+      <button
+        type="button"
+        disabled={busy || frozen}
+        onClick={() => selectSignature(office, undefined)}
+        className="min-h-12 rounded-xl border border-border px-4 py-2
+                   focus-visible:outline-2 focus-visible:outline-offset-2
+                   disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Reemplazar firma
+      </button>
+    )}
+  </div>
+) : (
+  <DirectSignatureField
+    key={`${office}-${signatureRevisions[office] ?? 0}`}
+    label={`Firma de ${officeNames[office].toLowerCase()} *`}
+    disabled={busy || frozen || finished}
+    stored={Boolean(signatures[office]?.id)}
+    submitted={finished}
+    onChange={(file) => selectSignature(office, file ?? undefined)}
+  />
+)}
 
-                {signatures[office]?.failed && (
-                  <button
-                    type="button"
-                    onClick={() => void uploadSignature(office)}
-                    className={buttonClass}
-                  >
-                    Reintentar carga
-                  </button>
-                )}
-              </div>
-            )}
+    <p
+      id={`${prefix}-signature-${office}-status`}
+      role="status"
+      className="text-sm"
+    >
+      {signatures[office]?.message ?? "Firma pendiente."}
+    </p>
+
+    {errorFor(`signature.${office}`)}
+
+    {signatures[office]?.failed && (
+      <button
+        type="button"
+        onClick={() => void uploadSignature(office)}
+        className={buttonClass}
+      >
+        Reintentar carga
+      </button>
+    )}
+  </div>
+)}
           </fieldset>
         ))}
       </fieldset>

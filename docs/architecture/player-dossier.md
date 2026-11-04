@@ -42,6 +42,13 @@ El transporte real valida bucket privado antes de cada operación, permite solo 
 
 Adjuntar GUARDIAN_CONSENT solo acredita recepción de un archivo; no crea guardian_consents ni prueba parentesco, firma o consentimiento legal. Ese registro requiere política de acreditación y revisión, pendientes. No se ha implementado aprobación documental/deportiva: approvalAllowed permanece false incluso si todos los archivos están presentes.
 
+Actualización del 04/11/2026: el requisito configurado GUARDIAN_CONSENT de un menor
+también permite preparar evidencia con firma dibujada en el portal, reutilizando
+la captura de PDGLD-109. El PDF reúne datos declarados, inscripción y firma;
+reutiliza el transporte documental existente y conserva los límites anteriores.
+No se da por aprobado un texto de autorización ni se acredita al tutor.
+Ver [captura y revisión pendiente](../design/guardian-signature-capture.md).
+
 Pruebas normales: test:player-dossier (reglas y recuperación del cliente), test:player-document-storage (transporte simulado), test:signatures (regresión del validador compartido), test:player-registrations (servicios y PDGLD-13 en PostgreSQL desechable). La verificación optativa verify:player-document-storage comprueba configuración privada de pruebas antes de iniciar Next, usa PostgreSQL desechable y prueba el transporte **real** por HTTP con PDF sintéticos. Las consultas de CURP/INE continúan simuladas, sin consumo de créditos. Evidencia y comandos: docs/validation/PDGLD-100-storage.md.
 
 ## Entradas y primer avance de PDGLD-101
