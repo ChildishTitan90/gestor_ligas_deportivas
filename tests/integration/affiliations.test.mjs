@@ -5,6 +5,7 @@ import pg from 'pg';
 import * as argon2 from 'argon2';
 import { Browser } from './auth.test.mjs';
 import { tsImport } from 'tsx/esm/api';
+import { withDelegateValidity } from './delegate-fixtures.mjs';
 
 /** Solo la base desechable creada por scripts/test-auth.mjs, nunca .env/Supabase. */
 export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
@@ -28,14 +29,14 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
     permissionId = (await db.query("INSERT INTO sports_management.permissions(module,action) VALUES ('clubs','CREATE') ON CONFLICT(module,action) DO UPDATE SET module=EXCLUDED.module RETURNING id")).rows[0].id;
     grantExisted = (await db.query('SELECT context_only FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [delegateRoleId, permissionId])).rows[0];
 
-    async function fixture(role = 'CLUB_DELEGATE', restricted = false, scopeClub) {
+    async function fixture(role = 'CLUB_DELEGATE', restricted = false, scopeClub, delegatePosition = null) {
       const person = (await db.query("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES ('Sintético','PD57') RETURNING id")).rows[0].id;
       const email = `${randomUUID()}@example.test`;
       const user = (await db.query(`INSERT INTO sports_management.users(person_id,username,email,password_hash,must_change_password)
         VALUES ($1,$2,$2,$3,$4) RETURNING id`, [person, email, passwordHash, restricted])).rows[0].id;
       await db.query("SELECT set_config('app.user_id',$1,false),set_config('app.reason','PDGLD-57: fixtures sintéticos',false)", [user]);
-      await db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id)
-        SELECT $1,id,$2,$3 FROM sports_management.roles WHERE code=$4`, [user, league, scopeClub ?? null, role]);
+      await db.query(`INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id,delegate_position)
+        SELECT $1,id,$2,$3,$5 FROM sports_management.roles WHERE code=$4`, [user, league, scopeClub ?? null, role, delegatePosition]);
       const browser = new Browser(baseUrl);
       assert.equal((await browser.login(email, password)).searchParams.get('error'), null);
       return { id: user, browser };
@@ -47,13 +48,13 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
     const clubId = await createClub('own');
     const sameLeagueClub = await createClub('other');
     const outsideClub = await createClub('outside', otherLeague);
-    const actor = await fixture('CLUB_DELEGATE', false, clubId);
+    const actor = await fixture('CLUB_DELEGATE', false, clubId, 'PRIMARY');
     await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)
       ON CONFLICT(role_id,permission_id) DO UPDATE SET context_only=true`, [delegateRoleId, permissionId]);
-    const restricted = await fixture('CLUB_DELEGATE', true, clubId);
+    const restricted = await fixture('CLUB_DELEGATE', true, clubId, 'DEPUTY');
     const secretary = await fixture('SECRETARY');
     const ordinary = await fixture('PLAYER');
-       const foreignOwner = await fixture('CLUB_DELEGATE', false, sameLeagueClub);
+       const foreignOwner = await fixture('CLUB_DELEGATE', false, sameLeagueClub, 'PRIMARY');
     async function season(leagueId = league) {
       const id = (await db.query(`INSERT INTO sports_management.seasons(league_id,sport_id,name,start_date,end_date)
         VALUES ($1,$2,$3,'2026-01-01','2026-12-31') RETURNING id`, [leagueId, sport, randomUUID()])).rows[0].id;
@@ -288,10 +289,7 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
       });
       await t.test('asignaciones vencidas o futuras deniegan con la misma sesión', async () => {
         for (const mode of ['expired', 'future']) {
-          await db.query(`UPDATE sports_management.user_roles SET starts_at=$1,ends_at=$2 WHERE user_id=$3`,
-            [new Date(Date.now() + (mode === 'future' ? 60_000 : -120_000)), mode === 'expired' ? new Date(Date.now() - 60_000) : null, actor.id]);
-          try { await deny(actor.browser, body, 403, 'FORBIDDEN'); }
-          finally { await db.query('UPDATE sports_management.user_roles SET starts_at=now()-interval \'1 minute\',ends_at=NULL WHERE user_id=$1', [actor.id]); }
+          await withDelegateValidity(db, actor.id, mode, () => deny(actor.browser, body, 403, 'FORBIDDEN'));
         }
       });
       await t.test('reenvíos simultáneos crean un solo agregado, folio y evento', async () => {

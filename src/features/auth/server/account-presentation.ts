@@ -5,6 +5,7 @@ import type { AccountPresentation, AuthIdentity, CurrentAccount } from "../types
 import { getPrisma } from "@/server/db/prisma";
 import { getAuthSession } from "@/server/auth/session";
 import { AuthorizationError, resolveAuthorizationContext } from "@/server/auth/authorization";
+import { accountRoleLabel } from "@/features/accounts/delegate-position";
 
 export async function getCurrentAccount({ includeAssignments = false } = {}): Promise<CurrentAccount | null> {
   const session = await getAuthSession();
@@ -34,9 +35,10 @@ export async function readAccountPresentation(
     const roles = await tx.$queryRaw<{
       leagueId: string | null; clubId: string | null; roleName: string;
       leagueName: string | null; clubName: string | null;
+      roleCode: string; delegatePosition: string | null;
     }[]>`
       SELECT ur.league_id AS "leagueId", ur.club_id AS "clubId", r.name AS "roleName",
-        l.name AS "leagueName", c.name AS "clubName"
+        l.name AS "leagueName", c.name AS "clubName", r.code AS "roleCode", ur.delegate_position AS "delegatePosition"
       FROM sports_management.user_roles ur
       JOIN sports_management.roles r ON r.id = ur.role_id
       LEFT JOIN sports_management.leagues l ON l.id = ur.league_id
@@ -59,8 +61,9 @@ export async function readAccountPresentation(
         }
       }
       if (validScopes.get(key)) {
-        roleNames.add(role.roleName);
-        assignments.push([role.roleName, role.clubName, role.leagueName].filter(Boolean).join(" · "));
+        const label = accountRoleLabel(role);
+        roleNames.add(label);
+        assignments.push([label, role.clubName, role.leagueName].filter(Boolean).join(" · "));
       }
     }
   }

@@ -34,7 +34,7 @@ export async function runGeneralTableTests({ t, db, baseUrl, admin, reader, leag
   await db.query(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
     SELECT r.id,p.id,true FROM sports_management.roles r CROSS JOIN sports_management.permissions p
     WHERE r.code='CLUB_DELEGATE' AND p.module='clubs' AND p.action IN ('CREATE','READ') ON CONFLICT DO NOTHING`);
-  await db.query("INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id) SELECT $1,id,$2,$3 FROM sports_management.roles WHERE code='CLUB_DELEGATE'",[users.idle.id,league,club]);
+  await db.query("INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id,delegate_position) SELECT $1,id,$2,$3,'PRIMARY' FROM sports_management.roles WHERE code='CLUB_DELEGATE'",[users.idle.id,league,club]);
   const affiliation = (await db.query(`INSERT INTO sports_management.club_affiliations(season_id,club_id,league_id,reference_number,uniform_colors,status,requested_by,reviewed_by,reviewed_at)
     VALUES($1,$2,$3,$4,'Azul','APPROVED',$5,$6,clock_timestamp()) RETURNING id`,[season,club,league,randomUUID(),users.idle.id,users.operational.id])).rows[0].id;
   await db.query('INSERT INTO sports_management.club_affiliation_categories(affiliation_id,season_id,category_id,authorized_by,authorized_at) VALUES($1,$2,$3,$4,clock_timestamp())',[affiliation,season,category,users.operational.id]);
