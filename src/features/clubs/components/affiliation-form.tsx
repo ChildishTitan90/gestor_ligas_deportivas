@@ -110,22 +110,40 @@ function AffiliationFormContent({
     ) : null;
   }
 
-  function showErrors(nextErrors: AffiliationFieldErrors) {
-    setErrors(nextErrors);
+ function showErrors(nextErrors: AffiliationFieldErrors) {
+  setErrors(nextErrors);
 
-    const path = Object.keys(nextErrors)[0];
-    if (!path) return;
+  const path = Object.keys(nextErrors)[0];
+  if (!path) return;
 
-    const target = formRef.current?.elements.namedItem(path);
+  requestAnimationFrame(() => {
+    const form = formRef.current;
+    if (!form) return;
+
+    const office = affiliationOfficeCodes.find(
+      (code) => path === `signature.${code}`,
+    );
+
+    if (office) {
+      const canvas = form.querySelector<HTMLCanvasElement>(
+        `[data-signature-office="${office}"] canvas`,
+      );
+
+      canvas?.focus();
+      return;
+    }
+
+    const target = form.elements.namedItem(path);
 
     if (target instanceof HTMLElement) {
       target.focus();
     } else {
-      formRef.current
-        ?.querySelector<HTMLInputElement>("[name='categoryIds']")
+      form
+        .querySelector<HTMLInputElement>("[name='categoryIds']")
         ?.focus();
     }
-  }
+  });
+}
 
   function field(
     path: string,
@@ -527,7 +545,10 @@ function invalidateSignatureForOfficer(name: string) {
               )}
             </div>
 {submissionContext && (
-  <div className="mt-5 space-y-3">
+  <div
+  className="mt-5 space-y-3"
+  data-signature-office={office}
+>
    {correction?.signatureFileIds?.[office] &&
 signatures[office]?.id === correction.signatureFileIds[office] ? (
   <div className="space-y-3 rounded-xl border border-border p-4">
