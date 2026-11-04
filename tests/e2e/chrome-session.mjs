@@ -75,7 +75,11 @@ export async function launchChrome(origin, { profileDirectory } = {}) {
       const message = JSON.parse(event.data); const entry = pending.get(message.id);
       if (!entry) return;
       pending.delete(message.id);
-      if (message.error) entry.reject(new Error('CDP_COMMAND_FAILED'));
+     if (message.error) {
+  entry.reject(new Error(
+    `CDP_COMMAND_FAILED (${message.error.code}): ${message.error.message}`
+  ));
+}
       else entry.resolve(message.result);
     });
     const command = (method, params = {}) => new Promise((resolve, reject) => {
