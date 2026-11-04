@@ -65,7 +65,8 @@
     "test:team-enrollments": "node scripts/test-auth.mjs --team-enrollments",
     "test:team-enrollment-client": "node --import tsx --test src/features/clubs/team-enrollment-recovery.client.test.ts",
     "test:signatures": "node --conditions=react-server --import tsx --test src/features/clubs/server/signature-validation.test.ts src/features/clubs/server/signature-upload-ticket.test.ts src/features/clubs/server/signature-binding.test.ts tests/integration/signature-stored-content.test.ts src/features/clubs/upload-signature.client.test.ts src/features/clubs/submit-affiliation.client.test.ts src/features/clubs/affiliation-feedback.test.ts scripts/verification/signature-download-check.test.ts",
-    "verify:signature-download": "node --conditions=react-server --import tsx scripts/verify-signature-download.ts"
+    "verify:signature-download": "node --conditions=react-server --import tsx scripts/verify-signature-download.ts",
+    "test:direct-signature": "node --test tests/e2e/direct-signature-browser.test.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",
@@ -78,6 +79,7 @@
     "pdf-lib": "1.17.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-signature-canvas": "1.1.0-alpha.2",
     "server-only": "0.0.1",
     "sharp": "0.35.5",
     "zod": "4.6.5"
