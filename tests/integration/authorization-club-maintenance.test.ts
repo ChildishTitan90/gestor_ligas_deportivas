@@ -81,14 +81,63 @@ test("PDGLD-121: bajas, reactivación, concurrencia, ámbito e historial", async
     });
     await t.test("corrección de nombre conserva identidad y rechaza duplicados normalizados", async () => {
       await db.teams.create({ data: { club_id: club.id, reference_number: randomUUID(), name: "Otro equipo" } });
-      await assert.rejects(applyClubOrTeamMaintenance(actor.id, { ...input("team", team.id, 3, "edit"), name: " OTRO   equipo " }), /DUPLICATE/);
-      await applyClubOrTeamMaintenance(actor.id, { ...input("team", team.id, 3, "edit"), name: "Nombre corregido" });
-      assert.equal((await db.teams.findUniqueOrThrow({ where: { id: team.id } })).reference_number, team.reference_number);
+      const clean = await db.teams.create({ data: { club_id: club.id, reference_number: randomUUID(), name: "Nombre por corregir" } });
+      await assert.rejects(applyClubOrTeamMaintenance(actor.id, { ...input("team", clean.id, 1, "edit"), name: " OTRO   equipo " }), /DUPLICATE/);
+      await applyClubOrTeamMaintenance(actor.id, { ...input("team", clean.id, 1, "edit"), name: "Nombre corregido" });
+      assert.equal((await db.teams.findUniqueOrThrow({ where: { id: clean.id } })).reference_number, clean.reference_number);
       await assert.rejects(applyClubOrTeamMaintenance(actor.id, { ...input("club", club.id, 3, "edit"), name: "Cambio histórico" }), /FORMAL_CHANGE_REQUIRED/);
     });
     await t.test("confirmación y motivo se exigen también en servidor", async () => {
       await assert.rejects(applyClubOrTeamMaintenance(actor.id, { ...input("club", club.id, 3, "deactivate"), confirmed: false }), /INVALID_INPUT/);
       await assert.rejects(applyClubOrTeamMaintenance(actor.id, { ...input("club", club.id, 3, "deactivate"), reason: "" }), /INVALID_INPUT/);
+    });
+    await t.test("eliminación bloqueada por referencias y por historial administrativo", async () => {
+      await assert.rejects(applyClubOrTeamMaintenance(actor.id, input("club", club.id, 3, "delete")), /HAS_REFERENCES/);
+      await assert.rejects(applyClubOrTeamMaintenance(actor.id, input("team", team.id, 3, "delete")), /HAS_REFERENCES/);
+      assert.ok(await db.clubs.findUnique({ where: { id: club.id } }));
+      assert.ok(await db.teams.findUnique({ where: { id: team.id } }));
+    });
+    await t.test("elimina solo registros vacíos con una auditoría permanente; carrera no duplica", async () => {
+      for (const kind of ["club", "team"] as const) {
+        const row = kind === "club"
+          ? await db.clubs.create({ data: { league_id: league.id, name: "Club vacío", reference_number: randomUUID() } })
+          : await db.teams.create({ data: { club_id: club.id, name: "Equipo vacío", reference_number: randomUUID() } });
+        const results = await Promise.allSettled([1, 2].map(() => applyClubOrTeamMaintenance(actor.id, input(kind, row.id, 1, "delete"))));
+        assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+        const exists = kind === "club" ? await db.clubs.findUnique({ where: { id: row.id } }) : await db.teams.findUnique({ where: { id: row.id } });
+        assert.equal(exists, null);
+        const events = await db.audit_logs.findMany({ where: { entity_id: row.id, action: "DELETE" } });
+        assert.equal(events.length, 1); assert.equal(events[0].user_id, actor.id);
+      }
+    });
+    await t.test("APPROVE limitado a club no concede eliminación definitiva", async () => {
+      const p = await db.people.create({ data: { first_name: "Delegado", paternal_surname: "Sintético" } });
+      const delegate = await db.users.create({ data: { person_id: p.id, username: randomUUID(), email: `${randomUUID()}@example.test`, password_hash: "unused", must_change_password: false } });
+      await db.$transaction(async tx => {
+        await lockAuthorization(tx, "exclusive");
+        await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true), set_config('app.reason', 'Fixture de permiso limitado', true)`;
+        await tx.user_roles.create({ data: { user_id: delegate.id, role_id: role.id, club_id: club.id, league_id: league.id } });
+      });
+      const empty = await db.teams.create({ data: { club_id: club.id, name: "Vacío delegado", reference_number: randomUUID() } });
+      await assert.rejects(applyClubOrTeamMaintenance(delegate.id, input("team", empty.id, 1, "delete")), /FORBIDDEN/);
+      assert.ok(await db.teams.findUnique({ where: { id: empty.id } }));
+    });
+    await t.test("fallo de auditoría revierte tanto la baja como la eliminación", async () => {
+      const empty = await db.teams.create({ data: { club_id: club.id, name: "Rollback", reference_number: randomUUID() } });
+      await db.$executeRaw`CREATE FUNCTION sports_management.pd122_fail_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'PD122 forced audit failure'; END $$`;
+      await db.$executeRaw`CREATE TRIGGER pd122_fail_audit BEFORE INSERT ON sports_management.audit_logs
+        FOR EACH ROW WHEN (NEW.reason = 'PD122 audit rollback') EXECUTE FUNCTION sports_management.pd122_fail_audit()`;
+      try {
+        for (const operation of ["deactivate", "delete"]) {
+          await assert.rejects(applyClubOrTeamMaintenance(actor.id, { ...input("team", empty.id, 1, operation), reason: "PD122 audit rollback" }));
+          const row = await db.teams.findUniqueOrThrow({ where: { id: empty.id } });
+          assert.equal(row.status, "ACTIVE"); assert.equal(row.version, 1);
+          assert.equal(await db.audit_logs.count({ where: { entity_id: empty.id } }), 0);
+        }
+      } finally {
+        await db.$executeRaw`DROP TRIGGER pd122_fail_audit ON sports_management.audit_logs`;
+        await db.$executeRaw`DROP FUNCTION sports_management.pd122_fail_audit()`;
+      }
     });
   } finally { await db.$disconnect(); }
 });

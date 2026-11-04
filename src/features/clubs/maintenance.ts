@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const maintenanceSchema = z.strictObject({
   kind: z.enum(["club", "team"]), id: z.uuid(), version: z.number().int().positive(),
-  operation: z.enum(["edit", "deactivate", "reactivate"]),
+  operation: z.enum(["edit", "deactivate", "reactivate", "delete"]),
   name: z.string().trim().min(2).max(160).optional(),
   reason: z.string().trim().min(5).max(500), confirmed: z.literal(true),
 }).superRefine((data, ctx) => {
@@ -24,6 +24,7 @@ export function administrativeStatus(status: string) {
   return ({ ACTIVE: "Activo", INACTIVE: "Baja temporal", SUSPENDED: "Suspendido", WITHDRAWN: "Retirado" } as Record<string, string>)[status] ?? "Estado no disponible";
 }
 export const maintenanceErrors: Record<string, string> = {
+  HAS_REFERENCES: "El registro tiene referencias o historial. Conserva sus datos mediante baja temporal.",
   INVALID_INPUT: "Revisa el nombre, el motivo y la confirmación.",
   FORBIDDEN: "No tienes permiso para esta operación en este ámbito.",
   CONFLICT: "El registro cambió. Actualiza la lista y revisa los datos antes de intentar de nuevo.",

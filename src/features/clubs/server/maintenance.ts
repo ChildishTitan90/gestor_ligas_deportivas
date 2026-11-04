@@ -79,6 +79,9 @@ export async function applyClubOrTeamMaintenance(actorId: string, input: unknown
     // Serializa bajas con las operaciones que ya adquieren el bloqueo RBAC compartido.
     await lockAuthorization(tx, "exclusive");
     const grants = await getPermissionGrants(tx, actorId, "clubs", data.operation === "edit" ? "UPDATE" : "APPROVE");
+    // Impide inserciones de FK y cambios SQL concurrentes mientras se revisan referencias.
+    if (data.kind === "club") await tx.$queryRaw`SELECT id FROM sports_management.clubs WHERE id=${data.id}::uuid FOR UPDATE`;
+    else await tx.$queryRaw`SELECT id FROM sports_management.teams WHERE id=${data.id}::uuid FOR UPDATE`;
     const team = data.kind === "team" ? await tx.teams.findUnique({ where: { id: data.id } }) : null;
     const club = await tx.clubs.findUnique({ where: { id: data.kind === "club" ? data.id : team?.club_id ?? data.id },
       include: { leagues: { select: { is_active: true } } } });
@@ -86,15 +89,27 @@ export async function applyClubOrTeamMaintenance(actorId: string, input: unknown
     const row = data.kind === "club" ? club : team!;
     if (row.version !== data.version) throw new MaintenanceError("CONFLICT");
     if (!["ACTIVE", "INACTIVE"].includes(row.status)) throw new MaintenanceError("INVALID_STATE");
+    if (data.operation === "delete") {
+      if (!covers(grants.filter(grant => !grant.clubId), club)) throw new AuthorizationError();
+      const [references] = await tx.$queryRaw<{ blocked: boolean }[]>`
+        SELECT sports_management.maintenance_has_references(${data.kind}, ${row.id}::uuid) AS blocked`;
+      if (references.blocked) throw new MaintenanceError("HAS_REFERENCES");
+      // El historial queda después de eliminar; no contiene personas ni documentos.
+      await tx.audit_logs.create({ data: { user_id: actorId, action: "DELETE",
+        table_name: data.kind === "club" ? "clubs" : "teams", entity_id: row.id, reason: data.reason,
+        previous_data: { id: row.id, name: row.name, reference_number: row.reference_number, status: row.status, version: row.version } } });
+      if (data.kind === "club") await tx.clubs.delete({ where: { id: row.id, version: data.version } });
+      else await tx.teams.delete({ where: { id: row.id, version: data.version } });
+      return { deleted: true };
+    }
     const update: { name?: string; status?: string; version: { increment: number } } = { version: { increment: 1 } };
     if (data.operation === "edit") {
       if (club.status !== "ACTIVE" || row.status !== "ACTIVE") throw new MaintenanceError("INVALID_STATE");
       const name = data.name!.replace(/\s+/g, " ");
       if (name === row.name) throw new MaintenanceError("INVALID_INPUT");
-      const history = data.kind === "club"
-        ? await tx.club_affiliations.count({ where: { club_id: club.id } }) + await tx.teams.count({ where: { club_id: club.id } })
-        : await tx.season_teams.count({ where: { team_id: row.id } });
-      if (history) throw new MaintenanceError("FORMAL_CHANGE_REQUIRED");
+      const [history] = await tx.$queryRaw<{ blocked: boolean }[]>`
+        SELECT sports_management.maintenance_has_references(${data.kind}, ${row.id}::uuid) AS blocked`;
+      if (history.blocked) throw new MaintenanceError("FORMAL_CHANGE_REQUIRED");
       const duplicate = data.kind === "club" ? await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM sports_management.clubs WHERE league_id=${club.league_id}::uuid AND id<>${row.id}::uuid
           AND lower(regexp_replace(btrim(name), '[[:space:]]+', ' ', 'g'))=lower(${name}) LIMIT 1`

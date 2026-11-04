@@ -55,7 +55,8 @@ const insert = {
   teams: ['club_id', 'name', 'reference_number', 'status', 'version', 'created_at'],
   season_teams: ['team_id', 'club_id', 'season_id', 'season_category_id', 'group_id', 'status', 'enrolled_by', 'enrolled_at', 'enrollment_key', 'enrollment_hash'],
   team_enrollment_operations: ['actor_id', 'enrollment_key', 'club_id', 'fingerprint', 'outcome', 'enrollment_id', 'finalized_at'],
-  user_roles: ['user_id', 'role_id', 'league_id', 'club_id', 'starts_at'],
+  // PDGLD-107: finite initial assignments need INSERT ends_at, never UPDATE.
+  user_roles: ['user_id', 'role_id', 'league_id', 'club_id', 'starts_at', 'delegate_position', 'ends_at'],
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at'],
 };
 const update = {
@@ -75,7 +76,7 @@ const update = {
   season_teams: ['group_id'],
   users: ['password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version'],
 };
-const remove = ['role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons'];
+const remove = ['role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons', 'clubs', 'teams'];
 const lock = ['categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
   'match_events', 'match_reports', 'matches', 'payments', 'people', 'permissions', 'player_registrations',
   'referee_assignments', 'referees', 'roles', 'schedule_proposals', 'season_categories', 'season_teams',
@@ -127,6 +128,10 @@ BEGIN
   -- No se cambia LOGIN, contraseña, atributos ni valores de conexión existentes.
   FOR spec IN SELECT * FROM (VALUES ${tables}) AS t(name,sel,ins,upd,del,locking) LOOP
     table_oid := format('sports_management.%I',spec.name)::regclass;
+    -- Una operación autorizada al backend nunca autoriza la misma ACL a PUBLIC.
+    IF EXISTS(SELECT 1 FROM pg_class c, LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
+      WHERE c.oid=table_oid AND acl.grantee=0)
+    THEN RAISE EXCEPTION 'PUBLIC tiene permisos de tabla en %',spec.name; END IF;
     IF EXISTS(SELECT 1 FROM pg_policy WHERE polrelid=table_oid
       AND (0=ANY(polroles) OR runtime_oid=ANY(polroles))
       AND polname NOT IN ('preview_backend_read','preview_backend_insert','preview_backend_update','preview_backend_delete','preview_backend_lock'))
@@ -194,6 +199,7 @@ BEGIN
     THEN RAISE EXCEPTION 'Otra política permite modificar una tabla de solo bloqueo: %',spec.name; END IF;
   END LOOP;
   GRANT EXECUTE ON FUNCTION sports_management.get_entity_season(text,uuid),sports_management.get_role_code(uuid) TO gestor_ligas_preview;
+  GRANT EXECUTE ON FUNCTION sports_management.maintenance_has_references(text,uuid) TO gestor_ligas_preview;
   IF has_table_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     OR has_any_column_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,REFERENCES')
   THEN RAISE EXCEPTION 'Preview tiene acceso al ledger de Prisma'; END IF;
