@@ -557,10 +557,11 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
         }, pdf: "SYNTHETIC-PDF-EXCLUDE" } });
       } });
       const request = intention();
+      const competingRequest = intention();
       const results = await Promise.all([
         verifyPlayerCurpForActor(actors.delegate, registered.registrationId, request, { provider, policy }),
         verifyPlayerCurpForActor(actors.delegate, registered.registrationId, request, { provider, policy }),
-        verifyPlayerCurpForActor(actors.delegate, registered.registrationId, intention(), { provider, policy }),
+        verifyPlayerCurpForActor(actors.delegate, registered.registrationId, competingRequest, { provider, policy }),
       ]);
       assert.equal(calls, 1);
       assert.equal(new Set(results.map(row => row.checkId)).size, 1);
@@ -582,7 +583,15 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
       await assert.rejects(db.player_curp_checks.delete({ where: { id: status.checkId! } }));
       await assert.rejects(db.player_curp_checks.update({ where: { id: status.checkId! }, data: { status: "UNAVAILABLE" } }));
       const another = await registerPlayerForActor(actors.delegate, input(team.id, "1972-03-04"));
-      await assert.rejects(verifyPlayerCurpForActor(actors.delegate, another.registrationId, request, { provider, policy }), isCurpCode("OPERATION_CONFLICT"));
+      // Cualquiera de las dos claves puede ganar el lock. Solo la intención
+      // persistida está vinculada al acuse; no asumir el orden de Promise.all.
+      const persisted = await db.player_curp_checks.findUniqueOrThrow({
+        where: { id: status.checkId! }, select: { operation_key: true },
+      });
+      assert.ok(persisted.operation_key === request.operationKey || persisted.operation_key === competingRequest.operationKey);
+      await assert.rejects(verifyPlayerCurpForActor(actors.delegate, another.registrationId,
+        { ...request, operationKey: persisted.operation_key }, { provider, policy }), isCurpCode("OPERATION_CONFLICT"));
+      assert.equal(calls, 1);
       await assert.rejects(readPlayerCurpStatusForActor(actors.other, registered.registrationId), error => error instanceof AuthorizationError);
     });
 

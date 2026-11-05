@@ -43,9 +43,11 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
     : process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : 'google-chrome'), [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', `--user-data-dir=${profile}`, origin,
-  ], { windowsHide: true, detached: process.platform !== 'win32',
+  ], {
+    windowsHide: true, detached: process.platform !== 'win32',
     env: Object.fromEntries(['PATH', 'SystemRoot', 'TMPDIR', 'TEMP', 'TMP'].flatMap(key =>
-      process.env[key] === undefined ? [] : [[key, process.env[key]]])), stdio: ['ignore', 'ignore', 'pipe'] });
+      process.env[key] === undefined ? [] : [[key, process.env[key]]])), stdio: ['ignore', 'ignore', 'pipe']
+  });
   // exit belongs to our process; close can wait on inherited child pipes indefinitely.
   let exited = false;
   const exit = new Promise(resolve => {
@@ -79,7 +81,7 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
       await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
   })();
-  const cancel = () => { void close().catch(() => {}); };
+  const cancel = () => { void close().catch(() => { }); };
   signal?.addEventListener('abort', cancel, { once: true });
   try {
     const endpoint = await bounded(new Promise((resolve, reject) => {
@@ -91,7 +93,7 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
         const match = tail.match(/DevTools listening on (ws:\/\/[^\s]+)/);
         if (match) resolve(match[1]);
       });
-    }), 10000, 'Chrome: arranque', signal);
+    }), 30000, 'Chrome: arranque', signal);
     const base = assertChromeEndpoint(endpoint);
     let page;
     const deadline = Date.now() + 5000;

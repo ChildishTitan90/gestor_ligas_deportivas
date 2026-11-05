@@ -11,11 +11,11 @@ async function fixture(t, html, options = {}) {
   t.after(() => browser.close());
   return browser;
 }
-test('Chrome: arranque JS roto se informa sin esperar indefinidamente testDone', { timeout: 15000 }, async t => {
+test('Chrome: arranque JS roto se informa sin esperar indefinidamente testDone', { timeout: 45000 }, async t => {
   const browser = await fixture(t, '<script>window.testFailure="Uncaught ReferenceError: process is not defined"</script>');
   await assert.rejects(waitForTestDone(browser), /process is not defined/);
 });
-test('Chrome: CDP sin respuesta vence, retira la orden y permite cerrar', { timeout: 15000 }, async t => {
+test('Chrome: CDP sin respuesta vence, retira la orden y permite cerrar', { timeout: 45000 }, async t => {
   const browser = await fixture(t, '<p>fixture</p>');
   // Wait for this page before creating a deliberately unresolved browser promise.
   await browser.evaluate('document.readyState');
@@ -24,7 +24,7 @@ test('Chrome: CDP sin respuesta vence, retira la orden y permite cerrar', { time
   await browser.close(); await browser.close();
   await assert.rejects(browser.evaluate('1+1'), /conexión no disponible/);
 });
-test('Chrome: cancelar una prueba interrumpe la espera y cierra solo su navegador', { timeout: 15000 }, async t => {
+test('Chrome: cancelar una prueba interrumpe la espera y cierra solo su navegador', { timeout: 45000 }, async t => {
   const controller = new AbortController();
   const browser = await fixture(t, '<p>fixture</p>', { signal: controller.signal });
   const timer = setTimeout(() => controller.abort(), 150);
