@@ -16,7 +16,7 @@ export function validateAccountProvisioningTarget(config) {
   assert.equal(target.search + target.hash, '');
   assert.equal(config.baseUrl, `http://127.0.0.1:${56500 + Number(target.port.slice(-2))}`);
   const suite = config.suite ?? 'accounts';
-  assert.ok(['accounts', 'seasons'].includes(suite));
+  assert.ok(['accounts', 'seasons', 'maintenance'].includes(suite));
   return { databaseUrl: target.href, baseUrl: config.baseUrl, suite };
 }
 
@@ -43,7 +43,7 @@ export function runAccountProvisioningSuite(config, { signal, application } = {}
       clearTimeout(force); signal?.removeEventListener('abort', stop);
       if (code === 0 && completed && !cancelled) resolve();
       else {
-        const code = target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
+        const code = target.suite === 'maintenance' ? 'ACCOUNT_MAINTENANCE_FAILED' : target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
         reject(Object.assign(new Error(code), { code }));
       }
     });
@@ -56,7 +56,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   process.once('message', async config => {
     try {
       const target = validateAccountProvisioningTarget(config);
-      if (target.suite === 'seasons') {
+      if (target.suite === 'maintenance') {
+        const { runAccountMaintenanceSuite } = await import('../../tests/integration/account-maintenance.test.mjs');
+        await runAccountMaintenanceSuite(target);
+      } else if (target.suite === 'seasons') {
         const { runSeasonIntegrationSuite } = await import('../../tests/integration/seasons.test.mjs');
         await runSeasonIntegrationSuite(target);
       } else {

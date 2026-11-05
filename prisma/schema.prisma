@@ -2092,6 +2092,7 @@ model user_roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
+  maintenance_revision Int @default(0)
   configured_player_levels player_category_levels[]
   requested_category_participations player_category_participations[]
   curp_checks                                                             player_curp_checks[]
