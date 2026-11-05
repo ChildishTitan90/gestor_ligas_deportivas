@@ -5,6 +5,7 @@ import pg from 'pg';
 import * as argon2 from 'argon2';
 import { tsImport } from 'tsx/esm/api';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { Browser } from './auth.test.mjs';
 import { withDelegateValidity } from './delegate-fixtures.mjs';
 import { verifyEnrollmentOperationMigration } from './team-enrollment-migration.mjs';
@@ -63,7 +64,7 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
         ON CONFLICT(role_id,permission_id) DO UPDATE SET context_only=true`, [roleId, permission]);
     }
     const secretaryRoleId = (await db.query("SELECT id FROM sports_management.roles WHERE code='SECRETARY'")).rows[0].id;
-    for (const action of ['READ', 'CREATE', 'APPROVE']) {
+    for (const action of ['READ', 'CREATE', 'APPROVE', 'UPDATE']) {
       const permission = (await db.query(`INSERT INTO sports_management.permissions(module,action) VALUES ('clubs',$1)
         ON CONFLICT(module,action) DO UPDATE SET module=EXCLUDED.module RETURNING id`, [action])).rows[0].id;
       const prior = (await db.query('SELECT context_only FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [secretaryRoleId, permission])).rows[0];
@@ -196,6 +197,10 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
         const replay = await post(actor.browser, enrollment);
         assert.equal(replay.status, 200);
         assert.deepEqual(await replay.json(), { ...enrolled, replayed: true });
+        const maintenance = spawnSync(process.execPath, ['--conditions=react-server', '--import', 'tsx', 'tests/integration/maintenance-history-check.ts', secretary.id, clubId, enrolled.teamId, request.id], {
+          env: { ...process.env, DATABASE_URL: databaseUrl }, encoding: 'utf8', windowsHide: true,
+        });
+        assert.equal(maintenance.status, 0, `Falló la verificación transversal: ${maintenance.stderr}`);
       });
       // Otra temporada: fixture explícito para pruebas aisladas de inscripción.
       // Los siguientes casos aíslan inscripción, además del recorrido real anterior.

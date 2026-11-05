@@ -14,7 +14,7 @@ export async function listPendingDistribution(seasonId: string, participationId:
     if (!await tx.season_categories.findFirst({ where: { id: participationId, season_id: seasonId, competition_format: "GROUP_STAGE" }, select: { id: true } }))
       throw new CompetitionError("INVALID_CONTEXT");
     const rows = await tx.season_teams.findMany({ where: { season_id: seasonId, season_category_id: participationId, group_id: null,
-      status: "REGISTERED", ...(after ? { id: { gt: after } } : {}) }, take: 101, orderBy: { id: "asc" },
+      status: "REGISTERED", teams: { status: "ACTIVE", clubs: { status: "ACTIVE" } }, ...(after ? { id: { gt: after } } : {}) }, take: 101, orderBy: { id: "asc" },
       select: { id: true, club_id: true, teams: { select: { name: true } }, club_affiliations: { select: { clubs: { select: { name: true } } } } } });
     return { items: rows.slice(0,100).map(row => ({ enrollmentId: row.id, clubId: row.club_id, teamName: row.teams.name,
       clubName: row.club_affiliations.clubs.name })), nextAfter: rows.length > 100 ? rows[99].id : null };
@@ -42,7 +42,7 @@ export async function distributeCompetitionGroups(seasonId: string, participatio
       orderBy: { id: "asc" }, select: { id: true, _count: { select: { season_teams: true } } } });
     if (!groups.length) throw new CompetitionError("DISTRIBUTION_REQUIRES_GROUPS", 409);
     const pending = await tx.season_teams.findMany({ where: { season_id: seasonId, season_category_id: participationId,
-      group_id: null, status: "REGISTERED" }, orderBy: { id: "asc" }, take: 501, select: { id: true, club_id: true } });
+      group_id: null, status: "REGISTERED", teams: { status: "ACTIVE", clubs: { status: "ACTIVE" } } }, orderBy: { id: "asc" }, take: 501, select: { id: true, club_id: true } });
     // Límite operativo explícito: nunca repartir una página como si fuera el total.
     if (pending.length > 500) throw new CompetitionError("DISTRIBUTION_TOO_LARGE", 409);
     if (!pending.length) return { assignments: [], seasonVersion: season.version };
@@ -84,6 +84,8 @@ export async function assignCompetitionGroup(seasonId: string, participationId: 
     const enrollment = await tx.season_teams.findFirst({ where: { id: data.enrollmentId, season_id: seasonId, season_category_id: participationId } });
     if (!enrollment) throw new CompetitionError("INVALID_CONTEXT");
     await assertPermission(tx, actor.id, { module: "clubs", action: "APPROVE", context: { seasonId, clubId: enrollment.club_id } });
+    if (!await tx.teams.findFirst({ where: { id: enrollment.team_id, status: "ACTIVE" }, select: { id: true } }))
+      throw new CompetitionError("INVALID_CONTEXT");
     const season = await tx.seasons.findUniqueOrThrow({ where: { id: seasonId } });
     if (season.status === "CLOSED") throw new CompetitionError("SEASON_CLOSED", 409);
     if (season.competition_starts_at) throw new CompetitionError("COMPETITION_ALREADY_STARTED", 409);

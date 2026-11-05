@@ -394,6 +394,7 @@ model club_team_changes {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model clubs {
+  version                                        Int                  @default(1)
   team_enrollment_operations team_enrollment_operations[]
   id                                             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   league_id                                      String               @db.Uuid
@@ -1962,6 +1963,8 @@ model team_enrollment_operations {
 }
 
 model teams {
+  status                                                 String              @default("ACTIVE")
+  version                                                Int                 @default(1)
   id                                                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   club_id                                                String              @db.Uuid
   reference_number                                       String              @unique
