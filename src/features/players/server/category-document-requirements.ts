@@ -5,6 +5,7 @@ import { playerPolicySchema } from "@/features/competitions/schemas";
 import { documentCodes, documentPolicyIssues, type CategoryDocumentPolicy } from "@/features/competitions/document-policy";
 import { minorDocumentCodes, minorDocumentRequirements, minorRequirementId } from "./minor-document-requirements";
 import { optionalPlayerPhotoRequirement, requiredPlayerCurpRequirement, playerPhotoRequirementId, playerCurpRequirementId } from "./player-photo-requirement";
+import {readIdentityDocumentEvidence} from "./identity-document-evidence";
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export type ResolvedRequirement = { id: string; season_category_id: string; document_type_id: string; quantity: number; is_required: boolean; document_types: { name: string; code: string } };
@@ -59,6 +60,8 @@ export async function resolveCategoryDocuments(tx: Prisma.TransactionClient, cat
 }
 
 export async function readCategoryDocumentState(tx: Prisma.TransactionClient, registrationId: string, identityVersion: number, policy: ResolvedDocuments) {
+  const identityEvidence=await readIdentityDocumentEvidence(tx,registrationId);
+  const ineType=policy.requirements.find(r=>r.document_types.code==="INE")?.document_type_id;
   const documents = await tx.player_documents.findMany({ where: { registration_id: registrationId }, select: { id: true, document_type_id: true, status: true }, orderBy: { id: "asc" } });
   const events = await tx.audit_logs.findMany({ where: { entity_id: registrationId, action: "PLAYER_DOCUMENT_CONFIRMED" }, select: { new_data: true } });
   const revisions = events.map(e => e.new_data as { documentId: string; replacesDocumentId: string | null; identityVersion: number; requirementId?: string; slot?: number });
@@ -72,10 +75,11 @@ export async function readCategoryDocumentState(tx: Prisma.TransactionClient, re
   const groups = policy.groups.map(rule => {
     const relevant = documents.filter(d => confirmed.has(d.id) && rule.typeIds.includes(d.document_type_id));
     const approved = relevant.filter(d => d.status === "VALIDATED").length;
-    const ready = approved >= rule.quantity && (rule.key !== "GUARDIAN_CONSENT" || guardianAccredited);
-    return { ...rule, recorded: relevant.filter(d => d.status !== "REJECTED").length, approved, ready };
+    const verificationId=rule.quantity===1 && ["PHOTO_IDENTIFICATION","INE"].includes(rule.key) && ineType && rule.typeIds.includes(ineType) ? identityEvidence.ine?.attemptId ?? null : null;
+    const ready = (approved >= rule.quantity || verificationId!==null) && (rule.key !== "GUARDIAN_CONSENT" || guardianAccredited);
+    return { ...rule, recorded: relevant.filter(d => d.status !== "REJECTED").length, approved, ready, verificationId };
   });
-  return { documents, revisions, confirmed, superseded, guardianAccredited, groups,
+  return { documents, revisions, confirmed, superseded, guardianAccredited, groups, identityEvidence,
     dossierComplete: policy.approved && groups.every(g => !g.requiredForDossier || g.ready),
     eligibilityDocumentsComplete: policy.approved && groups.every(g => !g.requiredForEligibility || g.ready) };
 }

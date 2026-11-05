@@ -11,7 +11,6 @@ import {adjacentBirthDates} from "../identity-rules";
 import {lockPlayerTeamContext} from "./access";
 import {personIdentitySelect,findPossibleIdentityMatches} from "./identity-matches";
 import {hasCurrentIdentityResolution} from "./identity-resolution";
-import {manualPlayerScenario} from "./manual-player-scenario";
 import {resolveCategoryDocuments,readCategoryDocumentState} from "./category-document-requirements";
 
 export type PlayerTeamContext=Awaited<ReturnType<typeof lockPlayerTeamContext>>["row"];
@@ -33,7 +32,6 @@ export async function assessPlayerEligibility(tx:Prisma.TransactionClient,id:str
   const block=(code:string,message:string,categoryId?:string)=>blockers.push({code,message,...(categoryId?{categoryId}:{})});
   if(reg.withdrawn_at || !["ACTIVE","INELIGIBLE"].includes(reg.status))block("ORIGIN_UNAVAILABLE","La inscripción de origen está suspendida o dada de baja.");
   if(requireActiveOrigin && reg.status!=="ACTIVE")block("ORIGIN_NOT_ACTIVE","Primero debe habilitarse la inscripción de origen.");
-  if(await manualPlayerScenario(tx,reg.season_team_id))block("SYNTHETIC_MANUAL_SCENARIO","Este recorrido manual aislado no permite habilitación deportiva.");
   const dob=reg.people.birth_date?.toISOString().slice(0,10) ?? "";
   const referenceDate=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Mexico_City"}).format(reg.registered_at);
   const minor=minorAtDate(dob || null,referenceDate);
@@ -54,13 +52,13 @@ export async function assessPlayerEligibility(tx:Prisma.TransactionClient,id:str
     const state=await readCategoryDocumentState(tx,id,reg.people.identity_version,documents);
     if(!documents.approved)block("DOCUMENT_POLICY_PENDING","La política documental tiene decisiones pendientes o no está aprobada.",context.seasonCategoryId);
     for(const group of state.groups.filter(g=>g.requiredForEligibility && !g.ready))block(`DOCUMENT_${group.key}`,group.key==="GUARDIAN_CONSENT"?"Falta acreditar la autorización del tutor.":group.key==="SCHOOL_EVIDENCE"?"Falta aprobar una credencial escolar o constancia de estudios.":"Faltan documentos obligatorios aprobados para esta categoría.",context.seasonCategoryId);
-    categoryEvidence.push([{seasonTeamId:context.seasonTeamId,seasonId:context.seasonId,clubId:context.clubId,categoryId:context.seasonCategoryId,available:context.teamStatus!=="WITHDRAWN" && context.seasonStatus!=="CLOSED" && context.affiliationStatus==="APPROVED" && (context.categoryAuthorized && context.operational)},documents.fingerprint,state.groups.filter(g=>g.requiredForEligibility).map(g=>[g.key,g.quantity,g.ready,state.documents.filter(d=>g.typeIds.includes(d.document_type_id) && state.confirmed.has(d.id) && d.status==="VALIDATED").map(d=>d.id)])]);
+    categoryEvidence.push([{seasonTeamId:context.seasonTeamId,seasonId:context.seasonId,clubId:context.clubId,categoryId:context.seasonCategoryId,available:context.teamStatus!=="WITHDRAWN" && context.seasonStatus!=="CLOSED" && context.affiliationStatus==="APPROVED" && (context.categoryAuthorized && context.operational)},documents.fingerprint,state.groups.filter(g=>g.requiredForEligibility).map(g=>[g.key,g.quantity,g.ready,g.verificationId,state.documents.filter(d=>g.typeIds.includes(d.document_type_id) && state.confirmed.has(d.id) && d.status==="VALIDATED").map(d=>d.id)])]);
   }
   if(contexts.length>1){
     const [origin,target]=contexts;
     const levels=await tx.player_category_levels.findMany({where:{season_category_id:{in:[origin.seasonCategoryId,target.seasonCategoryId]}},select:{season_category_id:true,pathway_code:true,level:true}});
     const from=levels.find(l=>l.season_category_id===origin.seasonCategoryId),to=levels.find(l=>l.season_category_id===target.seasonCategoryId);
-    if(origin.clubId!==target.clubId || origin.seasonId!==target.seasonId || !from || !to || from.pathway_code!==to.pathway_code || to.level!==from.level+1)block("SUPERIOR_CATEGORY_REQUIRED","El destino debe ser el siguiente nivel autorizado de la misma familia, club y torneo.");
+    if(origin.clubId!==target.clubId || origin.seasonId!==target.seasonId || !from || !to || from.pathway_code!==to.pathway_code || to.level!==from.level+1)block("SUPERIOR_CATEGORY_REQUIRED","El destino debe ser la categoría siguiente del orden autorizado, dentro del mismo club y torneo.");
   }
   const [clock]=await tx.$queryRaw<{now:Date}[]>`SELECT sports_management.player_participation_now() AS now`;
   const sanctions=await tx.sanctions.findMany({where:{blocks_participation:true,starts_at:{lte:clock.now},AND:[{OR:[{ends_at:null},{ends_at:{gt:clock.now}}]},{OR:[{player_registrations:{person_id:reg.person_id}},{season_team_id:{in:contexts.map(c=>c.seasonTeamId)}}]}]},select:{id:true},orderBy:{id:"asc"}});

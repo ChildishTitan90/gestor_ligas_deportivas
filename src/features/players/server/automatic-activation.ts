@@ -9,7 +9,6 @@ import {playerIdentitySchema} from "../schemas";
 import {lockPlayerTeamContext} from "./access";
 import {findPossibleIdentityMatches} from "./identity-matches";
 import {hasCurrentIdentityResolution} from "./identity-resolution";
-import {manualPlayerScenario} from "./manual-player-scenario";
 import {resolveCategoryDocuments,readCategoryDocumentState,type ResolvedDocuments} from "./category-document-requirements";
 import {assessPlayerEligibility} from "./eligibility-assessment";
 
@@ -20,7 +19,6 @@ export async function activateVerifiedAdultForActor(actorId:string,id:string,act
     if(!initial)throw new AuthorizationError();
     await lockPlayerTeamContext(tx,actorId,initial.season_team_id,action);
     const {row:context}=await lockPlayerTeamContext(tx,actorId,initial.season_team_id,"READ");
-    if(await manualPlayerScenario(tx,initial.season_team_id))return;
     const before=await tx.people.findUniqueOrThrow({where:{id:initial.person_id},select:{birth_date:true}});
     if(!before.birth_date)return;
     // Mismo orden de locks que las altas para evitar una carrera con nuevas identidades similares.

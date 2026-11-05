@@ -12,12 +12,13 @@ type Props = {
   dirty?: boolean;
   pending?: boolean;
   uncertain?: boolean;
+  dismissLabel?: string;
   initialFocusRef?: RefObject<HTMLElement | null>;
   onClose: (reason: "dismiss" | "discard") => void;
 };
 
 /** Cerrar oculta el diálogo, no desmonta su captura ni cancela una petición enviada. */
-export function FormDialog({ open, title, description, children, footer, dirty = false, pending = false,
+export function FormDialog({ open, title, description, children, footer, dirty = false, pending = false,dismissLabel="Cancelar",
   uncertain = false, initialFocusRef, onClose }: Props) {
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -91,7 +92,7 @@ export function FormDialog({ open, title, description, children, footer, dirty =
         </div>
       </div> : <div className="flex shrink-0 flex-wrap items-center justify-end gap-3 border-t border-border bg-background p-5 sm:px-7">
         {pending && <p role="status" className="w-full text-sm text-muted">Esperando la respuesta del servidor. Cerrar no cancelaría el envío.</p>}
-        <button type="button" data-dialog-initial="" className={secondary} disabled={pending} onClick={requestClose}>{uncertain ? "Cerrar y conservar pendiente" : "Cancelar"}</button>
+        <button type="button" data-dialog-initial="" className={secondary} disabled={pending} onClick={requestClose}>{uncertain ? "Cerrar y conservar pendiente" : dismissLabel}</button>
         {footer}
       </div>}
     </div>

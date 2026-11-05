@@ -10,6 +10,7 @@ import {PlayerDocumentError} from "./document-service";
 import {documentReviewSchema} from "../document-review";
 import {readRegistrationLabels} from "./registration-labels";
 import {activateVerifiedAdultForActor} from "./automatic-activation";
+import {readIdentityDocumentEvidence} from "./identity-document-evidence";
 const hash=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 async function snapshot(tx:Prisma.TransactionClient,actorId:string,id:string){
   if(!z.uuid().safeParse(id).success)throw new AuthorizationError();
@@ -26,14 +27,15 @@ async function snapshot(tx:Prisma.TransactionClient,actorId:string,id:string){
   const replaced=new Set(revisions.map(r=>r.replacesDocumentId));
   const ids=revisions.filter(r=>r.identityVersion===current.people.identity_version && !replaced.has(r.documentId)).map(r=>r.documentId);
   const documents=await tx.player_documents.findMany({where:{registration_id:id,id:{in:ids}},select:{id:true,status:true,file_id:true,document_types:{select:{code:true,name:true}},files:{select:{sha256:true}}},orderBy:{id:"asc"}});
-  const fingerprint=hash([current,documents]);
-  return {documents,fingerprint,identityVersion:current.people.identity_version};
+  const evidence=await readIdentityDocumentEvidence(tx,id);
+  const fingerprint=hash([current,documents,evidence]);
+  return {documents,fingerprint,identityVersion:current.people.identity_version,evidence};
 }
 export async function readDocumentReviewForActor(actorId:string,id:string){
   return getPrisma().$transaction(async tx=>{
     const state=await snapshot(tx,actorId,id);
     const reviews=await tx.audit_logs.findMany({where:{entity_id:id,action:"PLAYER_DOCUMENT_REVIEWED"},select:{occurred_at:true,reason:true,new_data:true},orderBy:[{occurred_at:"desc"},{id:"desc"}]});
-    return {registrationId:id,player:await readRegistrationLabels(tx,id),fingerprint:state.fingerprint,documents:state.documents.map(d=>({id:d.id,code:d.document_types.code,name:d.document_types.name,status:d.status})),history:reviews.map(r=>({date:r.occurred_at.toISOString(),reason:r.reason,decision:(r.new_data as {decision:string}).decision}))};
+    return {registrationId:id,player:await readRegistrationLabels(tx,id),fingerprint:state.fingerprint,documents:state.documents.map(d=>({id:d.id,code:d.document_types.code,name:d.document_types.name,status:d.status,identityVerified:d.document_types.code==="INE" && !!state.evidence.ine})),history:reviews.map(r=>({date:r.occurred_at.toISOString(),reason:r.reason,decision:(r.new_data as {decision:string}).decision}))};
   });
 }
 export async function decideDocumentReviewForActor(actorId:string,id:string,input:unknown){
@@ -47,6 +49,7 @@ export async function decideDocumentReviewForActor(actorId:string,id:string,inpu
     if(prior){if(prior.entity_id!==id || (prior.new_data as {requestHash:string}).requestHash!==hash(body))throw new PlayerDocumentError("UPLOAD_CONFLICT");return {confirmed:true,replayed:true};}
     if(state.fingerprint!==body.fingerprint)throw new PlayerDocumentError("UPLOAD_CONFLICT");
     const doc=state.documents.find(d=>d.id===body.documentId);if(!doc)throw new PlayerDocumentError("UPLOAD_CONFLICT");
+    if(doc.document_types.code==="INE" && state.evidence.ine)throw new PlayerDocumentError("UPLOAD_CONFLICT");
     const guardian=doc.document_types.code==="GUARDIAN_CONSENT";
     if(guardian && body.decision==="APPROVE" && (!body.identityChecked || !body.relationshipChecked || !body.signatureChecked || !body.authorizationChecked || !body.guardianName || !body.relationship))throw new PlayerDocumentError("INVALID_DOCUMENT",400);
     await tx.$queryRaw`SELECT set_config('app.user_id',${actorId},true),set_config('app.reason',${body.reason},true)`;
@@ -69,6 +72,6 @@ export async function readDocumentReviewQueueForActor(actorId:string){
   const scopes:Prisma.clubsWhereInput[]=grants.flatMap(g=>g.clubId?[{id:g.clubId,...(g.leagueId?{league_id:g.leagueId}:{})}]:g.leagueId?[{league_id:g.leagueId}]:g.contextOnly?[]:[{}]);
   const rows=await getPrisma().player_registrations.findMany({where:{status:{in:["INELIGIBLE","ACTIVE"]},season_teams:{teams:{clubs:{OR:scopes}}},player_documents:{some:{status:"PENDING"}}},select:{id:true},orderBy:{id:"asc"}});
   const result=[];
-  for(const row of rows){try{const data=await readDocumentReviewForActor(actorId,row.id);const pending=data.documents.filter(d=>d.status==="PENDING");if(pending.length)result.push({...data.player,pendingCount:pending.length,guardianPending:pending.some(d=>d.code==="GUARDIAN_CONSENT")});}catch(error){if(!(error instanceof AuthorizationError) && !(error instanceof PlayerDocumentError))throw error;}}
+  for(const row of rows){try{const data=await readDocumentReviewForActor(actorId,row.id);const pending=data.documents.filter(d=>d.status==="PENDING" && !d.identityVerified);if(pending.length)result.push({...data.player,pendingCount:pending.length,guardianPending:pending.some(d=>d.code==="GUARDIAN_CONSENT")});}catch(error){if(!(error instanceof AuthorizationError) && !(error instanceof PlayerDocumentError))throw error;}}
   return result;
 }

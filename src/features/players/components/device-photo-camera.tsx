@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import {cameraCrop} from "../camera-framing";
 
 /** Cámara local: nunca transmite el stream ni solicita audio. Solo entrega una foto al padre. */
 export function DevicePhotoCamera({ selfie, onCapture, captureLabel,compact=false }: { selfie: boolean; onCapture: (file: File) => void; captureLabel?:string;compact?:boolean }) {
   const video = useRef<HTMLVideoElement>(null), stream = useRef<MediaStream | null>(null);
+  const viewport=useRef<HTMLDivElement>(null),documentCapture=!selfie && !compact;
   const generation = useRef(0), mounted = useRef(false), opening = useRef(false), taking = useRef(false);
   const [mode, setMode] = useState<"IDLE" | "OPENING" | "LIVE" | "CAPTURING">("IDLE");
   const [ready, setReady] = useState(false), [message, setMessage] = useState("");
@@ -57,11 +59,13 @@ export function DevicePhotoCamera({ selfie, onCapture, captureLabel,compact=fals
     if (!frame.videoWidth || !frame.videoHeight || frame.readyState < 2) { setMessage("Espera a que la cámara muestre la imagen antes de tomar la foto."); return; }
     taking.current = true; setMode("CAPTURING");
     try {
-      const canvas = document.createElement("canvas"), ratio = Math.min(1, 1920 / Math.max(frame.videoWidth, frame.videoHeight));
-      canvas.width = Math.max(1, Math.round(frame.videoWidth * ratio)); canvas.height = Math.max(1, Math.round(frame.videoHeight * ratio));
+      const bounds=viewport.current!.getBoundingClientRect();
+      const crop=cameraCrop(frame.videoWidth,frame.videoHeight,bounds.width,bounds.height,selfie?.08:documentCapture?.06:0);
+      const canvas = document.createElement("canvas"), ratio = Math.min(1, 1920 / Math.max(crop.width,crop.height));
+      canvas.width = Math.max(1, Math.round(crop.width * ratio)); canvas.height = Math.max(1, Math.round(crop.height * ratio));
       const context = canvas.getContext("2d"); if (!context) throw new Error();
-      // Se conserva la orientación real del frame; no se recortan datos ni códigos de la credencial.
-      context.drawImage(frame, 0, 0, canvas.width, canvas.height);
+      // La vista previa y el archivo usan exactamente la misma región central.
+      context.drawImage(frame,crop.x,crop.y,crop.width,crop.height,0,0,canvas.width,canvas.height);
       const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/jpeg", 0.92));
       canvas.width = 0; canvas.height = 0;
       if (!mounted.current || requestGeneration !== generation.current) return;
@@ -75,10 +79,11 @@ export function DevicePhotoCamera({ selfie, onCapture, captureLabel,compact=fals
   return <div className="ine-device-camera space-y-3">
     {!compact && <><p className="font-semibold">Cámara del dispositivo</p>
     <p className="text-sm text-muted">{selfie ? "Se solicitará la cámara frontal si está disponible." : "Se solicitará la cámara trasera si está disponible."} Solo se usa video, sin micrófono. La imagen permanece aquí hasta el envío final.</p></>}
-    <div className="ine-live-frame" hidden={mode !== "LIVE" && mode !== "CAPTURING"}>
+    <div ref={viewport} className={`ine-live-frame ${documentCapture?"ine-live-document":"ine-live-portrait"}${selfie?" ine-live-selfie":""}`} hidden={mode !== "LIVE" && mode !== "CAPTURING"}>
       <video ref={video} autoPlay playsInline muted aria-label={captureLabel ?? (selfie ? "Vista en vivo para selfie" : "Vista en vivo para INE")} onLoadedData={() => setReady(true)} onCanPlay={() => setReady(true)} />
       <span aria-hidden="true" className={`ine-live-outline${selfie ? " ine-live-outline-selfie" : ""}`} />
     </div>
+    {(mode==="LIVE" || mode==="CAPTURING") && <p className="text-sm text-muted">{documentCapture?"Acerca la INE y deja sus cuatro bordes dentro del marco, con un pequeño margen. Se guardará el área del marco; no es un escaneo automático.":selfie?"Acerca el rostro hasta llenar el óvalo: incluye la frente y el mentón, y apenas el inicio de los hombros. Se guarda el área del óvalo como una foto rectangular; no detectamos la cara automáticamente.":"Centra el rostro completo y los hombros. La foto conservará el encuadre que ves."}</p>}
     <div className="flex flex-wrap gap-3">
       {mode === "IDLE" ? <button type="button" className={button} onClick={() => void start()}>{compact?"Tomar foto":"Activar cámara"}</button> : <>
         {(mode === "LIVE" || mode === "CAPTURING") && <button type="button" className="primary-action min-h-12 rounded-xl px-5 py-3 disabled:opacity-50" disabled={!ready || mode === "CAPTURING"} onClick={() => void capture()}>{mode === "CAPTURING" ? "Tomando foto…" : "Tomar esta foto"}</button>}

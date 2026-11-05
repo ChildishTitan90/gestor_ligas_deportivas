@@ -27,12 +27,12 @@ import {activateVerifiedAdultForActor} from "../../src/features/players/server/a
 import {buildGuardianSignatureRecord,guardianSignatureSchema} from "../../src/features/players/guardian-signature";
 import {readDocumentReviewForActor,decideDocumentReviewForActor,readDocumentReviewQueueForActor} from "../../src/features/players/server/document-review";
 import {registerAndVerifyPlayerForActor} from "../../src/features/players/server/registration-intake";
-import {isManualPlayerDatabase} from "../../src/features/players/server/manual-player-scenario";
 import {getPlayerTeamOptionsForActor,listRegisteredPlayersForActor} from "../../src/features/players/server/workspace-queries";
 import {runCategoryParticipationTests} from "./player-category-participations";
 import {syntheticPlayerPolicy} from "../fixtures/player-document-policy";
 import {runDocumentPolicyTests} from "./player-document-policy";
 import {readPlayerParticipationWorkspaceForActor} from "../../src/features/players/server/participation-workspace-queries";
+import {readCategoryDocumentState,type ResolvedDocuments} from "../../src/features/players/server/category-document-requirements";
 
 function syntheticCurp(date: string, root = "SIAA", differentiator = "0") {
   const prefix = `${root}${date.slice(2).replaceAll("-", "")}HMNLRR${differentiator}`;
@@ -505,31 +505,6 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
     const intention = (identityVersion = 1) => ({ operationKey: randomUUID(), identityVersion, confirmCharge: true });
     const isCurpCode = (code: string) => (error: unknown) => error instanceof CurpVerificationError && error.code === code;
     const fake = (verify: CurpProvider["verify"]): CurpProvider => ({ configured: true, verify });
-    await t.test("Escenario aislado: conserva edad adulta, permite recorrido escolar y bloquea activación aun con CURP verificada",async()=>{
-      const previous=process.env.PLAYER_MANUAL_SCENARIOS;
-      process.env.PLAYER_MANUAL_SCENARIOS="1";
-      try{
-        assert.ok(isManualPlayerDatabase(process.env));
-        assert.equal(isManualPlayerDatabase({...process.env,NODE_ENV:"production"}),false);
-        assert.equal(isManualPlayerDatabase({...process.env,DATABASE_URL:"postgresql://localhost:5433/gestor_ligas_dev"}),false);
-        await db.audit_logs.create({data:{user_id:actors.admin,action:"MANUAL_PLAYER_SCENARIO",table_name:"season_teams",entity_id:alternative.id,reason:"Fixture aislado de recorrido escolar con edad adulta real",new_data:{mode:"MINOR_FLOW"}}});
-        const payload=input(alternative.id,"2006-04-15",undefined,"Julian");payload.identity.curp=syntheticCurp("2006-04-15","SIAA","A");
-        const registered=await registerAndVerifyPlayerForActor(actors.delegate,payload,{provider:fake(async()=>({status:"VERIFIED",mismatchedFields:[]})),policy});
-        assert.equal(registered.curpVerification,"VERIFIED");assert.equal(registered.status,"INELIGIBLE");
-        const dossier=await readPlayerDossierForActor(actors.delegate,registered.registrationId);
-        assert.equal(dossier.minorAtRegistration,false);assert.equal(dossier.minorDocumentFlow,true);assert.equal(dossier.school.required,true);
-        await assert.rejects(activateVerifiedAdultForActor(actors.other,registered.registrationId),e=>e instanceof AuthorizationError);
-        const school=dossier.documentTypes.find(t=>t.code==="STUDENT_CERTIFICATE")!;
-        const requirement=dossier.requirements.find(r=>r.typeId===school.id)!;
-        const pdf=await PDFDocument.create();pdf.addPage();const file=await validatePrivateFileContent(await pdf.save(),"application/pdf");
-        const body={operationKey:randomUUID(),registrationId:registered.registrationId,requirementId:requirement.id,slot:1,replacesDocumentId:null,mimeType:file.mimeType,sizeBytes:file.sizeBytes,sha256:file.sha256};
-        const uploadPolicy={referenceDate:dossier.referenceDate,window:"PENDING_DOSSIER_V1" as const};
-        await preparePlayerDocumentForActor(actors.delegate,body,uploadPolicy);
-        delete process.env.PLAYER_MANUAL_SCENARIOS;
-        assert.equal((await readPlayerDossierForActor(actors.delegate,registered.registrationId)).minorDocumentFlow,false);
-        await assert.rejects(preparePlayerDocumentForActor(actors.delegate,{...body,operationKey:randomUUID()},uploadPolicy));
-      }finally{if(previous===undefined)delete process.env.PLAYER_MANUAL_SCENARIOS;else process.env.PLAYER_MANUAL_SCENARIOS=previous;}
-    });
     await t.test("Alta integrada: consulta CURP al confirmar, reenvíos concurrentes no duplican y fallos no pierden el registro",async()=>{
       let calls=0;
       const provider=fake(async()=>{calls++;return {status:"VERIFIED",mismatchedFields:[]};});
@@ -804,7 +779,7 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
       const dependencies={storage,provider:{configured:true,async verify(){calls++;return {status:"ADMIN_REVIEW_REQUIRED" as const,readings:[]};}},limits:{daily:100,actorDaily:100}};
       const intention = (version=1) => ({operationKey:randomUUID(),identityVersion:version,acknowledgeCharge:true,retryOf:null as string|null,acknowledgePossiblePreviousCharge:false});
       const isIne = (code:string)=>(error:unknown)=>error instanceof IneVerificationError && error.code===code;
-      await assert.rejects(verifyPlayerIneForActor(actors.delegate,id,intention(),raw,dependencies),isIne("CONTEXT_UNAVAILABLE"));
+      assert.equal((await readPlayerIneStatusForActor(actors.delegate,id)).applicable,true,"La política de Libre acepta INE sin banderas ni excepciones de edad");
       assert.equal(calls,0);assert.equal(objects.size,0);
       const category=await db.season_categories.findFirstOrThrow({where:{season_id:team.seasonId,category_id:team.categoryId},select:{id:true}});
       await db.$transaction(async tx=>{
@@ -865,6 +840,20 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
         const favorable={...dependencies,provider:createVerificamexIneAdapter({apiKey:"synthetic-ine",transport:async()=>{favorableCalls++;return Response.json({data:{object:"ine_validations",status:true,documentInformation:{documentData:entries}}});}})};
         const passed=await verifyPlayerIneForActor(actors.delegate,id,{...intention(latest.identityVersion),retryOf:latest.attemptId,acknowledgePossiblePreviousCharge:true},raw,favorable);
         assert.equal(passed.status,"IDENTITY_VERIFIED");assert.equal(passed.approvalAllowed,false);
+        const ineType=await db.document_types.findUniqueOrThrow({where:{code:"INE"}});
+        const proofPolicy:ResolvedDocuments={approved:true,issues:[],fingerprint:"synthetic",activation:"ADMINISTRATIVE",requirements:[{id:randomUUID(),season_category_id:category.id,document_type_id:ineType.id,quantity:1,is_required:true,document_types:{code:"INE",name:"INE"}}],groups:[
+          {key:"PHOTO_IDENTIFICATION",typeIds:[ineType.id],quantity:1,requiredForDossier:true,requiredForEligibility:true},
+          {key:"BIRTH_EVIDENCE",typeIds:[ineType.id],quantity:1,requiredForDossier:true,requiredForEligibility:true},
+        ]};
+        const proof=()=>db.$transaction(tx=>readCategoryDocumentState(tx,id,latest.identityVersion,proofPolicy));
+        const stateAfterVerification=await proof();
+        assert.equal(stateAfterVerification.groups[0].ready,true,"Identificación satisfecha sin otra carga ni revisión administrativa");
+        assert.equal(stateAfterVerification.groups[0].recorded,0,"No inventa un archivo del expediente");
+        assert.equal(stateAfterVerification.groups[0].approved,0,"No inventa una revisión manual de archivo");
+        assert.equal(stateAfterVerification.groups[0].verificationId,passed.attemptId);
+        assert.equal(stateAfterVerification.groups[1].ready,false,"La identidad no sustituye comprobantes de nacimiento ni otros requisitos");
+        assert.equal(stateAfterVerification.dossierComplete,false);
+        assert.equal((await readPlayerDossierForActor(actors.delegate,id)).identityVerification.ineAttemptId,passed.attemptId);
         assert.ok(!(await readIneReviewQueueForActor(actors.secretary)).some(r=>r.id===id),"El cotejo completo sale de revisión INE");
         assert.equal((await db.player_registrations.findUniqueOrThrow({where:{id}})).status,"INELIGIBLE");
         const stored=await db.audit_logs.findFirstOrThrow({where:{entity_id:id,action:"PLAYER_INE_RESULT",new_data:{path:["attemptId"],equals:passed.attemptId!}},select:{new_data:true}});
@@ -878,6 +867,7 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
         await db.audit_logs.create({data:{id:legacyAttempt,user_id:actors.delegate,action:"PLAYER_INE_PREPARED",table_name:"player_registrations",entity_id:id,reason:"Acuse sintético de versión anterior sin cotejo",new_data:previousIntent.new_data!}});
         await db.audit_logs.create({data:{user_id:actors.delegate,action:"PLAYER_INE_RESULT",table_name:"player_registrations",entity_id:id,reason:"Resultado sintético anterior sin cotejo",new_data:{attemptId:legacyAttempt,outcome:"PROVIDER_PASSED"}}});
         assert.equal((await readPlayerIneStatusForActor(actors.delegate,id,legacyAttempt)).status,"ADMIN_REVIEW_REQUIRED");
+        assert.equal((await proof()).groups[0].ready,false,"Un acuse posterior sin cotejo no hereda la aprobación anterior");
         assert.equal(favorableCalls,1,"Leer un acuse antiguo no consulta al proveedor");
       } finally {
         await db.$transaction(async tx=>{

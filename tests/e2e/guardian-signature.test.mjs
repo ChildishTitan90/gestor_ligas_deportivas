@@ -9,13 +9,13 @@ test('Tutor: firma real en canvas, documento ligado al menor y recepción pendie
     define: { 'process.env.NODE_ENV': '"development"' },
     stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
       import React from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
-      import {PDFDocument} from 'pdf-lib';
+      import {PDFDocument,decodePDFRawStream,PDFRawStream} from 'pdf-lib';
       import {PlayerDossier} from './src/features/players/components/player-dossier';
       import {guardianSignatureSchema} from './src/features/players/guardian-signature';
       const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
       const root=createRoot(document.getElementById('root'));
       const calls=[];let upload,uploadMime,completed=false;
-      const dossier=minor=>({registrationId:id(2),registrationStatus:'INELIGIBLE',configuration:'CONFIGURED',configurationIssues:[],
+      const dossier=minor=>({player:{displayName:'Jugador Sintetico del Expediente',teamName:'Equipo',clubName:'Club',seasonName:'Temporada'},registrationId:id(2),registrationStatus:'INELIGIBLE',configuration:'CONFIGURED',configurationIssues:[],
         approvalAllowed:false,referenceDate:'2026-11-04',minorAtRegistration:minor,canUpload:true,guardianConsent:minor?'REQUIRES_ACCREDITATION':'NOT_REQUIRED',
         requirements:[{id:id(3),typeId:id(4),quantity:1,required:true,recorded:completed?1:0,approved:0,missing:completed?0:1}],
         documentTypes:[{id:id(4),code:'GUARDIAN_CONSENT',name:'Autorización del tutor'}],
@@ -30,7 +30,7 @@ test('Tutor: firma real en canvas, documento ligado al menor y recepción pendie
         throw Error('Unexpected synthetic endpoint');
       };
       window.fixture={calls,render(minor=true){flushSync(()=>root.render(<PlayerDossier key={String(minor)} actorId={id(1)} initial={dossier(minor)} storageConfigured/>));},
-        async received(){const pdf=await PDFDocument.load(await upload.arrayBuffer());return {type:uploadMime,pages:pdf.getPageCount(),title:pdf.getTitle()};},
+        async received(){const pdf=await PDFDocument.load(await upload.arrayBuffer());return {type:uploadMime,pages:pdf.getPageCount(),title:pdf.getTitle(),hasPlayerName:pdf.context.enumerateIndirectObjects().some(([,object])=>object instanceof PDFRawStream && new TextDecoder().decode(decodePDFRawStream(object).decode()).includes('4A756761646F723A204A756761646F722053696E74657469636F2064656C20457870656469656E7465'))};},
         rejectsAuthority:!guardianSignatureSchema.safeParse({registrationId:id(2),guardianName:'Persona sintética',relationship:'MOTHER',acknowledgesRecord:true,approved:true}).success};
       window.fixture.render();
     ` }, plugins: [{ name: 'synthetic-next-image', setup(plugin) {
@@ -79,7 +79,7 @@ test('Tutor: firma real en canvas, documento ligado al menor y recepción pendie
   await wait('Array.from(document.querySelectorAll("button")).find(b=>b.textContent==="Guardar documento").disabled');
   await click('Preparar documento con firma');await wait('document.body.textContent.includes("Documento con firma preparado")');
   await click('Guardar documento');await wait('document.body.textContent.includes("Archivo recibido y asociado")');
-  assert.deepEqual(await evaluate('window.fixture.received()'),{type:'application/pdf',pages:1,title:'Firma de tutor pendiente de revision'});
+  assert.deepEqual(await evaluate('window.fixture.received()'),{type:'application/pdf',pages:1,title:'Firma de tutor pendiente de revision',hasPlayerName:true});
   assert.equal(await evaluate('window.fixture.calls.filter(c=>c.method==="PUT").length'),1);
   assert.equal(await evaluate('window.fixture.rejectsAuthority'),true);
   assert.equal(await evaluate('document.body.textContent.includes("Pendiente de revisión")'),true);

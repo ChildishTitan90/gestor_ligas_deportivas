@@ -4,7 +4,7 @@ import {resolve,dirname} from "node:path";
 import {tmpdir} from "node:os";
 import argon2 from "argon2";
 import {getPrisma} from "../../src/server/db/prisma";
-import {isManualPlayerDatabase} from "../../src/features/players/server/manual-player-scenario";
+import {isManualPlayerDatabase} from "./player-fixture-target";
 import {INITIAL_PERMISSION_GRANTS} from "../../prisma/permissions-data";
 
 // Solo fixtures: no consulta proveedores ni escribe documentos en Storage.

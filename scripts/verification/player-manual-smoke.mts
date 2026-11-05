@@ -6,7 +6,7 @@ import {registerPlayerForActor} from "../../src/features/players/server/service"
 import {readPlayerDossierForActor} from "../../src/features/players/server/document-queries";
 import {readPlayerIneStatusForActor} from "../../src/features/players/server/ine-verification-service";
 import {activateVerifiedAdultForActor} from "../../src/features/players/server/automatic-activation";
-import {isManualPlayerDatabase} from "../../src/features/players/server/manual-player-scenario";
+import {isManualPlayerDatabase} from "./player-fixture-target";
 
 // No envía CURP/INE ni archivos a proveedores. El modo smoke no recibe sus claves.
 assert.equal(process.env.PLAYER_DEMO_SMOKE,"1");
@@ -34,10 +34,12 @@ try{
   const sum=[...prefix].reduce((s,c,i)=>s+alphabet.indexOf(c)*(18-i),0);
   const identity={curp:prefix+(10-sum%10)%10,birthDate:date,firstName:"Alvaro",paternalSurname:"Sierra",maternalSurname:"Lara"};
   for(const context of fixture.cases){
-    const registration=await registerPlayerForActor(account.id,{seasonTeamId:context.seasonTeamId,identity});
+    const childDate="2011-01-15",childPrefix="SIAA110115HMNLRRA";
+    const childSum=[...childPrefix].reduce((sum,c,i)=>sum+alphabet.indexOf(c)*(18-i),0);
+    const minor=context.mode==="MINOR_FLOW";
+    const registration=await registerPlayerForActor(account.id,{seasonTeamId:context.seasonTeamId,identity:minor?{...identity,birthDate:childDate,curp:childPrefix+(10-childSum%10)%10}:identity});
     const dossier=await readPlayerDossierForActor(account.id,registration.registrationId);
-    assert.equal(dossier.minorAtRegistration,false,"Nacimiento real adulto conservado");
-    assert.equal(dossier.manualScenario,context.mode);
+    assert.equal(dossier.minorAtRegistration,minor,"Edad real de la identidad sintética");
     assert.equal(dossier.minorDocumentFlow,context.mode==="MINOR_FLOW");
     assert.equal(dossier.school.required,context.mode==="MINOR_FLOW");
     const ine=await readPlayerIneStatusForActor(account.id,registration.registrationId);

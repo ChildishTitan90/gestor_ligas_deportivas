@@ -14,6 +14,15 @@ export class PlayerRegistrationError extends Error {
 export async function lockPlayerTeamContext(tx: Prisma.TransactionClient, actorId: string, seasonTeamId: string,
   action: "CREATE" | "READ" | "UPDATE" | "APPROVE") {
   await lockAuthorization(tx);
+  const row = await readLockedPlayerTeamContext(tx, seasonTeamId);
+  const grants = await assertPermission(tx, actorId, { module: "players", action, context: {
+    clubId: row.clubId, leagueId: row.leagueId, seasonId: row.seasonId, teamId: row.teamId,
+  } });
+  return { row, grants };
+}
+
+/** Solo para servicios que ya autorizaron la inscripción; no concede acceso. */
+export async function readLockedPlayerTeamContext(tx: Prisma.TransactionClient, seasonTeamId: string) {
   const rows = await tx.$queryRaw<{
     seasonTeamId: string; teamId: string; clubId: string; leagueId: string; seasonId: string;
     groupId: string; seasonCategoryId: string; categoryId: string;
@@ -39,11 +48,7 @@ export async function lockPlayerTeamContext(tx: Prisma.TransactionClient, actorI
     FOR SHARE OF st, t, s, c, ca, g, sc, cat
   `;
   if (!rows.length) throw new AuthorizationError();
-  const row = rows[0];
-  const grants = await assertPermission(tx, actorId, { module: "players", action, context: {
-    clubId: row.clubId, leagueId: row.leagueId, seasonId: row.seasonId, teamId: row.teamId,
-  } });
-  return { row, grants };
+  return rows[0];
 }
 
 export async function assertPlayerRegistrationRead(tx: Prisma.TransactionClient, actorId: string, registrationId: string,

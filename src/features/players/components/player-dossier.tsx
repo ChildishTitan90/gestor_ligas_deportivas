@@ -1,4 +1,5 @@
 "use client";
+import {PrivateDocumentPreview,type DocumentPreviewRequest} from "./private-document-preview";
 import {useEffect,useRef,useState,type FormEvent} from "react";
 import {z} from "zod";
 import {SelectField} from "@/components/ui/select-field";
@@ -26,6 +27,7 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
   const [phase,setPhase]=useState<"EDITING"|"SENDING"|"UNCERTAIN"|"CONFIRMED">("EDITING"),[message,setMessage]=useState("");
   const [cameraVersion,setCameraVersion]=useState(0);
   const lock=useRef(false),pending=useRef<PendingDocumentUpload|null>(null),form=useRef<HTMLFormElement>(null);
+  const [preview,setPreview]=useState<DocumentPreviewRequest|null>(null);
   const requirement=dossier.requirements.find(r=>r.id===requirementId);
   const documentName=dossier.documentTypes.find(t=>t.id===requirement?.typeId)?.name ?? "Documento";
   const photo=dossier.documentTypes.find(t=>t.id===requirement?.typeId)?.code==="PHOTO";
@@ -85,13 +87,8 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
       else{pending.current=null;setPhase("EDITING");setMessage("La intención venció sin asociación confirmada. Puedes preparar un nuevo envío con el archivo seleccionado; no se borró ningún objeto anterior.");await refresh().catch(()=>undefined);}
     }catch{setMessage("No se pudo consultar el acuse. Conserva la misma intención y vuelve a consultar.");}finally{lock.current=false;}
   }
-  async function download(id:string){
-    if(lock.current)return;lock.current=true;
-    try{const result=z.object({downloadUrl:z.string().url()}).parse(await playerRequest(actorId,`/api/player-documents/${id}/download`,{}));window.location.assign(result.downloadUrl);}
-    catch{setMessage("No se pudo autorizar la descarga. Comprueba tu sesión y vuelve a consultar el expediente.");}finally{lock.current=false;}
-  }
-  return <div className="space-y-7">
-    {dossier.manualScenario && <p role="status" className="rounded-xl border-2 border-border p-4 font-semibold">PRUEBA AISLADA · {dossier.manualScenario==="MINOR_FLOW"?"Recorrido documental de menor":"Recorrido INE de Veteranos"}. Se conserva tu fecha de nacimiento real. Este escenario no acredita edad de categoría ni habilita participación deportiva.</p>}
+  function download(id:string){const doc=dossier.documents.find(d=>d.id===id);setPreview({label:dossier.documentTypes.find(t=>t.id===doc?.typeId)?.name ?? "Documento del expediente",path:`/api/player-documents/${id}/download`,body:{}});}
+  return <div className="space-y-7">{preview && <PrivateDocumentPreview actorId={actorId} request={preview} onClose={()=>setPreview(null)}/>}
     {dossier.documentGroups?.some(g=>g.scope==="SUPERIOR") && <section className="space-y-3 rounded-xl border border-border bg-surface p-5"><h2 className="text-xl font-semibold">Requisitos por categoría</h2><p className="text-sm text-muted">Un solo expediente conserva los archivos de origen y de las participaciones superiores. Un documento aprobado puede satisfacer requisitos compatibles en ambas.</p><ul className="space-y-2">{dossier.documentGroups.filter(g=>g.requiredForDossier || g.requiredForEligibility).map((g,i)=><li key={i} className="text-sm leading-6"><strong>{g.categoryName} · {g.scope==="ORIGIN"?"Origen":"Superior"}</strong>: {documentGroupLabels[g.key as keyof typeof documentGroupLabels] ?? "Documento"} · {g.ready?"Cumplido":"Pendiente de aprobación"}{g.requiredForEligibility?" · Requerido para habilitación":" · Para completar expediente"}</li>)}</ul></section>}
     <div className="rounded-xl border border-border bg-surface p-5 space-y-2"><p>Edad evaluada en el registro del {dossier.referenceDate}: {dossier.minorAtRegistration===null?"fecha de nacimiento pendiente":dossier.minorAtRegistration?"menor de edad":"mayor de edad"}.</p>
       <p className="text-sm text-muted">{dossier.registrationStatus==="ACTIVE"?(dossier.canUpload?"Jugador activo. Puedes completar los documentos pendientes mientras el expediente siga abierto; las cargas no cambian su habilitación.":"Jugador activo. El estado actual del expediente no permite nuevas cargas."):"Las cargas y sustituciones se permiten cualquier día mientras el expediente esté pendiente. Recibir archivos no autoriza al jugador para competir."}</p>
@@ -100,16 +97,18 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
       {dossier.dossierComplete && <p role="status">Expediente documental completo y revisado. La habilitación deportiva se consulta por separado.</p>}
       <p className="text-sm text-muted">Puedes añadir o sustituir la foto del jugador en este expediente mientras esté pendiente. Es distinta de la selfie de verificación de Veteranos y no bloquea el alta inicial.</p>
     </div>
+    {dossier.identityVerification?.curpVerified && <p role="status" className="rounded-xl border border-border p-4">CURP verificada en RENAPO y coincidente con el jugador. No requiere otra revisión de identidad. Esta consulta no incluye la constancia PDF; si la política solicita el archivo, puedes adjuntarlo al expediente.</p>}
     <section className="space-y-3" aria-label="Requisitos documentales"><h2 className="text-xl font-semibold">Requisitos del expediente</h2>
       {dossier.school?.required && <p role="status" className="rounded-xl border border-border p-4">Documento escolar obligatorio: entrega una credencial escolar <strong>o</strong> una constancia de estudios. Basta una de las dos. Estado: {dossier.school.approved?"revisado y aprobado":dossier.school.received?"recibido, pendiente de revisión":"faltante"}.</p>}
       {(dossier.configuration==="MISSING" || dossier.configurationIssues.length>0) && <p role="status" className="rounded-xl border border-border p-4">La configuración documental está incompleta o requiere corrección por administración. El expediente no puede darse por completo.</p>}
       <ul className="grid gap-3 sm:grid-cols-2">{dossier.requirements.map(r=>{
         const type=dossier.documentTypes.find(t=>t.id===r.typeId),chosen=requirementId===r.id;
+        const verifiedIne=type?.code==="INE" && r.quantity===1 && dossier.identityVerification?.ineAttemptId;
         const current=dossier.documents.some(d=>d.requirementId===r.id && !d.superseded);
         return <li key={r.id} className={`space-y-3 rounded-xl border bg-surface p-4 ${chosen?"border-accent":"border-border"}`}>
           <p className="font-semibold">{type?.name} · {["STUDENT_ID","STUDENT_CERTIFICATE"].includes(type?.code ?? "")?"Alternativa escolar":dossier.documentGroups?.some(g=>g.requiredForDossier && g.typeIds.length>1 && g.typeIds.includes(r.typeId))?"Alternativa obligatoria":r.required?"Obligatorio para el expediente":"Opcional"}</p>
-          <p className="text-sm">{r.quantity===1?(r.approved?"Revisado y aprobado":r.recorded?"Recibido · Pendiente de revisión":current?"Requiere corrección":"Sin adjuntar"):`Recibidos: ${r.recorded} de ${r.quantity} · Revisados: ${r.approved}`}</p>
-          <button type="button" aria-pressed={chosen} aria-controls="dossier-upload-form" onClick={()=>selectRequirement(r.id,true)} disabled={frozen || !storageConfigured || !dossier.canUpload || (type?.code==="PHOTO" && (r.required || r.quantity!==1))} className={`${secondary} inline-flex items-center gap-2`}>{chosen?<><Check aria-hidden="true" size={18}/>Seleccionado</>:current?`Sustituir ${type?.name ?? "documento"}`:`Adjuntar ${type?.name ?? "documento"}`}</button>
+          <p className="text-sm">{verifiedIne?"Identificación validada automáticamente · No requiere otra carga ni revisión":r.quantity===1?(r.approved?"Revisado y aprobado":r.recorded?"Recibido · Pendiente de revisión":current?"Requiere corrección":"Sin adjuntar"):`Recibidos: ${r.recorded} de ${r.quantity} · Revisados: ${r.approved}`}</p>
+          {verifiedIne?<button type="button" className={secondary} onClick={()=>setPreview({label:"Frente de la INE verificada",path:`/api/player-registrations/${dossier.registrationId}/ine-verification/evidence`,body:{attemptId:verifiedIne,part:"front"}})}>Ver INE verificada</button>:<button type="button" aria-pressed={chosen} aria-controls="dossier-upload-form" onClick={()=>selectRequirement(r.id,true)} disabled={frozen || !storageConfigured || !dossier.canUpload || (type?.code==="PHOTO" && (r.required || r.quantity!==1))} className={`${secondary} inline-flex items-center gap-2`}>{chosen?<><Check aria-hidden="true" size={18}/>Seleccionado</>:current?`Sustituir ${type?.name ?? "documento"}`:`Adjuntar ${type?.name ?? "documento"}`}</button>}
         </li>;
       })}</ul>
     </section>
@@ -122,7 +121,7 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
         <div className={requirement && requirement.quantity>1?"":"sm:col-span-2"}><label htmlFor="document-requirement" className="mb-2 block font-medium">1. Documento a adjuntar</label><SelectField id="document-requirement" name="requirementId" value={requirementId} onValueChange={value=>selectRequirement(value)} options={dossier.requirements.map(r=>({value:r.id,label:dossier.documentTypes.find(t=>t.id===r.typeId)?.name ?? "Documento",disabled:(dossier.documentTypes.find(t=>t.id===r.typeId)?.code==="PHOTO" && (r.required || r.quantity!==1))}))} required /></div>
         {requirement && requirement.quantity>1?<div><label htmlFor="document-slot" className="mb-2 block font-medium">Archivo que vas a adjuntar</label><SelectField id="document-slot" name="slot" value={slot} onValueChange={value=>{setSlot(value);setFile(null);setMessage("");setCameraVersion(version=>version+1);}} searchable={false} options={Array.from({length:requirement.quantity},(_,i)=>({value:String(i+1),label:`Archivo ${i+1} de ${requirement.quantity}`}))} required/><p className="mt-2 text-sm text-muted">Este documento requiere {requirement.quantity} archivos. Adjunta uno en cada envío.</p></div>:<input type="hidden" name="slot" value="1"/>}
         {!requirement && <p className="text-sm text-muted sm:col-span-2">Selecciona el documento aquí o pulsa Adjuntar en su tarjeta.</p>}
-        {guardian && <div className="sm:col-span-2"><GuardianSignatureCapture key={`${dossier.registrationId}:${requirementId}`} registrationId={dossier.registrationId} disabled={frozen || !storageConfigured || !dossier.canUpload} onPrepared={selectFile}/></div>}
+        {guardian && <div className="sm:col-span-2"><GuardianSignatureCapture key={`${dossier.registrationId}:${requirementId}`} registrationId={dossier.registrationId} playerName={dossier.player?.displayName} disabled={frozen || !storageConfigured || !dossier.canUpload} onPrepared={selectFile}/></div>}
         {requirement && <div className="space-y-4 rounded-xl border border-dashed border-border p-4 sm:col-span-2">
           <h3 className="font-semibold">2. {guardian?"Prepara la firma o elige la autorización firmada":photo?"Elige o toma la foto del jugador":"Elige el archivo o toma una foto del documento"}</h3>
           <div className="grid gap-5 sm:grid-cols-2"><div className="space-y-3"><p className="text-sm font-medium">Desde tu dispositivo</p><FilePickerButton id="document-file" photo={photo} selected={Boolean(file)} accept={photo?"image/jpeg,image/png":"application/pdf,image/jpeg,image/png"} disabled={frozen || !storageConfigured || !dossier.canUpload} describedBy="dossier-file-help dossier-upload-message" onSelect={selectFile}/><p className="text-xs text-muted">{photo?"PNG o JPEG":"PDF, PNG o JPEG"} · Hasta 10 MiB.</p></div>
@@ -143,7 +142,7 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
     </form>
     <section className="space-y-3" aria-label="Archivos del expediente"><h2 className="text-xl font-semibold">Archivos recibidos e historial</h2>
       {!dossier.documents.length && <p>No se han recibido archivos.</p>}
-      <ul className="space-y-3">{dossier.documents.map(doc=><li key={doc.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-4"><div><p>{dossier.documentTypes.find(t=>t.id===doc.typeId)?.name ?? "Documento histórico"}{doc.slot?` · Archivo ${doc.slot}`:""}</p><p className="mt-1 text-sm text-muted">{doc.superseded?"Versión anterior":doc.storageConfirmation!=="CONFIRMED"?"Confirmación pendiente de reconciliación":doc.reviewStatus==="VALIDATED"?"Revisado":doc.reviewStatus==="REJECTED"?"Requiere corrección":"Recibido · Pendiente de revisión"}</p></div><button type="button" disabled={phase==="SENDING" || phase==="UNCERTAIN" || doc.storageConfirmation!=="CONFIRMED"} onClick={()=>void download(doc.id)} className={secondary}>Descargar copia privada</button></li>)}</ul>
+      <ul className="space-y-3">{dossier.documents.map(doc=><li key={doc.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-4"><div><p>{dossier.documentTypes.find(t=>t.id===doc.typeId)?.name ?? "Documento histórico"}{doc.slot?` · Archivo ${doc.slot}`:""}</p><p className="mt-1 text-sm text-muted">{doc.superseded?"Versión anterior":doc.storageConfirmation!=="CONFIRMED"?"Confirmación pendiente de reconciliación":doc.reviewStatus==="VALIDATED"?"Revisado":doc.reviewStatus==="REJECTED"?"Requiere corrección":"Recibido · Pendiente de revisión"}</p></div><button type="button" disabled={phase==="SENDING" || phase==="UNCERTAIN" || doc.storageConfirmation!=="CONFIRMED"} onClick={()=>void download(doc.id)} className={secondary}>Ver documento</button></li>)}</ul>
     </section>
   </div>;
 }

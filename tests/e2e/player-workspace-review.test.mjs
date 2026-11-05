@@ -77,8 +77,12 @@ test('Jugadores: lista persistente, acceso al expediente, alta con CURP integrad
   await evaluate('document.querySelectorAll("input[type=checkbox]").forEach(n=>n.click())');
   assert.deepEqual(await evaluate(`Array.from(document.querySelector('form').elements).filter(n=>n.willValidate && !n.validity.valid).map(n=>({tag:n.tagName,type:n.type,name:n.name,value:n.value,checked:n.checked,message:n.validationMessage}))`),[],'Todos los controles de acreditación están completos');
   await wait('document.querySelector("form").checkValidity()');await click('Confirmar revisión');
-  await wait('document.body.textContent.includes("No se confirmó la revisión")');await click('Reintentar la misma operación');
+  await wait('document.body.textContent.includes("No se confirmó la revisión")');
+  assert.match(await evaluate('document.querySelector("textarea").value'),/Identidad/,"Una respuesta incierta conserva la captura");
+  await click('Reintentar la misma operación');
   await wait('document.body.textContent.includes("Revisión confirmada. Recarga")');
+  assert.equal(await evaluate('document.querySelector("textarea").value'),'','El acuse confirmado limpia la justificación');
+  assert.equal(await evaluate('document.getElementById("review-document").value'),'','El acuse limpia el documento elegido');
   const bodies=await evaluate(`window.fixture.calls.filter(c=>c.url.includes('/document-review') && c.method==='POST').map(c=>c.body)`);
   assert.equal(bodies.length,2);assert.equal(bodies[0],bodies[1],'Reintento conserva intención y versión');
   assert.equal(await evaluate('document.body.textContent.includes("Reintentar la misma operación")'),false,'Fallo de refresco no invalida el acuse');

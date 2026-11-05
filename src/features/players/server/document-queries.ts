@@ -7,7 +7,6 @@ import {assertPlayerRegistrationRead,lockPlayerTeamContext} from "./access";
 import {summarizeDossier,minorAtDate} from "../document-rules";
 import {canCompleteActivatedDossier} from "./automatic-activation";
 import {schoolDocumentStatus} from "../school-documents";
-import {manualPlayerScenario} from "./manual-player-scenario";
 import {readRegistrationLabels} from "./registration-labels";
 import {readCategoryDocumentState} from "./category-document-requirements";
 import {resolveRegistrationDocuments} from "./registration-document-requirements";
@@ -28,8 +27,7 @@ export async function readPlayerDossierForActor(actorId:string,registrationId:st
     let canUpdate=true;try{await lockPlayerTeamContext(tx,actorId,registration.season_team_id,"UPDATE");}catch(error){if(!(error instanceof AuthorizationError))throw error;canUpdate=false;}
     const referenceDate=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Mexico_City"}).format(registration.registered_at);
     const actualMinor=minorAtDate(registration.people.birth_date?.toISOString().slice(0,10) ?? null,referenceDate);
-    const manualScenario=await manualPlayerScenario(tx,registration.season_team_id);
-    const minor=manualScenario==="MINOR_FLOW"?true:actualMinor;
+    const minor=actualMinor;
     const {combined:resolved,source,scopes}=await resolveRegistrationDocuments(tx,actorId,registrationId,context,minor);
     const state=await readCategoryDocumentState(tx,registrationId,registration.people.identity_version,resolved);
     const requirements=resolved.requirements;
@@ -44,10 +42,10 @@ export async function readPlayerDossierForActor(actorId:string,registrationId:st
     return {registrationId,player,...summary,approvalAllowed:!!originAssessment?.ready,dossierComplete:state.dossierComplete,
       originDossierComplete:sourceState.dossierComplete,eligibilityDocumentsComplete:sourceState.eligibilityDocumentsComplete,documentGroups:state.groups,
       documentPolicyFingerprint:resolved.fingerprint,documentPolicyApproved:resolved.approved,
-      activationMode:resolved.activation,school,
+      activationMode:resolved.activation,school,identityVerification:{curpVerified:!!state.identityEvidence.curp,ineAttemptId:state.identityEvidence.ine?.attemptId ?? null},
       configuration:resolved.approved?"CONFIGURED" as const:"MISSING" as const,
       registrationStatus:registration.status,configurationIssues:resolved.issues,
-      minorAtRegistration:actualMinor,minorDocumentFlow:minor,manualScenario,referenceDate,
+      minorAtRegistration:actualMinor,minorDocumentFlow:minor,referenceDate,
       canUpload:canUpdate && (registration.status==="INELIGIBLE" || completingActive) && !registration.withdrawn_at && context.seasonStatus!=="CLOSED" && context.teamStatus!=="WITHDRAWN" && context.affiliationStatus==="APPROVED" && (context.categoryAuthorized && context.operational),
       documentTypes:requirements.map(r=>({id:r.document_type_id,...r.document_types,...(r.document_types.code==="PHOTO"?{name:"Foto del jugador"}:{})})),
       documents:state.documents.map(d=>{const receipt=state.revisions.find(r=>r.documentId===d.id);return {id:d.id,typeId:d.document_type_id,reviewStatus:d.status,superseded:state.superseded.has(d.id),requirementId:receipt?.requirementId,slot:receipt?.slot,storageConfirmation:state.confirmed.has(d.id)?"CONFIRMED" as const:"NOT_CHECKED" as const};}),

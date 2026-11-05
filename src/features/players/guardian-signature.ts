@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const guardianSignatureSchema = z.strictObject({
   registrationId: z.uuid(),
+  playerName:z.string().trim().min(1).max(320).refine(value=>!/[\u0000-\u001f\u007f]/.test(value)).optional(),
   guardianName: z.string().trim().min(3).max(160).refine(value => !/[\u0000-\u001f\u007f]/.test(value)),
   relationship: z.enum(["MOTHER", "FATHER", "GUARDIAN"]),
   acknowledgesRecord: z.literal(true),
@@ -35,6 +36,7 @@ export async function buildGuardianSignatureRecord(input: unknown, signature: Fi
   };
   line("Registro de firma de padre, madre o tutor", 17);
   line("Evidencia pendiente de acreditacion y revision administrativa.");
+  line(`Jugador: ${data.playerName ?? "Nombre no disponible"}`);
   line(`Registro del jugador: ${data.registrationId}`);
   line(`Nombre declarado: ${data.guardianName}`);
   line(`Relacion declarada: ${guardianRelationships.find(option => option.value === data.relationship)!.label}`);

@@ -23,5 +23,5 @@ export async function createPlayerDocumentDownloadForActor(actorId:string,docume
   if(BigInt(bytes.byteLength)!==file.size_bytes || createHash("sha256").update(bytes).digest("hex")!==file.sha256)throw new PlayerDocumentError("UPLOAD_CONFLICT");
   const result=await storage.createDownloadUrl(file.storage_key);
   const current=await authorize();if(current.id!==file.id || current.storage_key!==file.storage_key || current.sha256!==file.sha256)throw new AuthorizationError();
-  return result;
+  return {...result,mimeType:file.mime_type};
 }

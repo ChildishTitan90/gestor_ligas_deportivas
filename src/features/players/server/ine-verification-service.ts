@@ -13,6 +13,9 @@ import {matchIneIdentity,type IneMatch} from "../ine-identity-match";
 import type {PlayerIdentityInput} from "../schemas";
 import type { PlayerDocumentTransport } from "./document-storage";
 import {readRegistrationLabels} from "./registration-labels";
+import {ineSnapshotHash} from "./identity-document-evidence";
+import {resolveCategoryDocuments} from "./category-document-requirements";
+import {minorAtDate} from "../document-rules";
 
 export class IneVerificationError extends Error {
   constructor(public code: string, public status = 409) { super(code); }
@@ -24,7 +27,7 @@ function operationId(actorId: string, key: string) {
   return `${h.slice(0,8)}-${h.slice(8,12)}-5${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20,32)}`;
 }
 type Evidence = { sha256: string; sizeBytes: number; mimeType: string };
-type Intent = { version: number; fingerprint: string; snapshotHash: string; evidence: Record<typeof ineParts[number], Evidence>; context: { leagueId: string; seasonId: string }; };
+type Intent = { version: number; snapshotVersion?:number; fingerprint: string; snapshotHash: string; evidence: Record<typeof ineParts[number], Evidence>; context: { leagueId: string; seasonId: string }; };
 const purposeIds = { front: "17e075ad-e03c-4e19-b922-8b1180239cfa", back: "455e27b9-521c-4e0a-869d-048869c4fb45", selfie: "a121722e-bd01-4a0f-bd10-c2c26dfd3905" };
 function evidenceKey(registrationId: string, attemptId: string, intent: Intent, part: typeof ineParts[number]) {
   return `player-documents/v1/${intent.context.leagueId}/${intent.context.seasonId}/${registrationId}/${purposeIds[part]}/${attemptId}`;
@@ -37,16 +40,19 @@ async function snapshot(tx: Prisma.TransactionClient, actorId: string, id: strin
   if (write) await lockPlayerTeamContext(tx, actorId, reg.season_team_id, "UPDATE");
   await tx.$queryRaw`SELECT pr.id FROM sports_management.player_registrations pr JOIN sports_management.people p ON p.id=pr.person_id WHERE pr.id=${id}::uuid FOR SHARE OF pr,p`;
   const locked = await tx.player_registrations.findUniqueOrThrow({ where: { id }, select: {
-    season_team_id: true, status: true, withdrawn_at: true, people: { select: { identity_version: true,curp:true,first_name:true,paternal_surname:true,maternal_surname:true,birth_date:true } },
+    season_team_id: true, status: true, withdrawn_at: true, registered_at:true, people: { select: { identity_version: true,curp:true,first_name:true,paternal_surname:true,maternal_surname:true,birth_date:true } },
   } });
   if (locked.season_team_id !== reg.season_team_id) throw new IneVerificationError("CONTEXT_UNAVAILABLE");
   const category = await tx.season_categories.findUniqueOrThrow({ where: { id: context.seasonCategoryId }, select: { type: true } });
-  const applicable = category.type === "VETERANS";
+  const referenceDate=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Mexico_City"}).format(locked.registered_at);
+  const policy=await resolveCategoryDocuments(tx,context.seasonCategoryId,minorAtDate(locked.people.birth_date?.toISOString().slice(0,10) ?? null,referenceDate));
+  const applicable = category.type === "VETERANS" || policy.requirements.some(r=>r.document_types.code==="INE");
   const available = applicable && locked.status === "INELIGIBLE" && !locked.withdrawn_at && context.seasonStatus !== "CLOSED" && context.teamStatus !== "WITHDRAWN" && context.affiliationStatus === "APPROVED" && (context.categoryAuthorized && context.operational);
   if (write && !available) throw new IneVerificationError("CONTEXT_UNAVAILABLE");
   const identity:PlayerIdentityInput={curp:locked.people.curp ?? "",firstName:locked.people.first_name,paternalSurname:locked.people.paternal_surname,maternalSurname:locked.people.maternal_surname,birthDate:locked.people.birth_date?.toISOString().slice(0,10) ?? ""};
   return { applicable, available, version: locked.people.identity_version, context,identity,
-    snapshotHash: hash([context, locked.people.identity_version, locked.status, locked.withdrawn_at, category.type]) };
+    snapshotHash: ineSnapshotHash(context, locked.people.identity_version, locked.withdrawn_at, category.type),
+    legacySnapshotHash:hash([context, locked.people.identity_version, "INELIGIBLE", locked.withdrawn_at, category.type]) };
 }
 async function dto(tx: Prisma.TransactionClient, actorId: string, id: string, attemptId?: string): Promise<IneStatus> {
   const current = await snapshot(tx, actorId, id);
@@ -60,7 +66,7 @@ async function dto(tx: Prisma.TransactionClient, actorId: string, id: string, at
     const intent = attempt.new_data as unknown as Intent;
     const result = await tx.audit_logs.findFirst({ where: { entity_id: id, action: resultAction, new_data: { path: ["attemptId"], equals: attempt.id } }, select: { new_data: true } });
     const outcome = z.enum(ineOutcomes).safeParse((result?.new_data as { outcome?: string } | undefined)?.outcome);
-    status = intent.snapshotHash !== current.snapshotHash ? "STALE" : outcome.success ? outcome.data : Date.now() - attempt.occurred_at.getTime() > 120000 ? "UNCERTAIN" : "PENDING";
+    status = intent.snapshotHash !== (intent.snapshotVersion===2?current.snapshotHash:current.legacySnapshotHash) ? "STALE" : outcome.success ? outcome.data : Date.now() - attempt.occurred_at.getTime() > 120000 ? "UNCERTAIN" : "PENDING";
     // Acuses anteriores sin cotejo no se convierten en identidad verificada.
     if(status==="PROVIDER_PASSED" || (status==="IDENTITY_VERIFIED" && (result?.new_data as {matchingVersion?:number})?.matchingVersion!==1))status="ADMIN_REVIEW_REQUIRED";
   }
@@ -134,7 +140,7 @@ export async function verifyPlayerIneForActor(actorId: string, id: string, input
     const limits = dependencies.limits ?? { daily: 2, actorDaily: 1 };
     const where = { action: preparedAction, occurred_at: { gte: clock.day } };
     if (await tx.audit_logs.count({ where }) >= limits.daily || await tx.audit_logs.count({ where: { ...where, user_id: actorId } }) >= limits.actorDaily) throw new IneVerificationError("USAGE_LIMIT_REACHED", 429);
-    const intent: Intent = { version: current.version, snapshotHash: current.snapshotHash, fingerprint, evidence, context: { leagueId: current.context.leagueId, seasonId: current.context.seasonId } };
+    const intent: Intent = { version: current.version, snapshotVersion:2, snapshotHash: current.snapshotHash, fingerprint, evidence, context: { leagueId: current.context.leagueId, seasonId: current.context.seasonId } };
     await tx.audit_logs.create({ data: { id: attemptId, user_id: actorId, entity_id: id, table_name: "player_registrations", action: preparedAction,
       reason: "INE y selfie: intención humana explícita; sin aprobación deportiva", new_data: JSON.parse(JSON.stringify(intent)) } });
     return { attemptId, intent, provider,identity:current.identity };
@@ -184,5 +190,5 @@ export async function downloadPlayerIneEvidenceForActor(actorId: string, id: str
   if (checked.sha256 !== expected.sha256 || checked.sizeBytes !== expected.sizeBytes) throw new IneVerificationError("EVIDENCE_CONFLICT");
   const url = await storage.createDownloadUrl(key);
   await authorize();
-  return url;
+  return {...url,mimeType:expected.mimeType};
 }

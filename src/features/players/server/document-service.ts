@@ -10,7 +10,6 @@ import {lockPlayerTeamContext,assertPlayerRegistrationRead} from "./access";
 import type {PrivatePlayerDocumentStorage,PlayerDocumentTransport} from "./document-storage";
 import {isCalendarDate} from "../identity-rules";
 import {canCompleteActivatedDossier} from "./automatic-activation";
-import {manualPlayerScenario} from "./manual-player-scenario";
 import {resolveRegistrationDocuments} from "./registration-document-requirements";
 import {documentCodes} from "@/features/competitions/document-policy";
 
@@ -39,8 +38,7 @@ async function authorize(tx:Prisma.TransactionClient,actorId:string,input:Upload
   const windowOpen="window" in policy || (Number.isFinite(policy.opensAt.getTime()) && Number.isFinite(policy.closesAt.getTime()) && now>=policy.opensAt.getTime() && now<=policy.closesAt.getTime());
   const birthDate=reg.people.birth_date.toISOString().slice(0,10);
   const minorAge=Number(policy.referenceDate.slice(0,4))-Number(birthDate.slice(0,4))-Number(policy.referenceDate.slice(5)<birthDate.slice(5));
-  const scenario=await manualPlayerScenario(tx,reg.season_team_id);
-  const minorFlow=scenario==="MINOR_FLOW" || (minorAge>=0 && minorAge<18);
+  const minorFlow=minorAge>=0 && minorAge<18;
   const {combined:resolved}=await resolveRegistrationDocuments(tx,actorId,input.registrationId,row,minorFlow,"UPDATE");
   const completingActive=reg.status==="ACTIVE" && await canCompleteActivatedDossier(tx,input.registrationId,reg.people.identity_version,resolved);
   if(!windowOpen || reg.withdrawn_at || (reg.status!=="INELIGIBLE" && !completingActive) || row.seasonStatus==="CLOSED" || row.teamStatus==="WITHDRAWN" || row.affiliationStatus!=="APPROVED" || (!row.categoryAuthorized || !row.operational))throw new PlayerDocumentError("CONTEXT_UNAVAILABLE");
@@ -58,8 +56,8 @@ async function authorize(tx:Prisma.TransactionClient,actorId:string,input:Upload
   const age=Number(policy.referenceDate.slice(0,4))-Number(dob.slice(0,4))-Number(policy.referenceDate.slice(5)<dob.slice(5));
   if(!Number.isFinite(age) || age<0 || (["STUDENT_ID","STUDENT_CERTIFICATE","GUARDIAN_CONSENT"].includes(code) && !minorFlow))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
   const windowVersion="window" in policy?policy.window:[policy.opensAt.toISOString(),policy.closesAt.toISOString()];
-  // Conservar el contrato de intenciones existentes fuera de la prueba manual.
-  const requirementHash=digest([resolved.fingerprint?requirement:(legacyRequirement ?? requirement),policy.referenceDate,windowVersion,dob,reg.people.identity_version,...(scenario?[scenario]:[]),...(resolved.fingerprint?[resolved.fingerprint]:[])]);
+  // Conservar el contrato de intenciones existentes.
+  const requirementHash=digest([resolved.fingerprint?requirement:(legacyRequirement ?? requirement),policy.referenceDate,windowVersion,dob,reg.people.identity_version,...(resolved.fingerprint?[resolved.fingerprint]:[])]);
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`document-slot:${input.registrationId}:${input.requirementId}:${input.slot}`},0))::text`;
   return {row,requirement,requirementHash,identityVersion:reg.people.identity_version};
 }

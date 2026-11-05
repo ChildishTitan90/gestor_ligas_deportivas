@@ -4,8 +4,8 @@ import { DirectSignatureField } from "@/components/ui/direct-signature-field";
 import { SelectField } from "@/components/ui/select-field";
 import { buildGuardianSignatureRecord, guardianRelationships, guardianSignatureSchema, guardianSignatureStatement } from "../guardian-signature";
 
-export function GuardianSignatureCapture({ registrationId, disabled, onPrepared }: {
-  registrationId: string; disabled: boolean; onPrepared: (file: File | null) => void;
+export function GuardianSignatureCapture({ registrationId, playerName, disabled, onPrepared }: {
+  registrationId: string; playerName?:string; disabled: boolean; onPrepared: (file: File | null) => void;
 }) {
   const [name, setName] = useState(""), [relationship, setRelationship] = useState("");
   const [signature, setSignature] = useState<File | null>(null), [acknowledged, setAcknowledged] = useState(false);
@@ -15,7 +15,7 @@ export function GuardianSignatureCapture({ registrationId, disabled, onPrepared 
   function changed() { revision.current++; onPrepared(null); setMessage(""); }
   async function prepare() {
     if (lock.current || disabled || !signature) return;
-    const data = guardianSignatureSchema.safeParse({ registrationId, guardianName: name, relationship, acknowledgesRecord: acknowledged });
+    const data = guardianSignatureSchema.safeParse({ registrationId, playerName, guardianName: name, relationship, acknowledgesRecord: acknowledged });
     if (!data.success) { setMessage("Completa nombre, relación y confirmación antes de preparar la evidencia."); return; }
     lock.current = true; setBusy(true); const version = revision.current;
     try {
