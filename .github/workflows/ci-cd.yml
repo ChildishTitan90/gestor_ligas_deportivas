@@ -53,7 +53,8 @@ jobs:
       - name: Probar interfaz de inscripción y actividad de sesión sin base
         run: npm run test:team-registration
       - name: Probar inscripción en Chrome con datos sintéticos
-        run: npm run test:team-registration-browser
+        timeout-minutes: 2
+        run: npm run test:browser-harness && npm run test:team-registration-browser && npm run test:ine-browser
         env:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Probar controles de competencias en Chrome con datos sintéticos
@@ -62,6 +63,13 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Probar firmas de afiliación
         run: npm run test:signatures
+      - name: Probar captura y vista previa de firmas con datos sintéticos
+        timeout-minutes: 2
+        run: npm run test:direct-signature && npm run test:signature-preview && npm run test:guardian-signature && npm run test:player-workspace
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - name: Probar validación local de identidad de jugadores
+        run: npm run test:player-identity && npm run test:curp-provider && npm run test:ine-provider && npm run test:player-dossier && npm run test:player-document-storage
       - name: Probar recuperación de inscripciones y capacidades del cliente
         run: npm run test:team-enrollment-client
       - name: Revisar el código
@@ -124,6 +132,8 @@ jobs:
         run: npm run test:auth
       - name: Probar inscripción de equipos, alcance y concurrencia
         run: npm run test:team-enrollments
+      - name: Probar identidad, inscripción única y permisos de jugadores
+        run: npm run test:player-registrations && npm run test:player-participations
       - name: Probar temporadas, alcance, auditoría y concurrencia
         run: npm run test:competitions
       - name: Probar Preview con rol limitado, RLS, afiliaciones y operaciones por HTTP

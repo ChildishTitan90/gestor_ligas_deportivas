@@ -55,7 +55,7 @@ try {
   };
   console.log(`Pruebas verificadas; ${migrations.size - applied.size} migraciones pendientes.`);
   if (command === 'migrate') {
-    if (plan.pendingCreation || plan.pendingEnrollmentCreation) await assertProductionCreationAccess(client);
+    if (plan.pendingCreation || plan.pendingEnrollmentCreation || plan.pendingCurpCreation) await assertProductionCreationAccess(client);
     prisma(['migrate', 'deploy']);
     applied = await history();
     if (applied.size !== migrations.size) throw new Error('Quedan migraciones pendientes.');

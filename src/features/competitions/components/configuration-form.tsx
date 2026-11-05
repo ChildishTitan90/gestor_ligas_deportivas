@@ -30,9 +30,9 @@ const conflicts: Record<string, string> = {
   CATEGORY_NOT_AUTHORIZED: "Hay inscripciones cuya categoría ya no está autorizada. Revisa las afiliaciones antes de distribuir.",
 };
 
-export function ConfigurationForm({ title, endpoint, method = "POST", version, fixed = {}, numbers = [], modal = false, successHref, children }: {
+export function ConfigurationForm({ title, endpoint, method = "POST", version, fixed = {}, numbers = [], modal = false, successHref, actorId, disabled = false, children }: {
   title: string; endpoint: string; method?: string; version: number;
-  fixed?: Record<string, string>; numbers?: string[]; modal?: boolean; successHref?: string; children?: ReactNode;
+  fixed?: Record<string, string>; numbers?: string[]; modal?: boolean; successHref?: string; actorId?: string; disabled?: boolean; children?: ReactNode;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -51,7 +51,7 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
   const formRef = useRef<HTMLFormElement>(null);
   const form = <form ref={formRef} className="space-y-4" onChange={() => setDirty(true)} onSubmit={async event => {
     event.preventDefault();
-    if (guard.current || captureLocked.current) return;
+    if (disabled || guard.current || captureLocked.current) return;
     guard.current = true; setPending(true); setMessage("");
     const formData = new FormData(event.currentTarget);
     const fields = Object.fromEntries(formData);
@@ -62,7 +62,7 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
       const nullable = (key: string) => fields[key] === "" ? null : Number(fields[key]);
       payload.policy = { referenceYear: Number(fields.referenceYear), minimumAge: Number(fields.minimumAge),
         maximumAge: nullable("maximumAge"), exceptionMinimumAge: nullable("exceptionMinimumAge"),
-        documents: formData.getAll("documents"), registrationDays: formData.getAll("registrationDays").map(Number),
+        documents: fields.documentPolicyJson ? JSON.parse(String(fields.documentPolicyJson)) : formData.getAll("documents"), registrationDays: formData.getAll("registrationDays").map(Number),
         timezone: fields.timezone, playersOnField: Number(fields.playersOnField),
         maximumCalledUp: nullable("maximumCalledUp"), maximumRoster: nullable("maximumRoster") };
       for (const key of Object.keys(fields)) if (key !== "reason") delete payload[key];
@@ -74,7 +74,7 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
       for (const key of ["win", "draw", "loss", "rounds", "matchDurationMinutes", "tieBreakers"]) if (key !== "tieBreakers") delete payload[key];
     }
     try {
-      const response = await fetch(endpoint, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const response = await fetch(endpoint, { method, headers: { "Content-Type": "application/json", ...(actorId ? { "X-Expected-Actor-Id": actorId } : {}) }, body: JSON.stringify(payload) });
       if (response.status >= 500) throw new Error("uncertain");
       const result: unknown = await response.json();
       if (!result || typeof result !== "object") throw new Error("uncertain");
@@ -91,7 +91,7 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
     } catch { setMessage("No se pudo confirmar el resultado. Consulta la configuración antes de volver a capturar; el cambio podría haberse guardado."); setUncertain(true); lockCapture(); }
     finally { setPending(false); guard.current = false; }
   }}>
-    <fieldset disabled={pending || locked} className="space-y-4">
+    <fieldset disabled={disabled || pending || locked} className="space-y-4">
       {children}
       <label className="block">Motivo<textarea name="reason" required maxLength={1000} className="min-h-24 w-full rounded-xl border border-border bg-surface p-3" /></label>
       <button className="primary-action min-h-12 rounded-xl px-5 py-3 font-semibold">{pending ? "Guardando…" : title}</button>

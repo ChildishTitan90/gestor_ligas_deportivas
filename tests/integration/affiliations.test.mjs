@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import pg from 'pg';
 import * as argon2 from 'argon2';
@@ -474,6 +474,40 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           } finally {
             await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [delegateRoleId, permissionId]);
           }
+        });
+        await r.test('una solicitud anterior sin clave, categorías ni directivos se completa conservando folio', async () => {
+          const legacyContext = await season();
+          const legacy = (await db.query(`INSERT INTO sports_management.club_affiliations
+            (club_id,season_id,league_id,reference_number,status,requested_by,uniform_colors,review_reason,review_version)
+            VALUES ($1,$2,$3,$4,'PENDING',$5,'Azul','Completar categorías, directivos y firmas.',1) RETURNING id,reference_number`,
+            [clubId, legacyContext.id, league, `legacy-${randomUUID()}`, actor.id])).rows[0];
+          const pagePath = `/affiliations/${legacy.id}/correct`;
+          const before = await counts();
+          const firstPage = await (await actor.browser.request(pagePath)).text();
+          assert.match(firstPage, /Reenviar correcciones/);
+          assert.match(firstPage, /Completar categorías, directivos y firmas/);
+          assert.deepEqual(await counts(), before, 'Abrir la corrección no inicializa ni altera el registro.');
+          assert.doesNotMatch(await (await foreignOwner.browser.request(pagePath)).text(), /Reenviar correcciones/);
+          const bytes = createHash('sha256').update(`affiliation-correction:v1:${legacy.id}`).digest().subarray(0,16);
+          bytes[6]=(bytes[6]&15)|80; bytes[8]=(bytes[8]&63)|128;
+          const hex=bytes.toString('hex');
+          const key=`${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+          const request = { ...payload(legacyContext), expectedVersion: 1, submissionKey: key };
+          const send = body => actor.browser.request(`/api/affiliations/${legacy.id}/resubmit`, {
+            method: 'PATCH', headers: { origin: baseUrl, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+          assert.equal((await send({ ...request, submissionKey: randomUUID() })).status, 409);
+          const response = await send(request);
+          assert.equal(response.status, 200);
+          const result = await response.json();
+          assert.equal(result.id, legacy.id); assert.equal(result.referenceNumber, legacy.reference_number);
+          assert.equal(result.reviewPhase, 'AWAITING_REVIEW'); assert.equal(result.version, 2);
+          const row = (await db.query('SELECT submission_key,submission_hash FROM sports_management.club_affiliations WHERE id=$1', [legacy.id])).rows[0];
+          assert.equal(row.submission_key, request.submissionKey); assert.ok(row.submission_hash);
+          await assert.rejects(db.query('UPDATE sports_management.club_affiliations SET submission_key=$1 WHERE id=$2',[randomUUID(),legacy.id]),{code:'42501'});
+          assert.equal((await db.query('SELECT submission_key FROM sports_management.club_affiliations WHERE id=$1',[legacy.id])).rows[0].submission_key,request.submissionKey);
+          assert.equal(Number((await db.query('SELECT count(*) FROM sports_management.club_officers WHERE affiliation_id=$1',[legacy.id])).rows[0].count),3);
+          assert.equal(Number((await db.query('SELECT count(*) FROM sports_management.club_affiliation_categories WHERE affiliation_id=$1',[legacy.id])).rows[0].count),legacyContext.categories.length);
+          assert.equal((await send(request)).status, 409);
         });
         await r.test('corrección inválida o ajena no altera el agregado; reenvío conserva folio e historial', async () => {
           const before = await counts();

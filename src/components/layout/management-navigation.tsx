@@ -7,6 +7,7 @@ const icons = {
   affiliations: FilePenLine,
   review: ClipboardCheck,
   accounts: UserRoundPlus,
+  players: UserRoundPlus,
 };
 
 export type ManagementNavigationGroup = {

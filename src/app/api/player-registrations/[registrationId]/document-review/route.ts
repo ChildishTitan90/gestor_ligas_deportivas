@@ -1,0 +1,4 @@
+import {documentActor,documentBody,documentFailure,documentHeaders} from "@/features/players/server/document-http";
+import {readDocumentReviewForActor,decideDocumentReviewForActor} from "@/features/players/server/document-review";
+export async function GET(request:Request,context:{params:Promise<{registrationId:string}>}){try{const actor=await documentActor(request);return Response.json(await readDocumentReviewForActor(actor.id,(await context.params).registrationId),{headers:documentHeaders});}catch(error){return documentFailure(error);}}
+export async function POST(request:Request,context:{params:Promise<{registrationId:string}>}){try{const actor=await documentActor(request,true);return Response.json(await decideDocumentReviewForActor(actor.id,(await context.params).registrationId,await documentBody(request)),{headers:documentHeaders});}catch(error){return documentFailure(error);}}

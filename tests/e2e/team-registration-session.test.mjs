@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { build } from "esbuild";
 import { createServer } from "node:http";
-import { launchChrome } from "./chrome-session.mjs";
+import { launchChrome, closeTestServer, waitForTestDone } from "./chrome-session.mjs";
 import { readFile } from "node:fs/promises";
 
 // React DOM real en Chrome headless; red y datos de negocio exclusivamente sintéticos.
 // No inicia Next, importa servicios de servidor ni contacta una base de datos.
-test("selectores, modales breves, envíos inciertos y separación de usuarios", { timeout: 45000 }, async () => {
+test("selectores, modales breves, envíos inciertos y separación de usuarios", { timeout: 45000 }, async t => {
   const bundle = await build({ write: false, bundle: true, platform: "browser", format: "iife",
     define: { "process.env.NODE_ENV": '"development"', "process.env": '{}' },
     stdin: { resolveDir: process.cwd(), loader: "tsx", contents: `
@@ -262,6 +262,10 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
         root.unmount();return {parentPreserved:true,oldReadAborted:true,lateResponseHidden:true,pendingPreserved:true,posts:posts.length};
       })();
     ` }, plugins: [{ name: "synthetic-navigation", setup(plugin) {
+      // This standalone React fixture has no Next runtime (process/image loader).
+      // Keep the real signature preview; replace only the framework image adapter.
+      plugin.onResolve({ filter: /^next\/image$/ }, () => ({ path: "image", namespace: "synthetic-image" }));
+      plugin.onLoad({ filter: /.*/, namespace: "synthetic-image" }, () => ({ contents: "import React from 'react';export default function Image({unoptimized,...props}){return React.createElement('img',props)}", resolveDir: process.cwd() }));
       plugin.onResolve({ filter: /^@\/components\/ui\/action-link$/ }, () => ({ path: "action-link", namespace: "synthetic" }));
       plugin.onLoad({ filter: /.*/, namespace: "synthetic" }, () => ({ contents: "import React from 'react';export function ActionLink({children,href}){return React.createElement('a',{href},children)}", resolveDir: process.cwd() }));
     } }],
@@ -270,26 +274,18 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
   const server = createServer((request, response) => {
     if (request.url === "/bundle.js") { response.setHeader("Content-Type", "text/javascript"); response.end(bundle.outputFiles[0].contents); }
     else if (request.url === "/controls.css") { response.setHeader("Content-Type", "text/css"); response.end(controlsCss.replace(/^@import.*$/gm,'')); }
-    else { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><link rel="stylesheet" href="/controls.css"><div id="root"></div><script>window.addEventListener("error",e=>window.startupError=e.message)</script><script src="/bundle.js"></script>'); }
+    else { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><link rel="stylesheet" href="/controls.css"><div id="root"></div><script>window.addEventListener("error",e=>{window.testFailure=e.message});window.addEventListener("unhandledrejection",e=>{window.testFailure=String(e.reason?.stack||e.reason)})</script><script src="/bundle.js"></script>'); }
   });
+  t.after(() => closeTestServer(server));
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
   let browser;
-  let socket;
   try {
-    browser = await launchChrome(origin);
-    socket = browser.socket;
-    let commandId = 0;
-    const evaluate = () => new Promise((resolve, reject) => {
-      const id = ++commandId;
-      const listener = event => { const message = JSON.parse(event.data); if (message.id !== id) return;
-        socket.removeEventListener("message", listener);
-        if (message.result?.exceptionDetails || message.error) reject(new Error("Browser assertion failed: " + JSON.stringify(message.result?.exceptionDetails ?? message.error)));
-        else resolve(message.result.result.value);
-      };
-      socket.addEventListener("message", listener);
-      socket.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: "(async()=>{for(let n=0;!window.testDone&&n<500;n++){if(window.startupError)throw Error(window.startupError);await new Promise(r=>setTimeout(r,10));}if(!window.testDone)throw Error('Browser fixture did not start');return await window.testDone})()", awaitPromise: true, returnByValue: true } }));
-    });
+    console.log('Chrome: iniciando navegador de prueba');
+    browser = await launchChrome(origin, { signal: t.signal, commandTimeoutMs: 15000, waitForDocument: true });
+    t.after(() => browser.close());
+    console.log('Chrome: CDP conectado; esperando recorrido sintético');
+    const evaluate = () => waitForTestDone(browser);
     let result;
     for (let attempt = 0; attempt < 5; attempt++) {
       try { result = await evaluate(); break; }
@@ -297,5 +293,5 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
         await new Promise(resolve => setTimeout(resolve, 100)); }
     }
     assert.deepEqual(result, { parentPreserved: true, oldReadAborted: true, lateResponseHidden: true, pendingPreserved: true, posts: 0 });
-  } finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }
+  } finally { await browser?.close(); }
 });

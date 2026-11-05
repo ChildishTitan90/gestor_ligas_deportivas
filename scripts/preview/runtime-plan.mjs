@@ -1,40 +1,45 @@
 // Permisos SQL del backend privado. No son concesiones RF22 a personas.
-// Fuente: auth/*, accounts/server/service, clubs/server, permissions/server
+// Fuente: auth/*, accounts/server/service, clubs/server, players/server, permissions/server
 // y competitions/server (incluidos triggers y relaciones consultadas por _count).
 export const PREVIEW_PROJECT = 'loaztwwpwsaqzdtdtvvj';
 export const PREVIEW_ROLE = 'gestor_ligas_preview';
 export const PREVIEW_MARKER = `PDGLD_PRUEBAS_ONLY=${PREVIEW_PROJECT}`;
 
-const read = ['audit_logs', 'authentication_events', 'categories', 'charges', 'club_affiliations',
+const read = ['player_category_levels','player_category_participations','sanctions','audit_logs', 'authentication_events', 'categories', 'charges', 'club_affiliations',
   'club_affiliation_categories', 'club_officers', 'clubs', 'correction_authorizations', 'disciplinary_cases',
-  'files', 'groups', 'leagues', 'match_events', 'match_reports', 'matches', 'payment_voids', 'payments',
-  'people', 'permissions', 'player_registrations', 'referee_assignments', 'referees', 'role_permissions',
+  'document_requirements','document_types','player_documents','files', 'groups', 'leagues', 'match_events', 'match_reports', 'matches', 'payment_voids', 'payments',
+  'people', 'permissions', 'player_registrations', 'player_status_history', 'player_curp_checks', 'referee_assignments', 'referees', 'role_permissions',
   'roles', 'schedule_proposals', 'season_categories', 'season_teams', 'seasons', 'sessions', 'sports',
   'teams', 'team_enrollment_operations', 'user_roles', 'users'];
 // Lecturas de reglas, cierre y dependencias: una tabla vacía también exige SELECT
 // y una política RLS para que _count no oculte referencias que impiden retirar filas.
 read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competition_rule_parameters',
-  'competition_stages', 'document_requirements', 'imports', 'matchdays', 'match_results',
+  'competition_stages', 'imports', 'matchdays', 'match_results',
   'match_statuses', 'official_documents', 'publications', 'season_awards', 'season_breaks',
   'standing_versions', 'venue_loans');
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
+  sanctions:['id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
   billing_plans: ['id', 'season_id'], club_team_changes: ['id', 'season_id'],
   // update() de aprobación devuelve todos los escalares, incluido file_id.
   competition_rules: ['id', 'season_id', 'version_number', 'status', 'created_at', 'file_id', 'approved_by', 'approved_at'],
   // create() sin select devuelve también validated_by.
   competition_rule_parameters: ['id', 'competition_rule_id', 'parameter_key', 'parameter_value', 'requires_validation', 'validated_by'],
   competition_stages: ['id', 'season_category_id', 'season_id'],
-  document_requirements: ['id', 'season_category_id'], imports: ['id', 'season_id'],
+  imports: ['id', 'season_id'],
   matchdays: ['id', 'season_id'], match_results: ['id', 'match_id'], match_statuses: ['id', 'code'],
   official_documents: ['id', 'season_id'], publications: ['id', 'season_id'],
   season_awards: ['id', 'season_category_id', 'season_id'], season_breaks: ['id', 'season_id'],
   standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
 };
 const insert = {
+  player_category_levels:['season_category_id','season_id','pathway_code','level','configured_by'],
+  player_category_participations:['origin_registration_id','season_id','club_id','target_season_team_id','target_season_category_id','requested_by','request_key','request_hash','status','created_at','version'],
   // Prisma también materializa defaults escalares (now(), 0, 1, true) en INSERT.
-  audit_logs: ['user_id', 'action', 'table_name', 'entity_id', 'previous_data', 'new_data', 'reason', 'occurred_at'],
+  audit_logs: ['id','user_id', 'action', 'table_name', 'entity_id', 'previous_data', 'new_data', 'reason', 'occurred_at'],
+  player_documents:['registration_id','document_type_id','file_id','status'],
+  player_status_history:['registration_id','previous_status','new_status','user_id','reason','created_at'],
   authentication_events: ['user_id', 'action', 'occurred_at'],
   categories: ['league_id', 'sport_id', 'name'],
   competition_rules: ['season_id', 'version_number', 'status', 'created_at'],
@@ -47,7 +52,8 @@ const insert = {
   files: ['id', 'storage_key', 'original_name', 'mime_type', 'size_bytes', 'sha256', 'uploaded_by', 'created_at'],
   groups: ['season_id', 'season_category_id', 'name'],
   leagues: ['name', 'timezone', 'is_active'],
-  people: ['first_name', 'paternal_surname', 'maternal_surname', 'created_at'],
+  people: ['first_name', 'paternal_surname', 'maternal_surname', 'created_at', 'identity_version'],
+  player_curp_checks: ['operation_key', 'actor_id', 'person_id', 'registration_id', 'identity_version', 'fingerprint', 'status', 'mismatched_fields'],
   role_permissions: ['role_id', 'permission_id', 'context_only'],
   sessions: ['user_id', 'token_hash', 'created_at', 'last_activity_at', 'expires_at'],
   seasons: ['league_id', 'sport_id', 'name', 'start_date', 'end_date', 'status', 'version'],
@@ -60,11 +66,15 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at'],
 };
 const update = {
+  player_category_participations:['status','version','eligibility_fingerprint','review_event_id'],
+  player_documents:['status','reviewed_by'],
+  player_registrations:['status','identity_review_status'],
+  player_curp_checks: ['status', 'mismatched_fields', 'finished_at'],
   clubs: ['name', 'status', 'version'],
   teams: ['name', 'status', 'version'],
   competition_rules: ['status', 'approved_by', 'approved_at'],
   competition_rule_parameters: ['requires_validation', 'validated_by'],
-  club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version'],
+  club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version','submission_key','submission_hash'],
   club_affiliation_categories: ['authorized_by', 'authorized_at'],
   club_officers: ['person_id', 'signature_file_id'],
   groups: ['name'],
@@ -77,8 +87,8 @@ const update = {
   users: ['password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version'],
 };
 const remove = ['role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons', 'clubs', 'teams'];
-const lock = ['categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
-  'match_events', 'match_reports', 'matches', 'payments', 'people', 'permissions', 'player_registrations',
+const lock = ['document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
+  'match_events', 'match_reports', 'matches', 'payments', 'people', 'permissions',
   'referee_assignments', 'referees', 'roles', 'schedule_proposals', 'season_categories', 'season_teams',
   'seasons', 'teams', 'user_roles'];
 
@@ -114,6 +124,10 @@ BEGIN
   IF EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='sports_management' AND c.relkind IN ('r','p') AND NOT c.relrowsecurity)
   THEN RAISE EXCEPTION 'La provisión exige RLS activo en todas las tablas'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='sports_management.club_affiliations'::regclass
+    AND tgname='guard_submission_identity' AND tgenabled='O'
+    AND tgfoid=to_regprocedure('sports_management.guard_affiliation_submission_identity()'))
+  THEN RAISE EXCEPTION 'Falta la protección de claves de afiliación; aplique primero la migración aditiva'; END IF;
   IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=${literal(PREVIEW_ROLE)}) THEN
     CREATE ROLE gestor_ligas_preview NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
   END IF;
@@ -198,7 +212,7 @@ BEGIN
         AND (0=ANY(polroles) OR runtime_oid=ANY(polroles)))
     THEN RAISE EXCEPTION 'Otra política permite modificar una tabla de solo bloqueo: %',spec.name; END IF;
   END LOOP;
-  GRANT EXECUTE ON FUNCTION sports_management.get_entity_season(text,uuid),sports_management.get_role_code(uuid) TO gestor_ligas_preview;
+  GRANT EXECUTE ON FUNCTION sports_management.get_entity_season(text,uuid),sports_management.get_role_code(uuid),sports_management.player_participation_now() TO gestor_ligas_preview;
   GRANT EXECUTE ON FUNCTION sports_management.maintenance_has_references(text,uuid) TO gestor_ligas_preview;
   IF has_table_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     OR has_any_column_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,REFERENCES')

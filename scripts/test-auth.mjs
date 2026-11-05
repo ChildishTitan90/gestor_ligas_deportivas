@@ -3,6 +3,9 @@ import { spawn } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { readFile,writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import dotenv from 'dotenv';
 import pg from 'pg';
@@ -12,6 +15,8 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet: true });
 const previewCompetitions = process.argv.includes('--preview-competitions');
 const previewRuntime = process.argv.includes('--preview') || previewCompetitions;
+const playerDemo = process.argv.includes('--player-demo');
+const playerParticipations = process.argv.includes('--player-participations');
 
 function localConnection() {
   let target;
@@ -48,7 +53,8 @@ function command(commandArgs, env, showTestOutput = false) {
     child.once('exit', (code) => {
       if (showTestOutput) {
         let safe = output.replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, '[conexión omitida]');
-        for (const key of ['DATABASE_URL', 'DIRECT_URL', 'NEXTAUTH_SECRET'])
+        safe=safe.replace(/https?:\/\/[^\s"']*\/storage\/v1\/[^\s"']+/gi,'[enlace privado omitido]');
+        for (const key of ['DATABASE_URL', 'DIRECT_URL', 'NEXTAUTH_SECRET','SUPABASE_URL','SUPABASE_STORAGE_SERVER_KEY','VMX_API_KEY'])
           if (env[key]) safe = safe.replaceAll(env[key], '[secreto omitido]');
         safe = safe.replace(/\$argon2(?:id|i|d)\$[^\s"']+/g, '[hash omitido]');
         console.log(safe);
@@ -58,11 +64,11 @@ function command(commandArgs, env, showTestOutput = false) {
   });
 }
 
-async function freePort() {
+async function freePort(preferredPort=0) {
   const server = createServer();
   await new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
+    server.listen(preferredPort, '127.0.0.1', resolve);
   });
   const port = server.address().port;
   await new Promise((resolve) => server.close(resolve));
@@ -78,6 +84,7 @@ let stage = 'preparación';
 const databaseName = `pdgld48_test_${randomBytes(8).toString('hex')}`;
 let childEnv;
 let baseUrl;
+let manualFixturePrepared=false;
 const accountOptionMetrics = [];
 let previewRoles = [];
 
@@ -159,6 +166,18 @@ async function cleanup() {
       if (databaseCreated && admin) {
         // La base creada en esta ejecución es el único objetivo permitido.
         if (!/^pdgld48_test_[a-f0-9]{16}$/.test(databaseName)) throw new Error('Nombre temporal no válido.');
+        if(playerDemo && manualFixturePrepared){
+          const recovery=new pg.Client({connectionString:childEnv.DIRECT_URL,connectionTimeoutMillis:5000});
+          try{
+            await recovery.connect();
+            const files=await recovery.query('SELECT id,storage_key,mime_type,size_bytes,sha256 FROM sports_management.files ORDER BY id');
+            const events=await recovery.query(`SELECT id,action,entity_id,new_data FROM sports_management.audit_logs
+              WHERE action LIKE 'PLAYER_DOCUMENT_%' OR action LIKE 'PLAYER_INE_%' ORDER BY occurred_at,id`);
+            const saved=JSON.parse(await readFile(childEnv.PLAYER_DEMO_SESSION_FILE,'utf8'));
+            await writeFile(childEnv.PLAYER_DEMO_SESSION_FILE,JSON.stringify({...saved,closedAt:new Date().toISOString(),files:files.rows,operations:events.rows},null,2),{mode:0o600});
+          }catch{console.error('No se pudo exportar el manifiesto privado; se conserva la BD temporal para recuperación.');throw new Error('Exportación manual incompleta.');}
+          finally{await recovery.end();}
+        }
         await admin.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()', [databaseName]);
         await admin.query(`DROP DATABASE "${databaseName}"`);
         databaseCreated = false;
@@ -185,12 +204,17 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--preview-competitions', '--competitions', '--club-maintenance'].includes(arg)))
-    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --preview-competitions | --competitions].');
-  if (existsSync(fileURLToPath(new URL('../.next-auth-tests/dev/lock', import.meta.url)))) {
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--player-demo', '--player-participations', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--preview-competitions', '--competitions', '--players', '--documents-real', '--club-maintenance'].includes(arg)))
+    throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --preview-competitions | --competitions | --players | --documents-real | --club-maintenance].');
+  if (existsSync(fileURLToPath(new URL(playerDemo?'../.next-player-manual/dev/lock':'../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
   }
   const target = localConnection();
+  let documentStorageTest;
+  if(process.argv.includes('--documents-real')){
+    const {readPlayerDocumentTestConfiguration}=await import('./verification/player-document-test-config.mjs');
+    documentStorageTest=await readPlayerDocumentTestConfiguration();
+  }
   stage = 'conexión al PostgreSQL local';
   admin = new pg.Client({ connectionString: target.href, connectionTimeoutMillis: 8_000 });
   await admin.connect();
@@ -199,24 +223,71 @@ try {
   databaseCreated = true;
   target.pathname = `/${databaseName}`;
   const databaseUrl = target.href;
-  baseUrl = `http://127.0.0.1:${await freePort()}`;
+  const manualPort=process.env.PLAYER_DEMO_PORT ?? '3001';
+  if(playerDemo && !['3000','3001'].includes(manualPort))throw new Error('Puerto manual inválido.');
+  stage='puerto local disponible (detén tu dev habitual si ocupa el puerto elegido)';
+  baseUrl = `http://127.0.0.1:${await freePort(playerDemo?Number(manualPort):0)}`;
   childEnv = { ...process.env, DATABASE_URL: databaseUrl, DIRECT_URL: databaseUrl,
     NEXTAUTH_URL: baseUrl, NEXTAUTH_SECRET: randomBytes(48).toString('base64url'),
     NEXT_TELEMETRY_DISABLED: '1', AUTH_TEST_RUN: '1', AUTH_IDLE_TIMEOUT_MINUTES: '30',
     AUTH_MAX_FAILED_ATTEMPTS: '5', AUTH_LOCKOUT_MINUTES: '15', NODE_ENV: 'development' };
   delete childEnv.NEXTAUTH_URL_INTERNAL;
+  delete childEnv.PLAYER_DOCUMENT_STORAGE_REAL_TEST;
+  delete childEnv.PLAYER_DOCUMENT_TEST_POLICY;
+  delete childEnv.PLAYER_DOCUMENT_HTTP_BASE_URL;
+  delete childEnv.PLAYER_MANUAL_SCENARIOS;
+  delete childEnv.PLAYER_DEMO_ORIGIN;
+  delete childEnv.PLAYER_PARTICIPATIONS_ONLY;
+  delete childEnv.PLAYER_PARTICIPATIONS_HTTP_BASE_URL;
+  if(playerParticipations){childEnv.PLAYER_PARTICIPATIONS_ONLY='1';childEnv.PLAYER_PARTICIPATIONS_HTTP_BASE_URL=baseUrl;
+    if(process.env.PLAYER_PARTICIPATIONS_KEEP_SERVER==='1')childEnv.PLAYER_PARTICIPATIONS_MANIFEST=join(tmpdir(),`pdgld-participations-${randomBytes(8).toString('hex')}.json`);
+  }
   // Las suites automatizadas nunca usan el Storage real configurado en .env.
   // La demostración manual conserva su configuración explícita.
   if (!process.argv.includes('--demo')) {
+    // Prohibido consumir Verificamex durante las suites automatizadas, aun con .env configurado.
+    // Vacío explícito evita que Next vuelva a cargar la clave desde .env.local.
+    childEnv.VMX_API_KEY='';
     childEnv.SUPABASE_URL = 'https://storage.example.test';
     childEnv.SUPABASE_STORAGE_SERVER_KEY = 'test-only-no-real-storage';
+  }
+  if(playerDemo){
+    stage='configuración del entorno manual aislado';
+    delete childEnv.AUTH_TEST_RUN;
+    childEnv.PLAYER_MANUAL_SCENARIOS='1';
+    childEnv.PLAYER_DEMO_LOCAL_URL=baseUrl;
+    childEnv.PLAYER_DEMO_SESSION_FILE=join(tmpdir(),`pdgld-player-manual-${randomBytes(8).toString('hex')}.json`);
+    if(process.env.PLAYER_DEMO_ORIGIN){
+      const origin=new URL(process.env.PLAYER_DEMO_ORIGIN);
+      const forwardedPort=origin.hostname.match(/-(3000|3001)\./)?.[1];
+      if(origin.protocol!=='https:' || origin.username || origin.password || origin.pathname!=='/' || origin.hash || origin.search || (forwardedPort && forwardedPort!==manualPort))throw new Error('Origen manual inválido: el enlace HTTPS debe coincidir con el puerto elegido.');
+      childEnv.NEXTAUTH_URL=origin.origin;
+      childEnv.PLAYER_DEMO_ORIGIN=origin.origin;
+    }
+    if(process.env.PLAYER_DEMO_SMOKE!=='1'){
+      const {readPlayerDocumentTestConfiguration}=await import('./verification/player-document-test-config.mjs');
+      Object.assign(childEnv,await readPlayerDocumentTestConfiguration());
+      const local=dotenv.parse(await readFile(new URL('../.env.local',import.meta.url),'utf8'));
+      if(!local.VMX_API_KEY?.trim())throw new Error('Falta VMX_API_KEY para prueba humana.');
+      childEnv.VMX_API_KEY=local.VMX_API_KEY;
+    }
+  }
+  if(documentStorageTest){
+    Object.assign(childEnv,documentStorageTest);
+    childEnv.PLAYER_DOCUMENT_STORAGE_REAL_TEST='1';
+    childEnv.PLAYER_DOCUMENT_HTTP_BASE_URL=baseUrl;
+    childEnv.PLAYER_DOCUMENT_TEST_POLICY=JSON.stringify({referenceDate:'2026-01-01',opensAt:new Date(Date.now()-60000).toISOString(),closesAt:new Date(Date.now()+3600000).toISOString()});
+    childEnv.PLAYER_DOCUMENT_TEST_MANIFEST=fileURLToPath(new URL(`player-documents-${databaseName}.json`,new URL(`file:///${process.env.TEMP.replaceAll('\\','/')}/`)));
+    console.log(`Manifiesto privado de objetos sintéticos: ${childEnv.PLAYER_DOCUMENT_TEST_MANIFEST}`);
   }
   if (process.argv.includes('--benchmark-options')) {
     childEnv.ACCOUNT_OPTIONS_METRICS = '1';
     childEnv.NODE_OPTIONS = `${childEnv.NODE_OPTIONS ?? ''} --import=${new URL('../tests/integration/account-options-metrics.mjs', import.meta.url).href}`.trim();
   }
   stage = 'aplicación de migraciones en base temporal';
-  console.log('PDGLD-48: preparando PostgreSQL temporal y servidor local.');
+  console.log(process.argv.includes('--players')
+    ? 'PDGLD-97: preparando PostgreSQL temporal, sin servidor HTTP ni proveedor externo.'
+    : 'PDGLD-48: preparando PostgreSQL temporal y servidor local.');
   await command(['node_modules/prisma/build/index.js', 'migrate', 'deploy'], childEnv);
   if (previewRuntime) {
     stage = 'provisión del runtime limitado con RLS';
@@ -235,13 +306,45 @@ try {
     childEnv.DIRECT_URL = runtimeUrl.href;
     delete childEnv.DATABASE_CA_CERT;
   }
-  if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments') || process.argv.includes('--competitions')) {
+  if (process.argv.includes('--affiliations') || process.argv.includes('--team-enrollments') || process.argv.includes('--competitions') || process.argv.includes('--players') || playerParticipations || documentStorageTest) {
     stage = 'comparación de migraciones y esquema';
     await command(['node_modules/prisma/build/index.js', 'migrate', 'diff', '--from-config-datasource', '--to-schema', 'prisma/schema.prisma', '--exit-code'], childEnv, true);
   }
   stage = 'inicio de Next.js';
-  await startServer();
-  if (process.argv.includes('--demo') || process.argv.includes('--affiliation-demo')) {
+  if(playerDemo){
+    stage='fixtures de prueba manual';
+    await command(['--conditions=react-server','--import','tsx','scripts/verification/prepare-player-manual.mts'],childEnv,true);
+    manualFixturePrepared=true;
+    stage='inicio de Next.js manual';
+  }
+  if (!process.argv.includes('--players')) await startServer();
+  if(playerDemo){
+    console.log(`Prueba manual aislada: ${childEnv.NEXTAUTH_URL}/login`);
+    console.log(`Cuentas y contextos en archivo privado: ${childEnv.PLAYER_DEMO_SESSION_FILE}`);
+    console.log('CURP e INE: solo una acción humana explícita consulta al proveedor. No hay consultas automáticas.');
+    console.log('Los archivos de Storage no se eliminan al cerrar. Enter o Ctrl+C cierra únicamente este servidor y su BD temporal.');
+    if(process.env.PLAYER_DEMO_SMOKE==='1'){
+      stage='comprobación HTTP sintética de inicio, acceso y escenarios';
+      await command(['--conditions=react-server','--import','tsx','scripts/verification/player-manual-smoke.mts'],{...childEnv,PLAYER_DEMO_LOCAL_URL:baseUrl},true);
+    }else await new Promise(resolve=>{
+      const finish=()=>{process.stdin.removeListener('data',finish);process.stdin.removeListener('end',finish);process.stdin.pause();resolve();};
+      if(process.stdin.readableEnded){resolve();return;}
+      process.stdin.once('data',finish);process.stdin.once('end',finish);process.stdin.resume();
+    });
+  } else if (process.argv.includes('--players') || playerParticipations || documentStorageTest) {
+    stage = 'integridad y permisos del servicio de jugadores en PostgreSQL temporal';
+    await command(['--conditions=react-server', '--import', 'tsx', '--test',
+      'tests/integration/player-registrations.test.ts'], childEnv, true);
+    if(playerParticipations && childEnv.PLAYER_PARTICIPATIONS_MANIFEST){
+      console.log(`Entrega 1: servidor de revisión sintético ${baseUrl}; accesos e identificadores en archivo privado ${childEnv.PLAYER_PARTICIPATIONS_MANIFEST}`);
+      console.log('Sin proveedores reales. Enter o Ctrl+C detiene el servidor y elimina solo esta base temporal.');
+      await new Promise(resolve=>{const finish=()=>{process.stdin.removeListener('data',finish);process.stdin.removeListener('end',finish);process.stdin.pause();resolve();};process.stdin.once('data',finish);process.stdin.once('end',finish);process.stdin.resume();});
+    }
+    if(documentStorageTest && process.env.PLAYER_DOCUMENT_KEEP_SERVER==='1'){
+      console.log('Servidor aislado disponible para revisión. Los accesos sintéticos están en el archivo privado .session.json junto al manifiesto. Enter o Ctrl+C cierra y elimina solo la BD temporal.');
+      await new Promise(resolve=>{process.stdin.once('data',resolve);process.stdin.once('end',resolve);process.stdin.resume();});
+    }
+  } else if (process.argv.includes('--demo') || process.argv.includes('--affiliation-demo')) {
     stage = 'carga de datos sintéticos';
     const client = new pg.Client({ connectionString: databaseUrl });
     await client.connect();
@@ -365,7 +468,7 @@ try {
     'Las pruebas solo aceptan PostgreSQL loopback en puertos 5432/5433.',
     'DIRECT_URL contiene parámetros no permitidos para pruebas locales.',
     'Detén el servidor npm run dev antes de ejecutar estas pruebas.',
-    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --preview-competitions | --competitions].',
+    'Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --preview-competitions | --competitions | --players | --documents-real].',
     'Next.js no quedó disponible para las pruebas locales.',
   ]);
   console.error(safeMessages.has(error.message) ? error.message : `No se completó la fase: ${stage}.`);

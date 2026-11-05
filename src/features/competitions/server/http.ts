@@ -1,4 +1,5 @@
 import "server-only";
+import {requireOperationalUser} from "@/server/auth/session";
 import { AuthAccessError } from "@/server/auth/session";
 import { AuthorizationError } from "@/server/auth/authorization";
 import { CompetitionError } from "./configuration";
@@ -10,6 +11,8 @@ export function competitionFailure(error: unknown) {
   return Response.json({ code: "SERVICE_UNAVAILABLE" }, { status: 503, headers: competitionHeaders });
 }
 export async function readCompetitionBody(request: Request): Promise<unknown> {
+  const expected=request.headers.get("X-Expected-Actor-Id");
+  if(expected && (await requireOperationalUser()).id!==expected)throw new AuthorizationError();
   let origin: string;
   try { origin = new URL(process.env.NEXTAUTH_URL ?? "").origin; }
   catch { throw new CompetitionError("SERVICE_UNAVAILABLE", 503); }

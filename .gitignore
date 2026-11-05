@@ -16,12 +16,15 @@
 # next.js
 /.next/
 /.next-auth-tests/
+/.next-player-manual/
 /out/
 
 # production
 /build
 
 # misc
+/.codex-attachments/
+/.codex-remote-attachments/
 .DS_Store
 *.pem
 

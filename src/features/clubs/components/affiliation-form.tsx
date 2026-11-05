@@ -216,7 +216,7 @@ function AffiliationFormContent({
   }
 
   function selectSignature(office: Office, file: File | undefined) {
-    if (!submissionContext || operationLock.current || frozen) return;
+    if (!submissionContext?.storageOrigin || operationLock.current || frozen) return;
 
     delete tasks.current[office];
     updateSignature(office, { message: "Firma pendiente." });
@@ -440,6 +440,10 @@ function invalidateSignatureForOfficer(name: string) {
           <p className="whitespace-pre-wrap wrap-break-word">{correction.observations}</p>
           <p className="text-sm">El reenvío conserva el folio y el historial. Puedes conservar las firmas registradas o reemplazarlas.</p>
         </div>}
+        {submissionContext && !submissionContext.storageOrigin && <p role="status" className="mt-3 rounded-xl border border-border p-3 text-sm leading-6">
+          La carga de firmas no está disponible en este momento. Puedes completar los datos;
+          si faltan firmas, será necesario habilitar su carga antes de reenviar.
+        </p>}
         <p className="mt-3 rounded-xl bg-soft p-3 text-sm leading-6">
           {correction ? "Revisa los datos solicitados y confirma las firmas antes de reenviar." : submissionContext
             ? "Captura y confirma las tres firmas. Cada captura se carga y valida antes de enviar la solicitud."
@@ -518,7 +522,8 @@ function invalidateSignatureForOfficer(name: string) {
             </div>
           ) : (
             <p className="mt-4 rounded-xl border border-border p-4 text-sm">
-              No hay categorías disponibles para esta selección.
+              Esta temporada no tiene categorías habilitadas. Secretaría debe configurarlas
+              antes de que puedas seleccionar una categoría y enviar la solicitud.
             </p>
           )}
 

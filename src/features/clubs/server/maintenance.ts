@@ -10,6 +10,20 @@ export class MaintenanceError extends Error {
   constructor(public readonly code: string) { super(code); }
 }
 
+/** Capacidad para navegación: no cargar filas, relaciones ni historial del listado. */
+export async function canAccessClubMaintenance() {
+  const actor=await requireOperationalUser();
+  return getPrisma().$transaction(async tx=>{
+    const grants=await getPermissionGrants(tx,actor.id,"clubs","READ");
+    const scopes:Prisma.clubsWhereInput[]=grants.flatMap(grant=>
+      grant.contextOnly && !grant.clubId && !grant.leagueId ? [] :
+      [{...(grant.clubId?{id:grant.clubId}:{}),...(grant.leagueId?{league_id:grant.leagueId}:{})}]);
+    if(!scopes.length)return false;
+    return (await tx.leagues.count({where:{is_active:true,
+      ...(grants.some(g=>!g.contextOnly && !g.clubId && !g.leagueId)?{}:{clubs:{some:{OR:scopes}}})}}))>0;
+  });
+}
+
 // Alcance obtenido de registros reales. Este servicio permite consultar/reactivar
 // inactivos sin relajar la autorización operativa de los demás módulos.
 function covers(grants: PermissionGrant[], club: { id: string; league_id: string }) {

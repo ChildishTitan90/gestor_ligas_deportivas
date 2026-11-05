@@ -46,7 +46,7 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
   return <div className="mx-auto max-w-5xl space-y-6 p-6">
     <ActionLink href="/competitions/seasons" variant="secondary">Volver a temporadas</ActionLink>
     <h1 className="text-2xl font-semibold">{season.name}</h1><p>Configuración · Versión de temporada {season.version}</p>
-    <nav aria-label="Secciones de configuración" className="flex flex-wrap gap-3"><ActionLink href="#season-rules" variant="secondary">Reglas</ActionLink><ActionLink href="#season-categories" variant="secondary">Categorías y grupos</ActionLink></nav>
+    <nav aria-label="Secciones de configuración" className="flex flex-wrap gap-3"><ActionLink variant="secondary" href={`/competitions/seasons/${id}/player-pathways`}>Categorías que permiten subir</ActionLink><ActionLink href="#season-rules" variant="secondary">Reglas</ActionLink><ActionLink href="#season-categories" variant="secondary">Categorías y grupos</ActionLink></nav>
     {season.status === "PLANNED" && <p className="rounded-xl border border-border bg-surface p-4">Preparación de la temporada: crea una versión de reglas, crea las categorías en el catálogo y asócialas a esta temporada. Después configura las reglas de jugadores de cada categoría, incluidos los jugadores en cancha y los convocados. Las categorías del catálogo solo estarán disponibles para afiliación cuando estén asociadas a la temporada.</p>}
     {season.status === "CLOSED" && <p role="status">Temporada cerrada. La configuración se conserva para consulta.</p>}
     <p>Inscripciones de equipos: {season.teamRegistrationClosed || season.status === "CLOSED" ? "Cerradas" : "Abiertas"}</p>
@@ -85,10 +85,11 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
       {!data.categories.items.length && <p>No hay categorías asociadas.</p>}
       {data.categories.items.map((category, index) => {
         const endpoint = `${base}/categories/${category.id}`;
-        return <article key={category.id} className="space-y-4 rounded-2xl border border-border bg-surface p-5"><h3 className="text-lg font-semibold">{category.name}</h3>
+        return <article id={`category-${category.id}`} key={category.id} className="space-y-4 rounded-2xl border border-border bg-surface p-5"><h3 className="text-lg font-semibold">{category.name}</h3>
           <p>Reglas: versión {rules.find(rule => rule.id === category.ruleId)?.version ?? "no disponible"} · {category.format === "GENERAL_TABLE" ? "Tabla general" : category.format === "GROUP_STAGE" ? "Fase de grupos" : "Grupos existentes"}</p>
           {category.eligibilityPending && <p>Elegibilidad pendiente de configurar. Esta asociación no habilita por sí sola el registro de jugadores.</p>}
           <PlayerPolicySummary value={category.playerPolicy} />
+          <ActionLink variant="secondary" href={`${base.replace("/api", "")}/categories/${category.id}/documents`}>Editar política documental</ActionLink>
           {!category.playerPolicy && <p>Sin reglas de jugadores guardadas: falta definir edades, documentos, días de registro, jugadores en cancha y convocados para esta categoría.</p>}
           {editable && <>
             <ConfigurationForm key={`edit-category-${category.id}-${season.version}`} modal title={`Editar categoría ${category.name}`} endpoint={endpoint} method="PATCH" version={season.version} numbers={["hierarchyOrder"]}>

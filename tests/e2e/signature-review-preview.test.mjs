@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createServer } from 'node:http';
 import { build } from 'esbuild';
-import { launchChrome } from './chrome-session.mjs';
+import { launchChrome, closeTestServer } from './chrome-session.mjs';
 
 // Componente React real, imagen sintética y perfil temporal de Chrome.
 // No autentica usuarios ni consulta Supabase/PostgreSQL.
@@ -45,9 +45,11 @@ test('PDGLD-109: vista previa privada de firmas en revisión', { timeout: 60000 
     } else { response.writeHead(404); response.end(); }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => closeTestServer(server));
   let browser;
   try {
-    browser = await launchChrome(`http://127.0.0.1:${server.address().port}`);
+    browser = await launchChrome(`http://127.0.0.1:${server.address().port}`, { signal: t.signal, commandTimeoutMs: 15000, waitForDocument: true });
+    t.after(() => browser.close());
     const evaluate = value => browser.evaluate(value);
     let ready = false;
     for (let attempt = 0; attempt < 50; attempt++) {
@@ -93,6 +95,5 @@ test('PDGLD-109: vista previa privada de firmas en revisión', { timeout: 60000 
     });
   } finally {
     await browser?.close();
-    await new Promise(resolve => server.close(resolve));
   }
 });

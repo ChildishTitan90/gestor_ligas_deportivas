@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createServer } from 'node:http';
 import { build } from 'esbuild';
-import { launchChrome } from './chrome-session.mjs';
+import { launchChrome, closeTestServer } from './chrome-session.mjs';
 
 // React y canvas reales en Chrome; solo next/image se sustituye por un img.
 // Sin NextAuth, servicios de servidor, PostgreSQL ni Supabase.
@@ -54,10 +54,12 @@ test('PDGLD-109: captura directa en Chrome con perfil temporal', { timeout: 9000
     }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => closeTestServer(server));
   let browser;
   const runtimeErrors = [];
   try {
-    browser = await launchChrome(`http://127.0.0.1:${server.address().port}`);
+    browser = await launchChrome(`http://127.0.0.1:${server.address().port}`, { signal: t.signal, commandTimeoutMs: 15000, waitForDocument: true });
+    t.after(() => browser.close());
     browser.socket.addEventListener('message', event => {
       const message = JSON.parse(event.data);
       if (message.method === 'Runtime.exceptionThrown') runtimeErrors.push(message.params);
@@ -90,6 +92,9 @@ test('PDGLD-109: captura directa en Chrome con perfil temporal', { timeout: 9000
         });
       }
       await browser.command('Input.dispatchMouseEvent', { type: 'mouseReleased', x: start.x + box.w * 0.6, y: start.y + box.h * 0.4, button: 'left', buttons: 0, clickCount: 1 });
+      // signature_pad throttles movement. Flush its trailing event before resize;
+      // otherwise the fixture can resize between the last input and its rendering.
+      await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
     }
     // Límites de tinta normalizados: comprueba la geometría, no solo la imagen CSS.
     async function inkBounds() {
@@ -177,6 +182,5 @@ assert.equal(ready, true, 'El componente no terminó de cargar en Chrome');
     });
   } finally {
     await browser?.close();
-    await new Promise(resolve => server.close(resolve));
   }
 });

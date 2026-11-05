@@ -3,16 +3,27 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { readMigrations } from './migration-helpers.mjs';
-import { AFFILIATION_PLAN, ENROLLMENT_PLAN, DISTRIBUTION_PLAN, assertProductionPlan, sqlChecksum } from './production-plans.mjs';
+import { AFFILIATION_PLAN, ENROLLMENT_PLAN, CURP_PLAN, DISTRIBUTION_PLAN, assertProductionPlan, sqlChecksum } from './production-plans.mjs';
 
 const directory = fileURLToPath(new URL('../../prisma/migrations/', import.meta.url));
 const readSql = name => readFileSync(`${directory}/${name}/migration.sql`, 'utf8');
-const allMigrations = readMigrations(directory);
+const repositoryMigrations = readMigrations(directory);
+const participationMigration = '20261104020000_pdgld13_category_participations';
+// Los positivos son fixtures de los planes históricos aprobados. La nueva tabla
+// permanece fuera de esos fixtures y se comprueba como bloqueo en su propio caso.
+const currentMigrations = new Map([...repositoryMigrations].filter(([name]) => name < participationMigration));
+const allMigrations = new Map([...currentMigrations].filter(([name]) => name !== CURP_PLAN.migration));
 const operationsMigration = '20261026010000_pdgld64_enrollment_operations';
 // Los casos del plan aprobado PDGLD-57 conservan sus entradas originales.
 // Aislar PDGLD-57 conserva todos los casos de su plan original.
 const migrations = new Map([...allMigrations].filter(([name]) => name !== operationsMigration));
 const applied = new Set(['0_init']);
+
+test('PDGLD-13 entrega 1: las participaciones nuevas siguen bloqueadas para producción sin plan aprobado', () => {
+  assert.ok(repositoryMigrations.has(participationMigration));
+  assert.throws(() => assertProductionPlan(repositoryMigrations, applied, readSql),
+    /20261104020000_pdgld13_category_participations.*plan de seguridad/);
+});
 
 test('PDGLD-38 autoriza solo la tabla temporal de la migración exacta y rechaza alteraciones', () => {
   assert.equal(sqlChecksum(readSql(DISTRIBUTION_PLAN.migration)), DISTRIBUTION_PLAN.checksum);
@@ -28,7 +39,7 @@ test('PDGLD-64 acepta solo el original revisado, incluso con CRLF', () => {
   assert.equal(sqlChecksum(readSql(operationsMigration)), ENROLLMENT_PLAN.checksum);
   for (const eol of ['\n', '\r\n']) {
     assert.deepEqual(assertProductionPlan(allMigrations, applied, n => readSql(n).replace(/\r?\n/g, eol)),
-      { pendingCreation: true, pendingEnrollmentCreation: true });
+      { pendingCreation: true, pendingEnrollmentCreation: true, pendingCurpCreation: false });
   }
 });
 test('PDGLD-64 rechaza checksum alterado pendiente y ya aplicado', () => {
@@ -39,16 +50,16 @@ test('PDGLD-64 rechaza checksum alterado pendiente y ya aplicado', () => {
 });
 test('PDGLD-64 admite el pendiente con PDGLD-57 aplicado y el reintento actualizado', () => {
   assert.deepEqual(assertProductionPlan(allMigrations, new Set(migrations.keys()), readSql),
-    { pendingCreation: false, pendingEnrollmentCreation: true });
+    { pendingCreation: false, pendingEnrollmentCreation: true, pendingCurpCreation: false });
   assert.deepEqual(assertProductionPlan(allMigrations, new Set(allMigrations.keys()), readSql),
-    { pendingCreation: false, pendingEnrollmentCreation: false });
+    { pendingCreation: false, pendingEnrollmentCreation: false, pendingCurpCreation: false });
 });
 
 test('autoriza únicamente la migración PDGLD-57 exacta con su protección posterior', () => {
-  assert.deepEqual(assertProductionPlan(migrations, applied, readSql), { pendingCreation: true, pendingEnrollmentCreation: false });
+  assert.deepEqual(assertProductionPlan(migrations, applied, readSql), { pendingCreation: true, pendingEnrollmentCreation: false, pendingCurpCreation: false });
 });
 test('el checksum revisado tolera finales de línea de Windows sin alterar el SQL', () => {
-  assert.deepEqual(assertProductionPlan(migrations, applied, name => readSql(name).replace(/\r?\n/g, '\r\n')), { pendingCreation: true, pendingEnrollmentCreation: false });
+  assert.deepEqual(assertProductionPlan(migrations, applied, name => readSql(name).replace(/\r?\n/g, '\r\n')), { pendingCreation: true, pendingEnrollmentCreation: false, pendingCurpCreation: false });
 });
 test('rechaza cambios al SQL autorizado, incluso si conservan el mismo nombre', () => {
   assert.throws(() => assertProductionPlan(migrations, applied, name => readSql(name) + (name === AFFILIATION_PLAN.migration ? '\n-- cambio' : '')), /checksums/);
@@ -67,5 +78,15 @@ test('no autoriza otra tabla ni desactivar RLS en migraciones futuras', () => {
 test('conserva el orden y permite reintentar cuando todas están aplicadas', () => {
   const unordered = new Map([...migrations].reverse());
   assert.throws(() => assertProductionPlan(unordered, applied, readSql), /en orden/);
-  assert.deepEqual(assertProductionPlan(migrations, new Set(migrations.keys()), readSql), { pendingCreation: false, pendingEnrollmentCreation: false });
+  assert.deepEqual(assertProductionPlan(migrations, new Set(migrations.keys()), readSql), { pendingCreation: false, pendingEnrollmentCreation: false, pendingCurpCreation: false });
+});
+
+test('PDGLD-97 exige el SQL exacto, con LF/CRLF, y valida checksum incluso ya aplicado', () => {
+  assert.equal(sqlChecksum(readSql(CURP_PLAN.migration)), CURP_PLAN.checksum);
+  for (const eol of ['\n','\r\n'])
+    assert.equal(assertProductionPlan(currentMigrations, applied, name => readSql(name).replace(/\r?\n/g,eol)).pendingCurpCreation, true);
+  for (const history of [applied, new Set(currentMigrations.keys())])
+    assert.throws(() => assertProductionPlan(currentMigrations, history,
+      name => readSql(name) + (name === CURP_PLAN.migration ? '\n-- cambiado' : '')), /PDGLD-97.*checksum/);
+  assert.equal(assertProductionPlan(currentMigrations, new Set(currentMigrations.keys()), readSql).pendingCurpCreation, false);
 });
