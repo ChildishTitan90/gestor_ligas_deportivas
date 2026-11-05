@@ -434,6 +434,17 @@ test('temporadas selecciona la suite completa de forma explícita y conserva ais
   }
 });
 
+test('Preview Prisma exige identidad limitada y no acepta la conexión propietaria', async () => {
+  const { validateAccountProvisioningTarget } = await import('../verification/account-provisioning-entry.mjs');
+  for (const major of [15, 17]) {
+    const target = { databaseUrl: `postgresql://gestor_ligas_preview@127.0.0.1:${55400+major}/pdgld48_test_0123456789abcd${major}`,
+      baseUrl: `http://127.0.0.1:${56500+major}`, suite: 'preview-prisma-account' };
+    assert.equal(validateAccountProvisioningTarget(target).suite, 'preview-prisma-account');
+    assert.throws(() => validateAccountProvisioningTarget({ ...target, databaseUrl: target.databaseUrl.replace('gestor_ligas_preview', 'postgres') }));
+    assert.throws(() => validateAccountProvisioningTarget({ ...target, suite: 'accounts' }));
+  }
+});
+
  test('mantenimiento reutiliza instalación independiente y restringe la suite IPC', async () => {
   const { validateAccountProvisioningTarget } = await import('../verification/account-provisioning-entry.mjs');
   assert.equal(parseDelegateArguments(['--run-id',runId,'--account-maintenance']).accountMode,'maintenance');

@@ -63,7 +63,8 @@ const insert = {
   team_enrollment_operations: ['actor_id', 'enrollment_key', 'club_id', 'fingerprint', 'outcome', 'enrollment_id', 'finalized_at'],
   // PDGLD-107: finite initial assignments need INSERT ends_at, never UPDATE.
   user_roles: ['user_id', 'role_id', 'league_id', 'club_id', 'starts_at', 'delegate_position', 'ends_at'],
-  users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at'],
+  // PDGLD-118: Prisma materializa @default(0); el alta necesita INSERT, no UPDATE.
+  users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at', 'maintenance_revision'],
 };
 const update = {
   player_category_participations:['status','version','eligibility_fingerprint','review_event_id'],

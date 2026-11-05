@@ -69,7 +69,7 @@ process.once('message', async config => {
     }
     diagnosticContext.stage = 'application-copy';
     const root = fileURLToPath(new URL('../../', import.meta.url));
-    app = await createAccountAppCopy(root, applicationPlan.app, { dependencies: applicationPlan.dependencies, verification: ['accounts', 'seasons', 'maintenance'].includes(config.verificationMode) });
+    app = await createAccountAppCopy(root, applicationPlan.app, { dependencies: applicationPlan.dependencies, verification: ['accounts', 'seasons', 'maintenance', 'preview'].includes(config.verificationMode) });
     if (applicationPlan.dependencies === 'independent') {
       diagnosticContext.case = 'dependency-installation';
       await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
@@ -126,6 +126,14 @@ process.once('message', async config => {
     diagnosticContext.safeValues = false;
     diagnosticContext.stage = 'account-verification';
     controller.signal.throwIfAborted();
+    if (config.verificationMode === 'preview') {
+      diagnosticContext.case = 'preview-prisma-account';
+      await runAccountProvisioningSuite({ databaseUrl: databaseUrl.href, baseUrl,
+        suite: 'preview-prisma-account' }, { signal: controller.signal, application: applicationPlan });
+      await writeFile(`${applicationPlan.evidence}/preview-prisma-account-suite.json`,
+        JSON.stringify({ suite: 'tests/integration/preview-prisma-account.mjs', passed: true }, null, 2),
+        { flag: 'wx', mode: 0o600 });
+    }
     if (['accounts', 'seasons', 'maintenance'].includes(config.verificationMode)) {
       const seasons = config.verificationMode === 'seasons';
       const maintenance = config.verificationMode === 'maintenance';
@@ -145,6 +153,7 @@ process.once('message', async config => {
         profileDirectory: `${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/chrome-pg${config.major}`,
         artifactsDirectory: `${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/evidence-pg${config.major}`, diagnosticContext });
     } else {
+      diagnosticContext.case = 'account-delegate-http';
       const concurrentChecks = await verifyAccountDelegateHTTP({ db, baseUrl, fixture,
         concurrentPositions: config.verificationMode === 'http' });
       if (config.verificationMode === 'http') {

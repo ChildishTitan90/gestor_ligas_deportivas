@@ -3,6 +3,7 @@ import { fork } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { independentInstallPlan } from './account-independent-dependencies.mjs';
 import { childEnvironment } from '../ci/delegate-isolated-runtime.mjs';
+import { PREVIEW_ROLE } from '../preview/runtime-plan.mjs';
 
 // No .env, database import or connection before checking the exact isolated target.
 export function validateAccountProvisioningTarget(config) {
@@ -10,13 +11,13 @@ export function validateAccountProvisioningTarget(config) {
   assert.ok(['postgres:', 'postgresql:'].includes(target.protocol));
   assert.equal(target.hostname, '127.0.0.1');
   assert.ok(['55415', '55417'].includes(target.port));
-  assert.equal(target.username, 'postgres');
   assert.match(target.pathname, /^\/pdgld48_test_[a-f0-9]{16}$/);
   assert.ok(target.pathname.endsWith(target.port.slice(-2)));
   assert.equal(target.search + target.hash, '');
   assert.equal(config.baseUrl, `http://127.0.0.1:${56500 + Number(target.port.slice(-2))}`);
   const suite = config.suite ?? 'accounts';
-  assert.ok(['accounts', 'seasons', 'maintenance'].includes(suite));
+  assert.ok(['accounts', 'seasons', 'maintenance', 'preview-prisma-account'].includes(suite));
+  assert.equal(target.username, suite === 'preview-prisma-account' ? PREVIEW_ROLE : 'postgres');
   return { databaseUrl: target.href, baseUrl: config.baseUrl, suite };
 }
 
@@ -43,7 +44,7 @@ export function runAccountProvisioningSuite(config, { signal, application } = {}
       clearTimeout(force); signal?.removeEventListener('abort', stop);
       if (code === 0 && completed && !cancelled) resolve();
       else {
-        const code = target.suite === 'maintenance' ? 'ACCOUNT_MAINTENANCE_FAILED' : target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
+        const code = target.suite === 'preview-prisma-account' ? 'PREVIEW_PRISMA_ACCOUNT_FAILED' : target.suite === 'maintenance' ? 'ACCOUNT_MAINTENANCE_FAILED' : target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
         reject(Object.assign(new Error(code), { code }));
       }
     });
@@ -56,7 +57,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   process.once('message', async config => {
     try {
       const target = validateAccountProvisioningTarget(config);
-      if (target.suite === 'maintenance') {
+      if (target.suite === 'preview-prisma-account') {
+        const { verifyPreviewPrismaAccountCreation } = await import('../../tests/integration/preview-prisma-account.mjs');
+        await verifyPreviewPrismaAccountCreation(target);
+      } else if (target.suite === 'maintenance') {
         const { runAccountMaintenanceSuite } = await import('../../tests/integration/account-maintenance.test.mjs');
         await runAccountMaintenanceSuite(target);
       } else if (target.suite === 'seasons') {
