@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 
 /** Cámara local: nunca transmite el stream ni solicita audio. Solo entrega una foto al padre. */
-export function DevicePhotoCamera({ selfie, onCapture, captureLabel }: { selfie: boolean; onCapture: (file: File) => void; captureLabel?:string }) {
+export function DevicePhotoCamera({ selfie, onCapture, captureLabel,compact=false }: { selfie: boolean; onCapture: (file: File) => void; captureLabel?:string;compact?:boolean }) {
   const video = useRef<HTMLVideoElement>(null), stream = useRef<MediaStream | null>(null);
   const generation = useRef(0), mounted = useRef(false), opening = useRef(false), taking = useRef(false);
   const [mode, setMode] = useState<"IDLE" | "OPENING" | "LIVE" | "CAPTURING">("IDLE");
@@ -73,14 +73,14 @@ export function DevicePhotoCamera({ selfie, onCapture, captureLabel }: { selfie:
     }
   }
   return <div className="ine-device-camera space-y-3">
-    <p className="font-semibold">Cámara del dispositivo</p>
-    <p className="text-sm text-muted">{selfie ? "Se solicitará la cámara frontal si está disponible." : "Se solicitará la cámara trasera si está disponible."} Solo se usa video, sin micrófono. La imagen permanece aquí hasta el envío final.</p>
+    {!compact && <><p className="font-semibold">Cámara del dispositivo</p>
+    <p className="text-sm text-muted">{selfie ? "Se solicitará la cámara frontal si está disponible." : "Se solicitará la cámara trasera si está disponible."} Solo se usa video, sin micrófono. La imagen permanece aquí hasta el envío final.</p></>}
     <div className="ine-live-frame" hidden={mode !== "LIVE" && mode !== "CAPTURING"}>
       <video ref={video} autoPlay playsInline muted aria-label={captureLabel ?? (selfie ? "Vista en vivo para selfie" : "Vista en vivo para INE")} onLoadedData={() => setReady(true)} onCanPlay={() => setReady(true)} />
       <span aria-hidden="true" className={`ine-live-outline${selfie ? " ine-live-outline-selfie" : ""}`} />
     </div>
     <div className="flex flex-wrap gap-3">
-      {mode === "IDLE" ? <button type="button" className={button} onClick={() => void start()}>Activar cámara</button> : <>
+      {mode === "IDLE" ? <button type="button" className={button} onClick={() => void start()}>{compact?"Tomar foto":"Activar cámara"}</button> : <>
         {(mode === "LIVE" || mode === "CAPTURING") && <button type="button" className="primary-action min-h-12 rounded-xl px-5 py-3 disabled:opacity-50" disabled={!ready || mode === "CAPTURING"} onClick={() => void capture()}>{mode === "CAPTURING" ? "Tomando foto…" : "Tomar esta foto"}</button>}
         <button type="button" className={button} onClick={stop}>{mode === "OPENING" ? "Cancelar activación" : "Apagar cámara"}</button>
       </>}

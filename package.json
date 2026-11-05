@@ -16,6 +16,8 @@
     "fsevents": false
   },
   "scripts": {
+    "test:club-maintenance-input": "node --import tsx --test src/features/clubs/maintenance.test.ts",
+    "test:club-maintenance": "npm run test:club-maintenance-input && node scripts/test-auth.mjs --club-maintenance",
     "test:competitions": "node --import tsx --test src/features/competitions/player-policy.test.ts && node scripts/test-auth.mjs --competitions",
     "test:competition-ui": "node --test tests/e2e/competition-configuration.test.mjs",
     "dev": "next dev",
@@ -37,12 +39,13 @@
     "preview:maintain": "node scripts/preview/maintain.mjs",
     "test:database-config": "node --conditions=react-server --import tsx --test src/server/db/connection-options.test.ts",
     "test:player-identity": "node --import tsx --test src/features/players/identity-rules.test.ts",
-    "test:player-dossier": "node --import tsx --test src/features/players/document-rules.test.ts src/features/players/document-upload.client.test.ts",
+    "test:player-dossier": "node --import tsx --test src/features/players/document-rules.test.ts src/features/players/document-upload.client.test.ts src/features/players/school-documents.test.ts src/features/competitions/document-policy.test.ts",
     "test:player-document-storage": "node --conditions=react-server --import tsx --test src/features/players/server/supabase-document-storage.test.ts",
     "test:curp-provider": "node --conditions=react-server --import tsx --test src/features/players/server/verificamex-curp.test.ts",
     "test:ine-provider": "node --conditions=react-server --import tsx --test src/features/players/server/verificamex-ine.test.ts src/features/players/ine-identity-match.test.ts",
     "test:ine-browser": "node --test tests/e2e/ine-verification.test.mjs",
     "test:player-registrations": "node scripts/test-auth.mjs --players",
+    "test:player-participations": "node scripts/test-auth.mjs --player-participations",
     "verify:player-document-storage": "node scripts/test-auth.mjs --documents-real",
     "test:authorization": "node scripts/test-auth.mjs --authorization",
     "test:session-policy": "node --conditions=react-server --import tsx --test src/server/auth/session-policy.test.ts",
@@ -78,7 +81,9 @@
     "test:direct-signature": "node --test tests/e2e/direct-signature-browser.test.mjs",
     "test:browser-harness": "node --test tests/e2e/chrome-session.test.mjs",
     "test:signature-preview": "node --test tests/e2e/signature-review-preview.test.mjs",
-    "test:guardian-signature": "node --test tests/e2e/guardian-signature.test.mjs"
+    "test:guardian-signature": "node --test tests/e2e/guardian-signature.test.mjs",
+    "test:player-workspace": "node --test --test-concurrency=1 tests/e2e/player-workspace-review.test.mjs tests/e2e/player-dossier-upload.test.mjs tests/e2e/player-review-workspace.test.mjs tests/e2e/player-participation-workspace.test.mjs",
+    "players:demo": "node scripts/test-auth.mjs --player-demo"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

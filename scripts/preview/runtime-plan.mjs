@@ -5,7 +5,7 @@ export const PREVIEW_PROJECT = 'loaztwwpwsaqzdtdtvvj';
 export const PREVIEW_ROLE = 'gestor_ligas_preview';
 export const PREVIEW_MARKER = `PDGLD_PRUEBAS_ONLY=${PREVIEW_PROJECT}`;
 
-const read = ['audit_logs', 'authentication_events', 'categories', 'charges', 'club_affiliations',
+const read = ['player_category_levels','player_category_participations','sanctions','audit_logs', 'authentication_events', 'categories', 'charges', 'club_affiliations',
   'club_affiliation_categories', 'club_officers', 'clubs', 'correction_authorizations', 'disciplinary_cases',
   'document_requirements','document_types','player_documents','files', 'groups', 'leagues', 'match_events', 'match_reports', 'matches', 'payment_voids', 'payments',
   'people', 'permissions', 'player_registrations', 'player_status_history', 'player_curp_checks', 'referee_assignments', 'referees', 'role_permissions',
@@ -20,6 +20,7 @@ read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competitio
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
+  sanctions:['id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
   billing_plans: ['id', 'season_id'], club_team_changes: ['id', 'season_id'],
   // update() de aprobación devuelve todos los escalares, incluido file_id.
   competition_rules: ['id', 'season_id', 'version_number', 'status', 'created_at', 'file_id', 'approved_by', 'approved_at'],
@@ -33,6 +34,8 @@ const readColumns = {
   standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
 };
 const insert = {
+  player_category_levels:['season_category_id','season_id','pathway_code','level','configured_by'],
+  player_category_participations:['origin_registration_id','season_id','club_id','target_season_team_id','target_season_category_id','requested_by','request_key','request_hash','status','created_at','version'],
   // Prisma también materializa defaults escalares (now(), 0, 1, true) en INSERT.
   audit_logs: ['id','user_id', 'action', 'table_name', 'entity_id', 'previous_data', 'new_data', 'reason', 'occurred_at'],
   player_documents:['registration_id','document_type_id','file_id','status'],
@@ -45,7 +48,7 @@ const insert = {
     'club_name', 'uniform_colors', 'submission_key', 'submission_hash', 'review_version'],
   club_affiliation_categories: ['affiliation_id', 'season_id', 'category_id'],
   club_officers: ['affiliation_id', 'person_id', 'office', 'starts_at', 'signature_file_id'],
-  clubs: ['name', 'league_id', 'reference_number', 'status', 'created_at'],
+  clubs: ['name', 'league_id', 'reference_number', 'status', 'version', 'created_at'],
   files: ['id', 'storage_key', 'original_name', 'mime_type', 'size_bytes', 'sha256', 'uploaded_by', 'created_at'],
   groups: ['season_id', 'season_category_id', 'name'],
   leagues: ['name', 'timezone', 'is_active'],
@@ -55,7 +58,7 @@ const insert = {
   sessions: ['user_id', 'token_hash', 'created_at', 'last_activity_at', 'expires_at'],
   seasons: ['league_id', 'sport_id', 'name', 'start_date', 'end_date', 'status', 'version'],
   season_categories: ['season_id', 'category_id', 'competition_rule_id', 'hierarchy_order', 'type', 'eligibility_pending', 'competition_format'],
-  teams: ['club_id', 'name', 'reference_number', 'created_at'],
+  teams: ['club_id', 'name', 'reference_number', 'status', 'version', 'created_at'],
   season_teams: ['team_id', 'club_id', 'season_id', 'season_category_id', 'group_id', 'status', 'enrolled_by', 'enrolled_at', 'enrollment_key', 'enrollment_hash'],
   team_enrollment_operations: ['actor_id', 'enrollment_key', 'club_id', 'fingerprint', 'outcome', 'enrollment_id', 'finalized_at'],
   // PDGLD-107: finite initial assignments need INSERT ends_at, never UPDATE.
@@ -63,8 +66,12 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at'],
 };
 const update = {
+  player_category_participations:['status','version','eligibility_fingerprint','review_event_id'],
+  player_documents:['status','reviewed_by'],
   player_registrations:['status','identity_review_status'],
   player_curp_checks: ['status', 'mismatched_fields', 'finished_at'],
+  clubs: ['name', 'status', 'version'],
+  teams: ['name', 'status', 'version'],
   competition_rules: ['status', 'approved_by', 'approved_at'],
   competition_rule_parameters: ['requires_validation', 'validated_by'],
   club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version','submission_key','submission_hash'],
@@ -79,7 +86,7 @@ const update = {
   season_teams: ['group_id'],
   users: ['password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version'],
 };
-const remove = ['role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons'];
+const remove = ['role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons', 'clubs', 'teams'];
 const lock = ['document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
   'match_events', 'match_reports', 'matches', 'payments', 'people', 'permissions',
   'referee_assignments', 'referees', 'roles', 'schedule_proposals', 'season_categories', 'season_teams',
@@ -135,6 +142,10 @@ BEGIN
   -- No se cambia LOGIN, contraseña, atributos ni valores de conexión existentes.
   FOR spec IN SELECT * FROM (VALUES ${tables}) AS t(name,sel,ins,upd,del,locking) LOOP
     table_oid := format('sports_management.%I',spec.name)::regclass;
+    -- Una operación autorizada al backend nunca autoriza la misma ACL a PUBLIC.
+    IF EXISTS(SELECT 1 FROM pg_class c, LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
+      WHERE c.oid=table_oid AND acl.grantee=0)
+    THEN RAISE EXCEPTION 'PUBLIC tiene permisos de tabla en %',spec.name; END IF;
     IF EXISTS(SELECT 1 FROM pg_policy WHERE polrelid=table_oid
       AND (0=ANY(polroles) OR runtime_oid=ANY(polroles))
       AND polname NOT IN ('preview_backend_read','preview_backend_insert','preview_backend_update','preview_backend_delete','preview_backend_lock'))
@@ -201,7 +212,8 @@ BEGIN
         AND (0=ANY(polroles) OR runtime_oid=ANY(polroles)))
     THEN RAISE EXCEPTION 'Otra política permite modificar una tabla de solo bloqueo: %',spec.name; END IF;
   END LOOP;
-  GRANT EXECUTE ON FUNCTION sports_management.get_entity_season(text,uuid),sports_management.get_role_code(uuid) TO gestor_ligas_preview;
+  GRANT EXECUTE ON FUNCTION sports_management.get_entity_season(text,uuid),sports_management.get_role_code(uuid),sports_management.player_participation_now() TO gestor_ligas_preview;
+  GRANT EXECUTE ON FUNCTION sports_management.maintenance_has_references(text,uuid) TO gestor_ligas_preview;
   IF has_table_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     OR has_any_column_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,REFERENCES')
   THEN RAISE EXCEPTION 'Preview tiene acceso al ledger de Prisma'; END IF;

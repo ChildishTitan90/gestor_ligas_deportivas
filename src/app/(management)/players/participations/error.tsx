@@ -1,0 +1,2 @@
+"use client";
+export default function ErrorPage({reset}:{reset:()=>void}){return <section className="space-y-4"><h1 className="text-2xl font-semibold">Participaciones no disponibles</h1><p role="alert">No se pudo cargar la información o tu cuenta ya no tiene acceso a este contexto.</p><button type="button" onClick={reset} className="primary-action min-h-12 rounded-xl px-5 py-3">Volver a consultar</button></section>;}

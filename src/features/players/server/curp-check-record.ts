@@ -44,7 +44,7 @@ export async function lockCurpSnapshot(tx: Prisma.TransactionClient, actorId: st
   const fingerprint = createHash("sha256").update(JSON.stringify([person.version, rawIdentity])).digest("hex");
   return { personId: person.personId, registrationId, identity: parsed.data, fingerprint, version: person.version,
     available: !person.withdrawn && row.teamStatus !== "WITHDRAWN" && row.seasonStatus !== "CLOSED" &&
-      row.affiliationStatus === "APPROVED" && row.categoryAuthorized };
+      row.affiliationStatus === "APPROVED" && (row.categoryAuthorized && row.operational) };
 }
 
 export const curpCheckSelect = { id: true, actor_id: true, operation_key: true, registration_id: true, identity_version: true,

@@ -17,12 +17,13 @@ export async function lockPlayerTeamContext(tx: Prisma.TransactionClient, actorI
   const rows = await tx.$queryRaw<{
     seasonTeamId: string; teamId: string; clubId: string; leagueId: string; seasonId: string;
     groupId: string; seasonCategoryId: string; categoryId: string;
-    teamStatus: string; seasonStatus: string; affiliationStatus: string; categoryAuthorized: boolean;
+    teamStatus: string; seasonStatus: string; affiliationStatus: string; categoryAuthorized: boolean; operational: boolean;
   }[]>`
     SELECT st.id AS "seasonTeamId", st.team_id AS "teamId", st.club_id AS "clubId",
       s.league_id AS "leagueId", st.season_id AS "seasonId", st.group_id AS "groupId",
       sc.id AS "seasonCategoryId", sc.category_id AS "categoryId", st.status AS "teamStatus",
       s.status AS "seasonStatus", ca.status AS "affiliationStatus",
+      (c.status='ACTIVE' AND t.status='ACTIVE') AS operational,
       EXISTS (SELECT 1 FROM sports_management.club_affiliation_categories cac
         WHERE cac.affiliation_id = ca.id AND cac.season_id = s.id AND cac.category_id = sc.category_id
           AND cac.authorized_by IS NOT NULL AND cac.authorized_at IS NOT NULL) AS "categoryAuthorized"
@@ -64,6 +65,12 @@ export async function assertReusableIdentity(tx: Prisma.TransactionClient, actor
   const operationalGrants = grants.filter(grant => grant.roleId !== playerRole?.id);
   // Acceso de operación a la identidad en la liga, además de CREATE en el destino.
   if (operationalGrants.some(grant => !grant.contextOnly && !grant.clubId && !grant.leagueId)) return;
+  const canReadClub=operationalGrants.some(grant=>
+    (grant.clubId===context.clubId && (!grant.leagueId || grant.leagueId===context.leagueId)) ||
+    (!grant.clubId && !grant.contextOnly && grant.leagueId===context.leagueId));
+  // Una relación de directivo ya aprobada en el propio club permite reutilizar
+  // Persona. No concede búsqueda pública de CURP, roles ni acceso a cuentas.
+  if(canReadClub && await tx.club_officers.findFirst({where:{person_id:personId,club_affiliations:{club_id:context.clubId,league_id:context.leagueId,status:"APPROVED"}},select:{id:true}}))return;
   const prior = await tx.player_registrations.findFirst({ where: { person_id: personId,
     season_teams: { OR: [
       ...(operationalGrants.some(grant => grant.clubId === context.clubId &&

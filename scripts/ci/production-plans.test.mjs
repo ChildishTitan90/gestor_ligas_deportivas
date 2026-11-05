@@ -7,13 +7,23 @@ import { AFFILIATION_PLAN, ENROLLMENT_PLAN, CURP_PLAN, DISTRIBUTION_PLAN, assert
 
 const directory = fileURLToPath(new URL('../../prisma/migrations/', import.meta.url));
 const readSql = name => readFileSync(`${directory}/${name}/migration.sql`, 'utf8');
-const currentMigrations = readMigrations(directory);
+const repositoryMigrations = readMigrations(directory);
+const participationMigration = '20261104020000_pdgld13_category_participations';
+// Los positivos son fixtures de los planes históricos aprobados. La nueva tabla
+// permanece fuera de esos fixtures y se comprueba como bloqueo en su propio caso.
+const currentMigrations = new Map([...repositoryMigrations].filter(([name]) => name < participationMigration));
 const allMigrations = new Map([...currentMigrations].filter(([name]) => name !== CURP_PLAN.migration));
 const operationsMigration = '20261026010000_pdgld64_enrollment_operations';
 // Los casos del plan aprobado PDGLD-57 conservan sus entradas originales.
 // Aislar PDGLD-57 conserva todos los casos de su plan original.
 const migrations = new Map([...allMigrations].filter(([name]) => name !== operationsMigration));
 const applied = new Set(['0_init']);
+
+test('PDGLD-13 entrega 1: las participaciones nuevas siguen bloqueadas para producción sin plan aprobado', () => {
+  assert.ok(repositoryMigrations.has(participationMigration));
+  assert.throws(() => assertProductionPlan(repositoryMigrations, applied, readSql),
+    /20261104020000_pdgld13_category_participations.*plan de seguridad/);
+});
 
 test('PDGLD-38 autoriza solo la tabla temporal de la migración exacta y rechaza alteraciones', () => {
   assert.equal(sqlChecksum(readSql(DISTRIBUTION_PLAN.migration)), DISTRIBUTION_PLAN.checksum);

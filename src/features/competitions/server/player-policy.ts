@@ -6,6 +6,7 @@ import { requireOperationalUser } from "@/server/auth/session";
 import { assertPermission, lockAuthorization } from "@/server/auth/authorization";
 import { configurePlayerPolicySchema, playerPolicySchema } from "../schemas";
 import { CompetitionError } from "./configuration";
+import { documentPolicyIssues } from "../document-policy";
 
 /** Contrato interno: el consumidor autoriza su operación y comparte su transacción. */
 export async function readPlayerPolicy(tx: Prisma.TransactionClient, seasonId: string, participationId: string) {
@@ -25,13 +26,17 @@ export async function readPlayerPolicy(tx: Prisma.TransactionClient, seasonId: s
 
 export async function configurePlayerPolicy(seasonId: string, participationId: string, input: unknown) {
   const actor = await requireOperationalUser();
+  return configurePlayerPolicyForActor(actor.id,seasonId,participationId,input);
+}
+/** Entrada interna: actorId proviene de la sesión del servidor. */
+export async function configurePlayerPolicyForActor(actorId: string,seasonId: string, participationId: string,input: unknown) {
   const parsed = configurePlayerPolicySchema.safeParse(input);
   if (!parsed.success || ![seasonId, participationId].every(id => z.uuid().safeParse(id).success)) throw new CompetitionError("INVALID_CONFIGURATION");
   const { policy, reason, expectedSeasonVersion } = parsed.data;
   return getPrisma().$transaction(async tx => {
     await lockAuthorization(tx);
     await tx.$queryRaw`SELECT id FROM sports_management.seasons WHERE id=${seasonId}::uuid FOR UPDATE`;
-    await assertPermission(tx, actor.id, { module: "competitions", action: "UPDATE", context: { seasonId } });
+    await assertPermission(tx, actorId, { module: "competitions", action: "UPDATE", context: { seasonId } });
     const season = await tx.seasons.findUniqueOrThrow({ where: { id: seasonId } });
     if (season.status === "CLOSED") throw new CompetitionError("SEASON_CLOSED", 409);
     if (season.status !== "PLANNED" || season.competition_starts_at) throw new CompetitionError("COMPETITION_ALREADY_STARTED", 409);
@@ -39,14 +44,34 @@ export async function configurePlayerPolicy(seasonId: string, participationId: s
     await tx.$queryRaw`SELECT id FROM sports_management.season_categories WHERE id=${participationId}::uuid FOR UPDATE`;
     const previous = await tx.season_categories.findFirst({ where: { id: participationId, season_id: seasonId } });
     if (!previous) throw new CompetitionError("INVALID_CONTEXT");
-    // No alterar el criterio con el que ya se registraron personas de esta categoría.
-    if (await tx.player_registrations.count({ where: { season_id: seasonId, season_teams: { season_category_id: participationId } } })) throw new CompetitionError("PLAYER_POLICY_IN_USE", 409);
+    const registrations = { season_id: seasonId, season_teams: { OR:[{season_category_id:participationId},{groups:{season_category_id:participationId}}] } };
+    const inUse = await tx.player_registrations.count({ where: registrations }) || await tx.player_category_participations.count({where:{target_season_category_id:participationId}});
+    if (inUse) {
+      // Resolver decisiones documentales de expedientes pendientes no modifica
+      // edades, ventanas, cupos ni inscripciones de origen ya registradas.
+      const old = playerPolicySchema.safeParse(previous.player_policy);
+      if (!old.success || Array.isArray(policy.documents)) throw new CompetitionError("PLAYER_POLICY_IN_USE", 409);
+      const {documents:oldDocuments,...oldSport}=old.data;
+      const {documents:newDocuments,...newSport}=policy;
+      if (JSON.stringify(oldSport)!==JSON.stringify(newSport) || JSON.stringify(oldDocuments)===JSON.stringify(newDocuments) ||
+        previous.minimum_age!==policy.minimumAge || previous.maximum_age!==policy.maximumAge || previous.age_cutoff_date?.getUTCFullYear()!==policy.referenceYear ||
+        await tx.player_registrations.count({where:{...registrations,withdrawn_at:null,status:{not:"INELIGIBLE"}}}) ||
+        await tx.player_category_participations.count({where:{target_season_category_id:participationId,player_registrations:{withdrawn_at:null,status:{not:"INELIGIBLE"}}}})) throw new CompetitionError("PLAYER_POLICY_IN_USE", 409);
+    }
     if ((previous.type === "YOUTH" && policy.maximumAge === null) || (previous.type !== "YOUTH" && policy.exceptionMinimumAge !== null)) throw new CompetitionError("INVALID_CONFIGURATION");
-    await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true), set_config('app.reason', ${reason}, true)`;
+    if (!Array.isArray(policy.documents) && policy.documents.status === "APPROVED") {
+      await assertPermission(tx, actorId, { module: "competitions", action: "APPROVE", context: { seasonId } });
+      const documentPolicy=policy.documents;
+      const populations = [...(policy.minimumAge < 18 ? [true] : []), ...(policy.maximumAge === null || policy.maximumAge >= 18 ? [false] : [])];
+      if (populations.some(minor => documentPolicyIssues(documentPolicy, previous.type, minor).length)) throw new CompetitionError("INVALID_CONFIGURATION");
+      const codes = [...new Set(policy.documents.requirements.flatMap(rule => rule.anyOf))];
+      if (await tx.document_types.count({ where: { code: { in: codes } } }) !== codes.length) throw new CompetitionError("INVALID_CONFIGURATION");
+    }
+    await tx.$queryRaw`SELECT set_config('app.user_id', ${actorId}, true), set_config('app.reason', ${reason}, true)`;
     const next = await tx.season_categories.update({ where: { id: participationId }, data: { player_policy: policy,
       minimum_age: policy.minimumAge, maximum_age: policy.maximumAge,
       age_cutoff_date: new Date(`${policy.referenceYear}-12-31T00:00:00Z`), eligibility_pending: false } });
-    await tx.audit_logs.create({ data: { user_id: actor.id, table_name: "season_categories", entity_id: participationId, action: "UPDATE", reason,
+    await tx.audit_logs.create({ data: { user_id: actorId, table_name: "season_categories", entity_id: participationId, action: "UPDATE", reason,
       previous_data: JSON.parse(JSON.stringify(previous)), new_data: JSON.parse(JSON.stringify(next)) } });
     const updated = await tx.seasons.update({ where: { id: seasonId }, data: { version: { increment: 1 } }, select: { version: true } });
     return { id: participationId, seasonVersion: updated.version, eligibilityPending: false };

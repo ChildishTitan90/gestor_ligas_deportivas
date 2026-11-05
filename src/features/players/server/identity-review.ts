@@ -9,6 +9,7 @@ import { adjacentBirthDates } from "../identity-rules";
 import { findPossibleIdentityMatches, identityFromPerson, personIdentitySelect } from "./identity-matches";
 import { lockPlayerTeamContext, PlayerRegistrationError } from "./access";
 import {activateVerifiedAdultForActor} from "./automatic-activation";
+import {readRegistrationLabels} from "./registration-labels";
 
 export async function canReviewPlayerIdentity() {
   const actor = await requireOperationalUser();
@@ -65,19 +66,22 @@ export async function reviewDetailForActor(actorId: string, id: string) {
 export async function getIdentityReviewDetail(id: string) { return reviewDetailForActor((await requireOperationalUser()).id,id); }
 export async function getIdentityReviewQueue() {
   const actor = await requireOperationalUser();
+  return readIdentityReviewQueueForActor(actor.id);
+}
+export async function readIdentityReviewQueueForActor(actorId: string) {
   return getPrisma().$transaction(async tx => {
-    const grants = await getPermissionGrants(tx,actor.id,"players","APPROVE");
+    const grants = await getPermissionGrants(tx,actorId,"players","APPROVE");
     if (!grants.length) throw new AuthorizationError();
     const scope: Prisma.clubsWhereInput = grants.some(g => !g.contextOnly && !g.clubId && !g.leagueId) ? {} : {
       OR: grants.flatMap((g): Prisma.clubsWhereInput[] => g.clubId ? [{ id:g.clubId, ...(g.leagueId ? {league_id:g.leagueId}: {}) }] : g.leagueId ? [{league_id:g.leagueId}] : []) };
     const rows = await tx.player_registrations.findMany({ where: { identity_review_status:"REQUIRED", status:"INELIGIBLE", withdrawn_at:null,
       season_teams:{ teams:{clubs:scope}, club_affiliations:{seasons:{status:{not:"CLOSED"}}} } },
-      select:{id:true,season_team_id:true,people:{select:{first_name:true,paternal_surname:true}},season_teams:{select:{teams:{select:{name:true}}}}}, orderBy:{id:"asc"} });
+      select:{id:true,season_team_id:true}, orderBy:{id:"asc"} });
     const result = [];
     for (const row of rows) {
-      try { await lockPlayerTeamContext(tx,actor.id,row.season_team_id,"APPROVE"); await lockPlayerTeamContext(tx,actor.id,row.season_team_id,"READ"); }
+      try { await lockPlayerTeamContext(tx,actorId,row.season_team_id,"APPROVE"); await lockPlayerTeamContext(tx,actorId,row.season_team_id,"READ"); }
       catch(error) { if(error instanceof AuthorizationError) continue; throw error; }
-      result.push({id:row.id,name:`${row.people.first_name} ${row.people.paternal_surname}`,team:row.season_teams.teams.name});
+      result.push(await readRegistrationLabels(tx,row.id));
     }
     return result;
   });

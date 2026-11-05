@@ -1,6 +1,15 @@
 # PDGLD-97 — Integración CURP con Verificamex, entrega 2
 
-Actualización del 1/11/2026: la comprobación externa sigue separada del alta, pero ahora puede disparar la [habilitación automática de adultos](player-automatic-activation.md). El texto de esta entrega describe el avance del 31/10; consultar la política posterior para activación, carga de constancia y recuperación sin nuevos cobros.
+Actualización del 04/11/2026: el POST humano «Registrar y verificar CURP» coordina
+alta y comprobación con `registration-intake.ts`, reutilizando ambos servicios.
+No hay consulta en GET, render, búsqueda ni escritura de campos. Se genera una
+intención estable por actor/inscripción/versión; reenviar el alta recupera el
+intento existente y no repite uno incierto. Un fallo conserva la inscripción
+pendiente, sin rechazar ni afirmar verificación. Las cuotas técnicas se mantienen
+y sus costos no aparecen en la interfaz del delegado. La comprobación puede
+disparar la [habilitación automática de adultos](player-automatic-activation.md).
+Las secciones históricas del 31/10 describen la primera entrega y deben leerse
+junto con esta actualización y la política posterior de habilitación.
 
 31 de octubre de 2026. Complementa el [contrato de identidad e inscripción](player-identity.md). Esta entrega no implementa las vistas de PDGLD-98 ni INE/selfie.
 
@@ -8,7 +17,7 @@ Actualización del 1/11/2026: la comprobación externa sigue separada del alta, 
 
 [Documentación de Verificamex](https://identity.docs.verificamex.com/renapo/curp-validation/), consultada el 31/10/2026: POST a `https://api.verificamex.com/identity/v1/scraping/renapo`, Bearer en `Authorization`, JSON `{ curp, pdf_required: false }`. La página indica 3 tokens por datos y 20 si se solicita PDF. No se solicita PDF, no se sigue un webhook ni se consulta al escribir. Aunque aparezca un PDF no solicitado en el JSON, no se conserva ni se entrega.
 
-El adaptador `features/players/server/verificamex-curp.ts` tiene transporte obligatorio en su constructor. Las pruebas proporcionan un transporte sintético; la conexión real se construye de forma diferida con `VMX_API_KEY`, exclusivamente en servidor y después de autorización. No se leen credenciales desde el navegador ni se registran headers, cuerpos o errores originales. El modo de pruebas del runner elimina la clave heredada y el cableado real se bloquea con `AUTH_TEST_RUN=1`.
+El adaptador `features/players/server/verificamex-curp.ts` tiene transporte obligatorio en su constructor. Las pruebas proporcionan un transporte sintético; la conexión real se construye de forma diferida con `VMX_API_KEY`, exclusivamente en servidor y después de autorización. No se leen credenciales desde el navegador ni se registran headers, cuerpos o errores originales. El runner automatizado fija la clave a vacío (impide que Next la recargue de `.env.local`) y el cableado real se bloquea con `AUTH_TEST_RUN=1`. El modo manual aislado se distingue expresamente del automatizado; solo el humano puede enviar consultas reales.
 
 La documentación ofrece el sobre de éxito `data.object=citizeninformations`, `citizen.status=true`, `codigo=0` y `registros`. Se valida su forma con Zod, se exige un único registro para contrastar y se comparan CURP, nacimiento, nombres y apellidos. Se aceptan diferencias de mayúsculas, acentos y separadores; el segundo apellido puede faltar. No se genera identidad a partir de la respuesta ni se sobrescribe Persona. Un HTTP 200 aislado no verifica nada.
 

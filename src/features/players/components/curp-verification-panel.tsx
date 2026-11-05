@@ -57,14 +57,14 @@ export function CurpVerificationPanel({ actorId, registrationId, providerConfigu
       if (error instanceof PlayerRequestError && !error.uncertain) pending.current = undefined;
       setConfirming(false);
       setMessage(error instanceof PlayerRequestError && !error.uncertain ? playerErrorMessages[error.code] ?? "No se pudo realizar la consulta."
-        : "No se recibió una respuesta confirmada. Consulta el estado antes de decidir cualquier reintento; el proveedor pudo cobrar.");
+        : "No se recibió una respuesta confirmada. Consulta el estado antes de decidir cualquier reintento; la consulta anterior pudo procesarse.");
     } finally { locked.current = false; setBusy(false); }
   }
 
   const canVerify = providerConfigured && state && !["VERIFIED", "PENDING", "STALE"].includes(state.status);
   async function reevaluate(){
     if(locked.current)return;locked.current=true;setBusy(true);
-    try{const value=curpStateSchema.parse(await playerRequest(actorId,`/api/player-registrations/${registrationId}/activation`,{},fetcher));setState(value);setMessage(value.registrationStatus==="ACTIVE"?"Jugador activo. No se volvió a consultar al proveedor.":"La habilitación sigue pendiente de coincidencias o requisitos de categoría. No se gastaron créditos.");if(value.registrationStatus==="ACTIVE")onRegistrationChange?.();}
+    try{const value=curpStateSchema.parse(await playerRequest(actorId,`/api/player-registrations/${registrationId}/activation`,{},fetcher));setState(value);setMessage(value.registrationStatus==="ACTIVE"?"Jugador activo. No se volvió a consultar al proveedor.":"La habilitación sigue pendiente de coincidencias o requisitos de categoría. No se realizó otra consulta externa.");if(value.registrationStatus==="ACTIVE")onRegistrationChange?.();}
     catch{setMessage("No se pudo confirmar la habilitación. Consulta el estado antes de reintentar; esta operación no consulta Verificamex.");}finally{locked.current=false;setBusy(false);}
   }
   return <section className="space-y-4 rounded-2xl border border-border bg-surface p-5" aria-label="Verificación de CURP">
@@ -76,14 +76,14 @@ export function CurpVerificationPanel({ actorId, registrationId, providerConfigu
     {message && <p role="status" className="text-sm leading-6">{message}</p>}
     <div className="flex flex-wrap gap-3">
       <button type="button" disabled={busy} onClick={() => void check()} className="min-h-12 rounded-xl border border-border px-4 py-3 font-semibold text-primary disabled:opacity-50">Consultar estado</button>
-      <button type="button" disabled={busy || !canVerify} onClick={() => { setAcknowledged(false); setConfirming(true); }} className="min-h-12 rounded-xl border border-border px-4 py-3 font-semibold text-primary disabled:opacity-50">{state?.checkId ? "Nueva consulta externa" : "Verificar CURP"} · 3 tokens</button>
-      {state?.status==="VERIFIED" && state.registrationStatus==="INELIGIBLE" && <button type="button" disabled={busy} onClick={()=>void reevaluate()} className="min-h-12 rounded-xl border border-border px-4 py-3 font-semibold">Revisar habilitación sin gastar créditos</button>}
+      <button type="button" disabled={busy || !canVerify} onClick={() => { setAcknowledged(false); setConfirming(true); }} className="min-h-12 rounded-xl border border-border px-4 py-3 font-semibold text-primary disabled:opacity-50">{state?.checkId ? "Nueva consulta externa" : "Verificar CURP"}</button>
+      {state?.status==="VERIFIED" && state.registrationStatus==="INELIGIBLE" && <button type="button" disabled={busy} onClick={()=>void reevaluate()} className="min-h-12 rounded-xl border border-border px-4 py-3 font-semibold">Actualizar habilitación</button>}
     </div>
-    <FormDialog open={confirming} title="Consultar CURP con Verificamex" description="La consulta de datos puede consumir 3 tokens. No se solicitará PDF." pending={busy} onClose={() => setConfirming(false)}
+    <FormDialog open={confirming} title="Consultar CURP con Verificamex" description="Se contrastará la CURP con los datos del jugador." pending={busy} onClose={() => setConfirming(false)}
       footer={<div className="flex flex-wrap justify-end gap-3"><button type="button" disabled={busy} onClick={() => setConfirming(false)} className="min-h-12 rounded-xl border border-border px-5 py-3">Cancelar</button>
-        <button type="button" disabled={busy || (state?.status === "UNCERTAIN" && !acknowledged)} onClick={() => void verify()} className="primary-action min-h-12 rounded-xl px-5 py-3 font-semibold disabled:opacity-50">{busy ? "Consultando…" : "Consultar CURP · 3 tokens"}</button></div>}>
+        <button type="button" disabled={busy || (state?.status === "UNCERTAIN" && !acknowledged)} onClick={() => void verify()} className="primary-action min-h-12 rounded-xl px-5 py-3 font-semibold disabled:opacity-50">{busy ? "Consultando…" : "Verificar CURP"}</button></div>}>
       <p className="text-sm leading-6">Se contrastarán los datos guardados de esta inscripción. Un adulto fuera de Veteranos puede quedar activo automáticamente si cumple la política y no hay coincidencias pendientes. Los casos dudosos se revisan; un fallo técnico no rechaza al jugador.</p>
-      {state?.status === "UNCERTAIN" && <label className="mt-4 flex gap-3 text-sm leading-6"><input type="checkbox" checked={acknowledged} onChange={event => setAcknowledged(event.target.checked)} className="mt-1 size-5 shrink-0" />Revisé el intento anterior y entiendo que ya pudo tener un cobro; quiero realizar una nueva consulta.</label>}
+      {state?.status === "UNCERTAIN" && <label className="mt-4 flex gap-3 text-sm leading-6"><input type="checkbox" checked={acknowledged} onChange={event => setAcknowledged(event.target.checked)} className="mt-1 size-5 shrink-0" />Revisé el intento anterior y entiendo que la consulta anterior pudo procesarse; quiero realizar una nueva consulta.</label>}
     </FormDialog>
   </section>;
 }

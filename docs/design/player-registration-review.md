@@ -1,6 +1,31 @@
 # PDGLD-98 — Captura y revisión de identidad
 
-Rutas de gestión: `/players/registrations`, `/players/review` y `/players/review/[registrationId]`. Reutilizan ManagementShell, navegación por capacidades, SelectField, tokens y acciones existentes. La captura extensa y el expediente viven en página; la consulta externa usa FormDialog con confirmación de gasto.
+Rutas de gestión: `/players/registrations`, `/players/review` y `/players/review/[registrationId]`. Reutilizan ManagementShell, navegación por capacidades, SelectField, tokens y acciones existentes. La captura extensa y el expediente viven en página.
+
+Actualización 04/11/2026: «Mis jugadores» aparece al entrar, sin seleccionar primero
+un equipo de captura. Lista solo el alcance autorizado, con búsqueda por nombre,
+club/temporada y filtro de equipo. Cada fila enlaza «Abrir expediente»; permanece
+disponible al volver otro día, aunque no haya equipos habilitados para nuevas altas.
+El formulario de registro conserva sus selectores y ventana de lunes a miércoles.
+
+«Registrar y verificar CURP» inicia una consulta en el POST humano del alta. No se
+consulta al cargar la página, escribir o listar. `registration-intake.ts` reutiliza
+los servicios existentes y una intención estable por actor/registro/identidad.
+El servicio de CURP conserva cuotas, alcance, huella y deduplicación entre procesos.
+Un resultado incierto nunca se reenvía automáticamente al proveedor. El registro
+local queda recuperable si la verificación falla; no se afirma verificación o
+habilitación sin resultado. El costo técnico no se muestra en controles de CURP.
+Tras el acuse hay acceso directo «Continuar al expediente».
+
+El destino del sidebar y el título son «Jugadores»; se conserva la URL existente.
+«Registrar jugador» abre `FormDialog`; los filtros y la lista quedan en la página.
+Ambos filtros usan etiquetas en bloque y separación/altura equivalentes. El modal
+conserva la captura en el padre, solicita confirmación para descartar, impide cerrar
+durante el envío y permite ocultar un resultado incierto conservando su intención
+en memoria. Se puede volver mediante «Continuar registro pendiente». No es un
+borrador persistente: recargar pierde la captura. Documentos y firmas continúan
+en su página de expediente. Se reutilizan foco, Escape, fondo inerte, popup de
+SelectField dentro del diálogo y desplazamiento móvil del componente compartido.
 
 El delegado captura para equipos con afiliación y categoría autorizadas. Las altas conservan la ventana lunes–miércoles en America/Mexico_City. El backend impide altas fuera de esa ventana; no se ha cambiado el reloj de Docker habitual.
 

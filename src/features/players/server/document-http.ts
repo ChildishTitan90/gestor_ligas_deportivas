@@ -16,7 +16,8 @@ export async function documentActor(request:Request,write=false){
 export async function documentBody(request:Request,binary=false){
   const mime=request.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
   if(binary?!["application/pdf","image/png","image/jpeg"].includes(mime ?? ""):mime!=="application/json")throw new DocumentHttpError("INVALID_PAYLOAD",400);
-  const limit=binary?PRIVATE_FILE_MAX_BYTES:2048;
+  // La revisión admite justificación y nombre Unicode, además de las atestaciones.
+  const limit=binary?PRIVATE_FILE_MAX_BYTES:8192;
   const length=request.headers.get("content-length");if(length && Number(length)>limit)throw new DocumentHttpError("PAYLOAD_TOO_LARGE",413);
   const reader=request.body?.getReader();if(!reader)throw new DocumentHttpError("INVALID_PAYLOAD",400);
   let size=0;const chunks:Uint8Array[]=[];

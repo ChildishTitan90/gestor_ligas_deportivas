@@ -9,8 +9,10 @@ import {PRIVATE_FILE_MAX_BYTES,validatePrivateFileContent} from "@/server/files/
 import {lockPlayerTeamContext,assertPlayerRegistrationRead} from "./access";
 import type {PrivatePlayerDocumentStorage,PlayerDocumentTransport} from "./document-storage";
 import {isCalendarDate} from "../identity-rules";
-import {optionalPlayerPhotoRequirement,playerPhotoRequirementId,requiredPlayerCurpRequirement,playerCurpRequirementId} from "./player-photo-requirement";
 import {canCompleteActivatedDossier} from "./automatic-activation";
+import {manualPlayerScenario} from "./manual-player-scenario";
+import {resolveRegistrationDocuments} from "./registration-document-requirements";
+import {documentCodes} from "@/features/competitions/document-policy";
 
 export class PlayerDocumentError extends Error {
   constructor(public readonly code:"INVALID_DOCUMENT"|"CONFIGURATION_REQUIRED"|"CONTEXT_UNAVAILABLE"|"UPLOAD_CONFLICT"|"STORAGE_UNCONFIRMED"|"UPLOAD_EXPIRED",public readonly status=409){super(code);}
@@ -35,31 +37,29 @@ async function authorize(tx:Prisma.TransactionClient,actorId:string,input:Upload
   if("window" in policy && policy.referenceDate!==new Intl.DateTimeFormat("en-CA",{timeZone:"America/Mexico_City"}).format(reg.registered_at))throw new PlayerDocumentError("UPLOAD_CONFLICT");
   const now=Date.now();
   const windowOpen="window" in policy || (Number.isFinite(policy.opensAt.getTime()) && Number.isFinite(policy.closesAt.getTime()) && now>=policy.opensAt.getTime() && now<=policy.closesAt.getTime());
-  const completingActive=reg.status==="ACTIVE" && await canCompleteActivatedDossier(tx,input.registrationId,reg.people.identity_version);
-  if(!windowOpen || reg.withdrawn_at || (reg.status!=="INELIGIBLE" && !completingActive) || row.seasonStatus==="CLOSED" || row.teamStatus==="WITHDRAWN" || row.affiliationStatus!=="APPROVED" || !row.categoryAuthorized)throw new PlayerDocumentError("CONTEXT_UNAVAILABLE");
+  const birthDate=reg.people.birth_date.toISOString().slice(0,10);
+  const minorAge=Number(policy.referenceDate.slice(0,4))-Number(birthDate.slice(0,4))-Number(policy.referenceDate.slice(5)<birthDate.slice(5));
+  const scenario=await manualPlayerScenario(tx,reg.season_team_id);
+  const minorFlow=scenario==="MINOR_FLOW" || (minorAge>=0 && minorAge<18);
+  const {combined:resolved}=await resolveRegistrationDocuments(tx,actorId,input.registrationId,row,minorFlow,"UPDATE");
+  const completingActive=reg.status==="ACTIVE" && await canCompleteActivatedDossier(tx,input.registrationId,reg.people.identity_version,resolved);
+  if(!windowOpen || reg.withdrawn_at || (reg.status!=="INELIGIBLE" && !completingActive) || row.seasonStatus==="CLOSED" || row.teamStatus==="WITHDRAWN" || row.affiliationStatus!=="APPROVED" || (!row.categoryAuthorized || !row.operational))throw new PlayerDocumentError("CONTEXT_UNAVAILABLE");
   await tx.$queryRaw`SELECT id FROM sports_management.document_requirements WHERE id=${input.requirementId}::uuid FOR SHARE`;
-  let requirement=await tx.document_requirements.findUnique({where:{id:input.requirementId},select:{season_category_id:true,document_type_id:true,quantity:true,is_required:true,document_types:{select:{code:true}}}});
-  if(!requirement && input.requirementId===playerPhotoRequirementId(row.seasonCategoryId)){
-    const photo=await optionalPlayerPhotoRequirement(tx,row.seasonCategoryId);
-    // No permitir una posición alternativa que eluda un requisito explícito ya configurado.
-    if(photo && !await tx.document_requirements.findFirst({where:{season_category_id:row.seasonCategoryId,document_type_id:photo.document_type_id},select:{id:true}}))requirement=photo;
-  }
-  if(!requirement && input.requirementId===playerCurpRequirementId(row.seasonCategoryId)){
-    const curp=await requiredPlayerCurpRequirement(tx,row.seasonCategoryId);
-    if(curp && !await tx.document_requirements.findFirst({where:{season_category_id:row.seasonCategoryId,document_type_id:curp.document_type_id},select:{id:true}}))requirement=curp;
-  }
+  const legacyRequirement=await tx.document_requirements.findUnique({where:{id:input.requirementId},select:{season_category_id:true,document_type_id:true,quantity:true,is_required:true,document_types:{select:{code:true}}}});
+  const requirement=resolved.requirements.find(r=>r.id===input.requirementId);
   if(!requirement || requirement.season_category_id!==row.seasonCategoryId || input.slot>requirement.quantity)throw new PlayerDocumentError("INVALID_DOCUMENT",400);
   await tx.$queryRaw`SELECT id FROM sports_management.document_types WHERE id=${requirement.document_type_id}::uuid FOR SHARE`;
   const code=requirement.document_types.code;
-  if(completingActive && !["CURP","PHOTO"].includes(code))throw new PlayerDocumentError("CONTEXT_UNAVAILABLE");
-  if(!["CURP","INE","GUARDIAN_CONSENT","STUDENT_ID","PHOTO"].includes(code))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
+  if(completingActive && !resolved.fingerprint && !["CURP","PHOTO"].includes(code))throw new PlayerDocumentError("CONTEXT_UNAVAILABLE");
+  if(!(documentCodes as readonly string[]).includes(code))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
   if(code==="PHOTO" && (requirement.is_required || requirement.quantity!==1))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
   if(code==="PHOTO" && !["image/png","image/jpeg"].includes(input.mimeType))throw new PlayerDocumentError("INVALID_DOCUMENT",400);
   const dob=reg.people.birth_date.toISOString().slice(0,10);
   const age=Number(policy.referenceDate.slice(0,4))-Number(dob.slice(0,4))-Number(policy.referenceDate.slice(5)<dob.slice(5));
-  if(!Number.isFinite(age) || age<0 || ((code==="STUDENT_ID" || code==="GUARDIAN_CONSENT") && age>=18) || (code==="STUDENT_ID" && requirement.is_required))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
+  if(!Number.isFinite(age) || age<0 || (["STUDENT_ID","STUDENT_CERTIFICATE","GUARDIAN_CONSENT"].includes(code) && !minorFlow))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
   const windowVersion="window" in policy?policy.window:[policy.opensAt.toISOString(),policy.closesAt.toISOString()];
-  const requirementHash=digest([requirement,policy.referenceDate,windowVersion,dob,reg.people.identity_version]);
+  // Conservar el contrato de intenciones existentes fuera de la prueba manual.
+  const requirementHash=digest([resolved.fingerprint?requirement:(legacyRequirement ?? requirement),policy.referenceDate,windowVersion,dob,reg.people.identity_version,...(scenario?[scenario]:[]),...(resolved.fingerprint?[resolved.fingerprint]:[])]);
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`document-slot:${input.registrationId}:${input.requirementId}:${input.slot}`},0))::text`;
   return {row,requirement,requirementHash,identityVersion:reg.people.identity_version};
 }

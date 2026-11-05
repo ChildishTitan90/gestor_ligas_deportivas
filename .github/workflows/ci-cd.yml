@@ -49,7 +49,7 @@ jobs:
       - name: Comprobar la integridad de las migraciones
         run: npm run ci:guard-migrations
       - name: Probar los controles del pipeline
-        run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:affiliation-input && npm run test:affiliation-review
+        run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:affiliation-input && npm run test:affiliation-review && npm run test:club-maintenance-input
       - name: Probar interfaz de inscripción y actividad de sesión sin base
         run: npm run test:team-registration
       - name: Probar inscripción en Chrome con datos sintéticos
@@ -65,7 +65,7 @@ jobs:
         run: npm run test:signatures
       - name: Probar captura y vista previa de firmas con datos sintéticos
         timeout-minutes: 2
-        run: npm run test:direct-signature && npm run test:signature-preview && npm run test:guardian-signature
+        run: npm run test:direct-signature && npm run test:signature-preview && npm run test:guardian-signature && npm run test:player-workspace
         env:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Probar validación local de identidad de jugadores
@@ -133,7 +133,7 @@ jobs:
       - name: Probar inscripción de equipos, alcance y concurrencia
         run: npm run test:team-enrollments
       - name: Probar identidad, inscripción única y permisos de jugadores
-        run: npm run test:player-registrations
+        run: npm run test:player-registrations && npm run test:player-participations
       - name: Probar temporadas, alcance, auditoría y concurrencia
         run: npm run test:competitions
       - name: Probar Preview con rol limitado, RLS, afiliaciones y operaciones por HTTP

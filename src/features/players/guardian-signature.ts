@@ -10,7 +10,7 @@ export const guardianRelationships = [
   { value: "MOTHER", label: "Madre" }, { value: "FATHER", label: "Padre" },
   { value: "GUARDIAN", label: "Tutor o tutora" },
 ];
-export const guardianSignatureStatement = "Declaro la relación indicada con el menor y confirmo que esta firma corresponde a su registro en el portal.";
+export const guardianSignatureStatement = "Declaro la relación indicada con el menor y autorizo su registro y participación en el equipo de este expediente. Confirmo que esta es mi firma. La autorización queda sujeta a revisión administrativa.";
 
 /** Evidence, never an accredited consent. No approved legal/authorization text is assumed. */
 export async function buildGuardianSignatureRecord(input: unknown, signature: File) {
@@ -39,8 +39,8 @@ export async function buildGuardianSignatureRecord(input: unknown, signature: Fi
   line(`Nombre declarado: ${data.guardianName}`);
   line(`Relacion declarada: ${guardianRelationships.find(option => option.value === data.relationship)!.label}`);
   line(guardianSignatureStatement);
-  line("Esta captura no acredita identidad, parentesco ni autorizacion aprobada.");
-  line("Version del registro de captura: GUARDIAN_SIGNATURE_V1");
+  line("La firma requiere revision de identidad, relacion y autorizacion por administracion.");
+  line("Version del texto: GUARDIAN_AUTHORIZATION_V1");
   page.drawImage(image, { x: 40, y: y - 200, width: 530, height: 530 / 3 });
   pdf.setTitle("Firma de tutor pendiente de revision");
   return new File([new Uint8Array(await pdf.save())], "firma-tutor-pendiente.pdf", { type: "application/pdf" });

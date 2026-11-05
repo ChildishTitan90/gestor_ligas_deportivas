@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { categoryDocumentPolicySchema } from "./document-policy";
 
 /** Datos iniciales de una liga; la autoridad se comprueba en servidor. */
 export const createLeagueSchema = z.strictObject({
@@ -54,8 +55,8 @@ export const playerPolicySchema = z.strictObject({
   minimumAge: z.number().int().min(0).max(120),
   maximumAge: z.number().int().min(0).max(120).nullable(),
   exceptionMinimumAge: z.number().int().min(0).max(120).nullable(),
-  documents: z.array(z.enum(["PHOTO", "CURP", "CREDENTIAL", "SCHOOL_CREDENTIAL", "INE"])).min(1)
-    .refine(items => new Set(items).size === items.length),
+  documents: z.union([z.array(z.enum(["PHOTO", "CURP", "CREDENTIAL", "SCHOOL_CREDENTIAL", "INE"])).min(1)
+    .refine(items => new Set(items).size === items.length), categoryDocumentPolicySchema]),
   registrationDays: z.array(z.number().int().min(1).max(7)).min(1)
     .refine(items => new Set(items).size === items.length),
   timezone: z.string().max(100).refine(value => { try { new Intl.DateTimeFormat("es", { timeZone: value }); return true; } catch { return false; } }),

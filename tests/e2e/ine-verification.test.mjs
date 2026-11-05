@@ -2,13 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { build } from 'esbuild';
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import {launchChrome,closeTestServer,bounded} from './chrome-session.mjs';
 
 // Navegador real, todas las respuestas sintéticas; sin Next, base, Storage ni proveedor.
-test('INE: solo lectura, envío explícito, doble envío e incertidumbre en navegador', {timeout:45000}, async () => {
+test('INE: solo lectura, envío explícito, doble envío e incertidumbre en navegador', {timeout:45000}, async t => {
   const bundle = await build({bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',
     define:{'process.env.NODE_ENV':'"development"'},stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`
       import React from 'react';
@@ -30,7 +27,7 @@ test('INE: solo lectura, envío explícito, doble envío e incertidumbre en nave
       }}});
       const root=createRoot(document.getElementById('root'));
       const check=(v,m)=>{if(!v)throw Error(m);};
-      const wait=async fn=>{for(let i=0;i<200;i++){if(fn())return;await new Promise(r=>setTimeout(r,10));}throw Error('Timed out');};
+      const wait=async fn=>{for(let i=0;i<200;i++){if(fn())return;await new Promise(r=>setTimeout(r,10));}throw Error('Timed out: '+fn.toString());};
       let posts=0,gets=0,late;
       window.fetch=async (url,options)=>{
         if(options?.method==='POST'){
@@ -120,16 +117,19 @@ test('INE: solo lectura, envío explícito, doble envío e incertidumbre en nave
         const curpState={registrationId,identityVersion:1,checkId:null,status:'NOT_PERFORMED',mismatchedFields:[],checkedAt:null,replayed:false,registrationStatus:'INELIGIBLE',identityReviewStatus:'NOT_REQUIRED'};
         const curpFetch=async(path,options)=>{if(options.method==='POST'){curpPosts++;check(JSON.parse(options.body).confirmCharge===true,'CURP did not require explicit cost confirmation');return Response.json({...curpState,checkId:id(32),status:'VERIFIED',registrationStatus:'ACTIVE'});}return Response.json(curpState);};
         flushSync(()=>root.render(<CurpVerificationPanel actorId={actor} registrationId={registrationId} providerConfigured={true} fetcher={curpFetch} onRegistrationChange={()=>refreshed++}/>));
-        await wait(()=>Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Verificar CURP · 3 tokens' && !b.disabled));
+        await wait(()=>Array.from(document.querySelectorAll('button')).some(b=>!b.closest('dialog') && b.textContent==='Verificar CURP' && !b.disabled));
         check(curpPosts===0,'CURP charged on opening panel');
-        flushSync(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Verificar CURP · 3 tokens').click());
+        flushSync(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Verificar CURP').click());
         await wait(()=>document.querySelector('dialog')?.open);
-        flushSync(()=>Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Consultar CURP · 3 tokens').click());
+        flushSync(()=>Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Verificar CURP').click());
         await wait(()=>document.body.textContent.includes('Jugador activo. Puedes completar'));
         check(curpPosts===1 && refreshed===1,'Activation did not refresh list or duplicated query');
         await nativeFetch('/result',{method:'POST',body:JSON.stringify({ok:true,posts,gets})});
       })().catch(async error=>{await nativeFetch('/result',{method:'POST',body:JSON.stringify({ok:false,message:error.message})});});
-    `}});
+    `},plugins:[{name:'synthetic-next-image',setup(plugin){
+      plugin.onResolve({filter:/^next\/image$/},()=>({path:'image',namespace:'fixture'}));
+      plugin.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:"import React from 'react';export default function Image({unoptimized,...props}){return React.createElement('img',props)}",resolveDir:process.cwd()}));
+    }}]});
   let resolveResult;
   const result = new Promise(resolve=>{resolveResult=resolve;});
   const server=createServer(async(request,response)=>{
@@ -138,19 +138,12 @@ test('INE: solo lectura, envío explícito, doble envío e incertidumbre en nave
       const chunks=[];for await(const chunk of request)chunks.push(chunk);
       resolveResult(JSON.parse(Buffer.concat(chunks).toString('utf8')));response.end('ok');return;
     }
-    response.setHeader('Content-Type','text/html');response.end('<!doctype html><html lang="es"><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script src="/bundle.js"></script></html>');
+    response.setHeader('Content-Type','text/html');response.end('<!doctype html><html lang="es"><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script>window.addEventListener("error",e=>fetch("/result",{method:"POST",body:JSON.stringify({ok:false,message:e.message})}));window.addEventListener("unhandledrejection",e=>fetch("/result",{method:"POST",body:JSON.stringify({ok:false,message:String(e.reason)})}));</script><script src="/bundle.js"></script></html>');
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
-  const profile=await mkdtemp(join(tmpdir(),'ine-synthetic-browser-'));
-  const chrome=spawn(process.env.CHROME_BIN ?? (process.platform==='win32'?'C:/Program Files/Google/Chrome/Application/chrome.exe':'google-chrome'),[
-    '--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check',`--user-data-dir=${profile}`,'--window-size=375,812',`http://127.0.0.1:${server.address().port}`,
-  ],{windowsHide:true,stdio:'ignore'});
-  let timer;
-  try {
-    const failure=new Promise((_,reject)=>{
-      timer=setTimeout(()=>reject(Error('Synthetic browser timed out')),30000);
-      chrome.once('error',reject);
-    });
-    assert.deepEqual(await Promise.race([result,failure]),{ok:true,posts:1,gets:1});
-  } finally {clearTimeout(timer);chrome.kill();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+  t.after(()=>closeTestServer(server));
+  const browser=await launchChrome(`http://127.0.0.1:${server.address().port}`,{signal:t.signal,commandTimeoutMs:15000,waitForDocument:true});
+  t.after(()=>browser.close());
+  await browser.command('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:1,mobile:true});
+  assert.deepEqual(await bounded(result,30000,'INE: resultado de recorrido sintético',t.signal),{ok:true,posts:1,gets:1});
 });

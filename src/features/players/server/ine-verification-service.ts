@@ -12,6 +12,7 @@ import { getVerificamexIneProvider, ineProviderResultSchema, type IneImages, typ
 import {matchIneIdentity,type IneMatch} from "../ine-identity-match";
 import type {PlayerIdentityInput} from "../schemas";
 import type { PlayerDocumentTransport } from "./document-storage";
+import {readRegistrationLabels} from "./registration-labels";
 
 export class IneVerificationError extends Error {
   constructor(public code: string, public status = 409) { super(code); }
@@ -41,7 +42,7 @@ async function snapshot(tx: Prisma.TransactionClient, actorId: string, id: strin
   if (locked.season_team_id !== reg.season_team_id) throw new IneVerificationError("CONTEXT_UNAVAILABLE");
   const category = await tx.season_categories.findUniqueOrThrow({ where: { id: context.seasonCategoryId }, select: { type: true } });
   const applicable = category.type === "VETERANS";
-  const available = applicable && locked.status === "INELIGIBLE" && !locked.withdrawn_at && context.seasonStatus !== "CLOSED" && context.teamStatus !== "WITHDRAWN" && context.affiliationStatus === "APPROVED" && context.categoryAuthorized;
+  const available = applicable && locked.status === "INELIGIBLE" && !locked.withdrawn_at && context.seasonStatus !== "CLOSED" && context.teamStatus !== "WITHDRAWN" && context.affiliationStatus === "APPROVED" && (context.categoryAuthorized && context.operational);
   if (write && !available) throw new IneVerificationError("CONTEXT_UNAVAILABLE");
   const identity:PlayerIdentityInput={curp:locked.people.curp ?? "",firstName:locked.people.first_name,paternalSurname:locked.people.paternal_surname,maternalSurname:locked.people.maternal_surname,birthDate:locked.people.birth_date?.toISOString().slice(0,10) ?? ""};
   return { applicable, available, version: locked.people.identity_version, context,identity,
@@ -84,13 +85,13 @@ export async function readIneReviewQueueForActor(actorId: string) {
     const scope: Prisma.clubsWhereInput = grants.some(g => !g.contextOnly && !g.clubId && !g.leagueId) ? {} : {
       OR: grants.flatMap((g): Prisma.clubsWhereInput[] => g.clubId ? [{ id: g.clubId, ...(g.leagueId ? { league_id: g.leagueId } : {}) }] : g.leagueId ? [{ league_id: g.leagueId }] : []),
     };
-    const rows = await tx.player_registrations.findMany({ where: { status: "INELIGIBLE", withdrawn_at: null, season_teams: { teams: { clubs: scope } } }, select: { id: true, season_team_id: true, season_teams: { select: { teams: { select: { name: true } } } } }, orderBy: { id: "asc" } });
+    const rows = await tx.player_registrations.findMany({ where: { status: "INELIGIBLE", withdrawn_at: null, season_teams: { teams: { clubs: scope } } }, select: { id: true, season_team_id: true }, orderBy: { id: "asc" } });
     const result = [];
     for (const row of rows) {
       try {
         await lockPlayerTeamContext(tx, actorId, row.season_team_id, "APPROVE");
         const state = await dto(tx, actorId, row.id);
-        if (state.applicable && state.attemptId && state.status !== "PENDING" && state.status!=="IDENTITY_VERIFIED") result.push({ id: row.id, team: row.season_teams.teams.name, status: state.status });
+        if (state.applicable && state.attemptId && state.status !== "PENDING" && state.status!=="IDENTITY_VERIFIED") result.push({ ...await readRegistrationLabels(tx,row.id), status: state.status });
       } catch (error) { if (!(error instanceof AuthorizationError)) throw error; }
     }
     return result;

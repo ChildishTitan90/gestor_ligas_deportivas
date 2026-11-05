@@ -9,7 +9,7 @@ import { readFile } from "node:fs/promises";
 // No inicia Next, importa servicios de servidor ni contacta una base de datos.
 test("selectores, modales breves, envíos inciertos y separación de usuarios", { timeout: 45000 }, async t => {
   const bundle = await build({ write: false, bundle: true, platform: "browser", format: "iife",
-    define: { "process.env.NODE_ENV": '"development"' },
+    define: { "process.env.NODE_ENV": '"development"', "process.env": '{}' },
     stdin: { resolveDir: process.cwd(), loader: "tsx", contents: `
       import React, { useState } from 'react';
       import { createRoot } from 'react-dom/client';

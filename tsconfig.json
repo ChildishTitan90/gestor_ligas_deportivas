@@ -36,7 +36,9 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts",
     ".next-auth-tests/types/**/*.ts",
-    ".next-auth-tests/dev/types/**/*.ts"
+    ".next-auth-tests/dev/types/**/*.ts",
+    ".next-player-manual/types/**/*.ts",
+    ".next-player-manual/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

@@ -1,76 +1,97 @@
 import "server-only";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "@/server/auth/session";
-import { AuthorizationError, getPermissionGrants, type PermissionGrant } from "@/server/auth/authorization";
+import { AuthorizationError, getPermissionGrants } from "@/server/auth/authorization";
+import {playerClubScope as clubScope} from "./player-scope";
 import { assertPlayerRegistrationRead, lockPlayerTeamContext, PlayerRegistrationError } from "./access";
 import { registerPlayerSchema } from "../schemas";
 import { sameIdentity } from "../identity-rules";
 import { identityFromPerson, personIdentitySelect } from "./identity-matches";
 import type { PlayerListItem, PlayerTeamOption } from "../types";
 
-function clubScope(grants: PermissionGrant[]): Prisma.clubsWhereInput {
-  if (grants.some(grant => !grant.contextOnly && !grant.clubId && !grant.leagueId)) return {};
-  const scopes = grants.flatMap((grant): Prisma.clubsWhereInput[] => {
-    if (grant.clubId) return [{ id: grant.clubId, ...(grant.leagueId ? { league_id: grant.leagueId } : {}) }];
-    if (grant.leagueId) return [{ league_id: grant.leagueId }];
-    return grant.contextOnly ? [] : [{}];
-  });
-  return { OR: scopes };
-}
-
 export async function canAccessPlayerRegistration() {
   const actor = await requireOperationalUser();
   return getPrisma().$transaction(async tx => {
     const create = await getPermissionGrants(tx, actor.id, "players", "CREATE");
     const read = await getPermissionGrants(tx, actor.id, "players", "READ");
+    if (!create.length || !read.length) return false;
     return (await tx.clubs.count({ where: { AND: [clubScope(create), clubScope(read)], status: "ACTIVE", leagues: { is_active: true } } })) > 0;
   });
 }
 
 export async function getPlayerWorkspace() {
   const actor = await requireOperationalUser();
-  const teams = await getPrisma().$transaction(async tx => {
-    const create = await getPermissionGrants(tx, actor.id, "players", "CREATE");
-    const read = await getPermissionGrants(tx, actor.id, "players", "READ");
-    const scope: Prisma.clubsWhereInput = { AND: [clubScope(create), clubScope(read)], status: "ACTIVE", leagues: { is_active: true } };
-    if (!await tx.clubs.count({ where: scope })) throw new AuthorizationError();
-    const rows = await tx.season_teams.findMany({ where: { status: { not: "WITHDRAWN" }, teams: { clubs: scope },
-      club_affiliations: { status: "APPROVED", seasons: { status: { not: "CLOSED" }, sports: { code: "SOCCER" } } } },
-      select: { id: true, club_id: true, season_id: true, teams: { select: { name: true, clubs: { select: { name: true } } } },
-        club_affiliations: { select: { id: true, seasons: { select: { name: true } },
-          club_affiliation_categories: { where: { authorized_at: { not: null }, authorized_by: { not: null } }, select: { category_id: true } } } },
-        groups: { select: { name: true, season_categories: { select: { category_id: true, categories: { select: { name: true } } } } } } },
-      orderBy: { id: "asc" } });
-    return rows.flatMap((row): PlayerTeamOption[] => {
-      // GROUP_STAGE admite equipos pendientes de distribución. El servicio de
-      // jugadores conserva su requisito de grupo asignado antes de registrar.
-      const group = row.groups;
-      if (!group || !row.club_affiliations.club_affiliation_categories.some(c => c.category_id === group.season_categories.category_id)) return [];
-      return [{ id: row.id, teamName: row.teams.name, clubId: row.club_id, clubName: row.teams.clubs.name,
-        seasonId: row.season_id, seasonName: row.club_affiliations.seasons.name,
-        categoryName: group.season_categories.categories.name, groupName: group.name }];
-    });
-  });
-  return { actorId: actor.id, teams, providerConfigured: Boolean(process.env.VMX_API_KEY?.trim()) };
+  const teams = await getPlayerTeamOptionsForActor(actor.id);
+  return { actorId: actor.id, teams, initialPlayers:await listRegisteredPlayers(undefined,actor.id),providerConfigured: Boolean(process.env.VMX_API_KEY?.trim()) };
 }
 
-export async function listRegisteredPlayers(seasonTeamId: string, expectedActorId?: string): Promise<PlayerListItem[]> {
+/** actorId procede de la sesión; entrada separada para comprobar el mismo catálogo. */
+export async function getPlayerTeamOptionsForActor(actorId: string) {
+  return getPrisma().$transaction(async tx => {
+    const create = await getPermissionGrants(tx, actorId, "players", "CREATE");
+    const read = await getPermissionGrants(tx, actorId, "players", "READ");
+    if (!create.length || !read.length) throw new AuthorizationError();
+    const scope: Prisma.clubsWhereInput = { AND: [clubScope(create), clubScope(read)], status: "ACTIVE", leagues: { is_active: true } };
+    if (!await tx.clubs.count({ where: scope })) throw new AuthorizationError();
+    const rows = await tx.season_teams.findMany({ where: { status: { not: "WITHDRAWN" }, teams: { status: "ACTIVE", clubs: scope },
+      club_affiliations: { status: "APPROVED", seasons: { status: { not: "CLOSED" }, sports: { code: "SOCCER" } } } },
+      select: { id: true },
+      orderBy: { id: "asc" } });
+    if (!rows.length) return [];
+    // La proyección unida evita las ramas paralelas de relaciones de Prisma
+    // sobre una sola conexión pg. El filtro autorizado permanece en la lectura anterior.
+    // GROUP_STAGE sin grupo aún no permite altas; se conserva ese requisito.
+    return tx.$queryRaw<PlayerTeamOption[]>`
+      SELECT st.id, t.name AS "teamName", st.club_id AS "clubId", c.name AS "clubName",
+        st.season_id AS "seasonId", s.name AS "seasonName", cat.name AS "categoryName", g.name AS "groupName"
+      FROM sports_management.season_teams st
+      JOIN sports_management.teams t ON t.id=st.team_id
+      JOIN sports_management.clubs c ON c.id=t.club_id
+      JOIN sports_management.club_affiliations a ON a.club_id=st.club_id AND a.season_id=st.season_id
+      JOIN sports_management.seasons s ON s.id=a.season_id
+      JOIN sports_management.groups g ON g.id=st.group_id AND g.season_id=st.season_id
+      JOIN sports_management.season_categories sc ON sc.id=g.season_category_id
+      JOIN sports_management.categories cat ON cat.id=sc.category_id
+      WHERE st.id IN (${Prisma.join(rows.map(row=>Prisma.sql`${row.id}::uuid`))})
+        AND EXISTS (SELECT 1 FROM sports_management.club_affiliation_categories ac
+          WHERE ac.affiliation_id=a.id AND ac.category_id=sc.category_id
+            AND ac.authorized_at IS NOT NULL AND ac.authorized_by IS NOT NULL)
+      ORDER BY st.id
+    `;
+  }, { isolationLevel: "RepeatableRead" });
+}
+
+export async function listRegisteredPlayers(seasonTeamId?: string, expectedActorId?: string): Promise<PlayerListItem[]> {
   const actor = await requireOperationalUser();
   if (expectedActorId && actor.id !== expectedActorId.toLowerCase()) throw new AuthorizationError();
-  if (!z.uuid().safeParse(seasonTeamId).success) throw new PlayerRegistrationError("VALIDATION_ERROR", 400);
+  return listRegisteredPlayersForActor(actor.id,seasonTeamId);
+}
+export async function listRegisteredPlayersForActor(actorId:string,seasonTeamId?:string):Promise<PlayerListItem[]>{
+  if (seasonTeamId!==undefined && !z.uuid().safeParse(seasonTeamId).success) throw new PlayerRegistrationError("VALIDATION_ERROR", 400);
   return getPrisma().$transaction(async tx => {
-    await lockPlayerTeamContext(tx, actor.id, seasonTeamId, "CREATE");
-    await lockPlayerTeamContext(tx, actor.id, seasonTeamId, "READ");
-    const rows = await tx.player_registrations.findMany({ where: { season_team_id: seasonTeamId },
-      select: { id: true, status: true, identity_review_status: true,
-        people: { select: { first_name: true, paternal_surname: true, maternal_surname: true } } },
+    const create=await getPermissionGrants(tx,actorId,"players","CREATE"),read=await getPermissionGrants(tx,actorId,"players","READ");
+    if(!create.length || !read.length)throw new AuthorizationError();
+    if(seasonTeamId){await lockPlayerTeamContext(tx, actorId, seasonTeamId, "CREATE");await lockPlayerTeamContext(tx, actorId, seasonTeamId, "READ");}
+    const rows = await tx.player_registrations.findMany({ where: { ...(seasonTeamId?{season_team_id: seasonTeamId}:{}),season_teams:{teams:{clubs:{AND:[clubScope(create),clubScope(read)]}}} },
+      select: { id: true },
       orderBy: [{ registered_at: "desc" }, { id: "asc" }] });
-    return rows.map(row => ({ registrationId: row.id,
-      displayName: [row.people.first_name, row.people.paternal_surname, row.people.maternal_surname].filter(Boolean).join(" "),
-      status: row.status, identityReviewStatus: row.identity_review_status }));
-  });
+    if (!rows.length) return [];
+    return tx.$queryRaw<PlayerListItem[]>`
+      SELECT pr.id AS "registrationId", concat_ws(' ',p.first_name,p.paternal_surname,p.maternal_surname) AS "displayName",
+        pr.status, pr.identity_review_status AS "identityReviewStatus", pr.season_team_id AS "seasonTeamId",
+        t.name AS "teamName", c.name AS "clubName", s.name AS "seasonName"
+      FROM sports_management.player_registrations pr
+      JOIN sports_management.people p ON p.id=pr.person_id
+      JOIN sports_management.season_teams st ON st.id=pr.season_team_id
+      JOIN sports_management.teams t ON t.id=st.team_id
+      JOIN sports_management.clubs c ON c.id=t.club_id
+      JOIN sports_management.seasons s ON s.id=st.season_id
+      WHERE pr.id IN (${Prisma.join(rows.map(row=>Prisma.sql`${row.id}::uuid`))})
+      ORDER BY pr.registered_at DESC, pr.id
+    `;
+  }, { isolationLevel: "RepeatableRead" });
 }
 
 /** Lectura con payload privado para recuperar una respuesta perdida, sin reenviar el alta. */

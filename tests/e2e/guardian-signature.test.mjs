@@ -76,9 +76,9 @@ test('Tutor: firma real en canvas, documento ligado al menor y recepción pendie
   assert.equal(await evaluate('window.fixture.calls.length'),0,'Preparar conserva el PDF solo en memoria');
   // Editing the signer invalidates the prepared evidence.
   await evaluate(`(()=>{const n=document.getElementById('guardian-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(n,'Ana Pérez Sintética Dos');n.dispatchEvent(new Event('input',{bubbles:true}));})()`);
-  await wait('Array.from(document.querySelectorAll("button")).find(b=>b.textContent==="Cargar y confirmar archivo").disabled');
+  await wait('Array.from(document.querySelectorAll("button")).find(b=>b.textContent==="Guardar documento").disabled');
   await click('Preparar documento con firma');await wait('document.body.textContent.includes("Documento con firma preparado")');
-  await click('Cargar y confirmar archivo');await wait('document.body.textContent.includes("Archivo recibido y asociado")');
+  await click('Guardar documento');await wait('document.body.textContent.includes("Archivo recibido y asociado")');
   assert.deepEqual(await evaluate('window.fixture.received()'),{type:'application/pdf',pages:1,title:'Firma de tutor pendiente de revision'});
   assert.equal(await evaluate('window.fixture.calls.filter(c=>c.method==="PUT").length'),1);
   assert.equal(await evaluate('window.fixture.rejectsAuthority'),true);

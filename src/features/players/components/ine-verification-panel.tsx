@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ineParts, ineStatusSchema, type IneStatus } from "../ine-verification";
 import { playerRequest } from "../player-client";
 import { DevicePhotoCamera } from "./device-photo-camera";
+import { FilePickerButton } from "@/components/ui/file-picker-button";
 
 const labels = { front: "Frente de la INE", back: "Reverso de la INE", selfie: "Selfie del jugador" };
 const stepNames = ["Frente", "Reverso", "Selfie", "Confirmar"];
@@ -101,7 +102,7 @@ export function IneVerificationPanel({ actorId, initial }: { actorId: string; in
           <CaptureGuide step={step}/>
           {mayStart && !busy && <DevicePhotoCamera key={`camera-${part}`} selfie={part==="selfie"} onCapture={file=>selectPhoto(part,file)}/>}
           <div key={part} className="ine-capture-inputs">
-            <div><label htmlFor={`ine-${part}`}>Elegir una foto del dispositivo</label><input id={`ine-${part}`} name={part} type="file" accept="image/png,image/jpeg" aria-describedby="ine-help" onChange={event=>{selectPhoto(part,event.target.files?.[0]);event.currentTarget.value="";}}/></div>
+            <div className="space-y-2"><p className="text-sm">También puedes usar una foto de tu dispositivo.</p><FilePickerButton id={`ine-${part}`} name={part} photo selected={Boolean(selected)} accept="image/png,image/jpeg" disabled={busy || !mayStart} describedBy="ine-help" onSelect={file=>selectPhoto(part,file)}/></div>
           </div>
           {selected && <div className="ine-capture-preview"><img src={selected.url} alt={`Vista previa: ${labels[part]}`} onError={()=>setMessage("No se puede mostrar esta imagen. Selecciona otra foto legible antes de continuar.")}/><p className="text-sm">Foto seleccionada. Comprueba que esté completa y nítida antes de continuar.</p></div>}
           <div className="flex flex-wrap gap-3">{step>0 && <button type="button" className={button} onClick={()=>move(step-1)}>Volver</button>}<button type="button" className="primary-action min-h-12 rounded-xl px-5 py-3 disabled:opacity-50" disabled={!selected} onClick={advance}>{["Continuar al reverso","Continuar a la selfie","Revisar imágenes"][step]}</button></div>

@@ -27,4 +27,5 @@ export type PlayerTeamOption = {
 };
 export type PlayerListItem = {
   registrationId: string; displayName: string; status: string; identityReviewStatus: string | null;
+  seasonTeamId?:string; teamName?:string; clubName?:string; seasonName?:string;
 };

@@ -394,6 +394,8 @@ model club_team_changes {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model clubs {
+  version                                        Int                  @default(1)
+  player_category_participations player_category_participations[]
   team_enrollment_operations team_enrollment_operations[]
   id                                             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   league_id                                      String               @db.Uuid
@@ -1355,7 +1357,56 @@ model player_curp_checks {
   @@schema("sports_management")
 }
 
+model player_category_levels {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_category_id String @unique @db.Uuid
+  season_id String @db.Uuid
+  pathway_code String @db.VarChar(40)
+  level Int
+  configured_by String @db.Uuid
+  configured_at DateTime @default(now()) @db.Timestamptz(6)
+  season_categories season_categories @relation(fields:[season_category_id,season_id],references:[id,season_id],onDelete:NoAction,onUpdate:NoAction,map:"player_level_category_fk")
+  users users @relation(fields:[configured_by],references:[id],onDelete:NoAction,onUpdate:NoAction,map:"player_level_actor_fk")
+  participations player_category_participations[]
+
+  @@unique([season_category_id,season_id],map:"player_level_category_season_key")
+  @@unique([season_id,pathway_code,level],map:"player_level_pathway_key")
+  @@index([configured_by],map:"player_level_actor_idx")
+  @@schema("sports_management")
+}
+
+model player_category_participations {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  origin_registration_id String @db.Uuid
+  season_id String @db.Uuid
+  club_id String @db.Uuid
+  target_season_team_id String @db.Uuid
+  target_season_category_id String @db.Uuid
+  requested_by String @db.Uuid
+  request_key String @db.Uuid
+  request_hash String @db.VarChar(64)
+  status String @default("PENDING_ELIGIBILITY")
+  version Int @default(1)
+  eligibility_fingerprint String? @db.VarChar(64)
+  review_event_id String? @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  player_registrations player_registrations @relation(fields:[origin_registration_id,season_id],references:[id,season_id],onDelete:NoAction,onUpdate:NoAction,map:"player_participation_origin_fk")
+  season_teams season_teams @relation(fields:[target_season_team_id,season_id],references:[id,season_id],onDelete:NoAction,onUpdate:NoAction,map:"player_participation_team_fk")
+  player_category_levels player_category_levels @relation(fields:[target_season_category_id,season_id],references:[season_category_id,season_id],onDelete:NoAction,onUpdate:NoAction,map:"player_participation_level_fk")
+  clubs clubs @relation(fields:[club_id],references:[id],onDelete:NoAction,onUpdate:NoAction,map:"player_participation_club_fk")
+  users users @relation(fields:[requested_by],references:[id],onDelete:NoAction,onUpdate:NoAction,map:"player_participation_actor_fk")
+
+  @@unique([origin_registration_id,target_season_category_id],map:"player_participation_category_key")
+  @@unique([requested_by,request_key],map:"player_participation_operation_key")
+  @@index([origin_registration_id,season_id],map:"player_participation_origin_idx")
+  @@index([target_season_team_id,season_id],map:"player_participation_team_idx")
+  @@index([target_season_category_id,season_id],map:"player_participation_level_idx")
+  @@index([club_id],map:"player_participation_club_idx")
+  @@schema("sports_management")
+}
+
 model player_registrations {
+  category_participations player_category_participations[]
   curp_checks           player_curp_checks[]
   id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   person_id             String                  @db.Uuid
@@ -1709,6 +1760,7 @@ model season_breaks {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model season_categories {
+  player_level player_category_levels?
   season_teams          season_teams[]
   club_affiliation_categories club_affiliation_categories[]
   id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -1741,6 +1793,7 @@ model season_categories {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model season_teams {
+  player_category_participations player_category_participations[]
   season_category_id                                   String?                          @db.Uuid
   season_categories                                    season_categories?               @relation(fields: [season_category_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction, map: "enrollment_category_season_fk")
   team_enrollment_operation team_enrollment_operations?
@@ -1991,6 +2044,8 @@ model team_enrollment_operations {
 }
 
 model teams {
+  status                                                 String              @default("ACTIVE")
+  version                                                Int                 @default(1)
   id                                                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   club_id                                                String              @db.Uuid
   reference_number                                       String              @unique
@@ -2037,6 +2092,8 @@ model user_roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
+  configured_player_levels player_category_levels[]
+  requested_category_participations player_category_participations[]
   curp_checks                                                             player_curp_checks[]
   team_enrollment_operations team_enrollment_operations[]
   authorized_affiliation_categories club_affiliation_categories[]

@@ -61,7 +61,7 @@ export async function registerPlayerForActor(actorId: string, input: unknown): P
           entity_id: personId, reason: "PDGLD-97: creación local de identidad" } });
       }
       if (context.teamStatus === "WITHDRAWN" || context.seasonStatus === "CLOSED" ||
-        context.affiliationStatus !== "APPROVED" || !context.categoryAuthorized)
+        context.affiliationStatus !== "APPROVED" || (!context.categoryAuthorized || !context.operational))
         throw new PlayerRegistrationError("CONTEXT_NOT_AVAILABLE");
       const matches = await findPossibleIdentityMatches(tx, identity, personId);
       const reviewStatus = matches.length ? "REQUIRED" : "NOT_REQUIRED";
@@ -93,6 +93,7 @@ export async function registerPlayerForActor(actorId: string, input: unknown): P
       (error instanceof Error ? error.message : "");
     if (detail.includes("Las altas solo se permiten")) throw new PlayerRegistrationError("REGISTRATION_WINDOW_CLOSED");
     if (detail.includes("No se permite cambiar equipo")) throw new PlayerRegistrationError("TEAM_CHANGE_NOT_ALLOWED");
+    if (detail.includes("PLAYER_ORIGIN_LOWER_CATEGORY")) throw new PlayerRegistrationError("REGISTRATION_CONFLICT");
     if (error instanceof PlayerRegistrationError || error instanceof AuthorizationError) throw error;
     // La entrada futura podrá presentar un fallo recuperable sin serializar errores de Prisma.
     throw new PlayerRegistrationError("RETRY_REQUIRED");
