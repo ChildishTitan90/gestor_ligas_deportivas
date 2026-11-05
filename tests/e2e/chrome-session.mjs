@@ -42,6 +42,7 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
     ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
     : process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : 'google-chrome'), [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+    '--no-sandbox', '--disable-dev-shm-usage', // <--- Añadido para estabilidad en CI (Linux/Docker)
     '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', `--user-data-dir=${profile}`, origin,
   ], {
     windowsHide: true, detached: process.platform !== 'win32',
