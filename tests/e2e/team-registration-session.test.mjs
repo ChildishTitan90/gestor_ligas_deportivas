@@ -9,7 +9,7 @@ import { readFile } from "node:fs/promises";
 // No inicia Next, importa servicios de servidor ni contacta una base de datos.
 test("selectores, modales breves, envíos inciertos y separación de usuarios", { timeout: 45000 }, async () => {
   const bundle = await build({ write: false, bundle: true, platform: "browser", format: "iife",
-    define: { "process.env.NODE_ENV": '"development"' },
+    define: { "process.env.NODE_ENV": '"development"', "process.env": '{}' },
     stdin: { resolveDir: process.cwd(), loader: "tsx", contents: `
       import React, { useState } from 'react';
       import { createRoot } from 'react-dom/client';
@@ -270,7 +270,7 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
   const server = createServer((request, response) => {
     if (request.url === "/bundle.js") { response.setHeader("Content-Type", "text/javascript"); response.end(bundle.outputFiles[0].contents); }
     else if (request.url === "/controls.css") { response.setHeader("Content-Type", "text/css"); response.end(controlsCss.replace(/^@import.*$/gm,'')); }
-    else { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><link rel="stylesheet" href="/controls.css"><div id="root"></div><script src="/bundle.js"></script>'); }
+    else { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><link rel="stylesheet" href="/controls.css"><div id="root"></div><script>window.addEventListener("error",e=>window.startupError=e.message)</script><script src="/bundle.js"></script>'); }
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
@@ -288,7 +288,7 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
         else resolve(message.result.result.value);
       };
       socket.addEventListener("message", listener);
-      socket.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: "(async()=>{while(!window.testDone)await new Promise(r=>setTimeout(r,10));return await window.testDone})()", awaitPromise: true, returnByValue: true } }));
+      socket.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: "(async()=>{for(let n=0;!window.testDone&&n<500;n++){if(window.startupError)throw Error(window.startupError);await new Promise(r=>setTimeout(r,10));}if(!window.testDone)throw Error('Browser fixture did not start');return await window.testDone})()", awaitPromise: true, returnByValue: true } }));
     });
     let result;
     for (let attempt = 0; attempt < 5; attempt++) {
