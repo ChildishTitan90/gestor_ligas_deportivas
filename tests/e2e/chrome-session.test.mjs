@@ -16,10 +16,10 @@ test('Chrome: arranque JS roto se informa sin esperar indefinidamente testDone',
   await assert.rejects(waitForTestDone(browser), /process is not defined/);
 });
 test('Chrome: CDP sin respuesta vence, retira la orden y permite cerrar', { timeout: 15000 }, async t => {
-  const browser = await fixture(t, '<p>fixture</p>', { commandTimeoutMs: 300 });
+  const browser = await fixture(t, '<p>fixture</p>');
   // Wait for this page before creating a deliberately unresolved browser promise.
   await browser.evaluate('document.readyState');
-  await assert.rejects(browser.evaluate('new Promise(()=>{})'), /Runtime.evaluate.*300 ms/);
+  await assert.rejects(browser.command('Runtime.evaluate', { expression:'new Promise(()=>{})', awaitPromise:true }, 300), /Runtime.evaluate.*300 ms/);
   assert.equal(await browser.evaluate('1+1'), 2);
   await browser.close(); await browser.close();
   await assert.rejects(browser.evaluate('1+1'), /conexión no disponible/);

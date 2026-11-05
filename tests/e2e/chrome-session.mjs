@@ -97,8 +97,14 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
     const deadline = Date.now() + 5000;
     while (!page && Date.now() < deadline) {
       const requestSignal = AbortSignal.any([AbortSignal.timeout(1000), ...(signal ? [signal] : [])]);
-      const response = await fetch(`http://${base.host}/json/list`, { signal: requestSignal });
-      const targets = await response.json();
+      let targets;
+      try {
+        const response = await fetch(`http://${base.host}/json/list`, { signal: requestSignal });
+        targets = await response.json();
+      } catch (error) {
+        if (signal?.aborted || error.name !== "TimeoutError") throw error;
+        continue; // Solo descubrimiento de lectura, dentro del plazo total de 5 s.
+      }
       page = targets.find(target => {
         try { return target.type === 'page' && new URL(target.url).origin === new URL(origin).origin; } catch { return false; }
       });
@@ -120,14 +126,14 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
       if (message.error) entry.reject(new Error(`CDP_COMMAND_FAILED (${message.error.code}): ${message.error.message}`));
       else entry.resolve(message.result);
     });
-    const command = async (method, params = {}) => {
+    const command = async (method, params = {}, timeoutMs = commandTimeoutMs) => {
       const id = ++sequence;
       try {
         return await bounded(new Promise((resolve, reject) => {
           pending.set(id, { resolve, reject });
           if (socket.readyState !== WebSocket.OPEN) reject(new Error('CDP: conexión no disponible'));
           else socket.send(JSON.stringify({ id, method, params }));
-        }), commandTimeoutMs, `CDP: ${method}`, signal);
+        }), timeoutMs, `CDP: ${method}`, signal);
       } finally { pending.delete(id); }
     };
     const evaluate = async expression => {
