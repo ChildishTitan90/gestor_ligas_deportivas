@@ -69,6 +69,7 @@ test("PDGLD-121: bajas, reactivación, concurrencia, ámbito e historial", async
             assert.fail("El control de mantenimiento no estuvo disponible en el navegador");
           };
           await waitFor("document.body?.innerText.includes('Eliminar definitivamente')");
+          await waitFor("(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='Eliminar definitivamente'); return b && Object.keys(b).some(k=>k.startsWith('__reactProps'));})()");
           for (const width of [390, 1280]) {
             await chrome.command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
             for (const theme of ["light", "dark"]) {
@@ -78,6 +79,10 @@ test("PDGLD-121: bajas, reactivación, concurrencia, ámbito e historial", async
               assert.ok(await chrome.evaluate("document.querySelector('dialog[open]').innerText.includes('no se puede deshacer')"));
               assert.ok(await chrome.evaluate("document.querySelector('dialog[open]').contains(document.activeElement)"));
               assert.ok(await chrome.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
+              const { writeFile, mkdir } = await import("node:fs/promises");
+              await mkdir(".next-auth-tests/maintenance-evidence", { recursive: true });
+              const capture = await chrome.command("Page.captureScreenshot", { format: "png" });
+              await writeFile(`.next-auth-tests/maintenance-evidence/${width}-${theme}.png`, Buffer.from(capture.data, "base64"));
               await chrome.command("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
               await chrome.command("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
               await waitFor("!document.querySelector('dialog[open]')");
@@ -85,6 +90,18 @@ test("PDGLD-121: bajas, reactivación, concurrencia, ámbito e historial", async
             }
           }
           console.log("PDGLD-123: diálogo real en móvil/escritorio, claro/oscuro, foco y Escape verificados.");
+          const disposable = await db.teams.create({ data: { club_id: club.id, name: "Equipo para eliminación desde navegador", reference_number: randomUUID() } });
+          await chrome.command("Page.navigate", { url: `${base.origin}/clubs?kind=team&q=${disposable.reference_number}` });
+          await waitFor(`document.body?.innerText.includes(${JSON.stringify(disposable.reference_number)})`);
+          await waitFor("(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='Eliminar definitivamente'); return b && Object.keys(b).some(k=>k.startsWith('__reactProps'));})()");
+          await chrome.evaluate("(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='Eliminar definitivamente'); b.focus(); b.click();})()");
+          await waitFor("!!document.querySelector('dialog[open]')");
+          await chrome.evaluate("(()=>{const t=document.getElementById('maintenance-reason'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t,'Eliminación sintética desde interfaz'); t.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('dialog[open] input[type=checkbox]').click();})()");
+          await chrome.evaluate("document.querySelector('dialog[open] form').requestSubmit()");
+          await waitFor("document.body?.innerText.includes('Registro eliminado. La auditoría de la operación se conserva.')");
+          assert.equal(await db.teams.findUnique({ where: { id: disposable.id } }), null);
+          assert.equal(await db.audit_logs.count({ where: { entity_id: disposable.id, action: "DELETE" } }), 1);
+          console.log("PDGLD-123: envío real desde navegador, eliminación y auditoría única confirmados.");
         } finally { await chrome.close(); }
       }
     });
