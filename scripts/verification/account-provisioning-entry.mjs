@@ -16,8 +16,16 @@ export function validateAccountProvisioningTarget(config) {
   assert.equal(target.search + target.hash, '');
   assert.equal(config.baseUrl, `http://127.0.0.1:${56500 + Number(target.port.slice(-2))}`);
   const suite = config.suite ?? 'accounts';
-  assert.ok(['accounts', 'seasons', 'maintenance', 'preview-prisma-account'].includes(suite));
+  assert.ok(['accounts', 'seasons', 'maintenance', 'preview-prisma-account', 'maintenance-preview'].includes(suite));
   assert.equal(target.username, suite === 'preview-prisma-account' ? PREVIEW_ROLE : 'postgres');
+  if (suite === 'maintenance-preview') {
+    const runtime = validateAccountProvisioningTarget({ databaseUrl: config.runtimeDatabaseUrl,
+      baseUrl: config.baseUrl, suite: 'preview-prisma-account' });
+    const runtimeTarget = new URL(runtime.databaseUrl);
+    assert.equal(runtimeTarget.host + runtimeTarget.pathname, target.host + target.pathname);
+    return { databaseUrl: target.href, baseUrl: config.baseUrl, suite, runtimeDatabaseUrl: runtime.databaseUrl };
+  }
+  assert.equal(config.runtimeDatabaseUrl, undefined);
   return { databaseUrl: target.href, baseUrl: config.baseUrl, suite };
 }
 
@@ -33,19 +41,27 @@ export function runAccountProvisioningSuite(config, { signal, application } = {}
     const child = fork(`${application.app}/scripts/verification/account-provisioning-entry.mjs`, [], { execArgv: [], cwd: application.app,
       env: childEnvironment(process.env), stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
     let completed = false; let cancelled = false; let force;
+    let failureLocation;
     const stop = () => {
       cancelled = true; child.kill('SIGTERM');
       force ??= setTimeout(() => child.kill('SIGKILL'), 2000);
     };
     signal?.addEventListener('abort', stop, { once: true });
-    child.on('message', message => { if (message?.completed === true) completed = true; });
+    child.on('message', message => {
+      if (message?.completed === true) completed = true;
+      if (message?.type === 'maintenance-failure' &&
+        /^tests\/integration\/account-(?:identifiers|maintenance-preview)\.mjs:\d+:\d+$/.test(message.location ?? ''))
+        failureLocation ??= message.location;
+    });
     child.once('error', () => { completed = false; });
     child.once('close', code => {
       clearTimeout(force); signal?.removeEventListener('abort', stop);
       if (code === 0 && completed && !cancelled) resolve();
       else {
-        const code = target.suite === 'preview-prisma-account' ? 'PREVIEW_PRISMA_ACCOUNT_FAILED' : target.suite === 'maintenance' ? 'ACCOUNT_MAINTENANCE_FAILED' : target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
-        reject(Object.assign(new Error(code), { code }));
+        const code = target.suite === 'preview-prisma-account' ? 'PREVIEW_PRISMA_ACCOUNT_FAILED' : ['maintenance','maintenance-preview'].includes(target.suite) ? 'ACCOUNT_MAINTENANCE_FAILED' : target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
+        const failure = Object.assign(new Error(code), { code });
+        if (failureLocation) failure.stack = `Error: ${code}\n    at ${failureLocation}`;
+        reject(failure);
       }
     });
     if (signal?.aborted) stop(); else child.send(target);
@@ -60,6 +76,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       if (target.suite === 'preview-prisma-account') {
         const { verifyPreviewPrismaAccountCreation } = await import('../../tests/integration/preview-prisma-account.mjs');
         await verifyPreviewPrismaAccountCreation(target);
+      } else if (target.suite === 'maintenance-preview') {
+        const { runAccountMaintenanceSuite } = await import('../../tests/integration/account-maintenance.test.mjs');
+        const { verifyAccountMaintenancePreview } = await import('../../tests/integration/account-maintenance-preview.mjs');
+        await verifyAccountMaintenancePreview(target, () => runAccountMaintenanceSuite(target));
       } else if (target.suite === 'maintenance') {
         const { runAccountMaintenanceSuite } = await import('../../tests/integration/account-maintenance.test.mjs');
         await runAccountMaintenanceSuite(target);
@@ -75,9 +95,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         await runAccountIntegrationSuite(target);
       }
       process.send({ completed: true }, () => process.disconnect());
-    } catch {
+    } catch (error) {
       process.exitCode = 1;
-      process.send({ completed: false }, () => process.disconnect());
+      const location = error?.stack?.match(/tests\/integration\/account-maintenance-preview\.mjs:\d+:\d+/)?.[0];
+      process.send({ completed: false, ...(location ? { type:'maintenance-failure',location } : {}) }, () => process.disconnect());
     }
   });
 }

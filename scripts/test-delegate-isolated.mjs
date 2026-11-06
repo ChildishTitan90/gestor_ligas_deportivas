@@ -20,8 +20,8 @@ export function parseDelegateArguments(args) {
     else if (['--execute', '--cleanup'].includes(args[index]) && !selected) {
       mode = args[index] === '--execute' ? 'execute' : 'cleanup'; selected = true;
     } else if (args[index] === '--account-integration' && !accountIntegration) accountIntegration = true;
-    else if (['--account-browser', '--account-preview', '--account-provisioning', '--competition-seasons', '--account-maintenance'].includes(args[index]) && !accountIntegration) {
-      accountIntegration = true; accountMode = args[index] === '--account-browser' ? 'browser' : args[index] === '--account-preview' ? 'preview' : args[index] === '--account-provisioning' ? 'accounts' : args[index] === '--competition-seasons' ? 'seasons' : 'maintenance';
+    else if (['--account-browser', '--account-preview', '--account-provisioning', '--competition-seasons', '--account-maintenance', '--account-maintenance-preview'].includes(args[index]) && !accountIntegration) {
+      accountIntegration = true; accountMode = args[index] === '--account-browser' ? 'browser' : args[index] === '--account-preview' ? 'preview' : args[index] === '--account-provisioning' ? 'accounts' : args[index] === '--competition-seasons' ? 'seasons' : args[index] === '--account-maintenance-preview' ? 'maintenance-preview' : 'maintenance';
     }
     else throw new Error('Usa --run-id UUID y, opcionalmente, --execute, --cleanup o --account-integration.');
   }
@@ -29,7 +29,7 @@ export function parseDelegateArguments(args) {
   return { runId, mode, accountIntegration, accountMode };
 }
 
-export const accountSuiteNames = { http: 'PDGLD-107 HTTP/SSR', browser: 'PDGLD-107 navegador', preview: 'PDGLD-107 Preview/RLS temporal', accounts: 'PDGLD-93 accounts.test.mjs con catálogo real', seasons: 'PDGLD-93 seasons.test.mjs completa', maintenance: 'PDGLD-118 mantenimiento de cuentas' };
+export const accountSuiteNames = { http: 'PDGLD-107 HTTP/SSR', browser: 'PDGLD-107 navegador', preview: 'PDGLD-107 Preview/RLS temporal', accounts: 'PDGLD-93 accounts.test.mjs con catálogo real', seasons: 'PDGLD-93 seasons.test.mjs completa', maintenance: 'PDGLD-118 mantenimiento de cuentas', 'maintenance-preview': 'PDGLD-118 mantenimiento Preview/RLS' };
 const isAccountRegistry = registry => Object.values(accountSuiteNames).includes(registry.suite);
 
 export function restoreDelegateRegistry(data, runId) {

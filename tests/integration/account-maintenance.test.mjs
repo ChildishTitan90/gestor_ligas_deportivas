@@ -7,6 +7,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { tsImport } from 'tsx/esm/api';
 import { Browser } from './auth.test.mjs';
 import { createAuthFixtures, fixturePassword } from './auth-fixtures.mjs';
+import { runAccountIdentifierChecks, runAccountSelfIdentifierCheck } from './account-identifiers.mjs';
 
 // Solo invocado por el puente IPC tras validar base/host/puertos de la copia propia.
 export async function runAccountMaintenanceSuite({ databaseUrl, baseUrl }) {
@@ -106,6 +107,7 @@ export async function runAccountMaintenanceSuite({ databaseUrl, baseUrl }) {
         assert.deepEqual((await db.query('SELECT is_active,version,maintenance_revision FROM sports_management.users WHERE id=$1',[users.underscore.id])).rows[0],before);
         assert.deepEqual((await db.query('SELECT id,revoked_at FROM sports_management.sessions WHERE user_id=$1 ORDER BY id',[users.underscore.id])).rows,sessions);
       });
+      await runAccountIdentifierChecks({ t, db, users, admin, second, scoped, target, baseUrl });
       await t.test('alternativa bloqueada o con cambio obligatorio exige decisión explícita', async () => {
         for (const field of ["locked_until=now()+interval '15 minutes'", 'must_change_password=true']) {
           await db.query(`UPDATE sports_management.users SET ${field} WHERE id=$1`,[users.concurrent.id]);
@@ -123,6 +125,7 @@ export async function runAccountMaintenanceSuite({ databaseUrl, baseUrl }) {
         const denied=responses.find(r=>r.status===409); assert.equal((await denied.json()).code,'LAST_EFFECTIVE_SUPERADMIN');
         assert.equal((await db.query('SELECT count(*)::int AS n FROM sports_management.users WHERE id=ANY($1::uuid[]) AND is_active',[[users.operational.id,users.concurrent.id]])).rows[0].n,1);
       });
+      await runAccountSelfIdentifierCheck({ t, db, users, admin, second, baseUrl });
     });
   } finally { await db.end(); await prisma.$disconnect(); }
 }

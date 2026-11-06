@@ -1,6 +1,7 @@
 import "server-only";
 
 import { loginSchema } from "@/features/auth/schemas";
+import { matchesLoginIdentifier } from "@/features/auth/login-identifier";
 import { getPrisma } from "@/server/db/prisma";
 import { lockAuthUser } from "./lock-user";
 import { getLoginPolicy } from "./login-policy";
@@ -39,7 +40,7 @@ export async function authorizeCredentials(input: unknown) {
       // puede haber modificado la cuenta mientras esta petición esperaba.
       const user = await lockAuthUser(tx, identity.id);
       const now = new Date();
-      if (!user) {
+      if (!user || !matchesLoginIdentifier(parsed.data.email, user)) {
         await verifyPassword(null, parsed.data.password);
         await tx.authentication_events.create({ data: { action: "LOGIN_FAILED", occurred_at: now } });
         return null;

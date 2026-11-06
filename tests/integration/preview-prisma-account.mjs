@@ -34,7 +34,7 @@ export async function verifyPreviewPrismaAccountCreation({ databaseUrl }) {
       has_column_privilege(current_user,'sports_management.users','maintenance_revision','UPDATE') AS update_revision,
       has_table_privilege(current_user,'sports_management.users','INSERT') AS insert_table,
       has_table_privilege(current_user,'sports_management.users','UPDATE') AS update_table`)).rows[0];
-    assert.deepEqual(acl, { insert_revision: true, update_revision: false, insert_table: false, update_table: false });
+    assert.deepEqual(acl, { insert_revision: true, update_revision: true, insert_table: false, update_table: false });
     const counts = async () => (await runtime.query(`SELECT
       (SELECT count(*)::int FROM sports_management.people) AS people,
       (SELECT count(*)::int FROM sports_management.users) AS users`)).rows[0];
@@ -51,9 +51,9 @@ export async function verifyPreviewPrismaAccountCreation({ databaseUrl }) {
       throw rollback;
     }), error => error === rollback);
     assert.deepEqual(await counts(), before, 'El fixture Prisma se revierte completo.');
-    await assert.rejects(runtime.query('UPDATE sports_management.users SET maintenance_revision=maintenance_revision WHERE false'), { code: '42501' });
-    await assert.rejects(runtime.query('UPDATE sports_management.users SET is_active=is_active WHERE false'), { code: '42501' });
-    console.log('PDGLD-118 Preview: alta Prisma con revisión 0, RLS activo y UPDATE/ACL de tabla denegados; fixture revertido.');
+    await assert.rejects(runtime.query('UPDATE sports_management.users SET person_id=person_id WHERE false'), { code: '42501' });
+    await assert.rejects(runtime.query('UPDATE sports_management.users SET encrypted_mfa_secret=encrypted_mfa_secret WHERE false'), { code: '42501' });
+    console.log('PDGLD-118 Preview: alta Prisma con revisión 0, RLS activo y columnas ajenas/ACL de tabla denegadas; fixture revertido.');
   } finally {
     await prisma.$disconnect();
     await runtime.end();

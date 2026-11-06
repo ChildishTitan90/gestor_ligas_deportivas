@@ -85,7 +85,9 @@ const update = {
   season_categories: ['competition_rule_id', 'hierarchy_order', 'type', 'competition_format',
     'player_policy', 'minimum_age', 'maximum_age', 'age_cutoff_date', 'eligibility_pending'],
   season_teams: ['group_id'],
-  users: ['password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version'],
+  // PDGLD-118: estado e identificadores; revocación y auditoría siguen en su transacción.
+  users: ['password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version',
+    'username', 'email', 'is_active', 'maintenance_revision'],
 };
 const remove = ['role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons', 'clubs', 'teams'];
 const lock = ['document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',

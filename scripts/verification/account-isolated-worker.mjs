@@ -39,7 +39,7 @@ process.once('message', async config => {
   process.once('SIGINT', stop); process.once('SIGTERM', stop); process.once('disconnect', stop);
   try {
     assert.match(config.runId, RUN_ID); assert.ok([15, 17].includes(config.major));
-    assert.ok(['http', 'browser', 'preview', 'accounts', 'seasons', 'maintenance'].includes(config.verificationMode));
+    assert.ok(['http', 'browser', 'preview', 'accounts', 'seasons', 'maintenance', 'maintenance-preview'].includes(config.verificationMode));
     assert.equal(config.host, '127.0.0.1'); assert.equal(config.port, 55400 + config.major);
     const stem = config.runId.replaceAll('-', '').slice(0, 14);
     assert.equal(config.parentDatabase, `pdgld48_test_${stem}${config.major}`);
@@ -53,7 +53,7 @@ process.once('message', async config => {
     for (const database of [config.parentDatabase, config.modelDatabase]) {
       controller.signal.throwIfAborted(); await admin.query(`CREATE DATABASE "${database}"`); created.push(database);
     }
-    const applicationDatabase = ['preview', 'accounts', 'seasons', 'maintenance'].includes(config.verificationMode) ? config.parentDatabase : config.modelDatabase;
+    const applicationDatabase = ['preview', 'accounts', 'seasons', 'maintenance', 'maintenance-preview'].includes(config.verificationMode) ? config.parentDatabase : config.modelDatabase;
     db = new pg.Client({ host: config.host, port: config.port, database: applicationDatabase, user: 'postgres',
       password: config.password, ssl: false, connectionTimeoutMillis: 5_000, statement_timeout: 15_000 });
     await db.connect();
@@ -63,13 +63,13 @@ process.once('message', async config => {
     for (const name of names.filter(name => name < target)) {
       controller.signal.throwIfAborted(); await db.query(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
     }
-    const fixture = ['accounts', 'seasons', 'maintenance'].includes(config.verificationMode) ? null : await prepareAccountDelegateFixtures(db, config.verificationMode === 'preview' ? { databaseName: applicationDatabase } : {});
+    const fixture = ['accounts', 'seasons', 'maintenance', 'maintenance-preview'].includes(config.verificationMode) ? null : await prepareAccountDelegateFixtures(db, config.verificationMode === 'preview' ? { databaseName: applicationDatabase } : {});
     for (const name of names.filter(name => name >= target)) {
       controller.signal.throwIfAborted(); await db.query(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
     }
     diagnosticContext.stage = 'application-copy';
     const root = fileURLToPath(new URL('../../', import.meta.url));
-    app = await createAccountAppCopy(root, applicationPlan.app, { dependencies: applicationPlan.dependencies, verification: ['accounts', 'seasons', 'maintenance', 'preview'].includes(config.verificationMode) });
+    app = await createAccountAppCopy(root, applicationPlan.app, { dependencies: applicationPlan.dependencies, verification: ['accounts', 'seasons', 'maintenance', 'preview', 'maintenance-preview'].includes(config.verificationMode) });
     if (applicationPlan.dependencies === 'independent') {
       diagnosticContext.case = 'dependency-installation';
       await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
@@ -83,9 +83,10 @@ process.once('message', async config => {
     const baseUrl = `http://127.0.0.1:${56500 + config.major}`;
     const databaseUrl = new URL(`postgresql://postgres@127.0.0.1:${config.port}/${applicationDatabase}`);
     databaseUrl.password = config.password;
+    const ownerDatabaseUrl = databaseUrl.href;
     let runtimeConnection;
     const permissionSnapshot = async () => (await db.query('SELECT * FROM sports_management.role_permissions ORDER BY id')).rows;
-    if (config.verificationMode === 'preview') {
+    if (['preview', 'maintenance-preview'].includes(config.verificationMode)) {
       // Empty ledger decoy only for ACL tests, not a claimed Prisma deployment history.
       await db.query('CREATE TABLE public._prisma_migrations (id text PRIMARY KEY)');
       const before = await permissionSnapshot();
@@ -96,8 +97,11 @@ process.once('message', async config => {
         user: PREVIEW_ROLE, password: runtimePassword, ssl: false, connectionTimeoutMillis: 5_000 };
       databaseUrl.username = PREVIEW_ROLE; databaseUrl.password = runtimePassword;
     }
+    const applicationDatabaseUrl = new URL(databaseUrl);
+    if (config.verificationMode === 'maintenance-preview')
+      applicationDatabaseUrl.searchParams.set('application_name','pdgld118-maintenance-preview');
     const environment = { ...childEnvironment(process.env), NODE_ENV: 'development', AUTH_TEST_RUN: '1',
-      DATABASE_URL: databaseUrl.href, DIRECT_URL: databaseUrl.href, NEXTAUTH_URL: baseUrl,
+      DATABASE_URL: applicationDatabaseUrl.href, DIRECT_URL: applicationDatabaseUrl.href, NEXTAUTH_URL: baseUrl,
       NEXTAUTH_SECRET: randomBytes(48).toString('base64url'), NEXT_TELEMETRY_DISABLED: '1',
       SUPABASE_URL: 'https://storage.example.test', SUPABASE_STORAGE_SERVER_KEY: 'synthetic-not-used' };
     diagnosticContext.stage = 'next-startup';
@@ -134,14 +138,16 @@ process.once('message', async config => {
         JSON.stringify({ suite: 'tests/integration/preview-prisma-account.mjs', passed: true }, null, 2),
         { flag: 'wx', mode: 0o600 });
     }
-    if (['accounts', 'seasons', 'maintenance'].includes(config.verificationMode)) {
+    if (['accounts', 'seasons', 'maintenance', 'maintenance-preview'].includes(config.verificationMode)) {
       const seasons = config.verificationMode === 'seasons';
-      const maintenance = config.verificationMode === 'maintenance';
+      const maintenance = ['maintenance', 'maintenance-preview'].includes(config.verificationMode);
       diagnosticContext.case = maintenance ? 'account-maintenance' : seasons ? 'competition-seasons' : 'account-provisioning';
-      await runAccountProvisioningSuite({ databaseUrl: databaseUrl.href, baseUrl,
+      await runAccountProvisioningSuite({ databaseUrl: config.verificationMode === 'maintenance-preview' ? ownerDatabaseUrl : databaseUrl.href, baseUrl,
+        ...(config.verificationMode === 'maintenance-preview' ? { runtimeDatabaseUrl: databaseUrl.href } : {}),
         suite: config.verificationMode }, { signal: controller.signal, application: applicationPlan });
       await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
-      const evidence = maintenance ? { suite: 'tests/integration/account-maintenance.test.mjs', passed: true } : seasons ? { suite: 'tests/integration/seasons.test.mjs',
+      const evidence = maintenance ? { suite: 'tests/integration/account-maintenance.test.mjs', passed: true,
+        ...(config.verificationMode === 'maintenance-preview' ? { applicationRole: PREVIEW_ROLE, rls: true, aclChecks: true } : {}) } : seasons ? { suite: 'tests/integration/seasons.test.mjs',
         preparation: 'existing-season-fixtures', passed: true } : {
         suite: 'tests/integration/accounts.test.mjs', preparation: 'existing-catalog-account-suite',
         passed: true, expected: { deputyCreation: 201, primaryCreation: 201, occupiedPrimary: 409 },

@@ -85,8 +85,8 @@ export async function verifyPreviewRuntime(client) {
     await client.query(`INSERT INTO sports_management.audit_logs(id,user_id,action,table_name,entity_id)
       SELECT gen_random_uuid(),gen_random_uuid(),'PLAYER_DOCUMENT_PREPARED','player_documents',gen_random_uuid() WHERE false`);
     for (const sql of [
-      'UPDATE sports_management.users SET maintenance_revision=maintenance_revision',
-      'UPDATE sports_management.users SET is_active=is_active',
+      'UPDATE sports_management.users SET person_id=person_id',
+      'UPDATE sports_management.users SET encrypted_mfa_secret=encrypted_mfa_secret',
       `UPDATE sports_management.permissions SET id=id WHERE id='${permission.id}'`,
       'UPDATE sports_management.user_roles SET id=id',
       'UPDATE sports_management.roles SET id=id',

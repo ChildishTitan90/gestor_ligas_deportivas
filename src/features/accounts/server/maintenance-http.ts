@@ -10,7 +10,7 @@ export function maintenanceFailure(error: unknown) {
   console.error("[account-maintenance] SERVICE_UNAVAILABLE");
   return NextResponse.json({ code: "SERVICE_UNAVAILABLE" }, { status: 503, headers: maintenanceHeaders });
 }
-export async function readStatusBody(request: Request) {
+export async function readMaintenanceBody(request: Request) {
   if (request.headers.get("origin") !== new URL(process.env.NEXTAUTH_URL ?? request.url).origin ||
     request.headers.get("sec-fetch-site") === "cross-site") throw new AccountMaintenanceError("INVALID_ORIGIN", 403);
   if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json")

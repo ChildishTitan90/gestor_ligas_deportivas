@@ -11,9 +11,15 @@ test('PDGLD-107: Preview puede insertar cargo y vigencia, sin editar ni eliminar
   assert.equal(runtimePrivileges.insert.user_roles.includes('ends_at'), true);
 });
 
-test('PDGLD-118: el default de revisión se inserta sin ampliar las actualizaciones de users', () => {
+test('PDGLD-118: altas y mantenimiento usan columnas explícitas, sin permisos adicionales de asignaciones', () => {
   assert.ok(runtimePrivileges.insert.users.includes('maintenance_revision'));
   assert.deepEqual(runtimePrivileges.update.users, [
     'password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version',
+    'username', 'email', 'is_active', 'maintenance_revision',
   ]);
+  assert.deepEqual(runtimePrivileges.update.sessions, ['revoked_at', 'last_activity_at', 'expires_at']);
+  assert.deepEqual(runtimePrivileges.insert.audit_logs, ['id','user_id','action','table_name','entity_id','previous_data','new_data','reason','occurred_at']);
+  assert.equal(runtimePrivileges.update.audit_logs, undefined);
+  assert.equal(runtimePrivileges.update.roles, undefined);
+  assert.equal(runtimePrivileges.update.user_roles, undefined);
 });

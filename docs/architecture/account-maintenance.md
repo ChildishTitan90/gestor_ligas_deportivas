@@ -1,5 +1,9 @@
 # PDGLD-118 — primera entrega: consulta y estado de cuentas
 
+La continuación de edición de usuario/correo se describe en
+[edición de identificadores](account-identifier-maintenance.md); conserva este
+servicio de estado y mantiene los campos de persona sujetos a sus reglas propias.
+
 Implementación de backend; pantallas, edición de identidad y restablecimiento no
 forman parte de esta entrega. Complementa PDGLD-117 sin duplicar el alta,
 PDGLD-36 (roles) ni PDGLD-93 (cargos y vigencias). No borra personas o referencias.
@@ -153,6 +157,8 @@ por correo (PDGLD-32) en este incremento.
   `next typegen`. Los 286 errores reproducidos en el workspace desaparecieron
   sin modificar código, versiones o tipos. El entorno original no se regeneró.
 - Suite HTTP completa y migración nueva verificadas únicamente en PostgreSQL
-  15/17 desechables. No se ejecutaron seeds dev/demo ni validación de Preview/RLS,
-  Supabase o despliegue de producción. Se comprobaron la limpieza y los archivos
+  15/17 desechables. La compatibilidad posterior de ambos PATCH y GET con
+  Preview/RLS se registra en [mantenimiento Preview](../validation/account-maintenance-preview.md).
+  No se ejecutaron seeds dev/demo, Supabase ni despliegue de producción.
+  Se comprobaron la limpieza y los archivos
   protegidos. Véase el [informe saneado](../validation/account-maintenance-integration.md).
