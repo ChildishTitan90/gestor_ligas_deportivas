@@ -71,11 +71,14 @@ async function snapshot(client: pg.Client): Promise<Snapshot> {
     WHERE table_schema = 'sports_management' AND table_type = 'BASE TABLE'
     ORDER BY table_name
   `);
-  assert.equal(tables.length, 101, 'La base debe conservar las 96 tablas iniciales y añadir categorías de afiliación y operaciones de inscripción.');
+  assert.equal(tables.length, 102,
+    'La base debe conservar las 96 tablas iniciales y las seis adiciones: categorías de afiliación, operaciones de inscripción, comprobaciones CURP, dos tablas de participación y correo pendiente.');
   assert.ok(tables.some(({ table_name }) => table_name === 'club_affiliation_categories'),
     'Debe existir la tabla de categorías de afiliación de PDGLD-57.');
   assert.ok(tables.some(({ table_name }) => table_name === 'team_enrollment_operations'),
     'Debe existir la tabla de recuperación de inscripciones de PDGLD-64.');
+  assert.ok(tables.some(({ table_name }) => table_name === 'account_email_changes'),
+    'Debe existir exactamente la tabla de correo pendiente añadida por 20261105020000_pdgld118_pending_email.');
   const result: Snapshot = {};
   for (const { table_name: tableName } of tables) {
     assert.match(tableName, /^[a-z_]+$/, 'Los identificadores SQL deben pertenecer al esquema.');

@@ -31,6 +31,33 @@ test('Chrome: cancelar una prueba interrumpe la espera y cierra solo su navegado
   try { await assert.rejects(browser.evaluate('new Promise(()=>{})'), /cancelado|cerrado/); }
   finally { clearTimeout(timer); await browser.close(); }
 });
+test('Chrome: conecta su página en blanco antes de una respuesta HTTP inicial lenta', { timeout: 45000 }, async t => {
+  const events = [];
+  const server = createServer((_request, response) => {
+    events.push('http-request');
+    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    const timer = setTimeout(() => {
+      events.push('http-response');
+      response.end('<p>Documento sintético lento</p><script>window.syntheticExecuted=true</script>');
+    }, 6500);
+    response.once('close', () => clearTimeout(timer));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => closeTestServer(server));
+  const browser = await launchChrome(`http://127.0.0.1:${server.address().port}`, {
+    signal: t.signal, commandTimeoutMs: 15000, waitForDocument: true,
+  });
+  t.after(() => browser.close());
+  assert.ok(browser.startup.initialNavigationMs - browser.startup.pageConnectedMs >= 5000,
+    'La selección/conexión CDP debe haber terminado antes de esperar la respuesta HTTP.');
+  assert.equal(await browser.evaluate("document.body.innerText.includes('Documento sintético lento')"), true);
+  assert.equal(await browser.evaluate('document.characterSet'), 'UTF-8');
+  assert.equal(await browser.evaluate('window.syntheticExecuted'), true);
+  assert.ok(events.indexOf('http-request') < events.indexOf('http-response'));
+  assert.ok(browser.startup.pageConnectedMs <= browser.startup.navigationRequestedMs);
+  assert.ok(browser.startup.documentLoadedMs >= browser.startup.navigationRequestedMs + 6500);
+  assert.ok(browser.startup.documentReadyMs >= browser.startup.documentLoadedMs);
+});
 test('Servidor sintético: cierra conexiones activas incluso si una respuesta no termina', { timeout: 5000 }, async () => {
   let received;
   const started = new Promise(resolve => { received = resolve; });

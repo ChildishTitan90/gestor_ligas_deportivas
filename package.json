@@ -26,7 +26,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit --incremental false",
     "postinstall": "prisma generate",
-    "test:ci": "node --test scripts/ci/account-diagnostics.test.mjs scripts/ci/migration-helpers.test.mjs scripts/ci/production-plans.test.mjs scripts/ci/preview-fixture-target.test.mjs scripts/ci/delegate-position-fixture-target.test.mjs scripts/ci/delegate-preview-privileges.test.mjs scripts/ci/delegate-isolated-runtime.test.mjs scripts/preview/connection.test.mjs",
+    "test:ci": "node --test scripts/ci/ci136-port-plan.test.mjs scripts/ci/chrome-page-discovery.test.mjs scripts/ci/account-diagnostics.test.mjs scripts/ci/migration-helpers.test.mjs scripts/ci/production-plans.test.mjs scripts/ci/preview-fixture-target.test.mjs scripts/ci/delegate-position-fixture-target.test.mjs scripts/ci/delegate-preview-privileges.test.mjs scripts/ci/delegate-isolated-runtime.test.mjs scripts/preview/connection.test.mjs",
     "test:delegate-model": "node --conditions=react-server --import tsx --test tests/integration/delegate-positions.test.ts",
     "test:delegate-isolated": "node scripts/test-delegate-isolated.mjs",
     "test:account-isolated": "node scripts/test-delegate-isolated.mjs --account-integration",

@@ -93,6 +93,7 @@ export async function executeDelegateMatrix(plan, io, signal) {
   const resources = [];
   const record = () => io.record({ plan, resources });
   for (const item of plan.versions) {
+    await io.beforeVersion?.(item, signal);
     const resource = { ...item, pending: true };
     resources.push(resource);
     await record(); // Registry exists before the first resource can be created.
@@ -121,7 +122,8 @@ export async function executeDelegateMatrix(plan, io, signal) {
       assertIsolatedContainer(await io.inspect('container', resource.containerId), plan, item, resource.containerId, resource.port);
       signal?.throwIfAborted();
       io.progress(`PostgreSQL ${item.major}: suite del modelo.`);
-      await io.worker({ ...item, runId: plan.runId, host: '127.0.0.1', port: resource.port, password }, signal);
+      await io.worker({ ...item, runId: plan.runId, host: '127.0.0.1', port: resource.port, password,
+        containerId: resource.containerId, networkId: resource.networkId }, signal);
       resource.passed = true;
     } catch (error) { failure = error; }
     // This runs only after worker() has stopped/awaited the child, also on abort.

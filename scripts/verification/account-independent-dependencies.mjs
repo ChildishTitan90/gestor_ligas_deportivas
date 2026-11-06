@@ -49,7 +49,7 @@ export function accountWorkerTimeout(verificationMode) {
 }
 
 // A private process group owns npm and lifecycle children. Never run through a shell.
-async function runInstall(spec, environment, capture, signal) {
+export async function runIsolatedCommand(spec, environment, capture, signal) {
   assert.notEqual(process.platform, 'win32');
   signal?.throwIfAborted();
   const child = spawn(spec.command, spec.args, { cwd: spec.cwd, env: environment,
@@ -59,7 +59,7 @@ async function runInstall(spec, environment, capture, signal) {
     if (!child.pid) return;
     try { process.kill(-child.pid, how); } catch (error) { if (error.code !== 'ESRCH') failed = true; }
   };
-  const stop = () => { kill('SIGTERM'); killTimer ??= setTimeout(() => kill('SIGKILL'), 2000); };
+  const stop = () => { kill('SIGTERM'); killTimer ??= setTimeout(() => kill('SIGKILL'), spec.terminationGraceMs ?? 2000); };
   child.stdout.on('data', chunk => capture.output('stdout', chunk));
   child.stderr.on('data', chunk => capture.output('stderr', chunk));
   signal?.addEventListener('abort', stop, { once: true });
@@ -70,9 +70,9 @@ async function runInstall(spec, environment, capture, signal) {
       child.once('close', resolve);
     });
     signal?.throwIfAborted();
-    assert.equal(timedOut, false, 'NPM_INSTALL_TIMEOUT');
-    assert.equal(failed, false, 'NPM_INSTALL_FAILED');
-    assert.equal(code, 0, 'NPM_INSTALL_FAILED');
+    assert.equal(timedOut, false, `${spec.failureCode ?? 'NPM_INSTALL'}_TIMEOUT`);
+    assert.equal(failed, false, `${spec.failureCode ?? 'NPM_INSTALL'}_FAILED`);
+    assert.equal(code, 0, `${spec.failureCode ?? 'NPM_INSTALL'}_FAILED`);
   } finally {
     clearTimeout(timer); clearTimeout(killTimer);
     signal?.removeEventListener('abort', stop);
@@ -80,7 +80,7 @@ async function runInstall(spec, environment, capture, signal) {
   }
 }
 
-export async function installIndependentDependencies(plan, capture, signal, { environment = process.env, run = runInstall } = {}) {
+export async function installIndependentDependencies(plan, capture, signal, { environment = process.env, run = runIsolatedCommand } = {}) {
   const spec = independentInstallPlan(plan);
   const packageFile = join(plan.app, 'package.json'); const lockFile = join(plan.app, 'package-lock.json');
   const before = { package: hash(await readFile(packageFile)), lock: hash(await readFile(lockFile)) };
