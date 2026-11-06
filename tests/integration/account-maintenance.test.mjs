@@ -7,10 +7,11 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { tsImport } from 'tsx/esm/api';
 import { Browser } from './auth.test.mjs';
 import { createAuthFixtures, fixturePassword } from './auth-fixtures.mjs';
+import { runEmailChangeDatabaseSuite } from './account-email-change.mjs';
 import { runAccountIdentifierChecks, runAccountSelfIdentifierCheck } from './account-identifiers.mjs';
 
 // Solo invocado por el puente IPC tras validar base/host/puertos de la copia propia.
-export async function runAccountMaintenanceSuite({ databaseUrl, baseUrl }) {
+export async function runAccountMaintenanceSuite({ databaseUrl, baseUrl, runtimeDatabaseUrl }) {
   const url = new URL(databaseUrl);
   assert.equal(url.hostname, '127.0.0.1');
   assert.ok(['55415','55417'].includes(url.port));
@@ -114,10 +115,13 @@ export async function runAccountMaintenanceSuite({ databaseUrl, baseUrl }) {
           try {
             const response=await patch(admin,users.operational.id,body(0));
             assert.equal(response.status,409);
-            assert.equal((await response.json()).code,'SUPERADMIN_AVAILABILITY_DECISION_REQUIRED');
+            assert.equal((await response.json()).code,'LAST_OPERATIONAL_SUPERADMIN');
             assert.equal((await detail(users.operational.id)).revision,0);
           } finally { await db.query('UPDATE sports_management.users SET locked_until=NULL,must_change_password=false WHERE id=$1',[users.concurrent.id]); }
         }
+      });
+      await t.test('correo pendiente: transacciones, tokens, autorización y transporte sintético en base aislada', async () => {
+        await runEmailChangeDatabaseSuite({databaseUrl,baseUrl,...(runtimeDatabaseUrl?{suite:'maintenance-preview',runtimeDatabaseUrl}:{suite:'maintenance'})}, users.operational.id, users.idle.id);
       });
       await t.test('dos bajas concurrentes no eliminan el último SUPERADMIN global efectivo', async () => {
         const responses=await Promise.all([patch(admin,users.operational.id,body(0)),patch(second,users.concurrent.id,body(0))]);

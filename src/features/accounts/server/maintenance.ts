@@ -77,7 +77,7 @@ export async function changeAccountIdentifiers(id: string, input: unknown) {
       if (ambiguous.found) throw new AccountMaintenanceError("DUPLICATE_ACCOUNT", 409);
       // Los índices lower(...) garantizan unicidad incluso ante escritores concurrentes.
       const [updated] = await tx.$queryRaw<Account[]>`UPDATE sports_management.users u
-        SET username=${next.username}, email=${next.email}, maintenance_revision=maintenance_revision+1, version=version+1
+        SET username=${next.username}, maintenance_revision=maintenance_revision+1, version=version+1
         WHERE u.id=${id}::uuid RETURNING ${selection}`;
       await tx.sessions.updateMany({ where: { user_id: id, revoked_at: null }, data: { revoked_at: new Date() } });
       await tx.audit_logs.create({ data: { user_id: actor.id, action: "UPDATE", table_name: "users", entity_id: id,

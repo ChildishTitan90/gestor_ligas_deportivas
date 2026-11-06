@@ -38,7 +38,7 @@ Errores: 400 VALIDATION_ERROR/INVALID_PAYLOAD; 401 UNAUTHENTICATED;
 403 FORBIDDEN/INVALID_ORIGIN (o restricción de sesión existente);
 404 ACCOUNT_NOT_FOUND; 409 ACCOUNT_CHANGED, ACCOUNT_STATE_UNCHANGED,
 LAST_ACTIVE_SUPERADMIN, LAST_EFFECTIVE_SUPERADMIN o
-SUPERADMIN_AVAILABILITY_DECISION_REQUIRED; 413 PAYLOAD_TOO_LARGE;
+LAST_OPERATIONAL_SUPERADMIN; 413 PAYLOAD_TOO_LARGE;
 503 SERVICE_UNAVAILABLE. Un error inesperado no devuelve el diagnóstico interno.
 
 ## Concurrencia, auditoría y sesiones
@@ -67,7 +67,7 @@ que hubo un cambio, pero NO identifica por sí sola quién lo produjo. No mostra
 recuperación por operación en esta entrega; requerir revisión humana si el estado
 observado no permite resolver la incertidumbre.
 
-## Último SUPERADMIN y decisión pendiente
+## Último SUPERADMIN: decisión confirmada por Sergio (5 de noviembre de 2026)
 
 Se distinguen:
 
@@ -81,12 +81,22 @@ Al desactivar una cuenta con SUPERADMIN vigente, debe quedar otra cuenta activa
 con asignación vigente. Además debe quedar una con la autoridad global indicada.
 Un SUPERADMIN limitado a una liga no es sustituto de autoridad global.
 
-PENDIENTE de acuerdo humano: ¿un administrador temporalmente bloqueado o con
-cambio obligatorio cuenta como alternativa suficiente para dar de baja al otro?
-No se resuelve implícitamente: cuando solo quedan alternativas en esas condiciones,
-se rechaza con SUPERADMIN_AVAILABILITY_DECISION_REQUIRED. Si hay otra alternativa
-operativa, la operación independiente puede continuar. Es un cierre provisional
-conservador, no una decisión final de negocio sobre esas dos condiciones.
+Solo cuenta como respaldo otro administrador que pueda operar: una alternativa
+temporalmente bloqueada o con cambio obligatorio de contraseña no permite la baja.
+La implementación publicada ya cumple ese rechazo mediante
+`assertAdministratorReplacement`, llamado por `protectLastAdministrator` dentro
+de la transacción. Exige que una misma alternativa reúna actividad, asignación,
+autoridad global READ/UPDATE y disponibilidad; no combina condiciones de personas
+distintas. El código 409 actual es `LAST_OPERATIONAL_SUPERADMIN`, con mensaje de
+que debe quedar otro administrador con permisos globales, sin bloqueo ni cambio
+obligatorio. Sustituye el nombre histórico de decisión pendiente; la protección
+no cambia. Pruebas puras y suites de mantenimiento `.203` y Preview/RLS `.204`
+usaron el código nuevo y aprobaron en PostgreSQL 15/17.
+
+La comprobación usa `locked_until > clock_timestamp()` y `must_change_password`
+del servidor. El bloqueo RF22 serializa las bajas de este servicio; no demuestra
+una garantía permanente frente a bloqueos de login concurrentes o posteriores,
+ni frente a otros escritores que no compartan ese bloqueo.
 
 Coordinación pendiente con PDGLD-36: aplicar la misma invariante a retirada/edición
 de roles, permisos y periodos, y acordar vencimientos futuros que dejarían sin
@@ -142,10 +152,14 @@ capacidad READ global del servidor, separada de Crear cuenta. Reutilizar
 ManagementShell, SelectField y FormDialog, con estados de conflicto/confirmación
 y recuperación incierta; cada entrada conserva su propia autorización.
 
-PDGLD-119 requiere acordar quién verifica identidad, qué evidencia acepta, canal
-y destinatario de entrega privada, caducidad, intentos y tratamiento de entregas
-inciertas. No se emiten credenciales temporales ni se implementa recuperación
-por correo (PDGLD-32) en este incremento.
+PDGLD-119 tiene confirmada la verificación del solicitante mediante identidad o
+canal previamente registrado, el registro de responsable/motivo, la entrega de
+contraseña temporal por canal privado verificado, el cambio obligatorio y la
+invalidación de sesiones anteriores. Está prohibida la entrega a un correo nuevo
+sin verificar. Falta implementar el procedimiento y concretar evidencia admitida,
+responsables operativos, caducidad, intentos y tratamiento de entregas inciertas.
+No se emiten credenciales temporales ni se implementa recuperación por correo
+(PDGLD-32) en este incremento. Véanse el [diseño y matriz de pendientes](account-maintenance-decisions.md).
 
 ## Comprobaciones locales de esta preparación
 

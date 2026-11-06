@@ -28,7 +28,7 @@ export async function verifyAccountMaintenancePreview({ databaseUrl, runtimeData
       has_column_privilege(current_user,'sports_management.users',attname,'UPDATE') AS allowed
       FROM pg_attribute WHERE attrelid='sports_management.users'::regclass AND attnum>0 AND NOT attisdropped`)).rows;
     assert.deepEqual(columns.filter(row=>row.allowed).map(row=>row.name).sort(),
-      ['password_hash','must_change_password','failed_login_attempts','locked_until','version','username','email','is_active','maintenance_revision'].sort());
+      ['password_hash','must_change_password','failed_login_attempts','locked_until','version','username','email','is_active','maintenance_revision','email_verified_at'].sort());
     for (const table of ['users','sessions','audit_logs','roles','user_roles']) {
       assert.equal((await runtime.query(`SELECT has_table_privilege(current_user,$1,'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS extra`,[`sports_management.${table}`])).rows[0].extra,false);
     }

@@ -6,7 +6,9 @@ import { AuthorizationError } from "@/server/auth/authorization";
 export const maintenanceHeaders = { "Cache-Control": "private, no-store" };
 export function maintenanceFailure(error: unknown) {
   if (error instanceof AccountMaintenanceError || error instanceof AuthAccessError || error instanceof AuthorizationError)
-    return NextResponse.json({ code: error.code }, { status: error.status, headers: maintenanceHeaders });
+    return NextResponse.json({ code: error.code, ...(error.code === "LAST_OPERATIONAL_SUPERADMIN" ? {
+      message: "Debe quedar otro administrador con permisos globales que pueda operar, sin bloqueo ni cambio obligatorio de contraseña.",
+    } : {}) }, { status: error.status, headers: maintenanceHeaders });
   console.error("[account-maintenance] SERVICE_UNAVAILABLE");
   return NextResponse.json({ code: "SERVICE_UNAVAILABLE" }, { status: 503, headers: maintenanceHeaders });
 }

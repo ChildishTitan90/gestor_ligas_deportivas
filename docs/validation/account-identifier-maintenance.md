@@ -1,5 +1,14 @@
 # PDGLD-118 — validación de edición de identificadores
 
+Nota de revisión del siguiente commit, 6 de noviembre de 2026: este informe conserva la evidencia del
+comportamiento publicado. La [matriz actual de decisiones y pendientes](../architecture/account-maintenance-decisions.md)
+incorpora lo confirmado por Sergio: disponibilidad operativa de SUPERADMIN ya
+decidida y correo pendiente con prueba de propiedad y aviso al anterior. La
+edición directa probada aquí es histórica y fue retirada. El nuevo flujo de
+verificación está implementado y aprobado en mantenimiento `.203` y Preview/RLS
+`.204` sobre PostgreSQL 15/17. Reset administrativo y corrección de identidad
+siguen pendientes; no se repiten servicios al preparar el commit.
+
 Validación del 5 de noviembre de 2026 sobre `71c7290` y los cambios locales de
 esta entrega. Sin staging, commit ni push. Reglas y decisiones pendientes en
 [edición de identificadores](../architecture/account-identifier-maintenance.md).

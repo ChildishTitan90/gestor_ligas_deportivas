@@ -38,35 +38,26 @@ export async function runAccountIdentifierChecks({ t, db, users, admin, second, 
       assert.ok([401,403].includes((await browser.request(path(users.underscore.id))).status));
       assert.ok([401,403].includes((await patch(browser, users.underscore.id, input(2, {username:'denegado'}))).status));
     }
-    for (const changes of [{ firstName:'Nombre' }, {curp:'dato'}, {birthDate:'2000-01-01'}, {personId:randomUUID()}, {roles:[]}, {password:'dato'}, {}])
+    for (const changes of [{ firstName:'Nombre' }, {curp:'dato'}, {birthDate:'2000-01-01'}, {personId:randomUUID()}, {roles:[]}, {password:'dato'}, {email:'new@example.test'}, {username:'new',email:'new@example.test'}, {}])
       assert.equal((await patch(admin, users.underscore.id, input(2, changes))).status, 400);
     assert.equal((await patch(admin, users.underscore.id, input(99, {username:'obsoleto'}))).status, 409);
     assert.deepEqual(await snapshot(users.underscore.id), before);
     assert.deepEqual(Object.keys(await get(users.underscore.id)).sort(), ['email','id','revision','username']);
   });
-  await identifierTest(t, 'índices lower impiden usuario/correo duplicados; el rechazo revierte todo', async () => {
+  await identifierTest(t, 'índice lower impide username duplicado; email directo se rechaza sin efectos', async () => {
     const before = await snapshot(users.underscore.id);
-    for (const changes of [{username:' PDGLD48_CONCURRENT '}, {email:` ${users.concurrent.email.toUpperCase()} `}]) {
-      const response = await patch(admin, users.underscore.id, input(2, changes));
-      assert.equal(response.status, 409); assert.deepEqual(await response.json(), {code:'DUPLICATE_ACCOUNT'});
-      assert.deepEqual(await snapshot(users.underscore.id), before);
-    }
-    const legacyEmail=`legacy-${randomUUID()}@example.test`;
-    await db.query('UPDATE sports_management.users SET username=$2 WHERE id=$1',[users.passwordChange.id,legacyEmail]);
-    try {
-      const response=await patch(admin,users.underscore.id,input(2,{email:legacyEmail}));
-      assert.equal(response.status,409);assert.equal((await response.json()).code,'DUPLICATE_ACCOUNT');
-      assert.deepEqual(await snapshot(users.underscore.id),before);
-    } finally { await db.query('UPDATE sports_management.users SET username=$2 WHERE id=$1',[users.passwordChange.id,'pdgld48_passwordChange']); }
-    const current = await get(users.underscore.id);
-    const response = await patch(admin, users.underscore.id, input(2, {username:current.username.toUpperCase()}));
-    assert.equal(response.status, 409); assert.equal((await response.json()).code, 'ACCOUNT_IDENTIFIERS_UNCHANGED');
-    assert.deepEqual(await snapshot(users.underscore.id), before);
+    const response = await patch(admin, users.underscore.id, input(2, {username:' PDGLD48_CONCURRENT '}));
+    assert.equal(response.status,409); assert.equal((await response.json()).code,'DUPLICATE_ACCOUNT');
+    assert.equal((await patch(admin,users.underscore.id,input(2,{email:'new@example.test'}))).status,400);
+    const current=await get(users.underscore.id);
+    const unchanged=await patch(admin,users.underscore.id,input(2,{username:current.username.toUpperCase()}));
+    assert.equal(unchanged.status,409); assert.equal((await unchanged.json()).code,'ACCOUNT_IDENTIFIERS_UNCHANGED');
+    assert.deepEqual(await snapshot(users.underscore.id),before);
   });
   await identifierTest(t, 'edición normalizada conserva persona/referencias/asignaciones y revoca cookies con auditoría mínima', async () => {
     const before = await snapshot(users.underscore.id); const oldCookies = new Map(target.cookies);
-    const suffix = randomBytes(6).toString('hex'); const username = `edit_${suffix}`; const email = `${suffix}@example.test`;
-    const response = await patch(admin, users.underscore.id, input(2, {username:` ${username.toUpperCase()} `,email:` ${email.toUpperCase()} `}));
+    const suffix = randomBytes(6).toString('hex'); const username = `edit_${suffix}`; const email = before.user.email;
+    const response = await patch(admin, users.underscore.id, input(2, {username:` ${username.toUpperCase()} `}));
     assert.equal(response.status, 200); const result = await response.json();
     assert.deepEqual(Object.keys(result).sort(), ['id','isActive','revision','sessionsRevoked','username']);
     assert.equal(result.revision, 3); assert.equal(result.sessionsRevoked, true);
@@ -80,20 +71,20 @@ export async function runAccountIdentifierChecks({ t, db, users, admin, second, 
     assert.equal(after.audit.length, before.audit.length+1);
     const event = after.audit.at(-1); assert.equal(event.user_id, users.operational.id);
     assert.deepEqual(event.previous_data, {maintenance_revision:2});
-    assert.deepEqual(event.new_data, {maintenance_revision:3,changed_fields:['username','email'],sessions_revoked:true});
+    assert.deepEqual(event.new_data, {maintenance_revision:3,changed_fields:['username'],sessions_revoked:true});
     target.cookies = oldCookies; assert.equal((await target.session()).user, undefined);
-    for (const identifier of [before.user.email, before.user.username]) {
+    for (const identifier of [before.user.username]) {
       const browser = new Browser(baseUrl); await browser.login(identifier, fixturePassword);
       assert.equal((await browser.session()).user, undefined);
     }
     await target.login(username, fixturePassword); assert.ok((await target.session()).user);
     const byEmail = new Browser(baseUrl); await byEmail.login(email, fixturePassword); assert.ok((await byEmail.session()).user);
   });
-  await identifierTest(t, 'dos cuentas disputando cada identificador tienen un ganador y un conflicto recuperable', async () => {
+  await identifierTest(t, 'dos cuentas disputando username tienen un ganador y un conflicto recuperable', async () => {
     const ids = [users.inactive.id, users.unknownHash.id];
-    for (const field of ['username','email']) {
+    for (const field of ['username']) {
       const before = await Promise.all(ids.map(snapshot)); const details = await Promise.all(ids.map(get));
-      const suffix = randomBytes(6).toString('hex'); const value = field==='email' ? `${suffix}@example.test` : `race_${suffix}`;
+      const suffix = randomBytes(6).toString('hex'); const value = `race_${suffix}`;
       const responses = await Promise.all(ids.map((id,index) => patch(index ? second : admin,id,input(details[index].revision,{[field]:index ? value.toUpperCase() : value}))));
       assert.deepEqual(responses.map(r=>r.status).sort(), [200,409]);
       const loser = responses.findIndex(r=>r.status===409);
@@ -119,7 +110,7 @@ export async function runAccountIdentifierChecks({ t, db, users, admin, second, 
     const name=`fail_identifiers_${randomBytes(5).toString('hex')}`;
     await db.query(`CREATE FUNCTION sports_management.${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.table_name='users' THEN RAISE EXCEPTION 'synthetic audit failure'; END IF; RETURN NEW; END $$`);
     await db.query(`CREATE TRIGGER ${name} BEFORE INSERT ON sports_management.audit_logs FOR EACH ROW EXECUTE FUNCTION sports_management.${name}()`);
-    try { assert.equal((await patch(admin,id,input(current.revision,{email:`${randomUUID()}@example.test`}))).status,503); }
+    try { assert.equal((await patch(admin,id,input(current.revision,{username:`rollback_${randomBytes(6).toString('hex')}`}))).status,503); }
     finally { await db.query(`DROP TRIGGER ${name} ON sports_management.audit_logs`);await db.query(`DROP FUNCTION sports_management.${name}()`); }
     assert.deepEqual(await snapshot(id),before);
   });
@@ -147,14 +138,15 @@ export async function runAccountIdentifierChecks({ t, db, users, admin, second, 
 }
 
 export async function runAccountSelfIdentifierCheck({ t, db, users, admin, second, baseUrl }) {
-  await identifierTest(t, 'editar el propio correo confirma la escritura y exige iniciar una sesión nueva', async () => {
+  await identifierTest(t, 'editar el propio username confirma la escritura y exige iniciar una sesión nueva', async () => {
     const current=(await db.query('SELECT id,username,maintenance_revision FROM sports_management.users WHERE id=ANY($1::uuid[]) AND is_active',[[users.operational.id,users.concurrent.id]])).rows[0];
     assert.ok(current);
     const browser=current.id===users.operational.id?admin:second;
+    const nextUsername=`self_${randomBytes(6).toString('hex')}`;
     const response=await browser.request(`/api/account-maintenance/${current.id}/identifiers`,{method:'PATCH',headers:{origin:baseUrl,'content-type':'application/json'},
-      body:JSON.stringify({changes:{email:`self-${randomUUID()}@example.test`},expectedRevision:current.maintenance_revision,confirmed:true,reason:'Corrección sintética propia'})});
+      body:JSON.stringify({changes:{username:nextUsername},expectedRevision:current.maintenance_revision,confirmed:true,reason:'Corrección sintética propia'})});
     assert.equal(response.status,200);assert.equal((await response.json()).sessionsRevoked,true);
     assert.equal((await browser.session()).user,undefined);
-    await browser.login(current.username,fixturePassword);assert.ok((await browser.session()).user);
+    await browser.login(nextUsername,fixturePassword);assert.ok((await browser.session()).user);
   });
 }

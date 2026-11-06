@@ -147,6 +147,8 @@ process.once('message', async config => {
         suite: config.verificationMode }, { signal: controller.signal, application: applicationPlan });
       await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
       const evidence = maintenance ? { suite: 'tests/integration/account-maintenance.test.mjs', passed: true,
+        concurrentEmailRequests: { passed: true, overlap: 'two-postgresql-connections-waiting-on-rf22',
+          sameRevision: 'one-success-one-account-changed', replacement: 'only-current-token-confirms' },
         ...(config.verificationMode === 'maintenance-preview' ? { applicationRole: PREVIEW_ROLE, rls: true, aclChecks: true } : {}) } : seasons ? { suite: 'tests/integration/seasons.test.mjs',
         preparation: 'existing-season-fixtures', passed: true } : {
         suite: 'tests/integration/accounts.test.mjs', preparation: 'existing-catalog-account-suite',

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { emailSchema, usernameSchema } from "@/features/auth/schemas";
+import { usernameSchema } from "@/features/auth/schemas";
 
 export const accountListSchema = z.strictObject({
   page: z.coerce.number().int().min(1).max(100000).default(1),
@@ -13,8 +13,7 @@ export const accountStatusSchema = z.strictObject({
   confirmed: z.literal(true),
 });
 export const accountIdentifiersSchema = z.strictObject({
-  changes: z.strictObject({ username: usernameSchema.optional(), email: emailSchema.optional() })
-    .refine(data => data.username !== undefined || data.email !== undefined, "Indica un cambio."),
+  changes: z.strictObject({ username: usernameSchema }),
   expectedRevision: accountStatusSchema.shape.expectedRevision,
   confirmed: accountStatusSchema.shape.confirmed,
   reason: accountStatusSchema.shape.reason,
@@ -23,8 +22,8 @@ export const accountIdentifiersSchema = z.strictObject({
 export function accountIdentifierChanges(current: { username: string; email: string; revision: number },
   desired: z.infer<typeof accountIdentifiersSchema>) {
   if (current.revision !== desired.expectedRevision) throw new AccountMaintenanceError("ACCOUNT_CHANGED", 409);
-  const next = { username: desired.changes.username ?? current.username, email: desired.changes.email ?? current.email };
-  const changedFields = (["username", "email"] as const).filter(field => next[field] !== current[field]);
+  const next = { username: desired.changes.username ?? current.username, email: current.email };
+  const changedFields = (["username"] as const).filter(field => next[field] !== current[field]);
   if (!changedFields.length) throw new AccountMaintenanceError("ACCOUNT_IDENTIFIERS_UNCHANGED", 409);
   return { ...next, changedFields };
 }
@@ -53,14 +52,14 @@ export type AdministratorAvailability = {
   active: boolean; currentAssignment: boolean; globalRead: boolean; globalUpdate: boolean;
   temporarilyBlocked: boolean; mustChangePassword: boolean;
 };
-/** No convertir un bloqueo temporal en una decisión definitiva sobre el último administrador. */
+/** Solo otra cuenta operativa cuenta como respaldo, según la decisión de Sergio. */
 export function assertAdministratorReplacement(others: readonly AdministratorAvailability[]) {
   const assigned = others.filter(a => a.active && a.currentAssignment);
   if (!assigned.length) throw new AccountMaintenanceError("LAST_ACTIVE_SUPERADMIN", 409);
   const effective = assigned.filter(a => a.globalRead && a.globalUpdate);
   if (!effective.length) throw new AccountMaintenanceError("LAST_EFFECTIVE_SUPERADMIN", 409);
   if (!effective.some(a => !a.temporarilyBlocked && !a.mustChangePassword))
-    throw new AccountMaintenanceError("SUPERADMIN_AVAILABILITY_DECISION_REQUIRED", 409);
+    throw new AccountMaintenanceError("LAST_OPERATIONAL_SUPERADMIN", 409);
 }
 export function assertMaintenanceTransition(current: { isActive: boolean; revision: number }, desired: {
   isActive: boolean; expectedRevision: number;

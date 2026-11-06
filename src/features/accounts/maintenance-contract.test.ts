@@ -34,24 +34,25 @@ test("cuenta activa, asignación vigente y permiso efectivo son condiciones dist
     code(() => assertAdministratorReplacement([{...available,...override}]), "LAST_EFFECTIVE_SUPERADMIN");
   assertAdministratorReplacement([available]);
 });
-test("bloqueo temporal y cambio obligatorio requieren decisión cuando no queda otra alternativa", () => {
-  for (const override of [{temporarilyBlocked:true}, {mustChangePassword:true}]) {
-    code(() => assertAdministratorReplacement([{...available,...override}]), "SUPERADMIN_AVAILABILITY_DECISION_REQUIRED");
+test("bloqueo temporal y cambio obligatorio no cuentan como respaldo operativo", () => {
+  for (const override of [{temporarilyBlocked:true}, {mustChangePassword:true}, {temporarilyBlocked:true,mustChangePassword:true}]) {
+    code(() => assertAdministratorReplacement([{...available,...override}]), "LAST_OPERATIONAL_SUPERADMIN");
     assertAdministratorReplacement([{...available,...override}, available]);
   }
+  code(() => assertAdministratorReplacement([{...available,temporarilyBlocked:true}, {...available,mustChangePassword:true}]), "LAST_OPERATIONAL_SUPERADMIN");
 });
 
 test("edición normaliza los identificadores con los contratos del acceso", () => {
-  const parsed = accountIdentifiersSchema.parse({ changes: { username: "  UsEr_1.-  ", email: "  User@Example.Test " },
+  const parsed = accountIdentifiersSchema.parse({ changes: { username: "  UsEr_1.-  " },
     expectedRevision: 3, confirmed: true, reason: "Corrección administrativa" });
-  assert.deepEqual(parsed.changes, { username: "user_1.-", email: "user@example.test" });
+  assert.deepEqual(parsed.changes, { username: "user_1.-" });
   assert.deepEqual(accountIdentifierChanges({ username: "anterior", email: "antes@example.test", revision: 3 }, parsed),
-    { username: "user_1.-", email: "user@example.test", changedFields: ["username", "email"] });
+    { username: "user_1.-", email: "antes@example.test", changedFields: ["username"] });
 });
 test("el PATCH de identificadores no acepta campos de persona, seguridad ni captura vacía", () => {
   const input = { changes: { username: "cuenta" }, expectedRevision: 0, confirmed: true, reason: "Corrección administrativa" };
   for (const changes of [{}, { username: " " }, { username: "ñ" }, { username: "a@b.test" }, { username: "a".repeat(65) },
-    { email: "incorrecto" }, { email: "" }, { firstName: "Nuevo" }, { birthDate: "2000-01-01" }, { curp: "dato" },
+    { email: "correcto@example.test" }, { username: "cuenta", email: "correcto@example.test" }, { email: "incorrecto" }, { email: "" }, { firstName: "Nuevo" }, { birthDate: "2000-01-01" }, { curp: "dato" },
     { username: "cuenta", personId: "ajeno" }, { password: "secreto" }, { isActive: true }, { roles: [] }])
     assert.equal(accountIdentifiersSchema.safeParse({ ...input, changes }).success, false);
   for (const patch of [{confirmed:false}, {expectedRevision:-1}, {reason:" "}, {personId:"ajeno"}])
@@ -63,7 +64,7 @@ test("revisión y ausencia de cambio efectivo protegen edición y sesiones", () 
   const current = { username: "cuenta", email: "cuenta@example.test", revision: 2 };
   code(() => accountIdentifierChanges(current, input), "ACCOUNT_IDENTIFIERS_UNCHANGED");
   code(() => accountIdentifierChanges(current, { ...input, expectedRevision: 1 }), "ACCOUNT_CHANGED");
-  assert.deepEqual(accountIdentifierChanges(current, { ...input, changes: { email: "otra@example.test" } }).changedFields, ["email"]);
+  assert.deepEqual(accountIdentifierChanges(current, { ...input, changes: { username: "otra" } }).changedFields, ["username"]);
 });
 test("unicidad concurrente traduce solo índices de identificadores con SQLSTATE correcto", () => {
   for (const constraint of ["users_username_unique", "users_email_unique"]) {
