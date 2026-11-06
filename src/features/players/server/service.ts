@@ -4,6 +4,9 @@ import { Prisma } from "@prisma/client";
 import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "@/server/auth/session";
 import { AuthorizationError } from "@/server/auth/authorization";
+import { readPlayerPolicy } from "@/features/competitions/server/player-policy";
+import { CompetitionError } from "@/features/competitions/server/configuration";
+import { evaluatePlayerMovement } from "@/features/competitions/player-admission";
 import { adjacentBirthDates, sameIdentity } from "../identity-rules";
 import { registerPlayerSchema } from "../schemas";
 import type { RegisterPlayerResult } from "../types";
@@ -63,6 +66,21 @@ export async function registerPlayerForActor(actorId: string, input: unknown): P
       if (context.teamStatus === "WITHDRAWN" || context.seasonStatus === "CLOSED" ||
         context.affiliationStatus !== "APPROVED" || (!context.categoryAuthorized || !context.operational))
         throw new PlayerRegistrationError("CONTEXT_NOT_AVAILABLE");
+      // Solo altas nuevas: los reintentos anteriores ya recuperaron su inscripción.
+      // Política bloqueada y reloj SQL compartidos con el trigger de altas.
+      const policy = await readPlayerPolicy(tx, context.seasonId, context.seasonCategoryId);
+      const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT sports_management.player_participation_now() AS now`;
+      if (!clock) throw new PlayerRegistrationError("RETRY_REQUIRED");
+      const evaluation = evaluatePlayerMovement({ operation: "REGISTER", policy,
+        birthDate: identity.birthDate, now: clock.now });
+      const blocker = evaluation.blockers[0];
+      if (blocker) {
+        if (blocker.code === "AGE_OUTSIDE_RANGE" || blocker.code === "AGE_EXCEPTION_REQUIRED" ||
+          blocker.code === "REGISTRATION_WINDOW_CLOSED" || blocker.code === "PLAYER_POLICY_PENDING")
+          throw new PlayerRegistrationError(blocker.code);
+        if (blocker.code === "INVALID_BIRTH_DATE") throw new PlayerRegistrationError("VALIDATION_ERROR", 400);
+        throw new PlayerRegistrationError("RETRY_REQUIRED");
+      }
       const matches = await findPossibleIdentityMatches(tx, identity, personId);
       const reviewStatus = matches.length ? "REQUIRED" : "NOT_REQUIRED";
       const registration = await tx.player_registrations.create({ data: { person_id: personId,
@@ -81,6 +99,11 @@ export async function registerPlayerForActor(actorId: string, input: unknown): P
         identityReviewStatus: reviewStatus, localValidation: "VALID", externalVerification: "NOT_PERFORMED", replayed: false };
     }, { timeout: 15_000 });
   } catch (error) {
+    if (error instanceof CompetitionError) {
+      if (error.code === "PLAYER_POLICY_PENDING") throw new PlayerRegistrationError("PLAYER_POLICY_PENDING");
+      if (error.code === "SEASON_CLOSED" || error.code === "INVALID_CONTEXT")
+        throw new PlayerRegistrationError("CONTEXT_NOT_AVAILABLE");
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === "P2002") throw new PlayerRegistrationError("REGISTRATION_CONFLICT");
       if (["P2034", "P2028"].includes(error.code)) throw new PlayerRegistrationError("RETRY_REQUIRED");
@@ -91,6 +114,9 @@ export async function registerPlayerForActor(actorId: string, input: unknown): P
       meta?: { driverAdapterError?: { cause?: { originalMessage?: string } } } } | null;
     const detail = adapter?.meta?.driverAdapterError?.cause?.originalMessage ?? adapter?.cause?.originalMessage ??
       (error instanceof Error ? error.message : "");
+    if (detail.includes("PLAYER_ADMISSION_POLICY_PENDING")) throw new PlayerRegistrationError("PLAYER_POLICY_PENDING");
+    if (detail.includes("PLAYER_ADMISSION_CONTEXT")) throw new PlayerRegistrationError("CONTEXT_NOT_AVAILABLE");
+    if (detail.includes("PLAYER_ADMISSION_WINDOW_CLOSED")) throw new PlayerRegistrationError("REGISTRATION_WINDOW_CLOSED");
     if (detail.includes("Las altas solo se permiten")) throw new PlayerRegistrationError("REGISTRATION_WINDOW_CLOSED");
     if (detail.includes("No se permite cambiar equipo")) throw new PlayerRegistrationError("TEAM_CHANGE_NOT_ALLOWED");
     if (detail.includes("PLAYER_ORIGIN_LOWER_CATEGORY")) throw new PlayerRegistrationError("REGISTRATION_CONFLICT");

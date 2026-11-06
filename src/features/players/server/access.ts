@@ -6,7 +6,8 @@ import { assertOwnPlayerRegistration } from "@/server/auth/authorization-domain"
 export class PlayerRegistrationError extends Error {
   constructor(public readonly code: "VALIDATION_ERROR" | "CONTEXT_NOT_AVAILABLE" |
     "IDENTITY_UNAVAILABLE" | "REGISTRATION_CONFLICT" | "REGISTRATION_WINDOW_CLOSED" |
-    "TEAM_CHANGE_NOT_ALLOWED" | "REVIEW_CAPACITY_EXCEEDED" | "RETRY_REQUIRED", public readonly status = 409) {
+    "TEAM_CHANGE_NOT_ALLOWED" | "REVIEW_CAPACITY_EXCEEDED" | "RETRY_REQUIRED" |
+    "PLAYER_POLICY_PENDING" | "AGE_OUTSIDE_RANGE" | "AGE_EXCEPTION_REQUIRED", public readonly status = 409) {
     super(code);
   }
 }

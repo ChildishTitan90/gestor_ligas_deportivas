@@ -28,6 +28,7 @@ import {buildGuardianSignatureRecord,guardianSignatureSchema} from "../../src/fe
 import {readDocumentReviewForActor,decideDocumentReviewForActor,readDocumentReviewQueueForActor} from "../../src/features/players/server/document-review";
 import {registerAndVerifyPlayerForActor} from "../../src/features/players/server/registration-intake";
 import {getPlayerTeamOptionsForActor,listRegisteredPlayersForActor} from "../../src/features/players/server/workspace-queries";
+import {runPlayerAdmissionTests} from "./player-admission";
 import {runCategoryParticipationTests} from "./player-category-participations";
 import {syntheticPlayerPolicy} from "../fixtures/player-document-policy";
 import {runDocumentPolicyTests} from "./player-document-policy";
@@ -59,9 +60,9 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
   });
   const isCode = (code: string) => (error: unknown) => error instanceof PlayerRegistrationError && error.code === code;
   const setClock = async (timestamp: string) => {
-    // Solo esta función de prueba y el search_path del trigger en la base desechable.
-    // No reemplaza ni desactiva reglas de producción.
-    await db.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION pdgld97_test_clock.now() RETURNS timestamptz
+    // Reloj compartido de servidor y trigger, SOLO en PostgreSQL desechable.
+    assert.match(timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$/);
+    await db.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION sports_management.player_participation_now() RETURNS timestamptz
       LANGUAGE sql STABLE AS 'SELECT ''${timestamp}''::timestamptz'`);
   };
   try {
@@ -110,7 +111,8 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
             seasons.set(seasonKey, season);
           }
           const seasonCategory = await tx.season_categories.create({ data: { season_id: season.id, category_id: category.id,
-            competition_rule_id: season.ruleId, hierarchy_order: index + 1, type: "OPEN", age_cutoff_date: new Date(`${year}-01-01`) } });
+            competition_rule_id: season.ruleId, hierarchy_order: index + 1, type: "OPEN", age_cutoff_date: new Date(`${year}-01-01`),
+            eligibility_pending: false, player_policy: { ...syntheticPlayerPolicy(), referenceYear: year, documents: ["CURP"] } } });
           const group = await tx.groups.create({ data: { season_id: season.id, season_category_id: seasonCategory.id, name: "Grupo sintético" } });
           const affiliation = await tx.club_affiliations.create({ data: { club_id: club.id, season_id: season.id,
             league_id: leagueId, reference_number: `p97-affiliation-${index}-${year}-${suffix}`, uniform_colors: "Azul",
@@ -158,10 +160,13 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
     assert.ok(config.settings.includes("search_path=sports_management, pg_temp"));
     await db.$executeRaw`CREATE SCHEMA pdgld97_test_clock`;
     await setClock("2026-10-26T12:00:00-06:00");
-    await db.$executeRaw`ALTER FUNCTION sports_management.validate_player_registration()
-      SET search_path TO pdgld97_test_clock, sports_management, pg_catalog, pg_temp`;
 
     if(process.env.PLAYER_PARTICIPATIONS_ONLY!=="1"){
+    await runPlayerAdmissionTests(t, db, actors, team, (teamId, dob, root) => {
+      const payload = input(teamId, dob, root);
+      payload.identity.curp = syntheticCurp(dob, root, Number(dob.slice(0, 4)) >= 2000 ? "A" : "0");
+      return payload;
+    }, setClock);
     await t.test("rechaza actor ausente, permiso insuficiente, club/liga ajenos y autoridad forjada", async () => {
       const payload = input(team.id, "1990-01-01");
       for (const actor of ["", actors.unprivileged, actors.other, actors.player, actors.secretary])
