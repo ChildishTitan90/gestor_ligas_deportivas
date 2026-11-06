@@ -1,0 +1,314 @@
+{
+  "scope": "PDGLD-118 CI137 selector focus diagnosis",
+  "date": "2026-11-06",
+  "sourceCommit": "b7102b56f7a1b88089c6bb8fb7167892439dd5a9",
+  "localCorrectionPublished": false,
+  "remoteCI": {
+    "number": 137,
+    "id": 42252868584,
+    "conclusion": "failure",
+    "jobs": [
+      {
+        "id": 128012299290,
+        "name": "Migraciones PostgreSQL 15",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128012299548,
+        "name": "Migraciones PostgreSQL 17",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128012299643,
+        "name": "Aplicación",
+        "status": "completed",
+        "conclusion": "failure"
+      },
+      {
+        "id": 128016691944,
+        "name": "CI listo para integrar",
+        "status": "completed",
+        "conclusion": "failure"
+      },
+      {
+        "id": 128016754399,
+        "name": "Migraciones Supabase producción",
+        "status": "completed",
+        "conclusion": "skipped"
+      }
+    ]
+  },
+  "reproduction": {
+    "runSuffix": ".214",
+    "originalConditionActual": false,
+    "originalConditionExpected": true,
+    "beforeDisable": {
+      "phase": "before-disable",
+      "active": "choice",
+      "target": "none",
+      "related": "none",
+      "key": null,
+      "trusted": null,
+      "prevented": null,
+      "cancelable": null,
+      "documentFocused": false,
+      "ready": "loading",
+      "expanded": "false",
+      "disabled": false,
+      "listbox": false
+    },
+    "reenabledKeydown": {
+      "phase": "keydown-bubble",
+      "active": "body",
+      "target": "choice",
+      "related": "none",
+      "key": "ArrowDown",
+      "trusted": false,
+      "prevented": true,
+      "cancelable": true,
+      "documentFocused": false,
+      "ready": "complete",
+      "expanded": "false",
+      "disabled": false,
+      "listbox": false
+    },
+    "afterProgrammaticFocus": {
+      "phase": "after-programmatic-focus",
+      "active": "next",
+      "target": "none",
+      "related": "none",
+      "key": null,
+      "trusted": null,
+      "prevented": null,
+      "cancelable": null,
+      "documentFocused": false,
+      "ready": "complete",
+      "expanded": "true",
+      "disabled": false,
+      "listbox": true
+    },
+    "focusEventsReceived": false
+  },
+  "activationOnlyContrast": {
+    "runSuffix": ".215",
+    "affected": "PASSED",
+    "componentChanged": false,
+    "finalFocus": {
+      "phase": "closed-outside",
+      "active": "next",
+      "target": "none",
+      "related": "none",
+      "key": null,
+      "trusted": null,
+      "prevented": null,
+      "cancelable": null,
+      "documentFocused": true,
+      "ready": "complete",
+      "expanded": "false",
+      "disabled": false,
+      "listbox": false
+    }
+  },
+  "attempts": [
+    {
+      "suffix": ".216",
+      "affected": "PASSED",
+      "harnessPassed": 5,
+      "harnessFailed": 1,
+      "reason": "New HTML fixture was sniffed as text/plain; inline script undefined"
+    },
+    {
+      "suffix": ".217",
+      "diagnosis": {
+        "mime": "text/plain",
+        "scriptDefined": false,
+        "documentFocused": true,
+        "inputExists": false,
+        "ready": "complete"
+      }
+    },
+    {
+      "suffix": ".218",
+      "affected": "PASSED",
+      "harnessPassed": 5,
+      "harnessFailed": 1,
+      "reason": "New assertion required focus during parser execution; readiness boundary corrected explicitly"
+    }
+  ],
+  "finalValidation": {
+    "suffix": ".219",
+    "metrics": {
+      "affected": {
+        "tests": 1,
+        "passed": 1,
+        "failed": 0
+      },
+      "harness": {
+        "tests": 6,
+        "passed": 6,
+        "failed": 0
+      }
+    },
+    "fixtureDocument": {
+      "focusedAtScript": true,
+      "readyAtScript": "loading",
+      "focusedAtStart": true,
+      "readyAtStart": "complete"
+    },
+    "focusStages": [
+      {
+        "phase": "closed-outside",
+        "active": "next",
+        "target": "none",
+        "related": "none",
+        "key": null,
+        "trusted": null,
+        "prevented": null,
+        "cancelable": null,
+        "documentFocused": true,
+        "ready": "complete",
+        "expanded": "false",
+        "disabled": false,
+        "listbox": false
+      },
+      {
+        "phase": "native-open",
+        "active": "choice",
+        "target": "none",
+        "related": "none",
+        "key": null,
+        "trusted": null,
+        "prevented": null,
+        "cancelable": null,
+        "documentFocused": true,
+        "ready": "complete",
+        "expanded": "true",
+        "disabled": false,
+        "listbox": true
+      },
+      {
+        "phase": "native-reset",
+        "active": "reset",
+        "target": "none",
+        "related": "none",
+        "key": null,
+        "trusted": null,
+        "prevented": null,
+        "cancelable": null,
+        "documentFocused": true,
+        "ready": "complete",
+        "expanded": "false",
+        "disabled": false,
+        "listbox": false
+      },
+      {
+        "phase": "native-next",
+        "active": "next",
+        "target": "none",
+        "related": "none",
+        "key": null,
+        "trusted": null,
+        "prevented": null,
+        "cancelable": null,
+        "documentFocused": true,
+        "ready": "complete",
+        "expanded": "false",
+        "disabled": false,
+        "listbox": false
+      }
+    ],
+    "nativeTabs": [
+      {
+        "phase": "keydown-bubble",
+        "active": "choice",
+        "target": "choice",
+        "related": "none",
+        "key": "Tab",
+        "trusted": true,
+        "prevented": false,
+        "cancelable": true,
+        "documentFocused": true,
+        "ready": "complete",
+        "expanded": "false",
+        "disabled": false,
+        "listbox": false
+      },
+      {
+        "phase": "keydown-bubble",
+        "active": "reset",
+        "target": "reset",
+        "related": "none",
+        "key": "Tab",
+        "trusted": true,
+        "prevented": false,
+        "cancelable": true,
+        "documentFocused": true,
+        "ready": "complete",
+        "expanded": "false",
+        "disabled": false,
+        "listbox": false
+      }
+    ],
+    "installation": {
+      "packageSha256": "bf94419d91acda7a8f9619b6f92a858d8ba24b0ce0e390ccb3030ea80fa67f64",
+      "lockSha256": "818843564eb733efb3bae8e4f6f74ad9c8a57c29cf3fe21030040e84a4539482",
+      "versions": {
+        "next": "16.4.3",
+        "pg": "8.23.1",
+        "@prisma/adapter-pg": "7.10.1",
+        "@prisma/client": "7.10.1",
+        "prisma": "7.10.1",
+        "react": "19.3.0",
+        "react-dom": "19.3.0"
+      }
+    },
+    "cleanup": {
+      "postgresUsed": false,
+      "copies": [
+        {
+          "suffix": ".214",
+          "appAbsent": true,
+          "npmWorkAbsent": true,
+          "ownProcessesAbsent": true
+        },
+        {
+          "suffix": ".215",
+          "appAbsent": true,
+          "npmWorkAbsent": true,
+          "ownProcessesAbsent": true
+        },
+        {
+          "suffix": ".216",
+          "appAbsent": true,
+          "npmWorkAbsent": true,
+          "ownProcessesAbsent": true
+        },
+        {
+          "suffix": ".218",
+          "appAbsent": true,
+          "npmWorkAbsent": true,
+          "ownProcessesAbsent": true
+        },
+        {
+          "suffix": ".219",
+          "appAbsent": true,
+          "npmWorkAbsent": true,
+          "ownProcessesAbsent": true
+        }
+      ],
+      "mimeDiagnosticProcessAbsent": true
+    }
+  },
+  "componentChanged": false,
+  "originalAssertionRemovedOrRelaxed": false,
+  "testTimeoutsIncreased": false,
+  "newFieldFocusOrForcedCloseAdded": false,
+  "postgresRepeated": false,
+  "realProvidersUsed": false,
+  "stagingCommitOrPushPerformed": false,
+  "lint": "PASSED",
+  "syntax": "PASSED",
+  "diffCheck": "PASSED"
+}

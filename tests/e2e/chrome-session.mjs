@@ -53,7 +53,7 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
   });
   let socket, closing, sequence = 0;
   const startedAt = Date.now();
-  let startupPhase = 'process-start', cdpPublishedMs = null, pageConnectedMs = null, initialNavigationMs = null;
+  let startupPhase = 'process-start', cdpPublishedMs = null, pageConnectedMs = null, pageActivatedMs = null, initialNavigationMs = null;
   let navigationRequestedMs = null, documentLoadedMs = null, documentReadyMs = null;
   const loadedDocuments = new Map(), loadListeners = new Set();
   const pending = new Map();
@@ -146,6 +146,13 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
       if (result.exceptionDetails) throw new Error(`BROWSER_ASSERTION_FAILED: ${result.exceptionDetails.exception?.description ?? result.exceptionDetails.text}`);
       return result.result.value;
     };
+    // A CDP connection does not activate its target. Do this before navigation:
+    // fixtures can start exercising focus synchronously while their scripts load.
+    // Activate only our verified tab; never focus a field or emulate focus events.
+    startupPhase = 'page-activation';
+    await command('Page.bringToFront');
+    assert.equal(await evaluate('document.hasFocus()'), true, 'Chrome: la página propia no está activa');
+    pageActivatedMs = Date.now() - startedAt;
     if (waitForDocument) {
       await command('Page.enable');
       await command('Page.setLifecycleEventsEnabled', { enabled: true });
@@ -173,13 +180,14 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
       documentLoadedMs = loadedDocuments.get(key);
       assert.equal(await evaluate(`location.href === ${JSON.stringify(new URL(origin).href)} && document.readyState === 'complete'`),
         true, 'Chrome: el documento cargado no corresponde a la navegación inicial');
+      assert.equal(await evaluate('document.hasFocus()'), true, 'Chrome: el documento cargado no está activo');
       documentReadyMs = Date.now() - startedAt;
     }
-    return { socket, command, evaluate, close, startup: { cdpPublishedMs, pageConnectedMs, navigationRequestedMs,
+    return { socket, command, evaluate, close, startup: { cdpPublishedMs, pageConnectedMs, pageActivatedMs, navigationRequestedMs,
       initialNavigationMs, documentLoadedMs, documentReadyMs } };
   } catch (error) {
     error.chromeStartup = { phase: startupPhase, elapsedMs: Date.now() - startedAt,
-      cdpPublishedMs, pageConnectedMs, navigationRequestedMs, initialNavigationMs, documentLoadedMs, documentReadyMs, processExited: exited,
+      cdpPublishedMs, pageConnectedMs, pageActivatedMs, navigationRequestedMs, initialNavigationMs, documentLoadedMs, documentReadyMs, processExited: exited,
       processExitCode: typeof chrome.exitCode === 'number' ? chrome.exitCode : null };
     try { await close(); } catch (cleanup) { throw new AggregateError([error, cleanup], 'Chrome: falló la prueba y su limpieza'); }
     throw error;
