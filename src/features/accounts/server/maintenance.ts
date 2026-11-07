@@ -91,7 +91,7 @@ export async function changeAccountIdentifiers(id: string, input: unknown) {
     throw error;
   }
 }
-async function protectLastAdministrator(tx: Prisma.TransactionClient, target: string) {
+export async function protectLastAdministrator(tx: Prisma.TransactionClient, target: string) {
   const [current] = await tx.$queryRaw<{ assigned: boolean }[]>`SELECT EXISTS (
     SELECT 1 FROM sports_management.user_roles ur JOIN sports_management.roles r ON r.id=ur.role_id
     WHERE ur.user_id=${target}::uuid AND r.code='SUPERADMIN'

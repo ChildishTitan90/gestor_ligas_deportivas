@@ -64,7 +64,7 @@ async function execute(config) {
   const rejectCode = (work, code) => assert.rejects(work, error => error.code === code);
   const age = id => owner.query("UPDATE sports_management.account_email_changes SET created_at=created_at-interval '61 seconds' WHERE user_id=$1",[id]);
   try {
-    for (let i=0;i<6;i++) {
+    for (let i=0;i<7;i++) {
       const person=(await owner.query("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES ('Persona','Sintética') RETURNING id")).rows[0].id;
       const id=(await owner.query(`INSERT INTO sports_management.users(person_id,username,email,password_hash,is_active,must_change_password)
         SELECT $1,$2,$3,password_hash,true,false FROM sports_management.users WHERE id=$4 RETURNING id`,
@@ -75,11 +75,57 @@ async function execute(config) {
       await owner.query(`INSERT INTO sports_management.password_resets(user_id,token_hash,expires_at)
         VALUES ($1,$2,now()+interval '1 hour')`,[id,randomBytes(32).toString('hex')]);
     }
-    const [a,b,c,d,e,f]=targets;
+    const [a,b,c,d,e,f,resetTarget]=targets;
     const admin=new Browser(target.baseUrl),scoped=new Browser(target.baseUrl),anonymous=new Browser(target.baseUrl);
     for(const [browser,id] of [[admin,config.actorId],[scoped,config.scopedId]]) {
       const user=(await owner.query('SELECT username FROM sports_management.users WHERE id=$1',[id])).rows[0];
       await browser.login(user.username,fixturePassword); assert.ok((await browser.session()).user);
+    }
+    await testAdministrativeReset();
+    async function testAdministrativeReset() {
+      const { issueAdministrativeCredential } = await tsImport('../../src/features/accounts/server/administrative-reset.ts', import.meta.url);
+      const resetPath = `/api/account-maintenance/${resetTarget}/reset-access`;
+      const payload = { expectedRevision: 0, confirmed: true, identityVerified: true,
+        verificationMethod: 'IN_PERSON', reason: 'Identidad sintética comprobada en persona' };
+      const postReset = browser => browser.request(resetPath, { method:'POST',
+        headers:{origin:target.baseUrl,'content-type':'application/json'},body:JSON.stringify(payload) });
+      assert.equal((await postReset(scoped)).status,403);
+      assert.equal((await (await postReset(admin)).json()).code,'VERIFIED_CHANNEL_REQUIRED');
+      await owner.query('UPDATE sports_management.users SET email_verified_at=now() WHERE id=$1',[resetTarget]);
+      const before = await snapshot(resetTarget);
+      const old = new Browser(target.baseUrl);
+      await old.login(before.user.username,fixturePassword);
+      assert.ok((await old.session()).user);
+      assert.equal((await (await postReset(admin)).json()).code,'NOT_CONFIGURED');
+      assert.equal((await snapshot(resetTarget)).user.version,before.user.version);
+      let credential;
+      const delivery = { async send(message) { credential = message.temporaryPassword; return 'ACCEPTED'; } };
+      const attempt = () => issueAdministrativeCredential(config.actorId,resetTarget,payload,prisma,delivery);
+      const race = await Promise.allSettled([attempt(),attempt()]);
+      assert.equal(race.filter(x=>x.status==='fulfilled').length,1);
+      assert.equal(race.find(x=>x.status==='rejected')?.reason.code,'ACCOUNT_CHANGED');
+      const after = await snapshot(resetTarget);
+      assert.equal(after.user.version,before.user.version+1);
+      assert.ok(after.sessions.every(session=>session.revoked_at));
+      assert.ok(after.resets.every(reset=>reset.used_at));
+      assert.equal(after.audit.filter(row=>row.new_data?.operation==='ADMINISTRATIVE_RESET').length,1);
+      assert.equal(JSON.stringify(after.audit).includes(credential),false);
+      assert.equal((await old.session()).user,undefined);
+      await old.login(before.user.username,fixturePassword);
+      assert.equal((await old.session()).user,undefined);
+      const first = new Browser(target.baseUrl), second = new Browser(target.baseUrl);
+      await first.login(before.user.username,credential);
+      assert.equal((await first.session()).user?.mustChangePassword,true);
+      assert.equal((await first.request('/api/account-maintenance')).status,403);
+      await second.login(before.user.username,credential);
+      assert.equal((await second.session()).user,undefined);
+      const newPassword = 'Synthetic-Changed!42';
+      const changed = await first.request('/api/auth/change-password', {method:'POST',
+        headers:{origin:target.baseUrl,'content-type':'application/json'},
+        body:JSON.stringify({currentPassword:credential,newPassword,confirmPassword:newPassword})});
+      assert.equal(changed.status,200);
+      await second.login(before.user.username,newPassword);
+      assert.equal((await second.session()).user?.mustChangePassword,false);
     }
     const path=`/api/account-maintenance/${e}/email-change`, httpInput=await input(e);
     const post=(browser,body,origin=target.baseUrl)=>browser.request(path,{method:'POST',

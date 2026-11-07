@@ -30,6 +30,11 @@ permiso y alcance en cada petición, independientemente del botón o menú.
   NOT_CONFIGURED informa que no se envió el mensaje; ACCEPTED no acredita entrega.
   No hay tokens, enlaces secretos o contraseñas en la interfaz. Una confirmación
   consultada oculta el correo antiguo hasta volver a leer los identificadores.
+- Restablecimiento administrativo: atestación explícita de identidad en persona
+  o por canal previamente registrado, motivo y confirmación. El destino lo
+  determina el servidor: correo vigente verificado. Sin proveedor no hay cambio.
+  El acuse distingue aceptación de entrega; una respuesta incierta se consulta
+  sin repetir y no permite recuperar la credencial. Ver [PDGLD-119](../architecture/administrative-reset.md).
 - Baja/reactivación: deriva el destino del estado consultado, exige motivo y
   confirmación, y conserva personas, roles e historial. Se explican los efectos
   sobre sesiones; reactivar no recupera sesiones anteriores. La protección del

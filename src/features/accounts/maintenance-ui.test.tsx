@@ -195,3 +195,21 @@ test("vista NOT_CONFIGURED mantiene correo anterior y no acredita entrega ni div
   assert.match(html, /actual@example.test/); assert.match(html, /NOT_CONFIGURED/); assert.match(html, /anterior conserva el acceso/);
   assert.doesNotMatch(html, /ec1_|password_hash|entregado correctamente/);
 });
+
+test("reset exige atestación y distingue proveedor ausente de resultado incierto", async () => {
+  let calls = 0;
+  const { controller } = fixture({ write: async (_id, kind, payload) => {
+    calls++;
+    assert.equal(kind, "reset");
+    assert.deepEqual(payload, { expectedRevision: 3, reason: input.reason, confirmed: true,
+      identityVerified: true, verificationMethod: "IN_PERSON" });
+    throw new MaintenanceClientError("NOT_CONFIGURED", 503);
+  } });
+  await controller.open(account.id);
+  await controller.submit("reset", input);
+  assert.equal(calls, 0);
+  await controller.submit("reset", { ...input, identityVerified: true, verificationMethod: "IN_PERSON" });
+  assert.equal(calls, 1);
+  assert.equal(controller.getSnapshot().uncertain, false);
+  assert.match(controller.getSnapshot().error, /No se restableció/);
+});

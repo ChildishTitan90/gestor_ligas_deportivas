@@ -1,6 +1,6 @@
 # PDGLD-118 — decisiones de Sergio y matriz de pendientes
 
-Actualizado el 6 de noviembre de 2026 para preparar el siguiente commit de
+Actualizado el 7 de noviembre de 2026 para las entregas de
 [PR #43](https://github.com/ChildishTitan90/gestor_ligas_deportivas/pull/43).
 Las cuatro decisiones de negocio se confirmaron por instrucción humana de Sergio;
 el usuario autorizó después conservar el correo anterior para login hasta confirmar
@@ -11,10 +11,14 @@ el nuevo. Esta regla ya no se presenta como propuesta pendiente.
 | Área | Decisión confirmada | Implementación y validación | Pendiente |
 | --- | --- | --- | --- |
 | SUPERADMIN | Solo respalda otro administrador que pueda operar; bloqueo temporal o cambio obligatorio no cuentan | Protección conservada; código/mensaje `LAST_OPERATIONAL_SUPERADMIN`; mantenimiento `.203` y Preview/RLS `.204` aprobados en 15/17 | Coordinar con PDGLD-36 cambios de roles/permisos/vigencias y revisar escritores ajenos al bloqueo RF22 |
-| Cambio de correo | Nuevo pendiente hasta probar propiedad mediante enlace/código con vencimiento; no recuperación ni entrega de credenciales antes de verificar; aviso al anterior | Solicitud y confirmación por token aleatorio independiente, hash, uso único, reemplazo, auditoría y revocación atómicos; PATCH directo retirado; `.203` y `.204` aprobados en 15/17 | Transporte real, remitente verificado, plantillas y pantalla de confirmación |
-| Login durante espera | Conservar el correo anterior hasta confirmar el nuevo, regla técnica autorizada por el usuario | HTTP/SQL 15/17 aprobados; confirmar no crea sesión ni modifica contraseña | Integración de la interfaz y proveedor real |
-| Restablecimiento administrativo | Verificar solicitante por identidad o canal previamente registrado; registrar responsable/motivo; contraseña temporal por canal privado verificado; exigir cambio e invalidar sesiones; nunca entregar a correo nuevo sin verificar | Decisión confirmada, sin servicio de restablecimiento administrativo en esta entrega | PDGLD-119: procedimiento, evidencia admitida, responsables, vigencia/intentos y entrega incierta; servicio, auditoría y pruebas |
+| Cambio de correo | Nuevo pendiente hasta probar propiedad mediante enlace/código con vencimiento; no recuperación ni entrega de credenciales antes de verificar; aviso al anterior | Solicitud y confirmación por token aleatorio independiente, hash, uso único, reemplazo, auditoría y revocación atómicos; PATCH directo retirado; `.203` y `.204` aprobados en 15/17 | Transporte real, remitente verificado y plantillas; pantalla pública validada en `.236` |
+| Login durante espera | Conservar el correo anterior hasta confirmar el nuevo, regla técnica autorizada por el usuario | HTTP/SQL 15/17 aprobados; confirmar no crea sesión ni modifica contraseña | Proveedor real; interfaz de gestión y confirmación ya integrada |
+| Restablecimiento administrativo | Verificar solicitante por identidad o canal previamente registrado; registrar responsable/motivo; contraseña temporal por canal privado verificado; exigir cambio e invalidar sesiones; nunca entregar a correo nuevo sin verificar | Servicio/UI de PDGLD-119 con atestación explícita, credencial de un uso, versión privada, auditoría y ciclo `.237` aprobado en PG15/17 | Proveedor/remitente verificados, adopción humana del procedimiento y cuentas sin correo vigente verificado |
 | Corrección de identidad | Solicitud del delegado con evidencia y aprobación administrativa; historial, CURP única, invalidación dependiente y reevaluación de habilitación | Decisión confirmada; identidad sigue rechazada por el PATCH de cuentas | Implementar en jugadores/personas con alcance sobre persona compartida, historial privado y reevaluación de todos los registros afectados |
+
+Las entregas posteriores están documentadas en [confirmación pública](../validation/account-email-confirmation-ui.md)
+y [restablecimiento administrativo](../validation/administrative-reset.md). No se
+atribuyen sus resultados a las matrices históricas siguientes.
 
 ## Matriz de ejecuciones: entorno y resultados funcionales
 
@@ -69,6 +73,6 @@ pruebas temporales de Preview/RLS no acreditan Supabase real.
 [Resultados saneados y cronología](../validation/account-email-change.md),
 [resultado estructurado](../validation/account-email-change-isolated-results.json)
 y [solicitudes concurrentes](../validation/account-email-request-concurrency.md).
-Los registros originales y manifiestos privados permanecen fuera de Git. El
-siguiente commit incluye únicamente código, migración nueva, pruebas, contratos,
+Los registros originales y manifiestos privados permanecen fuera de Git. La
+publicación anterior incluyó código, migración nueva, pruebas, contratos,
 resúmenes saneados y su [selección exacta](../validation/account-email-change-commit-plan.md).

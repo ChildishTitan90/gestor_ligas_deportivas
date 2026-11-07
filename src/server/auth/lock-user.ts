@@ -15,6 +15,8 @@ export async function lockAuthUser(tx: Prisma.TransactionClient, userId: string)
       username: true,
       email: true,
       password_hash: true,
+      admin_reset_expires_at: true,
+      admin_reset_consumed_at: true,
       is_active: true,
       must_change_password: true,
       failed_login_attempts: true,

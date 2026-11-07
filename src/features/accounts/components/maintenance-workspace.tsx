@@ -24,12 +24,14 @@ export function AccountMaintenanceWorkspace(props: Props) {
   return <AccountMaintenanceWorkspaceView {...props} controller={controller} />;
 }
 
-export function AccountMaintenanceWorkspaceView({ list, canUpdate, controller, search = "" }: Props & { controller: MaintenanceController }) {
+export function AccountMaintenanceWorkspaceView({ list, canUpdate, controller, actorId, search = "" }: Props & { controller: MaintenanceController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const [mode, setMode] = useState<"detail" | MaintenanceOperation>("detail");
   const [value, setValue] = useState("");
   const [reason, setReason] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [verificationMethod, setVerificationMethod] = useState("");
+  const [identityVerified, setIdentityVerified] = useState(false);
   const id = useId();
   const detail = state.detail, account = detail?.account;
   const locked = state.busy || state.uncertain || state.reviewRequired;
@@ -41,6 +43,7 @@ export function AccountMaintenanceWorkspaceView({ list, canUpdate, controller, s
     return () => window.removeEventListener("beforeunload", warn);
   }, [state.uncertain, state.visible]);
   function edit(operation: MaintenanceOperation) {
+    setVerificationMethod(""); setIdentityVerified(false);
     setMode(operation); setValue(operation === "username" ? account?.username ?? "" : ""); setReason(""); setConfirmed(false);
   }
   if (state.blocked) return <section role="alert" className="rounded-2xl border border-border bg-surface p-5">
@@ -81,9 +84,9 @@ export function AccountMaintenanceWorkspaceView({ list, canUpdate, controller, s
         {list.page > 1 && <ActionLink href={href(1)} variant="secondary">Volver al inicio</ActionLink>}
       </>}
     </nav>
-    <FormDialog open={state.visible} title={mode === "detail" ? "Detalle de cuenta" : mode === "username" ? "Editar nombre de usuario" : mode === "email" ? "Solicitar cambio de correo" : account?.isActive ? "Confirmar baja de cuenta" : "Confirmar reactivación"}
+    <FormDialog open={state.visible} title={mode === "detail" ? "Detalle de cuenta" : mode === "username" ? "Editar nombre de usuario" : mode === "email" ? "Solicitar cambio de correo" : mode === "reset" ? "Restablecer acceso" : account?.isActive ? "Confirmar baja de cuenta" : "Confirmar reactivación"}
       description={account ? `Cuenta @${account.username}` : "Consulta autorizada de cuenta"} pending={state.busy} uncertain={state.uncertain}
-      dirty={mode !== "detail" && !state.notice && (!!reason || confirmed || value !== (mode === "username" ? account?.username ?? "" : ""))} onClose={() => controller.close()}>
+      dirty={mode !== "detail" && !state.notice && (!!reason || confirmed || identityVerified || !!verificationMethod || value !== (mode === "username" ? account?.username ?? "" : ""))} onClose={() => controller.close()}>
       {state.busy && !detail && <p role="status">Consultando datos actuales…</p>}
       {state.error && <p id={`${id}-error`} role="alert" className="mb-4">{state.error}</p>}
       {state.notice && <p role="status" className="mb-4">{state.notice}</p>}
@@ -111,14 +114,25 @@ export function AccountMaintenanceWorkspaceView({ list, canUpdate, controller, s
         </section> : mode === "detail" ? canUpdate && detail.identifiers && <div className="flex flex-wrap gap-3">
           <button type="button" className={button} onClick={() => edit("username")}>Editar username</button>
           <button type="button" className={button} disabled={!account?.isActive} onClick={() => edit("email")}>Solicitar cambio de correo</button>
+          {account?.isActive && account.id !== actorId && <button type="button" className={button} onClick={() => edit("reset")}>Restablecer acceso</button>}
           <button type="button" className={button} onClick={() => edit("status")}>{account?.isActive ? "Dar de baja" : "Reactivar cuenta"}</button>
-        </div> : <form className="space-y-4" onSubmit={event => { event.preventDefault(); void controller.submit(mode, { value, reason, confirmed }); }}>
+        </div> : <form className="space-y-4" onSubmit={event => { event.preventDefault(); void controller.submit(mode, { value, reason, confirmed, verificationMethod, identityVerified }); }}>
           <p id={`${id}-effects`}>{mode === "email"
             ? "El nuevo correo quedará pendiente hasta comprobar su propiedad. El correo anterior conserva el login; no se entregan tokens ni contraseñas desde esta pantalla. Una nueva solicitud aceptada reemplaza la anterior."
+            : mode === "reset" ? "La contraseña anterior y las sesiones dejarán de funcionar. La credencial temporal se entrega al correo vigente verificado y vence en 30 minutos."
             : mode === "username" ? "Este cambio revoca las sesiones anteriores de la cuenta y puede invalidar solicitudes de correo pendientes."
             : account?.isActive ? "La cuenta perderá el acceso y sus sesiones se revocarán. Se conservan la persona, roles, asignaciones e historial. Puede invalidar solicitudes de correo pendientes."
             : "La cuenta recuperará el acceso sujeto a sus permisos vigentes. Ninguna sesión anterior se reactivará."}</p>
-          {mode !== "status" && <label htmlFor={`${id}-value`} className="block">{mode === "email" ? "Nuevo correo pendiente" : "Nuevo nombre de usuario"}
+          {mode === "reset" && <fieldset className="space-y-3" disabled={locked}>
+            <legend className="font-semibold">Verificación de identidad</legend>
+            <label htmlFor={`${id}-verification`}>Método de verificación</label>
+            <SelectField id={`${id}-verification`} name="verificationMethod" aria-describedby={state.error ? `${id}-error` : `${id}-effects`} value={verificationMethod} onValueChange={setVerificationMethod} required searchable={false}
+              options={[{ value: "IN_PERSON", label: "Identidad comprobada en persona" },
+                { value: "PREVIOUSLY_REGISTERED_CHANNEL", label: "Canal previamente registrado" }]} />
+            <label className="flex min-h-12 items-center gap-3"><input type="checkbox" name="identityVerified" aria-describedby={state.error ? `${id}-error` : `${id}-effects`} required checked={identityVerified}
+              onChange={event => setIdentityVerified(event.target.checked)} />Verifiqué la identidad de la persona solicitante.</label>
+          </fieldset>}
+          {(mode === "username" || mode === "email") && <label htmlFor={`${id}-value`} className="block">{mode === "email" ? "Nuevo correo pendiente" : "Nuevo nombre de usuario"}
             <input id={`${id}-value`} name="value" type={mode === "email" ? "email" : "text"} autoComplete="off" value={value} required
               maxLength={mode === "email" ? 254 : 64} pattern={mode === "username" ? "[A-Za-z0-9._-]+" : undefined} disabled={locked}
               aria-describedby={`${id}-effects${mode === "username" ? ` ${id}-username-help` : ""}${state.error ? ` ${id}-error` : ""}`} className={field} onChange={event => setValue(event.target.value)} /></label>}

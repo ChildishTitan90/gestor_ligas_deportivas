@@ -97,6 +97,6 @@ el CI del nuevo commit se informa por SHA en el PR #43.
 
 La entrega posterior de [confirmación pública](account-email-confirmation-ui.md)
 incorpora su pantalla. Quedan pendientes transporte real, remitente verificado y
-plantillas. Esta entrega tampoco implementa reset
-administrativo o corrección de identidad. No se declara regresión completa de
+plantillas. El [restablecimiento administrativo posterior](administrative-reset.md) conserva
+su validación propia; la corrección de identidad queda fuera de esta entrega. No se declara regresión completa de
 accesibilidad, todos los estados visuales o todos los recorridos de navegación.

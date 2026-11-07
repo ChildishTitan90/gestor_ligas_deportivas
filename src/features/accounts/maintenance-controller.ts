@@ -1,10 +1,11 @@
+import { administrativeResetSchema, type AdministrativeResetReceipt } from "./administrative-reset-contract";
 import { accountIdentifiersSchema, accountStatusSchema } from "./maintenance-contract";
 import { emailChangeRequestSchema, type EmailChangeResult } from "./email-change-contract";
 import { MaintenanceClientError, maintenanceMessage, emailChangeMessage, type MaintenanceAccount, type MaintenanceDetail, type MaintenanceOperation } from "./maintenance-ui";
 
 export type MaintenanceApi = {
   detail(id: string, editable: boolean, signal?: AbortSignal): Promise<MaintenanceDetail>;
-  write(id: string, kind: MaintenanceOperation, payload: unknown): Promise<MaintenanceAccount | EmailChangeResult>;
+  write(id: string, kind: MaintenanceOperation, payload: unknown): Promise<MaintenanceAccount | EmailChangeResult | AdministrativeResetReceipt>;
   emailStatus(id: string, key: string): Promise<EmailChangeResult>;
 };
 type Pending = { id: string; kind: MaintenanceOperation; payload: { expectedRevision: number; operationKey?: string } & Record<string, unknown> };
@@ -51,6 +52,12 @@ export function createMaintenanceController(api: MaintenanceApi, options: { acto
         const email = result as EmailChangeResult;
         emails.set(pending.id, { key: pending.payload.operationKey!, result: email });
         publish({ ...emailReceipt(email), pending: null });
+      } else if (pending.kind === "reset") {
+        const receipt = result as AdministrativeResetReceipt;
+        emails.delete(pending.id);
+        publish({ pending: null, email: null, detail: state.detail ? { account: { ...state.detail.account, revision: receipt.revision } } : null, reviewRequired: true, notice: receipt.delivery === "ACCEPTED"
+          ? "Acceso restablecido y sesiones revocadas. El transporte aceptó el mensaje; la recepción no está confirmada."
+          : "Acceso restablecido y sesiones revocadas. La entrega no está confirmada. No se reenviará automáticamente." });
       } else if (pending.id === options.actorId) {
         emails.clear();
         publish({ detail: null, targetId: "", visible: false, pending: null, email: null, blocked: "UNAUTHENTICATED",
@@ -63,7 +70,7 @@ export function createMaintenanceController(api: MaintenanceApi, options: { acto
     } catch (error) {
       if (!live || version !== generation || failure(error)) return;
       const e = error instanceof MaintenanceClientError ? error : new MaintenanceClientError("NETWORK");
-      if (!e.status || e.status >= 500) publish({ uncertain: true });
+      if (e.code !== "NOT_CONFIGURED" && (!e.status || e.status >= 500)) publish({ uncertain: true });
       else publish({ pending: null, reviewRequired: e.status === 409 });
     } finally { if (version === generation) publish({ busy: false }); }
   }
@@ -74,13 +81,14 @@ export function createMaintenanceController(api: MaintenanceApi, options: { acto
     open,
     close() { if (!state.busy) publish({ visible: false, ...(state.uncertain ? {} : { detail: null, targetId: "", email: null }) }); },
     reopen() { if (!state.blocked) publish({ visible: true }); },
-    async submit(kind: MaintenanceOperation, input: { value?: string; reason: string; confirmed: boolean }) {
+    async submit(kind: MaintenanceOperation, input: { value?: string; reason: string; confirmed: boolean; identityVerified?: boolean; verificationMethod?: string }) {
       if (!live || state.busy || state.blocked || state.uncertain || state.reviewRequired || !state.detail || !options.canUpdate) return;
       if (options.online && !options.online()) { publish({ error: maintenanceMessage("OFFLINE") }); return; }
       const expectedRevision = state.detail.account.revision;
       const common = { expectedRevision, reason: input.reason, confirmed: input.confirmed };
       const parsed = kind === "email" ? emailChangeRequestSchema.safeParse({ ...common, email: input.value, operationKey: options.uuid() })
         : kind === "username" ? accountIdentifiersSchema.safeParse({ ...common, changes: { username: input.value } })
+        : kind === "reset" ? administrativeResetSchema.safeParse({ ...common, identityVerified: input.identityVerified, verificationMethod: input.verificationMethod })
         : accountStatusSchema.safeParse({ ...common, isActive: !state.detail.account.isActive });
       if (!parsed.success) { publish({ error: maintenanceMessage("VALIDATION_ERROR") }); return; }
       const pending = { id: state.detail.account.id, kind, payload: parsed.data } as Pending;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { administrativeResetReceiptSchema } from "./administrative-reset-contract";
 import { maintenanceAccountSchema, maintenanceIdentifiersSchema, MaintenanceClientError, type MaintenanceDetail } from "./maintenance-ui";
 import type { EmailChangeResult } from "./email-change-contract";
 import type { MaintenanceApi } from "./maintenance-controller";
@@ -50,6 +51,8 @@ export function createMaintenanceApi(request: typeof fetch = fetch): Maintenance
       return { account, identifiers };
     },
     async write(id, kind, payload) {
+      if (kind === "reset") return parsed(administrativeResetReceiptSchema,
+        await call(`${base(id)}/reset-access`, payload, "POST"));
       const path = kind === "email" ? "email-change" : kind === "username" ? "identifiers" : "status";
       const value = await call(`${base(id)}/${path}`, payload, kind === "email" ? "POST" : "PATCH");
       return kind === "email" ? parsed(emailResult, value) : parsed(maintenanceAccountSchema, value);

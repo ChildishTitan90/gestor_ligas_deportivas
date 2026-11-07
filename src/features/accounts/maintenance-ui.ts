@@ -7,7 +7,7 @@ export type MaintenanceAccount = z.infer<typeof maintenanceAccountSchema>;
 export type MaintenanceIdentifiers = z.infer<typeof maintenanceIdentifiersSchema>;
 export type MaintenancePage = { items: MaintenanceAccount[]; page: number; pageSize: number; total: number };
 export type MaintenanceDetail = { account: MaintenanceAccount; identifiers?: MaintenanceIdentifiers };
-export type MaintenanceOperation = "username" | "email" | "status";
+export type MaintenanceOperation = "username" | "email" | "status" | "reset";
 
 export class MaintenanceClientError extends Error {
   constructor(readonly code: string, readonly status = 0) { super(code); }
@@ -29,6 +29,9 @@ const messages: Record<string, string> = {
   LAST_EFFECTIVE_SUPERADMIN: "Debe permanecer otro administrador con permisos globales de lectura y actualización.",
   LAST_OPERATIONAL_SUPERADMIN: "Debe quedar otro administrador que pueda operar, sin bloqueo temporal ni cambio obligatorio de contraseña.",
   VALIDATION_ERROR: "Revisa el identificador, un motivo de 10 a 300 caracteres y la confirmación.",
+  NOT_CONFIGURED: "No hay transporte configurado. No se restableció el acceso.",
+  VERIFIED_CHANNEL_REQUIRED: "La cuenta necesita un correo vigente verificado para la entrega privada.",
+  RESET_NOT_ALLOWED: "No puedes restablecer tu propia cuenta ni una cuenta inactiva.",
   OFFLINE: "No hay conexión. No se envió la operación; conserva esta página y vuelve a intentar cuando se restablezca.",
 };
 export function maintenanceMessage(code: string) {

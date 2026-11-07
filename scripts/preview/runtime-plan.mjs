@@ -91,7 +91,7 @@ const update = {
   season_teams: ['group_id'],
   // PDGLD-118: estado e identificadores; revocación y auditoría siguen en su transacción.
   users: ['password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version',
-    'username', 'email', 'is_active', 'maintenance_revision', 'email_verified_at'],
+    'username', 'email', 'is_active', 'maintenance_revision', 'email_verified_at', 'admin_reset_expires_at', 'admin_reset_consumed_at'],
 };
 const remove = ['role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons', 'clubs', 'teams'];
 const lock = ['document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
