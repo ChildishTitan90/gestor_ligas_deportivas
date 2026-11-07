@@ -16,7 +16,7 @@ export function validateAccountProvisioningTarget(config) {
   assert.equal(target.search + target.hash, '');
   assert.equal(config.baseUrl, `http://127.0.0.1:${56500 + Number(target.port.slice(-2))}`);
   const suite = config.suite ?? 'accounts';
-  assert.ok(['accounts', 'seasons', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'preview-prisma-account', 'maintenance-preview'].includes(suite));
+  assert.ok(['accounts', 'seasons', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'preview-prisma-account', 'maintenance-preview'].includes(suite));
   assert.equal(target.username, suite === 'preview-prisma-account' ? PREVIEW_ROLE : 'postgres');
   if (suite === 'maintenance-preview') {
     const runtime = validateAccountProvisioningTarget({ databaseUrl: config.runtimeDatabaseUrl,
@@ -50,7 +50,7 @@ export function runAccountProvisioningSuite(config, { signal, application } = {}
   assert.equal(application.dependencies, 'independent');
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
-    const child = fork(`${application.app}/scripts/verification/account-provisioning-entry.mjs`, [], { execArgv: ['administrative-reset','email-confirmation'].includes(target.suite) ? ['--conditions=react-server'] : [], cwd: application.app,
+    const child = fork(`${application.app}/scripts/verification/account-provisioning-entry.mjs`, [], { execArgv: ['password-change-regression','administrative-reset','email-confirmation'].includes(target.suite) ? ['--conditions=react-server'] : [], cwd: application.app,
       env: childEnvironment(process.env), stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
     let completed = false; let cancelled = false; let force;
     let failureLocation;
@@ -70,7 +70,7 @@ export function runAccountProvisioningSuite(config, { signal, application } = {}
       clearTimeout(force); signal?.removeEventListener('abort', stop);
       if (code === 0 && completed && !cancelled) resolve();
       else {
-        const code = target.suite === 'preview-prisma-account' ? 'PREVIEW_PRISMA_ACCOUNT_FAILED' : ['administrative-reset','email-confirmation','maintenance-ui','maintenance','maintenance-preview'].includes(target.suite) ? 'ACCOUNT_MAINTENANCE_FAILED' : target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
+        const code = target.suite === 'preview-prisma-account' ? 'PREVIEW_PRISMA_ACCOUNT_FAILED' : ['password-change-regression','administrative-reset','email-confirmation','maintenance-ui','maintenance','maintenance-preview'].includes(target.suite) ? 'ACCOUNT_MAINTENANCE_FAILED' : target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
         const failure = Object.assign(new Error(code), { code });
         if (failureLocation) failure.stack = `Error: ${code}\n    at ${failureLocation}`;
         reject(failure);
@@ -92,6 +92,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         const { runAccountMaintenanceSuite } = await import('../../tests/integration/account-maintenance.test.mjs');
         const { verifyAccountMaintenancePreview } = await import('../../tests/integration/account-maintenance-preview.mjs');
         await verifyAccountMaintenancePreview(target, () => runAccountMaintenanceSuite(target));
+      } else if (target.suite === 'password-change-regression') {
+        const { verifyPasswordChangeVersion } = await import('../../tests/integration/password-change-version.mjs');
+        await verifyPasswordChangeVersion(target);
       } else if (target.suite === 'administrative-reset') {
         const { verifyAdministrativeResetBrowser } = await import('../../tests/e2e/account-administrative-reset-browser.mjs');
         await verifyAdministrativeResetBrowser(target);

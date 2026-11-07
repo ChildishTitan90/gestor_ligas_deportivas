@@ -41,7 +41,7 @@ process.once('message', async config => {
   process.once('SIGINT', stop); process.once('SIGTERM', stop); process.once('disconnect', stop);
   try {
     assert.match(config.runId, RUN_ID); assert.ok([15, 17].includes(config.major));
-    assert.ok(['http', 'browser', 'preview', 'accounts', 'seasons', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode));
+    assert.ok(['http', 'browser', 'preview', 'accounts', 'seasons', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode));
     assert.equal(config.host, '127.0.0.1'); assert.equal(config.port, 55400 + config.major);
     const stem = config.runId.replaceAll('-', '').slice(0, 14);
     assert.equal(config.parentDatabase, `pdgld48_test_${stem}${config.major}`);
@@ -55,7 +55,7 @@ process.once('message', async config => {
     for (const database of [config.parentDatabase, config.modelDatabase]) {
       controller.signal.throwIfAborted(); await admin.query(`CREATE DATABASE "${database}"`); created.push(database);
     }
-    const applicationDatabase = ['preview', 'accounts', 'seasons', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode) ? config.parentDatabase : config.modelDatabase;
+    const applicationDatabase = ['preview', 'accounts', 'seasons', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode) ? config.parentDatabase : config.modelDatabase;
     db = new pg.Client({ host: config.host, port: config.port, database: applicationDatabase, user: 'postgres',
       password: config.password, ssl: false, connectionTimeoutMillis: 5_000, statement_timeout: 15_000 });
     await db.connect();
@@ -65,13 +65,13 @@ process.once('message', async config => {
     for (const name of names.filter(name => name < target)) {
       controller.signal.throwIfAborted(); await db.query(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
     }
-    const fixture = ['accounts', 'seasons', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode) ? null : await prepareAccountDelegateFixtures(db, config.verificationMode === 'preview' ? { databaseName: applicationDatabase } : {});
+    const fixture = ['accounts', 'seasons', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode) ? null : await prepareAccountDelegateFixtures(db, config.verificationMode === 'preview' ? { databaseName: applicationDatabase } : {});
     for (const name of names.filter(name => name >= target)) {
       controller.signal.throwIfAborted(); await db.query(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
     }
     diagnosticContext.stage = 'application-copy';
     const root = fileURLToPath(new URL('../../', import.meta.url));
-    app = await createAccountAppCopy(root, applicationPlan.app, { dependencies: applicationPlan.dependencies, verification: ['accounts', 'seasons', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'preview', 'maintenance-preview'].includes(config.verificationMode) });
+    app = await createAccountAppCopy(root, applicationPlan.app, { dependencies: applicationPlan.dependencies, verification: ['accounts', 'seasons', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'preview', 'maintenance-preview'].includes(config.verificationMode) });
     if (applicationPlan.dependencies === 'independent') {
       diagnosticContext.case = 'dependency-installation';
       await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
@@ -141,9 +141,9 @@ process.once('message', async config => {
         JSON.stringify({ suite: 'tests/integration/preview-prisma-account.mjs', passed: true }, null, 2),
         { flag: 'wx', mode: 0o600 });
     }
-    if (['accounts', 'seasons', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode)) {
+    if (['accounts', 'seasons', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode)) {
       const seasons = config.verificationMode === 'seasons';
-      const maintenance = ['administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode);
+      const maintenance = ['password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode);
       diagnosticContext.case = maintenance ? 'account-maintenance' : seasons ? 'competition-seasons' : 'account-provisioning';
       await runAccountProvisioningSuite({ databaseUrl: config.verificationMode === 'maintenance-preview' ? ownerDatabaseUrl : databaseUrl.href, baseUrl,
         ...(config.verificationMode === 'maintenance-preview' ? { runtimeDatabaseUrl: databaseUrl.href } : {}),
@@ -157,7 +157,7 @@ process.once('message', async config => {
         profileDirectory: `${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/chrome-pg${config.major}`,
         artifactsDirectory: applicationPlan.evidence, diagnosticContext });
       await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
-      const evidence = config.verificationMode === 'administrative-reset' ? {suite:'tests/e2e/account-administrative-reset-browser.mjs',passed:true} : config.verificationMode === 'email-confirmation' ? { suite: 'tests/e2e/account-email-confirmation-browser.mjs', passed: true } : config.verificationMode === 'maintenance-ui' && config.major === 15 ? { suite: 'tests/e2e/account-maintenance-browser.mjs', passed: true, backendMatrix: 'not-repeated' } : maintenance ? { suite: 'tests/integration/account-maintenance.test.mjs', passed: true,
+      const evidence = config.verificationMode === 'password-change-regression' ? {suite:'tests/integration/password-change-version.mjs',passed:true} : config.verificationMode === 'administrative-reset' ? {suite:'tests/e2e/account-administrative-reset-browser.mjs',passed:true} : config.verificationMode === 'email-confirmation' ? { suite: 'tests/e2e/account-email-confirmation-browser.mjs', passed: true } : config.verificationMode === 'maintenance-ui' && config.major === 15 ? { suite: 'tests/e2e/account-maintenance-browser.mjs', passed: true, backendMatrix: 'not-repeated' } : maintenance ? { suite: 'tests/integration/account-maintenance.test.mjs', passed: true,
         concurrentEmailRequests: { passed: true, overlap: 'two-postgresql-connections-waiting-on-rf22',
           sameRevision: 'one-success-one-account-changed', replacement: 'only-current-token-confirms' },
         ...(config.verificationMode === 'maintenance-preview' ? { applicationRole: PREVIEW_ROLE, rls: true, aclChecks: true } : {}) } : seasons ? { suite: 'tests/integration/seasons.test.mjs',

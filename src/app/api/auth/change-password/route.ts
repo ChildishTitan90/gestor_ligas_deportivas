@@ -49,7 +49,10 @@ export async function POST(request: Request) {
     const result = await prisma.$transaction(async (tx) => {
       const user = await lockAuthUser(tx, identity.id);
 
-      if (!user || user.version !== identity.userVersion || !user.is_active || (user.locked_until && user.locked_until > new Date())) {
+      if (!user || user.version !== identity.userVersion) {
+        return { ok: false as const, status: 401, code: "UNAUTHORIZED" };
+      }
+      if (!user.is_active || (user.locked_until && user.locked_until > new Date())) {
         return { ok: false as const, status: 403, code: "FORBIDDEN" };
       }
 

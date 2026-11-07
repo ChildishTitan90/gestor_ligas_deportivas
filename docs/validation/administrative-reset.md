@@ -121,3 +121,31 @@ lectura no recupera el acuse de entrega ni demuestra por sí sola que el reset
 anterior ocurrió. La credencial no puede recuperarse desde su hash; una nueva
 emisión requiere otra decisión manual, revisión vigente y verificación de
 identidad. El PR permanece Draft mientras falten criterios de su alcance.
+
+## Regresión observada en CI #144 y corrección dirigida
+
+[CI #144](https://github.com/ChildishTitan90/gestor_ligas_deportivas/actions/runs/42403142752)
+sobre `19ac5de` aprobó Aplicación, pero PG15/17 fallaron en el caso original
+`tests/integration/auth.test.mjs:418`: «dos cambios simultáneos no aceptan dos
+veces la misma contraseña anterior». La segunda petición detectaba la versión
+obsoleta bajo bloqueo, pero respondía 403; el contrato existente exige 400/401
+para contraseña o sesión anterior. La prueba y sus aserciones no se modificaron.
+
+Se separó la falta de identidad/versión vigente (401 UNAUTHORIZED) de cuenta
+inactiva/bloqueada (403). La comparación privada de versión permanece intacta.
+La matriz `.237` de reset/login no cubría dos cambios de contraseña simultáneos;
+se conserva su aprobación porque la corrección solo cambia ese resultado de error.
+
+El perfil dirigido `--account-password-change-regression`, run-id
+`119e2026-1107-4a18-8a15-000000000238`, usa bases/copias nuevas y no repite Chrome,
+reset, entrega u otras matrices aprobadas. Bloquea la cuenta desde una conexión
+propia y comprueba en pg_stat_activity dos peticiones realmente esperando antes
+de liberarlas. Exige exactamente un 200 y un 401, una versión/evento nuevos,
+sesiones anteriores inválidas, contraseña ganadora funcional y perdedora inválida.
+Ejecuta además TypeScript en cada copia. Resultado final y limpieza se registran
+al cerrar esta comprobación; el CI de la corrección se informa por su SHA en el PR.
+
+`.238` terminó con código 0 en PG15 y PG17, con TypeScript aprobado en ambas
+copias. Limpieza independiente verificada: contenedores/redes, copias/dependencias
+y procesos propios ausentes, cuatro puertos loopback libres. No hubo Chrome,
+transporte ni correos en este perfil dirigido; `.237` permanece aprobada.
