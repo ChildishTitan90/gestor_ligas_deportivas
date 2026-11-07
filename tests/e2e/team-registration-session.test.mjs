@@ -47,8 +47,36 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
       };
       function Parent(){const [user,setUser]=useState(a);changeUser=setUser;return <div id="stable-parent"><TeamRegistrationWorkspace userId={user}/></div>;}
       const check=(value,message)=>{if(!value)throw Error(message);};
+      // Only identities and event flags of this synthetic selector, never field values.
+      const focusTrace=[];let tracingFocus=false;
+      const focusNode=node=>node===document.body?'body':node?.id==='fixture-choice'?'choice':node?.id==='next-control'?'next':node?.id==='reset-control'?'reset':node?'other':'none';
+      const traceFocus=(phase,event)=>{
+        if(!tracingFocus)return;
+        const field=document.getElementById('fixture-choice');
+        focusTrace.push({phase,active:focusNode(document.activeElement),target:focusNode(event?.target),related:focusNode(event?.relatedTarget),
+          key:['ArrowDown','Tab','Enter','Escape'].includes(event?.key)?event.key:null,trusted:event?.isTrusted??null,
+          prevented:event?.defaultPrevented??null,cancelable:event?.cancelable??null,
+          documentFocused:document.hasFocus(),ready:document.readyState,expanded:field?.getAttribute('aria-expanded'),
+          disabled:field?.matches(':disabled'),listbox:!!document.querySelector('[role=listbox]')});
+        if(focusTrace.length>80)focusTrace.shift();
+      };
+      window.selectFocusDiagnostic=focusTrace;
+      window.fixtureDocumentDiagnostic={focusedAtScript:document.hasFocus(),readyAtScript:document.readyState};
+      let startScenario;const scenarioStart=new Promise(resolve=>{startScenario=resolve;});
+      window.startScenario=startScenario;
+      let nativeReady;window.selectorNativeReady=new Promise(resolve=>{nativeReady=resolve;});
+      for(const type of ['keydown','keyup','blur','focus','focusin','focusout']){
+        document.addEventListener(type,event=>traceFocus(type+'-capture',event),true);
+        document.addEventListener(type,event=>traceFocus(type+'-bubble',event));
+      }
       const wait=async predicate=>{for(let n=0;n<300;n++){if(predicate())return;await new Promise(r=>setTimeout(r,10));}throw Error('Timed out: '+predicate.toString()+'; menus='+Array.from(document.querySelectorAll('[role=listbox]')).map(node=>node.textContent).join('|')+'; fields='+Array.from(document.querySelectorAll('[role=combobox]')).map(node=>node.id+':'+node.getAttribute('aria-expanded')+':'+node.disabled).join('|'));};
       window.testDone=(async()=>{
+        // Start only after the driver has loaded/activated the owned document.
+        // Inline execution while the parser is running is not user interaction.
+        await scenarioStart;
+        window.fixtureDocumentDiagnostic.focusedAtStart=document.hasFocus();
+        window.fixtureDocumentDiagnostic.readyAtStart=document.readyState;
+        check(document.hasFocus() && document.readyState==='complete','Fixture document not ready for interaction');
         let root=createRoot(document.getElementById('root'));
         // Componente real; valores y red de negocio exclusivamente sintéticos.
         let replaceChoices, disableChoices;
@@ -60,7 +88,7 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
           return <form id="select-fixture" style={{position:'fixed',bottom:20,left:16,width:'min(340px, calc(100vw - 32px))'}}>
             <fieldset disabled={disabled}><label htmlFor="fixture-choice">Club de prueba</label>
               <SelectField id="fixture-choice" name="choice" required options={choices} onValueChange={value=>selections.push(value)}/>
-            </fieldset><button type="reset">Restablecer</button><button type="button" id="next-control">Siguiente</button>
+            </fieldset><button type="reset" id="reset-control">Restablecer</button><button type="button" id="next-control">Siguiente</button>
           </form>;
         }
         flushSync(()=>root.render(<SelectFixture/>));
@@ -93,13 +121,35 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
         key('Enter');check(selected()==='item-79','End key chose the wrong option');
         flushSync(()=>replaceChoices([{value:'other',label:'Otro club'}]));
         check(selected()==='' && choice().value==='','Removed option retained a stale identifier');
-        key('ArrowDown');flushSync(()=>disableChoices(true));
+        tracingFocus=true;traceFocus('before-disable');
+        key('ArrowDown');flushSync(()=>disableChoices(true));traceFocus('after-disable');
         await wait(()=>choice().matches(':disabled') && !document.querySelector('[role=listbox]'));
+        traceFocus('disabled-closed');
         check(selected()===null,'Disabled fieldset submitted a hidden value');
-        flushSync(()=>disableChoices(false));key('ArrowDown');
+        flushSync(()=>disableChoices(false));traceFocus('reenabled');key('ArrowDown');traceFocus('reopened');
         document.getElementById('next-control').focus();
+        traceFocus('after-programmatic-focus');
         await wait(()=>document.activeElement.id==='next-control' && !document.querySelector('[role=listbox]'));
+        traceFocus('closed-outside');tracingFocus=false;
         check(document.activeElement.id==='next-control','Closing moved focus away from next control');
+        // Preserve the programmatic outside-focus regression above. Also exercise
+        // actual Tab defaults: dispatchEvent alone cannot traverse the tab order.
+        tracingFocus=true;traceFocus('native-ready');
+        const nativeStart=focusTrace.length;
+        const nativeDone=new Promise(resolve=>{window.finishSelectorNative=resolve;});
+        window.observeSelectorNative=async stage=>{
+          if(stage==='open')await wait(()=>document.activeElement===choice() && choice().getAttribute('aria-expanded')==='true');
+          else if(stage==='reset')await wait(()=>document.activeElement.id==='reset-control' && !document.querySelector('[role=listbox]'));
+          else if(stage==='next')await wait(()=>document.activeElement.id==='next-control' && !document.querySelector('[role=listbox]'));
+          else throw Error('Unknown native selector phase');
+          traceFocus('native-'+stage);
+        };
+        nativeReady();await nativeDone;
+        const nativeEvents=focusTrace.slice(nativeStart);
+        check(nativeEvents.some(event=>event.phase==='keydown-bubble' && event.key==='Tab' && event.target==='choice' && event.trusted && !event.prevented),'Tab must retain the browser default action');
+        check(nativeEvents.some(event=>event.phase==='blur-capture' && event.target==='choice' && event.trusted),'Native Tab did not blur the selector');
+        check(document.activeElement.id==='next-control' && !document.querySelector('[role=listbox]'),'Native Tab changed the expected focus/close result');
+        traceFocus('native-complete');tracingFocus=false;
         root.unmount();root=createRoot(document.getElementById('root'));
         flushSync(()=>root.render(<form><label htmlFor="fixture-choice">Selección sin búsqueda</label>
           <SelectField id="fixture-choice" name="choice" required searchable={false} options={initialChoices}/></form>));
@@ -284,6 +334,19 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
     console.log('Chrome: iniciando navegador de prueba');
     browser = await launchChrome(origin, { signal: t.signal, commandTimeoutMs: 15000, waitForDocument: true });
     t.after(() => browser.close());
+    await browser.evaluate('window.startScenario()');
+    // The fixture signals its own readiness; no sleep, forced field focus or close.
+    await browser.evaluate('Promise.race([window.selectorNativeReady, window.testDone])');
+    const { x, y } = await browser.evaluate('(()=>{const r=document.getElementById("fixture-choice").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()');
+    await browser.command('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+    await browser.command('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+    await browser.evaluate('window.observeSelectorNative("open")');
+    for(const destination of ['reset','next']) {
+      for(const type of ['rawKeyDown','keyUp'])
+        await browser.command('Input.dispatchKeyEvent', { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+      await browser.evaluate('window.observeSelectorNative('+JSON.stringify(destination)+')');
+    }
+    await browser.evaluate('window.finishSelectorNative()');
     console.log('Chrome: CDP conectado; esperando recorrido sintético');
     const evaluate = () => waitForTestDone(browser);
     let result;
@@ -293,5 +356,11 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
         await new Promise(resolve => setTimeout(resolve, 100)); }
     }
     assert.deepEqual(result, { parentPreserved: true, oldReadAborted: true, lateResponseHidden: true, pendingPreserved: true, posts: 0 });
-  } finally { await browser?.close(); }
+  } finally {
+    if(browser) {
+      try { t.diagnostic(JSON.stringify({fixtureDocument:await browser.evaluate('window.fixtureDocumentDiagnostic ?? {}'),selectorFocus:await browser.evaluate('window.selectFocusDiagnostic ?? []')})); }
+      catch { t.diagnostic('Selector focus diagnostic unavailable'); }
+    }
+    await browser?.close();
+  }
 });

@@ -1,0 +1,270 @@
+{
+  "scope": "PDGLD-118 pending email Preview/RLS validation with concurrent requests",
+  "sequenceStopped": false,
+  "failureCategory": null,
+  "profiles": [
+    {
+      "name": "account-maintenance",
+      "runId": "118e2026-1105-4a18-8a15-000000000203",
+      "runIdConsumed": true,
+      "exitCode": 0,
+      "versions": [
+        {
+          "postgres": 15,
+          "status": "PASSED",
+          "productTestsExecuted": true,
+          "cleaned": true
+        },
+        {
+          "postgres": 17,
+          "status": "PASSED",
+          "productTestsExecuted": true,
+          "cleaned": true
+        }
+      ],
+      "cleanup": {
+        "independentlyVerified": true
+      }
+    },
+    {
+      "name": "account-maintenance-preview",
+      "runId": "118e2026-1105-4a18-8a15-000000000204",
+      "runIdConsumed": true,
+      "exitCode": 0,
+      "versions": [
+        {
+          "postgres": 15,
+          "status": "PASSED",
+          "productTestsExecuted": true,
+          "applicationRole": "gestor_ligas_preview",
+          "rls": true,
+          "aclChecks": true,
+          "concurrentRequestsPassed": true,
+          "cleaned": true
+        },
+        {
+          "postgres": 17,
+          "status": "PASSED",
+          "productTestsExecuted": true,
+          "applicationRole": "gestor_ligas_preview",
+          "rls": true,
+          "aclChecks": true,
+          "concurrentRequestsPassed": true,
+          "cleaned": true
+        }
+      ],
+      "cleanup": {
+        "independentlyVerified": true
+      }
+    }
+  ],
+  "maintenance203Repeated": false,
+  "maintenance203PreviousApprovalPreserved": true,
+  "coverage": {
+    "concurrentRequests": "PASSED_POSTGRES_15_17_WITH_RLS",
+    "overlap": "two-postgresql-connections-waiting-on-rf22",
+    "sameRevision": "one-success-one-account-changed",
+    "replacement": "only-current-token-confirms",
+    "concurrentConfirmations": "PASSED_POSTGRES_15_17_WITH_RLS",
+    "previousAddressNotice": "SYNTHETIC_TRANSPORT_ONLY"
+  },
+  "cleanupVerification": {
+    "exactContainersAbsent": 2,
+    "exactNetworksAbsent": 2,
+    "portsWithoutListeners": [
+      55415,
+      55417,
+      56515,
+      56517
+    ],
+    "applicationInstallationBrowserCopiesAbsent": true,
+    "registriesAndEvidencePreserved": true
+  },
+  "evidence": [
+    {
+      "runId": "118e2026-1105-4a18-8a15-000000000204",
+      "files": 11,
+      "manifestSHA256": "a71dcb68a0913aaa8b805f6601447d128f2bd4a5792d12a02c59588f77552932"
+    }
+  ],
+  "npmCiLockfileRegistryVersionsOrIntegrityChecksChanged": false,
+  "realEmailSent": false,
+  "usualDatabasesOrRealSupabaseUsed": false,
+  "restrictionsOrExpectationsRelaxed": false,
+  "previousAttempts": [
+    {
+      "scope": "PDGLD-118 pending email isolated validation",
+      "sequenceStopped": true,
+      "failureCategory": "DEPENDENCY_INSTALL_NETWORK_TIMEOUT",
+      "failureCode": "ETIMEDOUT",
+      "dockerSocketAccess": "SUCCEEDED_WITH_ESCALATED_EXECUTION",
+      "profiles": [
+        {
+          "name": "account-maintenance",
+          "runId": "118e2026-1105-4a18-8a15-000000000203",
+          "runIdConsumed": true,
+          "exitCode": 0,
+          "versions": [
+            {
+              "postgres": 15,
+              "status": "PASSED",
+              "productTestsExecuted": true,
+              "cleaned": true
+            },
+            {
+              "postgres": 17,
+              "status": "PASSED",
+              "productTestsExecuted": true,
+              "cleaned": true
+            }
+          ],
+          "cleanup": {
+            "independentlyVerified": true
+          }
+        },
+        {
+          "name": "account-maintenance-preview",
+          "runId": "118e2026-1105-4a18-8a15-000000000202",
+          "runIdConsumed": true,
+          "exitCode": 1,
+          "confirmedUnconsumedBeforeStart": true,
+          "versions": [
+            {
+              "postgres": 15,
+              "status": "ENVIRONMENT_FAILURE",
+              "stage": "DEPENDENCY_INSTALLATION",
+              "productTestsExecuted": false,
+              "cleaned": true
+            },
+            {
+              "postgres": 17,
+              "status": "NOT_STARTED",
+              "reason": "PREVIOUS_VERSION_FAILED",
+              "productTestsExecuted": false
+            }
+          ],
+          "cleanup": {
+            "independentlyVerified": true
+          }
+        }
+      ],
+      "coverage": {
+        "maintenancePostgresVersionsPassed": [
+          15,
+          17
+        ],
+        "concurrentConfirmations": "PASSED_POSTGRES_15_17",
+        "concurrentRequests": "PASSED_IN_MEMORY_ONLY",
+        "previewRls": "NOT_EVALUATED",
+        "previousAddressNotice": "SYNTHETIC_TRANSPORT_ONLY",
+        "noServicesTestsPassed": 25
+      },
+      "cleanupVerification": {
+        "exactContainersAbsent": 4,
+        "exactNetworksAbsent": 4,
+        "portsWithoutListeners": [
+          55415,
+          55417,
+          56515,
+          56517
+        ],
+        "applicationInstallationBrowserCopiesAbsent": true,
+        "registriesAndEvidencePreserved": true
+      },
+      "evidence": [
+        {
+          "runId": "118e2026-1105-4a18-8a15-000000000203",
+          "files": 10,
+          "manifestSHA256": "0767204b1d50df7305e938ef6b9ccb27700f0dc791d53a9a3f55bb59a65f8e4f"
+        },
+        {
+          "runId": "118e2026-1105-4a18-8a15-000000000202",
+          "files": 5,
+          "manifestSHA256": "102cd43054d11db408837ddc7026c5743ebe2f44fea87c5bffd5d43c77bb4dd3"
+        }
+      ],
+      "realEmailSent": false,
+      "usualDatabasesOrRealSupabaseUsed": false,
+      "restrictionsOrExpectationsRelaxed": false,
+      "previousAttempts": [
+        {
+          "scope": "PDGLD-118 pending email isolated validation",
+          "sequenceStopped": true,
+          "failureCategory": "SANDBOX_DOCKER_SOCKET_PERMISSION_DENIED",
+          "profiles": [
+            {
+              "name": "account-maintenance",
+              "runId": "118e2026-1105-4a18-8a15-000000000201",
+              "runIdConsumed": true,
+              "exitCode": 1,
+              "versions": [
+                {
+                  "postgres": 15,
+                  "status": "ENVIRONMENT_FAILURE",
+                  "stage": "RESOURCE_CREATION",
+                  "productTestsExecuted": false
+                },
+                {
+                  "postgres": 17,
+                  "status": "NOT_STARTED",
+                  "reason": "PREVIOUS_VERSION_FAILED",
+                  "productTestsExecuted": false
+                }
+              ],
+              "cleanup": {
+                "initialVerificationFailed": true,
+                "recoveryExitCode": 0,
+                "independentlyVerified": true
+              }
+            },
+            {
+              "name": "account-maintenance-preview",
+              "runId": "118e2026-1105-4a18-8a15-000000000202",
+              "runIdConsumed": false,
+              "versions": [
+                {
+                  "postgres": 15,
+                  "status": "NOT_STARTED",
+                  "reason": "PREVIOUS_PROFILE_NOT_PASSED",
+                  "productTestsExecuted": false
+                },
+                {
+                  "postgres": 17,
+                  "status": "NOT_STARTED",
+                  "reason": "PREVIOUS_PROFILE_NOT_PASSED",
+                  "productTestsExecuted": false
+                }
+              ],
+              "resourcesAbsent": true,
+              "registryAbsent": true
+            }
+          ],
+          "cleanupVerification": {
+            "exactContainersAbsent": 4,
+            "exactNetworksAbsent": 4,
+            "portsWithoutListeners": [
+              55415,
+              55417,
+              56515,
+              56517
+            ],
+            "applicationInstallationBrowserCopiesAbsent": true,
+            "originalFirstRunRegistryPreserved": true
+          },
+          "realEmailSent": false,
+          "usualDatabasesOrRealSupabaseUsed": false,
+          "restrictionsOrExpectationsRelaxed": false
+        }
+      ]
+    }
+  ],
+  "reviewDate": "2026-11-06",
+  "blockedAttemptsAreFunctionalResults": false,
+  "functionalFailuresObservedInExecutedSuites": 0,
+  "pending": [
+    "real-email-transport",
+    "verified-sender",
+    "templates",
+    "confirmation-screen"
+  ]
+}

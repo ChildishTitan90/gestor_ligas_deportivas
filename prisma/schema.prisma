@@ -2092,6 +2092,10 @@ model user_roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
+  email_verified_at DateTime? @db.Timestamptz(6)
+  email_changes_requested account_email_changes[] @relation("email_change_actor")
+  email_changes_owned account_email_changes[] @relation("email_change_user")
+  maintenance_revision Int @default(0)
   configured_player_levels player_category_levels[]
   requested_category_participations player_category_participations[]
   curp_checks                                                             player_curp_checks[]
@@ -2272,5 +2276,33 @@ model withdrawal_match_effects {
 
   @@unique([withdrawal_id, match_id])
   @@index([match_id], map: "fk_withdrawal_match_effects_match_id_fkey")
+  @@schema("sports_management")
+}
+
+/// Propiedad de correo independiente de password_resets; solo hashes de tokens.
+model account_email_changes {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id String @db.Uuid
+  actor_id String @db.Uuid
+  operation_key String @db.Uuid
+  input_hash String
+  old_email String
+  new_email String
+  token_hash String @unique
+  expected_revision Int
+  user_version Int
+  reason String
+  created_at DateTime @db.Timestamptz(6)
+  expires_at DateTime @db.Timestamptz(6)
+  used_at DateTime? @db.Timestamptz(6)
+  status String
+  confirmation_delivery String
+  previous_notice_delivery String
+  completion_notice_delivery String
+  user users @relation("email_change_user", fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actor users @relation("email_change_actor", fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@unique([actor_id, operation_key])
+  @@index([user_id, created_at(sort: Desc)], map: "account_email_changes_recent")
+  @@unique([user_id], map: "account_email_changes_one_pending", where: raw("(status = 'PENDING'::text)"))
   @@schema("sports_management")
 }

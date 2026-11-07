@@ -5,7 +5,7 @@ export const PREVIEW_PROJECT = 'loaztwwpwsaqzdtdtvvj';
 export const PREVIEW_ROLE = 'gestor_ligas_preview';
 export const PREVIEW_MARKER = `PDGLD_PRUEBAS_ONLY=${PREVIEW_PROJECT}`;
 
-const read = ['player_category_levels','player_category_participations','sanctions','audit_logs', 'authentication_events', 'categories', 'charges', 'club_affiliations',
+const read = ['account_email_changes', 'password_resets', 'player_category_levels','player_category_participations','sanctions','audit_logs', 'authentication_events', 'categories', 'charges', 'club_affiliations',
   'club_affiliation_categories', 'club_officers', 'clubs', 'correction_authorizations', 'disciplinary_cases',
   'document_requirements','document_types','player_documents','files', 'groups', 'leagues', 'match_events', 'match_reports', 'matches', 'payment_voids', 'payments',
   'people', 'permissions', 'player_registrations', 'player_status_history', 'player_curp_checks', 'referee_assignments', 'referees', 'role_permissions',
@@ -20,6 +20,7 @@ read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competitio
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
+  password_resets: ['user_id','used_at'],
   sanctions:['id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
   billing_plans: ['id', 'season_id'], club_team_changes: ['id', 'season_id'],
   // update() de aprobación devuelve todos los escalares, incluido file_id.
@@ -34,6 +35,7 @@ const readColumns = {
   standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
 };
 const insert = {
+  account_email_changes: ['id','user_id','actor_id','operation_key','input_hash','old_email','new_email','token_hash','expected_revision','user_version','reason','created_at','expires_at','status','confirmation_delivery','previous_notice_delivery','completion_notice_delivery'],
   player_category_levels:['season_category_id','season_id','pathway_code','level','configured_by'],
   player_category_participations:['origin_registration_id','season_id','club_id','target_season_team_id','target_season_category_id','requested_by','request_key','request_hash','status','created_at','version'],
   // Prisma también materializa defaults escalares (now(), 0, 1, true) en INSERT.
@@ -63,9 +65,12 @@ const insert = {
   team_enrollment_operations: ['actor_id', 'enrollment_key', 'club_id', 'fingerprint', 'outcome', 'enrollment_id', 'finalized_at'],
   // PDGLD-107: finite initial assignments need INSERT ends_at, never UPDATE.
   user_roles: ['user_id', 'role_id', 'league_id', 'club_id', 'starts_at', 'delegate_position', 'ends_at'],
-  users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at'],
+  // PDGLD-118: Prisma materializa @default(0); el alta necesita INSERT, no UPDATE.
+  users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at', 'maintenance_revision'],
 };
 const update = {
+  account_email_changes: ['status','used_at','confirmation_delivery','previous_notice_delivery','completion_notice_delivery'],
+  password_resets: ['used_at'],
   player_category_participations:['status','version','eligibility_fingerprint','review_event_id'],
   player_documents:['status','reviewed_by'],
   player_registrations:['status','identity_review_status'],
@@ -84,7 +89,9 @@ const update = {
   season_categories: ['competition_rule_id', 'hierarchy_order', 'type', 'competition_format',
     'player_policy', 'minimum_age', 'maximum_age', 'age_cutoff_date', 'eligibility_pending'],
   season_teams: ['group_id'],
-  users: ['password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version'],
+  // PDGLD-118: estado e identificadores; revocación y auditoría siguen en su transacción.
+  users: ['password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version',
+    'username', 'email', 'is_active', 'maintenance_revision', 'email_verified_at'],
 };
 const remove = ['role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons', 'clubs', 'teams'];
 const lock = ['document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',

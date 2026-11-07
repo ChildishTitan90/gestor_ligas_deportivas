@@ -12,6 +12,8 @@ export async function lockAuthUser(tx: Prisma.TransactionClient, userId: string)
     where: { id: userId },
     select: {
       id: true,
+      username: true,
+      email: true,
       password_hash: true,
       is_active: true,
       must_change_password: true,

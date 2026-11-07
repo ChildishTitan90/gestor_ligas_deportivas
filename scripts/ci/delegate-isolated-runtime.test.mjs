@@ -263,14 +263,14 @@ test('plan ejecutable sin Docker disponible no crea archivos ni conecta servicio
   const execution = randomUUID();
   const path = `${ISOLATED_TEMP_ROOT}/pdgld106-${execution}`;
   assert.equal(existsSync(path), false);
-  for (const extra of [[], ['--account-integration'], ['--account-browser'], ['--account-preview'], ['--account-provisioning'], ['--competition-seasons']]) {
+  for (const extra of [[], ['--account-integration'], ['--account-browser'], ['--account-preview'], ['--account-provisioning'], ['--competition-seasons'], ['--account-maintenance'], ['--account-maintenance-preview']]) {
     const output = await new Promise((resolve, reject) => execFile(process.execPath,
       ['scripts/test-delegate-isolated.mjs', '--run-id', execution, ...extra], { env: { PATH: '/nonexistent' } },
       (error, stdout) => error ? reject(error) : resolve(stdout)));
     const data = JSON.parse(output);
     assert.equal(data.mode, 'plan');
     if (extra.length) assert.deepEqual(data.applicationPorts, ['127.0.0.1:56515', '127.0.0.1:56517']);
-    if (extra.some(flag => ['--account-browser', '--account-preview', '--account-provisioning', '--competition-seasons'].includes(flag)))
+    if (extra.some(flag => ['--account-browser', '--account-preview', '--account-provisioning', '--competition-seasons', '--account-maintenance', '--account-maintenance-preview'].includes(flag)))
       assert.ok(data.application.every(app => app.installation.command === 'npm' && app.bundler === '--turbopack'));
   }
   assert.equal(existsSync(path), false);
@@ -433,3 +433,42 @@ test('temporadas selecciona la suite completa de forma explícita y conserva ais
     assert.throws(() => validateAccountProvisioningTarget({ ...target, suite: 'arbitrary-script' }));
   }
 });
+
+test('mantenimiento Preview separa conexiones propietaria/limitada y fija la misma base desechable', async () => {
+  const { validateAccountProvisioningTarget } = await import('../verification/account-provisioning-entry.mjs');
+  assert.equal(parseDelegateArguments(['--run-id',runId,'--account-maintenance-preview']).accountMode,'maintenance-preview');
+  for (const major of [15,17]) {
+    const databaseUrl=`postgresql://postgres@127.0.0.1:${55400+major}/pdgld48_test_0123456789abcd${major}`;
+    const runtimeDatabaseUrl=databaseUrl.replace('postgres@','gestor_ligas_preview@');
+    const target={databaseUrl,runtimeDatabaseUrl,baseUrl:`http://127.0.0.1:${56500+major}`,suite:'maintenance-preview'};
+    assert.equal(validateAccountProvisioningTarget(target).runtimeDatabaseUrl,runtimeDatabaseUrl);
+    assert.equal(accountApplicationPlan({runId,major,verificationMode:'maintenance-preview'}).dependencies,'independent');
+    for (const patch of [{runtimeDatabaseUrl:databaseUrl},{runtimeDatabaseUrl:runtimeDatabaseUrl.replace('0123456789abcd','abcdef01234567')},
+      {runtimeDatabaseUrl:runtimeDatabaseUrl.replace('127.0.0.1','remote.example.test')},{suite:'maintenance'}])
+      assert.throws(()=>validateAccountProvisioningTarget({...target,...patch}));
+  }
+  assert.throws(()=>parseDelegateArguments(['--run-id',runId,'--account-maintenance-preview','--account-maintenance']));
+});
+
+test('Preview Prisma exige identidad limitada y no acepta la conexión propietaria', async () => {
+  const { validateAccountProvisioningTarget } = await import('../verification/account-provisioning-entry.mjs');
+  for (const major of [15, 17]) {
+    const target = { databaseUrl: `postgresql://gestor_ligas_preview@127.0.0.1:${55400+major}/pdgld48_test_0123456789abcd${major}`,
+      baseUrl: `http://127.0.0.1:${56500+major}`, suite: 'preview-prisma-account' };
+    assert.equal(validateAccountProvisioningTarget(target).suite, 'preview-prisma-account');
+    assert.throws(() => validateAccountProvisioningTarget({ ...target, databaseUrl: target.databaseUrl.replace('gestor_ligas_preview', 'postgres') }));
+    assert.throws(() => validateAccountProvisioningTarget({ ...target, suite: 'accounts' }));
+  }
+});
+
+ test('mantenimiento reutiliza instalación independiente y restringe la suite IPC', async () => {
+  const { validateAccountProvisioningTarget } = await import('../verification/account-provisioning-entry.mjs');
+  assert.equal(parseDelegateArguments(['--run-id',runId,'--account-maintenance']).accountMode,'maintenance');
+  for (const flag of ['--account-integration','--account-browser','--account-provisioning','--competition-seasons'])
+    assert.throws(() => parseDelegateArguments(['--run-id',runId,'--account-maintenance',flag]));
+  for (const major of [15,17]) {
+    const app=accountApplicationPlan({runId,major,verificationMode:'maintenance'});
+    assert.equal(app.dependencies,'independent'); assert.equal(app.bundler,'--turbopack');
+    assert.equal(validateAccountProvisioningTarget({databaseUrl:`postgresql://postgres@127.0.0.1:${55400+major}/pdgld48_test_0123456789abcd${major}`,baseUrl:`http://127.0.0.1:${56500+major}`,suite:'maintenance'}).suite,'maintenance');
+  }
+ });

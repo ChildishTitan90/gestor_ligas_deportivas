@@ -13,6 +13,7 @@ import { requireOperationalUser } from "@/server/auth/session";
 import { canAccessPlayerRegistration } from "@/features/players/server/workspace-queries";
 import { canReviewPlayerIdentity } from "@/features/players/server/identity-review";
 import {canAccessPlayerParticipations} from "@/features/players/server/participation-workspace-queries";
+import { canReadAccountMaintenance } from "@/features/accounts/server/maintenance-workspace";
 
 /** Solo una denegación esperada oculta el enlace; los fallos de sesión o servicio se propagan. */
 async function allowed(check: () => Promise<boolean>): Promise<boolean> {
@@ -42,7 +43,7 @@ async function navigationCapabilities(checks: (() => Promise<boolean>)[]) {
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
   await requireOperationalUser();
-  const [teams, capture, review, accounts, players, playerReview, seasons, leagues,participations,maintenance] = await navigationCapabilities([
+  const [teams, capture, review, accounts, players, playerReview, seasons, leagues,participations,maintenance,accountMaintenance] = await navigationCapabilities([
     async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0,
     canAccessAffiliationCapture,
     async () => (await getAffiliationReviewLeagueOptions()).length > 0,
@@ -53,6 +54,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
     canCreateLeague,
     canAccessPlayerParticipations,
     canAccessClubMaintenance,
+    canReadAccountMaintenance,
   ]);
 
   const groups: ManagementNavigationGroup[] = [
@@ -73,6 +75,9 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if (leagues) competitions.items.push({ href: "/competitions/leagues/new", label: "Crear liga", icon: "overview" });
   if (seasons) competitions.items.push({ href: "/competitions/seasons", label: "Temporadas", icon: "overview" });
   if (competitions.items.length) groups.push(competitions);
-  if (accounts) groups.push({ label: "Administración", items: [{ href: "/accounts/new", label: "Crear cuenta", icon: "accounts" }] });
+  const administration: ManagementNavigationGroup = { label: "Administración", items: [] };
+  if (accountMaintenance) administration.items.push({ href: "/accounts", label: "Administrar cuentas", icon: "accounts" });
+  if (accounts) administration.items.push({ href: "/accounts/new", label: "Crear cuenta", icon: "accounts" });
+  if (administration.items.length) groups.push(administration);
   return groups;
 }
