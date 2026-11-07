@@ -16,7 +16,7 @@ export function validateAccountProvisioningTarget(config) {
   assert.equal(target.search + target.hash, '');
   assert.equal(config.baseUrl, `http://127.0.0.1:${56500 + Number(target.port.slice(-2))}`);
   const suite = config.suite ?? 'accounts';
-  assert.ok(['accounts', 'seasons', 'maintenance', 'preview-prisma-account', 'maintenance-preview'].includes(suite));
+  assert.ok(['accounts', 'seasons', 'maintenance-ui', 'maintenance', 'preview-prisma-account', 'maintenance-preview'].includes(suite));
   assert.equal(target.username, suite === 'preview-prisma-account' ? PREVIEW_ROLE : 'postgres');
   if (suite === 'maintenance-preview') {
     const runtime = validateAccountProvisioningTarget({ databaseUrl: config.runtimeDatabaseUrl,
@@ -58,7 +58,7 @@ export function runAccountProvisioningSuite(config, { signal, application } = {}
       clearTimeout(force); signal?.removeEventListener('abort', stop);
       if (code === 0 && completed && !cancelled) resolve();
       else {
-        const code = target.suite === 'preview-prisma-account' ? 'PREVIEW_PRISMA_ACCOUNT_FAILED' : ['maintenance','maintenance-preview'].includes(target.suite) ? 'ACCOUNT_MAINTENANCE_FAILED' : target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
+        const code = target.suite === 'preview-prisma-account' ? 'PREVIEW_PRISMA_ACCOUNT_FAILED' : ['maintenance-ui','maintenance','maintenance-preview'].includes(target.suite) ? 'ACCOUNT_MAINTENANCE_FAILED' : target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
         const failure = Object.assign(new Error(code), { code });
         if (failureLocation) failure.stack = `Error: ${code}\n    at ${failureLocation}`;
         reject(failure);
@@ -80,6 +80,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         const { runAccountMaintenanceSuite } = await import('../../tests/integration/account-maintenance.test.mjs');
         const { verifyAccountMaintenancePreview } = await import('../../tests/integration/account-maintenance-preview.mjs');
         await verifyAccountMaintenancePreview(target, () => runAccountMaintenanceSuite(target));
+      } else if (target.suite === 'maintenance-ui') {
+        const { prepareMaintenanceUI } = await import('../../tests/integration/account-maintenance-ui-fixtures.mjs');
+        await prepareMaintenanceUI(target);
       } else if (target.suite === 'maintenance') {
         const { runAccountMaintenanceSuite } = await import('../../tests/integration/account-maintenance.test.mjs');
         await runAccountMaintenanceSuite(target);

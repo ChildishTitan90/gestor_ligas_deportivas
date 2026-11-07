@@ -66,7 +66,7 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
       await bounded(new Promise(resolve => { killer.once('exit', resolve); killer.once('error', resolve); }), 2000, 'Chrome: taskkill');
     } else {
       try { process.kill(-chrome.pid, force ? 'SIGKILL' : 'SIGTERM'); }
-      catch (error) { if (error.code !== 'ESRCH') throw error; }
+      catch (error) { if (error.code !== 'ESRCH' && !(exited && error.code === 'EPERM')) throw error; }
     }
   };
   const close = () => closing ??= (async () => {

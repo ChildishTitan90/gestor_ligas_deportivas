@@ -33,7 +33,7 @@ export function independentInstallPlan(plan) {
 export function accountApplicationPlan({ runId, major, verificationMode }) {
   assert.match(runId, RUN_ID);
   assert.ok([15, 17].includes(major));
-  assert.ok(['http', 'browser', 'preview', 'accounts', 'seasons', 'maintenance', 'maintenance-preview'].includes(verificationMode));
+  assert.ok(['http', 'browser', 'preview', 'accounts', 'seasons', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(verificationMode));
   const independent = verificationMode !== 'http';
   const directory = `${ISOLATED_TEMP_ROOT}/pdgld106-${runId}`;
   return { directory, app: `${directory}/app-pg${major}`, major,
@@ -43,7 +43,7 @@ export function accountApplicationPlan({ runId, major, verificationMode }) {
 }
 
 export function accountWorkerTimeout(verificationMode) {
-  assert.ok(['http', 'browser', 'preview', 'accounts', 'seasons', 'maintenance', 'maintenance-preview'].includes(verificationMode));
+  assert.ok(['http', 'browser', 'preview', 'accounts', 'seasons', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(verificationMode));
   // Ten minutes for npm ci plus the existing ten-minute account verification budget.
   return verificationMode === 'http' ? 600_000 : 1_200_000;
 }

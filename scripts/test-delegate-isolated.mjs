@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:net';
+import { access } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { execFile, fork } from 'node:child_process';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -24,8 +26,8 @@ export function parseDelegateArguments(args) {
       mode = args[index] === '--execute' ? 'execute' : 'cleanup'; selected = true;
     } else if (args[index] === '--ci136' && !ci136 && !accountIntegration) ci136 = true;
     else if (args[index] === '--account-integration' && !accountIntegration && !ci136) accountIntegration = true;
-    else if (['--account-browser', '--account-preview', '--account-provisioning', '--competition-seasons', '--account-maintenance', '--account-maintenance-preview'].includes(args[index]) && !accountIntegration && !ci136) {
-      accountIntegration = true; accountMode = args[index] === '--account-browser' ? 'browser' : args[index] === '--account-preview' ? 'preview' : args[index] === '--account-provisioning' ? 'accounts' : args[index] === '--competition-seasons' ? 'seasons' : args[index] === '--account-maintenance-preview' ? 'maintenance-preview' : 'maintenance';
+    else if (['--account-browser', '--account-preview', '--account-provisioning', '--competition-seasons', '--account-maintenance-ui', '--account-maintenance', '--account-maintenance-preview'].includes(args[index]) && !accountIntegration && !ci136) {
+      accountIntegration = true; accountMode = args[index] === '--account-browser' ? 'browser' : args[index] === '--account-preview' ? 'preview' : args[index] === '--account-provisioning' ? 'accounts' : args[index] === '--competition-seasons' ? 'seasons' : args[index] === '--account-maintenance-ui' ? 'maintenance-ui' : args[index] === '--account-maintenance-preview' ? 'maintenance-preview' : 'maintenance';
     }
     else throw new Error('Usa --run-id UUID y, opcionalmente, --execute, --cleanup o --account-integration.');
   }
@@ -34,7 +36,7 @@ export function parseDelegateArguments(args) {
 }
 
 export const ci136SuiteName = 'PDGLD-118 CI136 seed y clubes';
-export const accountSuiteNames = { http: 'PDGLD-107 HTTP/SSR', browser: 'PDGLD-107 navegador', preview: 'PDGLD-107 Preview/RLS temporal', accounts: 'PDGLD-93 accounts.test.mjs con catálogo real', seasons: 'PDGLD-93 seasons.test.mjs completa', maintenance: 'PDGLD-118 mantenimiento de cuentas', 'maintenance-preview': 'PDGLD-118 mantenimiento Preview/RLS' };
+export const accountSuiteNames = { http: 'PDGLD-107 HTTP/SSR', browser: 'PDGLD-107 navegador', preview: 'PDGLD-107 Preview/RLS temporal', accounts: 'PDGLD-93 accounts.test.mjs con catálogo real', seasons: 'PDGLD-93 seasons.test.mjs completa', 'maintenance-ui': 'PDGLD-118 interfaz integrada de cuentas', maintenance: 'PDGLD-118 mantenimiento de cuentas', 'maintenance-preview': 'PDGLD-118 mantenimiento Preview/RLS' };
 const isAccountRegistry = registry => Object.values(accountSuiteNames).includes(registry.suite);
 const isIndependentRegistry = registry => isAccountRegistry(registry) || registry.suite === ci136SuiteName;
 
@@ -136,6 +138,13 @@ async function worker(config, signal, accountIntegration = false, accountMode = 
   });
 }
 
+async function assertPortsFree(ports) {
+  for (const port of ports) {
+    const server = createServer();
+    await new Promise((resolve,reject) => { server.once('error',reject); server.listen({host:'127.0.0.1',port,exclusive:true},resolve); });
+    await new Promise((resolve,reject) => server.close(error=>error?reject(error):resolve()));
+  }
+}
 async function main() {
   const { runId, mode, accountIntegration, accountMode, ci136 } = parseDelegateArguments(process.argv.slice(2));
   const scratch = `${ISOLATED_TEMP_ROOT}/pdgld106-${runId}`;
@@ -154,7 +163,7 @@ async function main() {
     const plan = createDelegatePlan(runId, '0'.repeat(32));
     console.log(JSON.stringify({ mode, newAgreedRuleChecks: !accountIntegration ? ['distinct-deputies-capacity', 'equal-capabilities-scoped-authorship', 'authorization-inclusive-start-exclusive-end', 'representation-change-preserves-authorship'] : undefined, suite: accountIntegration ? accountSuiteNames[accountMode] : 'PDGLD-106 SQL',
       applicationPorts: accountIntegration ? ['127.0.0.1:56515', '127.0.0.1:56517'] : undefined,
-      browser: accountMode === 'browser' ? { profile: `${scratch}/chrome-pg15/17`, debugging: 'solo loopback, puerto efímero de Chrome', artifacts: `${scratch}/evidence-pg15/17` } : undefined,
+      browser: ['browser', 'maintenance', 'maintenance-ui'].includes(accountMode) ? { profile: `${scratch}/chrome-pg15/17`, debugging: 'solo loopback, puerto efímero de Chrome', artifacts: `${scratch}/evidence-pg15/17` } : undefined,
       application: accountIntegration ? plan.versions.map(item => {
         const runtime = accountApplicationPlan({ runId, major: item.major, verificationMode: accountMode });
         return { ...runtime, installation: runtime.dependencies === 'independent' ? independentInstallPlan(runtime) : null, workerTimeoutMs: accountWorkerTimeout(accountMode) };
@@ -185,6 +194,7 @@ async function main() {
     console.log(`Recursos propios eliminados: ${runId}. Se conserva el registro local sin credenciales.`);
     return;
   }
+  if (accountIntegration) await assertPortsFree([55415,55417,56515,56517]);
   const plan = (ci136 ? ci136PortPlan : createDelegatePlan)(runId, randomBytes(16).toString('hex'));
   await mkdir(scratch, { mode: 0o700 }); // EEXIST prevents reusing an old execution.
   await mkdir(`${scratch}/docker`, { mode: 0o700 });
@@ -208,6 +218,10 @@ async function main() {
           assert.equal(await docker.inspectOptional('network', item.network), undefined);
         } catch { throw Object.assign(new Error('CI136_PREFLIGHT_BLOCKED: puerto o identidad/disponibilidad de Docker no verificados; sin conexiones PostgreSQL.'),
           { code: 'CI136_PREFLIGHT_BLOCKED' }); }
+      } : accountIntegration ? async item => {
+        await assertPortsFree([item.port,56500+item.major]);
+        assert.equal(await docker.inspectOptional('container',item.container),undefined);
+        assert.equal(await docker.inspectOptional('network',item.network),undefined);
       } : undefined,
       worker: (config, signal) => ci136 ? runCI136Version(config, plan, docker, signal) : worker(config, signal, accountIntegration, accountMode),
       secret: () => randomBytes(32).toString('base64url'),
@@ -221,6 +235,12 @@ async function main() {
           accountIntegration ? rm(`${scratch}/npm-work-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
         ]);
         if (results.some(result => result.status === 'rejected')) throw new Error('Limpieza incompleta.');
+        if (accountIntegration) {
+          assert.equal(await docker.inspectOptional('container',item.container),undefined);
+          assert.equal(await docker.inspectOptional('network',item.network),undefined);
+          await assertPortsFree([item.port,56500+item.major]);
+          for (const prefix of ['app','npm-work','chrome']) await assert.rejects(access(`${scratch}/${prefix}-pg${item.major}`),{code:'ENOENT'});
+        }
         if (ci136) {
           assert.equal(await docker.inspectOptional('container', item.container), undefined);
           assert.equal(await docker.inspectOptional('network', item.network), undefined);
