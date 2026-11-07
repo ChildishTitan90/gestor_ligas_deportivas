@@ -59,14 +59,15 @@ sintética y el reloj SQL compartido. No configuran categorías reales. Cubren
 edad ordinaria/excepcional, rollback, política pendiente, ámbito ajeno, cambio
 de día/zona, recuperación idempotente, payload forjado y escritura directa SQL.
 
-Durante la preparación: 15 pruebas puras aprobadas; sintaxis TypeScript revisada;
-19 comprobaciones del SQL aprobadas en PGlite con esquema mínimo sintético.
-Eso no equivale a ejecutar Prisma, PostgreSQL 15, HTTP o la suite completa.
-Typecheck, lint y regresión de jugadores deben confirmarse en el proyecto antes
-de aplicar la migración a gestor_ligas_dev. No se consultaron proveedores reales.
+La comprobación inicial del agente distinguió pruebas puras y SQL sintético.
+Después de aplicar PDGLD-103, el usuario reportó en su PostgreSQL 15 local:
+15 pruebas puras, 50 pruebas de registro, typecheck, lint, build y diff --check
+aprobados, y la migración aplicada con esquema actualizado. Las comprobaciones
+de PDGLD-104 se registran por separado; no se heredan esos resultados a cambios
+posteriores. No se consultaron proveedores reales en las pruebas del agente.
 
 Quedan pendientes ventanas por fase/horas no representadas en el esquema actual,
-el flujo de excepción con autoridad/evidencia acordada en PV-04, revisión de UI y
-aceptación integral de PDGLD-15. No se inventan fechas ni horarios históricos.
+la revisión visual y aceptación integral de PDGLD-15. El flujo de petición y
+decisión de excepción se incorpora en PDGLD-104; véase player-age-exceptions.md. No se inventan fechas ni horarios históricos.
 Las políticas pendientes siguen bloqueando altas; requieren configuración por
 el flujo autorizado, no un backfill que las habilite automáticamente.

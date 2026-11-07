@@ -1,4 +1,5 @@
 import "server-only";
+import {ageExceptionDocumentRequirement} from "./age-exception-record";
 import {Prisma} from "@prisma/client";
 import {AuthorizationError} from "@/server/auth/authorization";
 import {lockPlayerTeamContext} from "./access";
@@ -28,5 +29,11 @@ export async function resolveRegistrationDocuments(tx:Prisma.TransactionClient,a
   const combined:ResolvedDocuments={...source,requirements:[...byType.values()],groups:scopes.flatMap(scope=>scope.policy.groups.map(group=>({...group,categoryName:names.find(n=>n.id===scope.categoryId)?.name,categoryId:scope.categoryId,scope:scope.participationId?"SUPERIOR" as const:"ORIGIN" as const}))),
     approved:scopes.every(scope=>scope.policy.approved),issues:[...new Set(scopes.flatMap(scope=>scope.policy.issues))],
     fingerprint:scopes.length===1?source.fingerprint:eligibilityDigest(scopes.map(scope=>[scope.categoryId,scope.participationId,scope.policy.fingerprint]))};
+  const exception = await ageExceptionDocumentRequirement(tx,registrationId,origin.seasonCategoryId);
+  if (exception) {
+    combined.requirements.push(exception);
+    combined.groups.push({key:"AGE_EXCEPTION_LETTER",typeIds:[exception.document_type_id],quantity:1,requiredForDossier:true,requiredForEligibility:true,scope:"ORIGIN",categoryId:origin.seasonCategoryId});
+    combined.fingerprint=eligibilityDigest([combined.fingerprint,"AGE_EXCEPTION_LETTER",exception.id]);
+  }
   return {source,combined,scopes};
 }

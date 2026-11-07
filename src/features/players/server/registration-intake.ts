@@ -14,6 +14,7 @@ export async function registerAndVerifyPlayer(input:unknown,expectedActorId?:str
 }
 export async function registerAndVerifyPlayerForActor(actorId:string,input:unknown,dependencies?:Parameters<typeof verifyPlayerCurpForActor>[3]){
   const registration=await registerPlayerForActor(actorId,input);
+  if (registration.ageExceptionPending) return { ...registration, curpVerification: "NOT_PERFORMED" };
   const current=await readPlayerCurpStatusForActor(actorId,registration.registrationId);
   const h=createHash("sha256").update(JSON.stringify(["registration-curp:v1",actorId,registration.registrationId,current.identityVersion])).digest("hex");
   const operationKey=`${h.slice(0,8)}-${h.slice(8,12)}-5${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20,32)}`;

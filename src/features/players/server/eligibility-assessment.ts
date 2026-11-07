@@ -1,4 +1,5 @@
 import "server-only";
+import {readAgeExceptionRecord} from "./age-exception-record";
 import {createHash} from "node:crypto";
 import type {Prisma} from "@prisma/client";
 import {readPlayerPolicy} from "@/features/competitions/server/player-policy";
@@ -46,7 +47,15 @@ export async function assessPlayerEligibility(tx:Prisma.TransactionClient,id:str
   const categoryEvidence:unknown[]=[];
   for(const context of contexts){
     if(context.teamStatus==="WITHDRAWN" || context.seasonStatus==="CLOSED" || context.affiliationStatus!=="APPROVED" || (!context.categoryAuthorized || !context.operational))block("CONTEXT_NOT_AVAILABLE","El equipo, la afiliación o la temporada no permiten esta participación.",context.seasonCategoryId);
-    try{const policy=await readPlayerPolicy(tx,context.seasonId,context.seasonCategoryId);if(evaluatePlayerAge(policy,dob).status!=="ORDINARY_RANGE")block("AGE_REQUIRES_REVIEW","La edad no cumple el rango ordinario; una excepción necesita su proceso de autorización.",context.seasonCategoryId);}
+    try{
+      const policy=await readPlayerPolicy(tx,context.seasonId,context.seasonCategoryId);
+      const age=evaluatePlayerAge(policy,dob);
+      if(age.status!=="ORDINARY_RANGE"){
+        const exception=age.status==="REQUIRES_ADMIN_APPROVAL" && context.seasonTeamId===reg.season_team_id ? await readAgeExceptionRecord(tx,id,context.seasonCategoryId):null;
+        if(!exception?.validApproval)block("AGE_REQUIRES_REVIEW","La edad necesita una excepción vigente autorizada por Secretaría.",context.seasonCategoryId);
+        categoryEvidence.push(["age-exception",context.seasonCategoryId,exception?.fingerprint ?? null]);
+      }
+    }
     catch(error){if(!(error instanceof CompetitionError))throw error;block("PLAYER_POLICY_PENDING","Falta completar la política deportiva de la categoría.",context.seasonCategoryId);}
     const documents=await resolveCategoryDocuments(tx,context.seasonCategoryId,minor);
     const state=await readCategoryDocumentState(tx,id,reg.people.identity_version,documents);

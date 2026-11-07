@@ -28,6 +28,7 @@ import {buildGuardianSignatureRecord,guardianSignatureSchema} from "../../src/fe
 import {readDocumentReviewForActor,decideDocumentReviewForActor,readDocumentReviewQueueForActor} from "../../src/features/players/server/document-review";
 import {registerAndVerifyPlayerForActor} from "../../src/features/players/server/registration-intake";
 import {getPlayerTeamOptionsForActor,listRegisteredPlayersForActor} from "../../src/features/players/server/workspace-queries";
+import {runAgeExceptionTests} from "./player-age-exceptions";
 import {runPlayerAdmissionTests} from "./player-admission";
 import {runCategoryParticipationTests} from "./player-category-participations";
 import {syntheticPlayerPolicy} from "../fixtures/player-document-policy";
@@ -939,6 +940,7 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
     }
     await runCategoryParticipationTests(t,db,actors,team.clubId,other.id,syntheticCurp);
     if(process.env.PLAYER_PARTICIPATIONS_ONLY!=="1")await runDocumentPolicyTests(t,db,actors,team,syntheticCurp);
+    if(process.env.PLAYER_PARTICIPATIONS_ONLY!=="1")await runAgeExceptionTests(t,db,actors,team,syntheticCurp,setClock);
 
     await t.test("CURP externa: tabla privada, Docker sin RLS y bloque Supabase deniega roles API", async () => {
       const [local] = await db.$queryRaw<{ enabled: boolean }[]>`SELECT relrowsecurity AS enabled FROM pg_class

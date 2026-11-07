@@ -6,6 +6,7 @@ import { FormDialog } from "@/components/ui/form-dialog";
 import { focusFormControl } from "@/components/ui/focus-form-control";
 import { registerPlayerSchema } from "../schemas";
 import { playerRequest, PlayerRequestError, playerListSchema, playerResultSchema } from "../player-client";
+import {describeAdmissionRule} from "../age-exception";
 import { playerErrorMessages } from "../player-feedback";
 import type { PlayerListItem, PlayerTeamOption } from "../types";
 import { CurpVerificationPanel } from "./curp-verification-panel";
@@ -32,6 +33,7 @@ export function PlayerRegistrationWorkspace({ actorId, teams, initialPlayers=[],
   const [refresh, setRefresh] = useState(0);
   const [registrationOpen,setRegistrationOpen]=useState(false);
   const [dirty,setDirty]=useState(false);
+  const [requestAgeException,setRequestAgeException]=useState(false);
   const team = teams.find(option => option.id === teamId);
   const clubs = [...new Map(teams.map(option => [option.clubId, { value: option.clubId, label: option.clubName }])).values()];
   const seasons = [...new Map(teams.filter(option => option.clubId === clubId).map(option => [option.seasonId, { value: option.seasonId, label: option.seasonName }])).values()];
@@ -61,18 +63,18 @@ export function PlayerRegistrationWorkspace({ actorId, teams, initialPlayers=[],
       const parsed = playerResultSchema.safeParse(await playerRequest(actorId, "/api/player-registrations", pending.current, fetcher));
       if (!parsed.success) throw new PlayerRequestError("UNCONFIRMED", true);
       setPhase("confirmed"); setSelectedRecord(parsed.data.registrationId); setRefresh(value => value + 1);
-      setMessage(parsed.data.status==="ACTIVE"?"Jugador registrado y activo. Puedes abrir su expediente para completar los documentos.":parsed.data.identityReviewStatus === "REQUIRED" ? "Registro recibido. Requiere revisión de identidad por Secretaría antes de aprobarse."
+      setMessage(parsed.data.ageExceptionPending?"Captura recibida sin habilitación. Abre el expediente, carga la carta de excepción y presenta la petición a Secretaría.":parsed.data.status==="ACTIVE"?"Jugador registrado y activo. Puedes abrir su expediente para completar los documentos.":parsed.data.identityReviewStatus === "REQUIRED" ? "Registro recibido. Requiere revisión de identidad por Secretaría antes de aprobarse."
         : parsed.data.curpVerification==="VERIFIED"?"CURP verificada. Completa los requisitos de su categoría en el expediente.":"Jugador registrado. La verificación de CURP sigue pendiente; consulta su estado sin volver a registrar al jugador.");
     } catch (error) {
       if (error instanceof PlayerRequestError && !error.uncertain) {
-        pending.current = null; setPhase("editing"); setMessage(playerErrorMessages[error.code] ?? "No se pudo registrar. Revisa los datos e intenta nuevamente.");
+        pending.current = null; setPhase("editing"); setMessage((playerErrorMessages[error.code] ?? "No se pudo registrar. Revisa los datos e intenta nuevamente.")+(error.rule?" "+describeAdmissionRule(error.rule):""));
       } else { setPhase("uncertain"); setMessage("No se recibió una respuesta confirmada. Conservamos este envío en la pantalla; consulta su resultado antes de reintentar."); }
     } finally { lock.current = false; }
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (lock.current || frozen) return;
     const data = new FormData(event.currentTarget);
-    const parsed = registerPlayerSchema.safeParse({ seasonTeamId: teamId, identity: {
+    const parsed = registerPlayerSchema.safeParse({ seasonTeamId: teamId, requestAgeException, identity: {
       curp: data.get("curp"), firstName: data.get("firstName"), paternalSurname: data.get("paternalSurname"),
       maternalSurname: data.get("maternalSurname"), birthDate: data.get("birthDate"),
     } });
@@ -99,7 +101,7 @@ export function PlayerRegistrationWorkspace({ actorId, teams, initialPlayers=[],
 
   const inputClass = "mt-2 min-h-12 w-full rounded-xl border border-border bg-surface px-3.5 py-3 text-base text-foreground disabled:opacity-60";
   const secondary = "min-h-12 rounded-xl border border-border bg-surface px-4 py-3 font-semibold text-primary disabled:opacity-50";
-  function resetRegistration(){pending.current=null;setPhase("editing");setMessage("");setErrors({});form.current?.reset();setClubId("");setSeasonId("");setTeamId("");setDirty(false);}
+  function resetRegistration(){pending.current=null;setPhase("editing");setMessage("");setErrors({});form.current?.reset();setClubId("");setSeasonId("");setTeamId("");setDirty(false);setRequestAgeException(false);}
   function closeRegistration(reason:"dismiss"|"discard"){
     if(lock.current)return;
     if(reason==="discard")resetRegistration();
@@ -127,7 +129,7 @@ export function PlayerRegistrationWorkspace({ actorId, teams, initialPlayers=[],
     <div className="flex flex-wrap gap-3"><a href="/affiliations/new" className={secondary}>Mis solicitudes de afiliación</a><a href="/teams/registrations" className={secondary}>Inscripción de equipos</a></div>
   </div>}
     {teams.length>0 && <FormDialog open={registrationOpen} title="Registrar jugador" description="Captura los datos del jugador para inscribirlo en un equipo autorizado." dirty={dirty && phase==="editing"} pending={phase==="sending" || phase==="checking"} uncertain={phase==="uncertain"} onClose={closeRegistration}><form ref={form} onSubmit={submit} onChange={()=>setDirty(true)} noValidate className="space-y-6" aria-label="Registrar jugador">
-      <p className="text-sm leading-6 text-muted">Solo se muestran equipos con afiliación y categoría aprobadas. Al confirmar el registro se verificará la CURP y su coincidencia con los datos del jugador. Los documentos adicionales dependen de su edad y categoría.</p>
+      <p className="text-sm leading-6 text-muted">Solo se muestran equipos con afiliación y categoría aprobadas. El registro ordinario verifica la CURP y su coincidencia con los datos del jugador. La captura para una excepción queda pendiente de revisión y no inicia esa consulta. Los documentos adicionales dependen de su edad y categoría.</p>
       <fieldset disabled={frozen} className="grid gap-5 sm:grid-cols-2">
         <legend className="sr-only">Equipo e identidad del jugador</legend>
         <div><label htmlFor={`${prefix}-club`} className="text-sm font-medium">Club *</label><div className="mt-2"><SelectField id={`${prefix}-club`} name="clubId" value={clubId} onValueChange={value => { setDirty(true);setClubId(value); setSeasonId(""); setTeamId(""); }} options={clubs} required /></div></div>
@@ -136,16 +138,17 @@ export function PlayerRegistrationWorkspace({ actorId, teams, initialPlayers=[],
           {team && <p className="mt-2 text-sm text-muted">{team.categoryName} · {team.groupName}</p>}</div>
         {field("curp", "CURP")}{field("birthDate", "Fecha de nacimiento", "date")}
         {field("firstName", "Nombre(s)")}{field("paternalSurname", "Apellido paterno")}{field("maternalSurname", "Apellido materno (opcional)", "text", false)}
+        <label className="flex items-start gap-3 rounded-xl border border-border p-4 sm:col-span-2"><input type="checkbox" name="requestAgeException" checked={requestAgeException} onChange={e=>setRequestAgeException(e.target.checked)} className="mt-1 size-5"/><span><strong>Presentar una petición de excepción de edad</strong><span className="mt-1 block text-sm leading-6 text-muted">Solo si la edad está dentro del margen excepcional configurado. Se abrirá un expediente pendiente para cargar la carta y solicitar la decisión de Secretaría. No se autoriza la edad ni se consulta la CURP automáticamente.</span></span></label>
       </fieldset>
       {message && <p role="status" tabIndex={-1} className="rounded-xl border border-border p-4 text-sm leading-6">{message}</p>}
       <div className="flex flex-wrap gap-3">
-        {phase === "editing" && <button type="submit" disabled={!team} className="primary-action min-h-12 rounded-xl px-5 py-3 font-semibold disabled:opacity-50">Registrar y verificar CURP</button>}
-        {phase === "sending" && <button type="button" disabled className="primary-action min-h-12 rounded-xl px-5 py-3 opacity-60">Registrando y verificando CURP…</button>}
+        {phase === "editing" && <button type="submit" disabled={!team} className="primary-action min-h-12 rounded-xl px-5 py-3 font-semibold disabled:opacity-50">{requestAgeException?"Abrir expediente para pedir excepción":"Registrar y verificar CURP"}</button>}
+        {phase === "sending" && <button type="button" disabled className="primary-action min-h-12 rounded-xl px-5 py-3 opacity-60">{requestAgeException?"Preparando expediente pendiente…":"Registrando y verificando CURP…"}</button>}
         {(phase === "uncertain" || phase === "checking") && <><button type="button" disabled={phase === "checking"} onClick={() => void recover()} className={secondary}>{phase === "checking" ? "Consultando…" : "Consultar resultado del envío"}</button><button type="button" disabled={phase === "checking"} onClick={() => void send()} className={secondary}>Reintentar el mismo envío</button></>}
         {phase === "confirmed" && <button type="button" className={secondary} onClick={resetRegistration}>Registrar otro jugador</button>}
         {phase === "confirmed" && selectedRecord && <Link href={`/players/registrations/${selectedRecord}/documents`} className="primary-action min-h-12 rounded-xl px-5 py-3 font-semibold">Continuar al expediente</Link>}
       </div>
-      <p className="text-xs leading-6 text-muted">Las altas están sujetas a la ventana vigente de lunes a miércoles. La captura se conserva solo mientras esta pantalla esté abierta; no es un borrador guardado.</p>
+      <p className="text-xs leading-6 text-muted">Las altas y capturas para excepción están sujetas a los días y zona horaria configurados para la categoría. La captura se conserva solo mientras esta pantalla esté abierta; no es un borrador guardado.</p>
     </form></FormDialog>}
     {selectedRecord && <CurpVerificationPanel key={`${actorId}:${selectedRecord}`} actorId={actorId} registrationId={selectedRecord} providerConfigured={providerConfigured} fetcher={fetcher} onRegistrationChange={()=>setRefresh(value=>value+1)} />}
   </div>;

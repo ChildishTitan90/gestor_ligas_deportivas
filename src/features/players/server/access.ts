@@ -1,4 +1,5 @@
 import "server-only";
+import type {AdmissionRule} from "../age-exception";
 import type { Prisma } from "@prisma/client";
 import { assertPermission, AuthorizationError, getPermissionGrants, lockAuthorization } from "@/server/auth/authorization";
 import { assertOwnPlayerRegistration } from "@/server/auth/authorization-domain";
@@ -7,7 +8,8 @@ export class PlayerRegistrationError extends Error {
   constructor(public readonly code: "VALIDATION_ERROR" | "CONTEXT_NOT_AVAILABLE" |
     "IDENTITY_UNAVAILABLE" | "REGISTRATION_CONFLICT" | "REGISTRATION_WINDOW_CLOSED" |
     "TEAM_CHANGE_NOT_ALLOWED" | "REVIEW_CAPACITY_EXCEEDED" | "RETRY_REQUIRED" |
-    "PLAYER_POLICY_PENDING" | "AGE_OUTSIDE_RANGE" | "AGE_EXCEPTION_REQUIRED", public readonly status = 409) {
+    "PLAYER_POLICY_PENDING" | "AGE_OUTSIDE_RANGE" | "AGE_EXCEPTION_REQUIRED" | "AGE_EXCEPTION_NOT_APPLICABLE" | "AGE_EXCEPTION_DOCUMENT_REQUIRED" |
+    "AGE_EXCEPTION_STALE" | "AGE_EXCEPTION_CONFLICT", public readonly status = 409, public readonly rule?: AdmissionRule) {
     super(code);
   }
 }

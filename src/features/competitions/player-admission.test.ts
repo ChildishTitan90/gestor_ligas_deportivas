@@ -69,3 +69,27 @@ test("la baja no depende de edad, política o día de alta", () => {
 test("un código de trámite desconocido falla de forma cerrada", () => {
   assert.deepEqual(codes(evaluatePlayerMovement({ operation: "OTHER" } as unknown as PlayerMovementInput)), ["INVALID_OPERATION"]);
 });
+
+
+test("PDGLD-105: límites diarios de Morelia durante 2026", () => {
+  for (let day = 0; day < 365; day++) {
+    const midnight = new Date(Date.UTC(2026, 0, 1 + day, 6));
+    const weekday = new Date(Date.UTC(2026, 0, 1 + day)).getUTCDay();
+    for (const offset of [-1, 0]) {
+      const expectedDay = offset === -1 ? (weekday + 6) % 7 : weekday;
+      assert.equal(register(undefined, new Date(midnight.getTime() + offset).toISOString()).status,
+        [1, 2, 3].includes(expectedDay) ? "RULES_SATISFIED" : "BLOCKED");
+    }
+  }
+});
+test("PDGLD-105: referencia de temporada independiente del cambio de año", () => {
+  const configured = { ...policy, registrationDays: [1, 2, 3, 4, 5, 6, 7] };
+  for (const instant of ["2027-01-01T05:59:59.999Z", "2027-01-01T06:00:00.000Z"]) {
+    assert.equal(register("2010-12-31", instant, configured).status, "RULES_SATISFIED");
+    assert.deepEqual(codes(register("2010-12-31", instant, { ...configured, referenceYear: 2027 })), ["AGE_OUTSIDE_RANGE"]);
+  }
+});
+test("PDGLD-105: fecha bisiesta válida e inválida", () => {
+  assert.equal(register("2012-02-29").status, "RULES_SATISFIED");
+  assert.deepEqual(codes(register("2011-02-29")), ["INVALID_BIRTH_DATE"]);
+});

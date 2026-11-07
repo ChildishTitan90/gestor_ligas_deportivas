@@ -1,4 +1,6 @@
+import { ageExceptionMessages } from "./age-exception";
 export const playerErrorMessages: Record<string, string> = {
+  ...ageExceptionMessages,
   UNAUTHENTICATED: "Tu sesión terminó. Vuelve a iniciar sesión.",
   PASSWORD_CHANGE_REQUIRED: "Debes cambiar tu contraseña antes de continuar.",
   FORBIDDEN: "Tu cuenta ya no tiene permiso para esta operación. Consulta nuevamente con tu sesión actual.",
