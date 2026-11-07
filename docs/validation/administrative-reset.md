@@ -149,3 +149,14 @@ al cerrar esta comprobación; el CI de la corrección se informa por su SHA en e
 copias. Limpieza independiente verificada: contenedores/redes, copias/dependencias
 y procesos propios ausentes, cuatro puertos loopback libres. No hubo Chrome,
 transporte ni correos en este perfil dirigido; `.237` permanece aprobada.
+
+### Activación de Chrome en CI #145
+
+El job Aplicación de `6f9fe47` falló en el verificador compartido antes de
+interactuar: `Page.bringToFront` había respondido, pero `document.hasFocus()`
+aún era falso. El reintento de ese job por API fue rechazado con HTTP 403.
+El verificador ahora espera hasta tres segundos el evento nativo de foco antes
+de navegar, sin emular foco ni eventos de teclado y conservando sus aserciones.
+`npm run test:browser-harness`: 6/6 con Chrome real, páginas sintéticas,
+servidores loopback y perfiles propios cerrados al terminar. Las matrices
+integradas .237/.238 no se repiten por este ajuste de arranque.

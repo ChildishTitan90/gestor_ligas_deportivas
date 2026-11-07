@@ -151,7 +151,16 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
     // Activate only our verified tab; never focus a field or emulate focus events.
     startupPhase = 'page-activation';
     await command('Page.bringToFront');
-    assert.equal(await evaluate('document.hasFocus()'), true, 'Chrome: la página propia no está activa');
+    // CDP acknowledges the request before the renderer necessarily receives focus.
+    // Observe the real focus event, with a deadline; do not emulate focus or inputs.
+    assert.equal(await evaluate(`new Promise(resolve => {
+      let timer;
+      const finish = () => { clearTimeout(timer); window.removeEventListener('focus', focused); resolve(document.hasFocus()); };
+      const focused = () => { if (document.hasFocus()) finish(); };
+      window.addEventListener('focus', focused);
+      timer = setTimeout(finish, 3000);
+      focused();
+    })`), true, 'Chrome: la página propia no está activa');
     pageActivatedMs = Date.now() - startedAt;
     if (waitForDocument) {
       await command('Page.enable');
