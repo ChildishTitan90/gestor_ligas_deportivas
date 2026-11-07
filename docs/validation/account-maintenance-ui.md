@@ -95,7 +95,8 @@ integradas `.221/.230` son evidencia local, no jobs de CI ni validación de RLS 
 Supabase. El CI anterior sobre `73612fb` corresponde a la corrección del harness;
 el CI del nuevo commit se informa por SHA en el PR #43.
 
-Quedan pendientes transporte real de correo, remitente verificado, plantillas y
-pantalla de confirmación de propiedad. Esta entrega tampoco implementa reset
+La entrega posterior de [confirmación pública](account-email-confirmation-ui.md)
+incorpora su pantalla. Quedan pendientes transporte real, remitente verificado y
+plantillas. Esta entrega tampoco implementa reset
 administrativo o corrección de identidad. No se declara regresión completa de
 accesibilidad, todos los estados visuales o todos los recorridos de navegación.

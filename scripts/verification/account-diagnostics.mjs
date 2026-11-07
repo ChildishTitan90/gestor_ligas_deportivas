@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 
 // Never serialize error.message, raw stack, logs, assertion objects or HTTP bodies.
-const sources = /(?:scripts\/verification\/account-isolated-worker|tests\/e2e\/(?:account-maintenance-browser|account-delegates-browser|chrome-session)|tests\/integration\/(?:account-delegates-http|account-preview-runtime|account-identifiers|account-maintenance\.test|account-maintenance-preview)|scripts\/verification\/account-(?:app-copy|independent-dependencies))\.mjs:\d+:\d+/;
+const sources = /(?:scripts\/verification\/account-isolated-worker|tests\/e2e\/(?:account-email-confirmation-browser|account-maintenance-browser|account-delegates-browser|chrome-session)|tests\/integration\/(?:account-delegates-http|account-preview-runtime|account-identifiers|account-maintenance\.test|account-maintenance-preview)|scripts\/verification\/account-(?:app-copy|independent-dependencies))\.mjs:\d+:\d+/;
 const label = value => typeof value === 'string' && /^[a-z][a-z0-9-]{0,60}$/.test(value) ? value : 'unknown';
 const scalar = value => typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
 export function accountDiagnostic(error, context = {}) {

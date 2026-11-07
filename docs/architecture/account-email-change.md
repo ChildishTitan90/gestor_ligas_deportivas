@@ -1,11 +1,9 @@
 # PDGLD-118 — correo pendiente y confirmación de propiedad
 
-Implementación local del 5 de noviembre de 2026, posterior al head publicado de
-PR #43 (`619faa0`). No publicada. Mantenimiento `.203` y Preview/RLS `.204`
-validados en PostgreSQL 15/17, conforme al informe enlazado. El caso de solicitudes
-concurrentes se ejecutó contra PostgreSQL en `.204`. La
-conservación del correo anterior para login, antes propuesta técnica, fue
-autorizada por el usuario al solicitar esta implementación.
+Contrato implementado en PR #43. La solicitud pendiente y transacciones existentes
+se conservan; la pantalla pública de confirmación se documenta en
+[su diseño](../design/account-email-confirmation.md) y
+[validación aislada](../validation/account-email-confirmation-ui.md).
 
 ## Contrato HTTP actual
 
@@ -115,8 +113,8 @@ ciegas. La consulta y la clave de operación permiten revisar la incertidumbre.
 
 Falta elegir e implementar proveedor, dominio/remitente verificados, secretos de
 servidor, límites/timeouts del adaptador y plantillas privadas. La pantalla pública
-para pegar token o abrir un enlace con secreto en fragmento (y confirmar por POST)
-no está implementada; nunca ponerlo en URL de API/query string o logs. También
+`/email-change/confirm` recibe el secreto en fragmento, lo retira del historial actual y exige acción explícita para confirmar por POST.
+Nunca ponerlo en URL de API/query string o logs. También
 quedan cancelación/reenvío explícitos y tratamiento operativo de entregas inciertas.
 No se añade una cola ni infraestructura nueva. Reset administrativo y corrección
 de identidad conservan sus decisiones confirmadas e implementación pendiente.

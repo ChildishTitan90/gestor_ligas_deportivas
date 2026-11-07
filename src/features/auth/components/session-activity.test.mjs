@@ -15,6 +15,8 @@ function harness(environment = 'development') {
   const timers = new Map();
   const calls = [];
   const messages = [];
+  const redirects = [];
+  let sessionActive = true;
   const pendingPaths = new Set();
   let timerId = 0;
   let now = 1000;
@@ -29,7 +31,7 @@ function harness(environment = 'development') {
     };
   }
   const document = eventTarget();
-  const window = { ...eventTarget(), location: { pathname: '/access', replace() { throw new Error('Unexpected redirect'); } } };
+  const window = { ...eventTarget(), location: { pathname: '/access', replace(path) { redirects.push(path); } } };
   let pathname = '/access';
   const router = { refresh() {} };
   const refs = [];
@@ -63,12 +65,13 @@ function harness(environment = 'development') {
         init.signal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
       });
       return Promise.resolve({ ok: true, json: async () => path.endsWith('/csrf') ? { csrfToken: 'synthetic-csrf' } :
-        { user: { id: 'synthetic-user', mustChangePassword: false }, expires: new Date(now + 60_000).toISOString() } });
+        sessionActive ? { user: { id: 'synthetic-user', mustChangePassword: false }, expires: new Date(now + 60_000).toISOString() } : {} });
     },
   };
   vm.runInNewContext(code, context);
   return {
-    calls, timers, messages, document, window, pendingPaths,
+    calls, timers, messages, document, window, pendingPaths, redirects,
+    revokeSession() { sessionActive = false; },
     render(path) {
       pathname = path; window.location.pathname = path; refIndex = 0; sandboxModule.exports.SessionActivity();
       // Orden del ciclo de efecto al cambiar dependencias: cleanup previo, setup nuevo.
@@ -133,5 +136,14 @@ test('producción y test no omiten el monitor al visitar la misma ruta', async (
     const h = harness(environment); h.render(TEAM_REGISTRATION_PREVIEW_PATH); await flush();
     assert.equal(h.calls[0].path, '/api/auth/session');
     assert.equal(h.document.count(), 7); h.unmount();
+  }
+});
+
+test('revocar la sesión conserva el resultado público de confirmación; gestión sigue redirigiendo', async () => {
+  for (const path of ['/email-change/confirm', '/access']) {
+    const h = harness('production'); h.render(path); await flush();
+    h.revokeSession(); h.window.emit('online'); await flush();
+    assert.deepEqual(h.redirects, path === '/access' ? ['/login'] : []);
+    h.unmount(); assert.equal(h.timers.size, 0);
   }
 });

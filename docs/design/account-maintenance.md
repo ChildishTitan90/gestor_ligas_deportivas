@@ -71,6 +71,6 @@ NOT_CONFIGURED, denegación y recorrido de teclado/foco. Se comprobó el diálog
 claro/oscuro a 1280 y 390 px; esto no equivale a una revisión humana completa o a
 validación de RLS/Supabase. Ver [resultados .221/.230](../validation/account-maintenance-ui.md).
 
-Transporte real, remitente verificado, plantillas y pantalla de confirmación de
-propiedad siguen pendientes. Esta entrega implementa la solicitud de correo;
-la confirmación conserva su contrato de servidor existente.
+Transporte real, remitente verificado y plantillas siguen pendientes. La
+[pantalla pública de confirmación](account-email-confirmation.md) usa el contrato
+de servidor existente con acción explícita; no cambia la solicitud desde gestión.
