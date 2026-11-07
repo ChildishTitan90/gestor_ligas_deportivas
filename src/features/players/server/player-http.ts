@@ -9,6 +9,6 @@ export const playerHeaders = { "Cache-Control": "private, no-store" };
 export const readPlayerBody = readCurpVerificationBody;
 export function playerFailure(error: unknown) {
   if (error instanceof AuthAccessError || error instanceof AuthorizationError || error instanceof PlayerRegistrationError)
-    return NextResponse.json({ code: error.code }, { status: error.status, headers: playerHeaders });
+    return NextResponse.json({ code: error.code, ...(error instanceof PlayerRegistrationError && error.rule ? {rule:error.rule}:{}) }, { status: error.status, headers: playerHeaders });
   return NextResponse.json({ code: "SERVICE_UNAVAILABLE" }, { status: 503, headers: playerHeaders });
 }

@@ -16,6 +16,7 @@ export type PlayerRegistrationContext = {
 };
 
 export type RegisterPlayerResult = PlayerRegistrationContext & {
+  ageExceptionPending?: boolean;
   localValidation: "VALID";
   externalVerification: "NOT_PERFORMED";
   replayed: boolean;

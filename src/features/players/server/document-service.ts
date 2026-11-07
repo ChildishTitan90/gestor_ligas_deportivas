@@ -49,7 +49,7 @@ async function authorize(tx:Prisma.TransactionClient,actorId:string,input:Upload
   await tx.$queryRaw`SELECT id FROM sports_management.document_types WHERE id=${requirement.document_type_id}::uuid FOR SHARE`;
   const code=requirement.document_types.code;
   if(completingActive && !resolved.fingerprint && !["CURP","PHOTO"].includes(code))throw new PlayerDocumentError("CONTEXT_UNAVAILABLE");
-  if(!(documentCodes as readonly string[]).includes(code))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
+  if(code!=="AGE_EXCEPTION_LETTER" && !(documentCodes as readonly string[]).includes(code))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
   if(code==="PHOTO" && (requirement.is_required || requirement.quantity!==1))throw new PlayerDocumentError("CONFIGURATION_REQUIRED");
   if(code==="PHOTO" && !["image/png","image/jpeg"].includes(input.mimeType))throw new PlayerDocumentError("INVALID_DOCUMENT",400);
   const dob=reg.people.birth_date.toISOString().slice(0,10);
