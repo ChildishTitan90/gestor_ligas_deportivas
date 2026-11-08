@@ -11,7 +11,7 @@ export type PlayerReviewLabels = {
   registeredAt: string;
 };
 
-export type PlayerReviewKind = "IDENTITY" | "INE" | "DOCUMENTS";
+export type PlayerReviewKind = "IDENTITY" | "INE" | "DOCUMENTS" | "AGE_EXCEPTION";
 export type PlayerReviewItem = PlayerReviewLabels & {
   kind: PlayerReviewKind;
   reason: string;

@@ -23,6 +23,7 @@ export const playerIdentitySchema = z.strictObject({
 
 // Club, liga, temporada y categoría se derivan del equipo inscrito, nunca del navegador.
 export const registerPlayerSchema = z.strictObject({
+  requestAgeException: z.boolean().optional(),
   seasonTeamId: z.uuid(),
   identity: playerIdentitySchema,
 });
