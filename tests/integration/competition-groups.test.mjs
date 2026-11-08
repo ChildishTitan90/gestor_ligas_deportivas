@@ -86,7 +86,7 @@ export async function runGroupTests({ t, db, baseUrl, admin, reader, league, oth
     await db.query("UPDATE sports_management.seasons SET status='ACTIVE',competition_starts_at=clock_timestamp() WHERE id=$1",[season]);
     const active = await send('POST',{name:'Tardío',expectedSeasonVersion:6,reason});
     assert.equal(active.status,409); assert.equal((await active.json()).code,'COMPETITION_ALREADY_STARTED');
-    await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1",[season]);
+    await db.query("UPDATE sports_management.seasons SET status='CLOSED',closed_at=clock_timestamp() WHERE id=$1",[season]);
     assert.equal((await reader.request(path)).status,200);
     const closed = await send('DELETE',{groupId:group.id,expectedSeasonVersion:6,reason});
     assert.equal(closed.status,409); assert.equal((await closed.json()).code,'SEASON_CLOSED');

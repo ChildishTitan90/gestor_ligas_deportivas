@@ -39,7 +39,7 @@ process.once('message', async config => {
   process.once('SIGINT', stop); process.once('SIGTERM', stop); process.once('disconnect', stop);
   try {
     assert.match(config.runId, RUN_ID); assert.ok([15, 17].includes(config.major));
-    assert.ok(['http', 'browser', 'preview', 'accounts', 'seasons'].includes(config.verificationMode));
+    assert.ok(['http', 'browser', 'preview', 'accounts', 'seasons', 'identity-correction', 'identity-age-regression'].includes(config.verificationMode));
     assert.equal(config.host, '127.0.0.1'); assert.equal(config.port, 55400 + config.major);
     const stem = config.runId.replaceAll('-', '').slice(0, 14);
     assert.equal(config.parentDatabase, `pdgld48_test_${stem}${config.major}`);
@@ -53,7 +53,7 @@ process.once('message', async config => {
     for (const database of [config.parentDatabase, config.modelDatabase]) {
       controller.signal.throwIfAborted(); await admin.query(`CREATE DATABASE "${database}"`); created.push(database);
     }
-    const applicationDatabase = ['preview', 'accounts', 'seasons'].includes(config.verificationMode) ? config.parentDatabase : config.modelDatabase;
+    const applicationDatabase = ['preview', 'accounts', 'seasons', 'identity-correction', 'identity-age-regression'].includes(config.verificationMode) ? config.parentDatabase : config.modelDatabase;
     db = new pg.Client({ host: config.host, port: config.port, database: applicationDatabase, user: 'postgres',
       password: config.password, ssl: false, connectionTimeoutMillis: 5_000, statement_timeout: 15_000 });
     await db.connect();
@@ -63,13 +63,21 @@ process.once('message', async config => {
     for (const name of names.filter(name => name < target)) {
       controller.signal.throwIfAborted(); await db.query(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
     }
-    const fixture = ['accounts', 'seasons'].includes(config.verificationMode) ? null : await prepareAccountDelegateFixtures(db, config.verificationMode === 'preview' ? { databaseName: applicationDatabase } : {});
+    const fixture = ['accounts', 'seasons', 'identity-correction', 'identity-age-regression'].includes(config.verificationMode) ? null : await prepareAccountDelegateFixtures(db, config.verificationMode === 'preview' ? { databaseName: applicationDatabase } : {});
     for (const name of names.filter(name => name >= target)) {
       controller.signal.throwIfAborted(); await db.query(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
     }
     diagnosticContext.stage = 'application-copy';
     const root = fileURLToPath(new URL('../../', import.meta.url));
-    app = await createAccountAppCopy(root, applicationPlan.app, { dependencies: applicationPlan.dependencies, verification: ['accounts', 'seasons'].includes(config.verificationMode) });
+    app = await createAccountAppCopy(root, applicationPlan.app, { dependencies: applicationPlan.dependencies, verification: ['accounts', 'seasons', 'identity-correction', 'identity-age-regression'].includes(config.verificationMode) });
+    if (config.verificationMode === 'identity-age-regression') {
+      for (const name of ['player-registrations.test.ts','authorization-player-registration.test.ts']) {
+        const file = `${app}/tests/integration/${name}`, source = await readFile(file,'utf8');
+        const guard='assert.ok(["5432", "5433"].includes(target.port || "5432"));';
+        assert.equal(source.split(guard).length,2);
+        await writeFile(file,source.replace(guard,'assert.ok(["55415", "55417"].includes(target.port), "Solo runner aislado inspeccionado");'));
+      }
+    }
     if (applicationPlan.dependencies === 'independent') {
       diagnosticContext.case = 'dependency-installation';
       await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
@@ -126,18 +134,19 @@ process.once('message', async config => {
     diagnosticContext.safeValues = false;
     diagnosticContext.stage = 'account-verification';
     controller.signal.throwIfAborted();
-    if (['accounts', 'seasons'].includes(config.verificationMode)) {
+    if (['accounts', 'seasons', 'identity-correction', 'identity-age-regression'].includes(config.verificationMode)) {
       const seasons = config.verificationMode === 'seasons';
+      const identityMode = config.verificationMode.startsWith('identity-');
       diagnosticContext.case = seasons ? 'competition-seasons' : 'account-provisioning';
       await runAccountProvisioningSuite({ databaseUrl: databaseUrl.href, baseUrl,
-        suite: seasons ? 'seasons' : 'accounts' }, { signal: controller.signal, application: applicationPlan });
+        suite: config.verificationMode }, { signal: controller.signal, application: applicationPlan });
       await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
-      const evidence = seasons ? { suite: 'tests/integration/seasons.test.mjs',
+      const evidence = identityMode ? {suite:config.verificationMode,passed:true} : seasons ? { suite: 'tests/integration/seasons.test.mjs',
         preparation: 'existing-season-fixtures', passed: true } : {
         suite: 'tests/integration/accounts.test.mjs', preparation: 'existing-catalog-account-suite',
         passed: true, expected: { deputyCreation: 201, primaryCreation: 201, occupiedPrimary: 409 },
       };
-      await writeFile(`${applicationPlan.evidence}/${seasons ? 'seasons' : 'accounts'}-suite.json`,
+      await writeFile(`${applicationPlan.evidence}/${config.verificationMode}-suite.json`,
         JSON.stringify(evidence, null, 2), { flag: 'wx', mode: 0o600 });
     } else if (config.verificationMode === 'browser') {
       await verifyAccountDelegateBrowser({ db, baseUrl, fixture, signal: controller.signal,

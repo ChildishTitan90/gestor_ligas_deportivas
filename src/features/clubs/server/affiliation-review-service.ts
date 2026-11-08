@@ -1,3 +1,4 @@
+import { readSeasonIdentityHistory } from "@/features/players/server/season-identity-history";
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -82,7 +83,7 @@ export async function getAffiliation(id: string) {
       ...summarySelect, uniform_colors: true, signed_affiliation_file_id: true, submission_key: true, requested_by: true,
       club_affiliation_categories: { select: { category_id: true, authorized_by: true, authorized_at: true,
         season_categories: { select: { categories: { select: { name: true } } } } }, orderBy: { category_id: "asc" } },
-      club_officers: { where: { ends_at: null }, select: { office: true, signature_file_id: true, support_file_id: true,
+      club_officers: { where: { ends_at: null }, select: { person_id: true, office: true, signature_file_id: true, support_file_id: true,
         people: { select: { first_name: true, paternal_surname: true, maternal_surname: true } } }, orderBy: { office: "asc" } },
     } });
     if (!row) throw new AffiliationReviewError("NOT_FOUND", 404);
@@ -97,6 +98,20 @@ export async function getAffiliation(id: string) {
       action: { in: ["AFFILIATION_APPROVE", "AFFILIATION_REQUEST_CORRECTIONS", "AFFILIATION_RESUBMIT"] } },
       select: { id: true, action: true, occurred_at: true, user_id: true, new_data: true },
       orderBy: [{ occurred_at: "asc" }, { id: "asc" }] });
+    const officers = [];
+    for (const officer of row.club_officers) {
+      const historical = row.seasons.status === "CLOSED"
+        ? await readSeasonIdentityHistory(tx, officer.person_id, row.season_id) : null;
+      const names = historical?.status === "UNAVAILABLE"
+        ? { firstName: "Información histórica no disponible", paternalSurname: "", maternalSurname: "" }
+        : historical ?? {
+          firstName: officer.people.first_name, paternalSurname: officer.people.paternal_surname,
+          maternalSurname: officer.people.maternal_surname,
+        };
+      officers.push({ office: officer.office, firstName: names.firstName,
+        paternalSurname: names.paternalSurname, maternalSurname: names.maternalSurname ?? "",
+        signatureFileId: officer.signature_file_id, supportFileId: officer.support_file_id });
+    }
     return { ...summary(row), uniformColors: row.uniform_colors, allowedActions,
       ...(row.requested_by === actor.id ? { submissionKey: row.submission_key } : {}),
       signedAffiliationFileId: row.signed_affiliation_file_id,
@@ -104,9 +119,7 @@ export async function getAffiliation(id: string) {
       categories: row.club_affiliation_categories.map((c) => c.season_categories.categories.name),
       categoryOptions: row.club_affiliation_categories.map(c => ({ id: c.category_id,
         name: c.season_categories.categories.name, authorized: !!c.authorized_by && !!c.authorized_at })),
-      officers: row.club_officers.map((o) => ({ office: o.office, firstName: o.people.first_name,
-        paternalSurname: o.people.paternal_surname, maternalSurname: o.people.maternal_surname ?? "",
-        signatureFileId: o.signature_file_id, supportFileId: o.support_file_id })),
+      officers,
       history: history.map((h) => ({ id: h.id, action: h.action, occurredAt: h.occurred_at,
         actorId: h.user_id, observations: h.action === "AFFILIATION_REQUEST_CORRECTIONS"
           ? z.object({ observations: z.string() }).safeParse(h.new_data).data?.observations ?? null : null })) };

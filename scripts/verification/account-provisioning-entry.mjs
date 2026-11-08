@@ -16,7 +16,7 @@ export function validateAccountProvisioningTarget(config) {
   assert.equal(target.search + target.hash, '');
   assert.equal(config.baseUrl, `http://127.0.0.1:${56500 + Number(target.port.slice(-2))}`);
   const suite = config.suite ?? 'accounts';
-  assert.ok(['accounts', 'seasons'].includes(suite));
+  assert.ok(['accounts', 'seasons', 'identity-correction', 'identity-age-regression'].includes(suite));
   return { databaseUrl: target.href, baseUrl: config.baseUrl, suite };
 }
 
@@ -29,7 +29,7 @@ export function runAccountProvisioningSuite(config, { signal, application } = {}
   assert.equal(application.dependencies, 'independent');
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
-    const child = fork(`${application.app}/scripts/verification/account-provisioning-entry.mjs`, [], { execArgv: [], cwd: application.app,
+    const child = fork(`${application.app}/scripts/verification/account-provisioning-entry.mjs`, [], { execArgv: target.suite === 'identity-correction' ? ['--conditions=react-server'] : [], cwd: application.app,
       env: childEnvironment(process.env), stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
     let completed = false; let cancelled = false; let force;
     const stop = () => {
@@ -51,12 +51,22 @@ export function runAccountProvisioningSuite(config, { signal, application } = {}
   });
 }
 
+const targetCode = suite => ['identity-correction','identity-age-regression'].includes(suite);
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   assert.ok(process.send, 'Solo mediante supervisor IPC.');
   process.once('message', async config => {
     try {
       const target = validateAccountProvisioningTarget(config);
-      if (target.suite === 'seasons') {
+      if (target.suite === 'identity-correction') {
+        process.env.DATABASE_URL=target.databaseUrl; process.env.AUTH_TEST_RUN='1';
+        const {tsImport}=await import('tsx/esm/api');
+        const {verifyIdentityCorrection}=await tsImport('../../tests/integration/player-identity-correction.ts',import.meta.url);
+        await verifyIdentityCorrection(target);
+      } else if (target.suite === 'identity-age-regression') {
+        const {runPlayerAgeCompatibility}=await import('./player-identity-age-entry.mjs');
+        await runPlayerAgeCompatibility(target);
+      } else if (target.suite === 'seasons') {
         const { runSeasonIntegrationSuite } = await import('../../tests/integration/seasons.test.mjs');
         await runSeasonIntegrationSuite(target);
       } else {
@@ -68,7 +78,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         await runAccountIntegrationSuite(target);
       }
       process.send({ completed: true }, () => process.disconnect());
-    } catch {
+    } catch (error) {
+      if(targetCode(config.suite)) {
+        const {writeFile}=await import('node:fs/promises');const {dirname}=await import('node:path');
+        const frames=error?.stack?.match(/(?:src|tests)\/[\w./-]+\.(?:ts|tsx|mjs):\d+:\d+/g)??[];
+        const code=/^(?:P[0-9]{4}|ERR_ASSERTION|[A-Z_]{3,60})$/.test(error?.code??'')?error.code:'IDENTITY_SUITE_FAILED';
+        await writeFile(`${dirname(process.cwd())}/evidence-pg${new URL(config.databaseUrl).port.slice(-2)}/identity-failure.json`,JSON.stringify({code,frames}),{mode:0o600}).catch(()=>{});
+      }
       process.exitCode = 1;
       process.send({ completed: false }, () => process.disconnect());
     }

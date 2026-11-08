@@ -655,7 +655,7 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
       const registered=await registerPlayerForActor(actors.delegate,input(team.id,"1986-12-17",undefined,"Carlos"));
       let calls=0;const provider=fake(async()=>{calls++;return{status:"VERIFIED",mismatchedFields:[]};});
       const status=await verifyPlayerCurpForActor(actors.delegate,registered.registrationId,intention(),{provider,policy});
-      assert.equal(status.registrationStatus,"ACTIVE",status.registrationStatus!=="ACTIVE"?JSON.stringify((await readPlayerParticipationWorkspaceForActor(actors.delegate,registered.registrationId)).source.assessment.blockers):undefined);assert.equal(calls,1);
+      assert.equal(status.registrationStatus,"ACTIVE",status.registrationStatus!=="ACTIVE"?JSON.stringify((await readPlayerParticipationWorkspaceForActor(actors.delegate,registered.registrationId)).source.assessment?.blockers):undefined);assert.equal(calls,1);
       const dossier=await readPlayerDossierForActor(actors.delegate,registered.registrationId);
       assert.equal(dossier.canUpload,true);assert.equal(dossier.documents.length,0);
       await assert.rejects(activateVerifiedAdultForActor(actors.other,registered.registrationId),e=>e instanceof AuthorizationError);

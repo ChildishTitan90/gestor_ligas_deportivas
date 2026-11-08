@@ -1,4 +1,5 @@
 import "server-only";
+import {lockSeasonIdentityHistory} from "@/features/players/server/season-identity-history";
 import { z } from "zod";
 import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "@/server/auth/session";
@@ -12,6 +13,7 @@ export async function advanceSeason(seasonId: string, action: "close-registratio
   if (!z.uuid().safeParse(seasonId).success || !parsed.success) throw new CompetitionError("INVALID_CONFIGURATION");
   return getPrisma().$transaction(async tx => {
     await lockAuthorization(tx);
+    await lockSeasonIdentityHistory(tx);
     const rows = await tx.$queryRaw<{ status: string; version: number; team_registration_closed_at: Date | null; competition_starts_at: Date | null }[]>`
       SELECT status, version, team_registration_closed_at, competition_starts_at FROM sports_management.seasons WHERE id=${seasonId}::uuid FOR UPDATE`;
     await assertPermission(tx, actor.id, { module: "competitions", action: "UPDATE", context: { seasonId } });

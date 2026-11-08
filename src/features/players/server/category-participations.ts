@@ -78,7 +78,9 @@ export async function readCategoryParticipationsInTransaction(tx:Prisma.Transact
     const context=await assertPlayerRegistrationRead(tx,actorId,registrationId,origin.season_team_id);
     const rows=await tx.player_category_participations.findMany({where:{origin_registration_id:registrationId},select:participationSelect,orderBy:{id:"asc"}});
     const result=[];
-    for(const row of rows){const {row:target}=await lockPlayerTeamContext(tx,actorId,row.target_season_team_id,"READ");result.push(receipt(row,true,await assessPlayerEligibility(tx,registrationId,[context,target],true)));}
+    for(const row of rows){const {row:target}=await lockPlayerTeamContext(tx,actorId,row.target_season_team_id,"READ");const assessment = context.seasonStatus === "CLOSED" || target.seasonStatus === "CLOSED"
+        ? undefined : await assessPlayerEligibility(tx,registrationId,[context,target],true);
+      result.push(receipt(row,true,assessment));}
     return result;
 }
 export async function createCategoryParticipationForActor(actorId:string,registrationId:string,input:unknown){

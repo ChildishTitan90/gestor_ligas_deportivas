@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import {createServer} from 'node:net';
+import {access} from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { execFile, fork } from 'node:child_process';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -20,8 +22,8 @@ export function parseDelegateArguments(args) {
     else if (['--execute', '--cleanup'].includes(args[index]) && !selected) {
       mode = args[index] === '--execute' ? 'execute' : 'cleanup'; selected = true;
     } else if (args[index] === '--account-integration' && !accountIntegration) accountIntegration = true;
-    else if (['--account-browser', '--account-preview', '--account-provisioning', '--competition-seasons'].includes(args[index]) && !accountIntegration) {
-      accountIntegration = true; accountMode = args[index] === '--account-browser' ? 'browser' : args[index] === '--account-preview' ? 'preview' : args[index] === '--account-provisioning' ? 'accounts' : 'seasons';
+    else if (['--account-browser', '--account-preview', '--account-provisioning', '--competition-seasons', '--player-identity-correction', '--player-identity-age'].includes(args[index]) && !accountIntegration) {
+      accountIntegration = true; accountMode = args[index] === '--account-browser' ? 'browser' : args[index] === '--account-preview' ? 'preview' : args[index] === '--account-provisioning' ? 'accounts' : args[index] === '--player-identity-correction' ? 'identity-correction' : args[index] === '--player-identity-age' ? 'identity-age-regression' : 'seasons';
     }
     else throw new Error('Usa --run-id UUID y, opcionalmente, --execute, --cleanup o --account-integration.');
   }
@@ -29,7 +31,7 @@ export function parseDelegateArguments(args) {
   return { runId, mode, accountIntegration, accountMode };
 }
 
-export const accountSuiteNames = { http: 'PDGLD-107 HTTP/SSR', browser: 'PDGLD-107 navegador', preview: 'PDGLD-107 Preview/RLS temporal', accounts: 'PDGLD-93 accounts.test.mjs con catálogo real', seasons: 'PDGLD-93 seasons.test.mjs completa' };
+export const accountSuiteNames = { http: 'PDGLD-107 HTTP/SSR', browser: 'PDGLD-107 navegador', preview: 'PDGLD-107 Preview/RLS temporal', accounts: 'PDGLD-93 accounts.test.mjs con catálogo real', seasons: 'PDGLD-93 seasons.test.mjs completa', 'identity-correction':'PDGLD-117 corrección de identidad deportiva', 'identity-age-regression':'PDGLD-117 compatibilidad edad/excepciones' };
 const isAccountRegistry = registry => Object.values(accountSuiteNames).includes(registry.suite);
 
 export function restoreDelegateRegistry(data, runId) {
@@ -129,6 +131,14 @@ async function worker(config, signal, accountIntegration = false, accountMode = 
   });
 }
 
+async function assertPortsFree(ports) {
+ for (const port of ports) {
+  const server=createServer();
+  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen({host:'127.0.0.1',port,exclusive:true},resolve);});
+  await new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
+ }
+}
+
 async function main() {
   const { runId, mode, accountIntegration, accountMode } = parseDelegateArguments(process.argv.slice(2));
   const scratch = `${ISOLATED_TEMP_ROOT}/pdgld106-${runId}`;
@@ -136,7 +146,7 @@ async function main() {
     const plan = createDelegatePlan(runId, '0'.repeat(32));
     console.log(JSON.stringify({ mode, newAgreedRuleChecks: !accountIntegration ? ['distinct-deputies-capacity', 'equal-capabilities-scoped-authorship', 'authorization-inclusive-start-exclusive-end', 'representation-change-preserves-authorship'] : undefined, suite: accountIntegration ? accountSuiteNames[accountMode] : 'PDGLD-106 SQL',
       applicationPorts: accountIntegration ? ['127.0.0.1:56515', '127.0.0.1:56517'] : undefined,
-      browser: accountMode === 'browser' ? { profile: `${scratch}/chrome-pg15/17`, debugging: 'solo loopback, puerto efímero de Chrome', artifacts: `${scratch}/evidence-pg15/17` } : undefined,
+      browser: ['browser','identity-correction'].includes(accountMode) ? { profile: `${scratch}/chrome-pg15/17`, debugging: 'solo loopback, puerto efímero de Chrome', artifacts: `${scratch}/evidence-pg15/17` } : undefined,
       application: accountIntegration ? plan.versions.map(item => {
         const runtime = accountApplicationPlan({ runId, major: item.major, verificationMode: accountMode });
         return { ...runtime, installation: runtime.dependencies === 'independent' ? independentInstallPlan(runtime) : null, workerTimeoutMs: accountWorkerTimeout(accountMode) };
@@ -161,6 +171,7 @@ async function main() {
     console.log(`Recursos propios eliminados: ${runId}. Se conserva el registro local sin credenciales.`);
     return;
   }
+  if (accountIntegration) await assertPortsFree([55415,55417,56515,56517]);
   const plan = createDelegatePlan(runId, randomBytes(16).toString('hex'));
   await mkdir(scratch, { mode: 0o700 }); // EEXIST prevents reusing an old execution.
   await mkdir(`${scratch}/docker`, { mode: 0o700 });
@@ -170,7 +181,13 @@ async function main() {
   const docker = dockerIO(plan, scratch);
   try {
     await executeDelegateMatrix(plan, {
-      ...docker, worker: (config, signal) => worker(config, signal, accountIntegration, accountMode), secret: () => randomBytes(32).toString('base64url'),
+      ...docker,
+      beforeVersion: accountIntegration ? async item => {
+        await assertPortsFree([item.port,56500+item.major]);
+        assert.equal(await docker.inspectOptional('container',item.container),undefined);
+        assert.equal(await docker.inspectOptional('network',item.network),undefined);
+      } : undefined,
+      worker: (config, signal) => worker(config, signal, accountIntegration, accountMode), secret: () => randomBytes(32).toString('base64url'),
       progress: message => console.log(message),
       record: async registry => {
         const temporary = `${scratch}/run-${randomUUID()}.tmp`;
@@ -185,6 +202,12 @@ async function main() {
           accountIntegration ? rm(`${scratch}/npm-work-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
         ]);
         if (results.some(result => result.status === 'rejected')) throw new Error('Limpieza incompleta.');
+        if (accountIntegration) {
+          assert.equal(await docker.inspectOptional('container',item.container),undefined);
+          assert.equal(await docker.inspectOptional('network',item.network),undefined);
+          await assertPortsFree([item.port,56500+item.major]);
+          for(const prefix of ['app','chrome','npm-work'])await assert.rejects(access(`${scratch}/${prefix}-pg${item.major}`),{code:'ENOENT'});
+        }
       },
     }, controller.signal);
   } finally {

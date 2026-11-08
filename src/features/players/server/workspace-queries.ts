@@ -79,7 +79,10 @@ export async function listRegisteredPlayersForActor(actorId:string,seasonTeamId?
       orderBy: [{ registered_at: "desc" }, { id: "asc" }] });
     if (!rows.length) return [];
     return tx.$queryRaw<PlayerListItem[]>`
-      SELECT pr.id AS "registrationId", concat_ws(' ',p.first_name,p.paternal_surname,p.maternal_surname) AS "displayName",
+      SELECT pr.id AS "registrationId", CASE WHEN s.status='CLOSED' THEN
+        CASE WHEN h.person_id IS NULL THEN 'Información histórica no disponible'
+          ELSE concat_ws(' ',h.first_name,h.paternal_surname,h.maternal_surname) END
+        ELSE concat_ws(' ',p.first_name,p.paternal_surname,p.maternal_surname) END AS "displayName",
         pr.status, pr.identity_review_status AS "identityReviewStatus", pr.season_team_id AS "seasonTeamId",
         t.name AS "teamName", c.name AS "clubName", s.name AS "seasonName"
       FROM sports_management.player_registrations pr
@@ -88,6 +91,8 @@ export async function listRegisteredPlayersForActor(actorId:string,seasonTeamId?
       JOIN sports_management.teams t ON t.id=st.team_id
       JOIN sports_management.clubs c ON c.id=t.club_id
       JOIN sports_management.seasons s ON s.id=st.season_id
+      LEFT JOIN sports_management.season_person_identity_snapshots h
+        ON h.season_id=s.id AND h.person_id=pr.person_id
       WHERE pr.id IN (${Prisma.join(rows.map(row=>Prisma.sql`${row.id}::uuid`))})
       ORDER BY pr.registered_at DESC, pr.id
     `;
