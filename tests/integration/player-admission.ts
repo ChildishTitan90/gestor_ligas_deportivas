@@ -97,6 +97,93 @@ export async function runPlayerAdmissionTests(t: TestContext, db: ReturnType<typ
         String(error).includes("PLAYER_ADMISSION_WINDOW_CLOSED"));
       assert.deepEqual(await counts(), before);
     });
+    await t.test("PDGLD-105: fases incluyen apertura, excluyen cierre y bloquean huecos sin residuos", async () => {
+      await configure({ minimumAge: 0, maximumAge: null, exceptionMinimumAge: null,
+        timezone: "America/Mexico_City", registrationDays: [1, 2, 3], registrationWindows: [
+          { phase: "Primera", opensAt: "2026-10-26T12:00:00", closesAt: "2026-10-26T13:00:00" },
+          { phase: "Segunda", opensAt: "2026-10-27T12:00:00", closesAt: "2026-10-27T13:00:00" },
+        ] });
+      const cases = [
+        ["2026-10-26T17:59:59Z", false], ["2026-10-26T18:00:00Z", true],
+        ["2026-10-26T18:59:59Z", true], ["2026-10-26T19:00:00Z", false],
+        ["2026-10-27T17:59:59Z", false], ["2026-10-27T18:00:00Z", true],
+        ["2026-10-27T19:00:00Z", false],
+      ] as const;
+      for (const [index, [timestamp, allowed]] of cases.entries()) {
+        await setClock(timestamp);
+        const payload = input(team.id, `1991-01-${String(index + 1).padStart(2, "0")}`, "SIKA");
+        const before = await counts();
+        if (allowed) {
+          const result = await registerPlayerForActor(actors.delegate, payload);
+          assert.equal(result.replayed, false, timestamp);
+          assert.equal(result.status, "INELIGIBLE");
+        } else {
+          await assert.rejects(registerPlayerForActor(actors.delegate, payload), isCode("REGISTRATION_WINDOW_CLOSED"));
+          assert.deepEqual(await counts(), before, timestamp);
+        }
+      }
+    });
+    await t.test("PDGLD-105: una fase abierta conserva el día permitido y usa la zona configurada", async () => {
+      const windows = [{ phase: "Lunes local", opensAt: "2026-10-26T23:00:00", closesAt: "2026-10-27T00:00:00" }];
+      await setClock("2026-10-27T05:30:00Z"); // Lunes 23:30 en Morelia; martes UTC.
+      await configure({ minimumAge: 0, maximumAge: null, exceptionMinimumAge: null,
+        timezone: "America/Mexico_City", registrationDays: [1], registrationWindows: windows });
+      assert.equal((await registerPlayerForActor(actors.delegate, input(team.id, "1991-02-01", "SIKB"))).replayed, false);
+      for (const changes of [{ registrationDays: [2] }, { timezone: "UTC", registrationDays: [1, 2] }]) {
+        await configure({ minimumAge: 0, maximumAge: null, exceptionMinimumAge: null,
+          timezone: "America/Mexico_City", registrationWindows: windows, ...changes });
+        const before = await counts();
+        await assert.rejects(registerPlayerForActor(actors.delegate, input(team.id, "1991-02-02", "SIKB")), isCode("REGISTRATION_WINDOW_CLOSED"));
+        assert.deepEqual(await counts(), before);
+      }
+    });
+    await t.test("PDGLD-105: SQL directo respeta cierre de fase y rechaza política manipulada con rollback", async () => {
+      await setClock("2026-10-26T19:00:00Z"); // Lunes permitido, justo en el cierre local.
+      const window = { phase: "SQL", opensAt: "2026-10-26T12:00:00", closesAt: "2026-10-26T13:00:00" };
+      const directInsert = () => db.$transaction(async tx => {
+        const payload = input(team.id, "1991-03-01", "SIKC");
+        const person = await tx.people.create({ data: { curp: payload.identity.curp,
+          birth_date: new Date(payload.identity.birthDate), first_name: "Caso", paternal_surname: "Sintetico" } });
+        await tx.player_registrations.create({ data: { person_id: person.id,
+          season_team_id: team.id, season_id: original.season_id,
+          reference_number: `PDGLD105-${person.id}`, status: "INELIGIBLE" } });
+      });
+      for (const [windows, code] of [
+        [[window], "PLAYER_ADMISSION_WINDOW_CLOSED"],
+        ["manipulada", "PLAYER_ADMISSION_POLICY_PENDING"],
+        [[{ ...window, closesAt: window.opensAt }], "PLAYER_ADMISSION_POLICY_PENDING"],
+        [[{ ...window, opensAt: `${window.opensAt}Z` }], "PLAYER_ADMISSION_POLICY_PENDING"],
+      ] as const) {
+        await configure({ minimumAge: 0, maximumAge: null, exceptionMinimumAge: null,
+          timezone: "America/Mexico_City", registrationDays: [1, 2, 3],
+          registrationWindows: JSON.parse(JSON.stringify(windows)) as Prisma.JsonValue });
+        const before = await counts();
+        await assert.rejects(directInsert(), error => JSON.stringify(error).includes(code) || String(error).includes(code));
+        assert.deepEqual(await counts(), before);
+      }
+    });
+    await t.test("PDGLD-105: reenvío tras el cierre recupera el acuse; sin fases conserva la ventana semanal", async () => {
+      await configure({ minimumAge: 0, maximumAge: null, exceptionMinimumAge: null,
+        timezone: "America/Mexico_City", registrationDays: [1, 2, 3], registrationWindows: [
+          { phase: "Acuse", opensAt: "2026-10-26T12:00:00", closesAt: "2026-10-26T13:00:00" },
+        ] });
+      await setClock("2026-10-26T18:00:00Z");
+      const payload = input(team.id, "1991-04-01", "SIKD");
+      const first = await registerPlayerForActor(actors.delegate, payload);
+      await setClock("2026-10-26T19:00:00Z");
+      const before = await counts();
+      const replay = await registerPlayerForActor(actors.delegate, payload);
+      assert.equal(replay.registrationId, first.registrationId);
+      assert.equal(replay.replayed, true);
+      assert.deepEqual(await counts(), before);
+      await configure({ minimumAge: 0, maximumAge: null, exceptionMinimumAge: null,
+        timezone: "America/Mexico_City", registrationDays: [1, 2, 3], registrationWindows: [] });
+      assert.equal((await registerPlayerForActor(actors.delegate, input(team.id, "1991-04-02", "SIKD"))).replayed, false);
+      await setClock("2026-10-31T18:00:00Z");
+      const closed = await counts();
+      await assert.rejects(registerPlayerForActor(actors.delegate, input(team.id, "1991-04-03", "SIKD")), isCode("REGISTRATION_WINDOW_CLOSED"));
+      assert.deepEqual(await counts(), closed);
+    });
   } finally {
     await db.season_categories.update({ where: { id: context.id }, data: {
       eligibility_pending: original.eligibility_pending, player_policy: policy as Prisma.InputJsonObject,

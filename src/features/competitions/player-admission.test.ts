@@ -93,3 +93,27 @@ test("PDGLD-105: fecha bisiesta válida e inválida", () => {
   assert.equal(register("2012-02-29").status, "RULES_SATISFIED");
   assert.deepEqual(codes(register("2011-02-29")), ["INVALID_BIRTH_DATE"]);
 });
+
+test("fases: apertura incluida, cierre excluido y huecos cerrados en hora local", () => {
+  const configured = { ...policy, registrationWindows: [
+    { phase: "Primera", opensAt: "2026-11-02T19:00:00", closesAt: "2026-11-02T21:30:00" },
+    { phase: "Segunda", opensAt: "2026-11-04T19:00:00", closesAt: "2026-11-04T21:30:00" },
+  ] };
+  for (const [instant, permitted] of [
+    ["2026-11-03T00:59:59.999Z", false], ["2026-11-03T01:00:00Z", true],
+    ["2026-11-03T03:29:59.999Z", true], ["2026-11-03T03:30:00Z", false],
+    ["2026-11-04T01:00:00Z", false], ["2026-11-05T01:00:00Z", true],
+  ] as const) assert.equal(register(undefined, instant, configured).status === "RULES_SATISFIED", permitted, instant);
+});
+test("una fase abierta conserva la restricción semanal; vacío mantiene compatibilidad", () => {
+  const configured = { ...policy, registrationWindows: [{ phase: "Semana", opensAt: "2026-11-01T00:00:00", closesAt: "2026-11-08T00:00:00" }] };
+  assert.deepEqual(codes(register(undefined, "2026-11-05T18:00:00Z", configured)), ["REGISTRATION_WINDOW_CLOSED"]);
+  assert.equal(register(undefined, undefined, { ...policy, registrationWindows: [] }).status, "RULES_SATISFIED");
+});
+test("rechaza fases invertidas, fechas inválidas y fechas UTC en campos locales", () => {
+  for (const window of [
+    { phase: "Fase", opensAt: "2026-11-03T19:00:00", closesAt: "2026-11-02T19:00:00" },
+    { phase: "Fase", opensAt: "2026-02-30T19:00:00", closesAt: "2026-11-02T19:00:00" },
+    { phase: "Fase", opensAt: "2026-11-01T19:00:00Z", closesAt: "2026-11-02T19:00:00" },
+  ]) assert.deepEqual(codes(register(undefined, undefined, { ...policy, registrationWindows: [window] })), ["PLAYER_POLICY_PENDING"]);
+});

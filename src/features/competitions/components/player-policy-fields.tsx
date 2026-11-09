@@ -1,3 +1,4 @@
+import { RegistrationWindowFields } from "./registration-window-fields";
 import { playerPolicySchema } from "../schemas";
 const control = "min-h-12 w-full rounded-xl border border-border bg-surface p-3";
 export function PlayerPolicySummary({ value }: { value: unknown }) {
@@ -10,6 +11,7 @@ export function PlayerPolicySummary({ value }: { value: unknown }) {
     ["Excepción de edad", p.exceptionMinimumAge === null ? "Sin excepción" : `Desde ${p.exceptionMinimumAge} años, con responsiva y aprobación administrativa`],
     ["Documentos", Array.isArray(p.documents) ? p.documents.map(code => names[code]).join(", ") : `${p.documents.status === "APPROVED" ? "Política aprobada" : "Borrador"}: ${p.documents.requirements.map(rule => `${({CURP:"Constancia CURP",PLAYER_PHOTO:"Foto del jugador",SCHOOL_EVIDENCE:"Documento escolar",GUARDIAN_CONSENT:"Autorización del tutor",BIRTH_EVIDENCE:"Evidencia de nacimiento",PHOTO_IDENTIFICATION:"Identificación oficial"})[rule.key]} (${rule.anyOf.map(code=>({CURP:"CURP",PHOTO:"Foto",INE:"INE",DRIVER_LICENSE:"Licencia",PASSPORT:"Pasaporte",BIRTH_CERTIFICATE:"Acta de nacimiento",STUDENT_ID:"Credencial escolar",STUDENT_CERTIFICATE:"Constancia de estudios",GUARDIAN_CONSENT:"Autorización del tutor"})[code]).join(" o ") || "comprobantes pendientes"})`).join("; ")}`],
     ["Días de registro", p.registrationDays.map(day => ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"][day - 1]).join(", ")],
+    ["Ventanas de altas", p.registrationWindows?.length ? p.registrationWindows.map(w => `${w.phase}: ${w.opensAt} a ${w.closesAt} (cierre excluido)`).join("; ") : "Solo días semanales"],
     ["Zona horaria", p.timezone], ["Jugadores por equipo en cancha", p.playersOnField],
     ["Máximo de convocados", p.maximumCalledUp ?? "Sin máximo configurado"], ["Máximo de plantilla", p.maximumRoster ?? "Sin máximo configurado"],
   ];
@@ -35,5 +37,6 @@ export function PlayerPolicyFields({ value, type }: { value: unknown; type: stri
     <label className="block">Zona horaria de registro<input className={control} name="timezone" required defaultValue={policy?.timezone ?? "America/Mexico_City"} /></label>
     {Array.isArray(docs) ? <fieldset className="space-y-2"><legend>Documentos requeridos (configuración anterior)</legend>{[["PHOTO", "Foto"], ["CURP", "CURP"], ["CREDENTIAL", "Credencial"], ["SCHOOL_CREDENTIAL", "Credencial escolar"], ["INE", "INE"]].map(([code, label]) => <label key={code} className="flex min-h-12 items-center gap-3"><input type="checkbox" name="documents" value={code} defaultChecked={(docs as readonly string[]).includes(code)} />{label}</label>)}</fieldset> : <><input type="hidden" name="documentPolicyJson" value={JSON.stringify(docs)} /><p>Se conservarán los requisitos documentales guardados al actualizar estos campos.</p></>}
     <fieldset className="space-y-2"><legend>Días de registro permitidos</legend>{["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].map((label, index) => <label key={label} className="flex min-h-12 items-center gap-3"><input type="checkbox" name="registrationDays" value={index + 1} defaultChecked={(policy?.registrationDays ?? [1, 2, 3]).includes(index + 1)} />{label}</label>)}</fieldset>
+    <RegistrationWindowFields value={policy?.registrationWindows} />
   </>;
 }

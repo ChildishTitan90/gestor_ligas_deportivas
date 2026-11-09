@@ -67,7 +67,7 @@ export function evaluatePlayerMovement(input: PlayerMovementInput): PlayerMoveme
   }
 
   if (!isPlayerRegistrationDay(policy, input.now)) {
-    block("REGISTRATION_WINDOW_CLOSED", `El alta está fuera de los días configurados para esta categoría (${policy.timezone}).`);
+    block("REGISTRATION_WINDOW_CLOSED", `El alta está fuera de los días o ventanas de fase configurados para esta categoría (${policy.timezone}).`);
   }
   return result();
 }
