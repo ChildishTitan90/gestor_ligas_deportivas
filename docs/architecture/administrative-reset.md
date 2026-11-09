@@ -22,8 +22,8 @@ cambio obligatorio, limitada también por el vencimiento. La contraseña nueva
 reemplaza el hash y requiere volver a entrar.
 
 Las pruebas integradas de mantenimiento usan un adaptador inyectado solo en
-pruebas. La entrega operativa sigue pendiente del transporte y remitente
-verificado. Un resultado ACCEPTED no acredita recepción. Si la entrega falla,
+pruebas. El adaptador Resend está implementado; la entrega operativa sigue pendiente
+de configuración, remitente verificado y recepción controlada. Un resultado ACCEPTED no acredita recepción. Si la entrega falla,
 consultar el estado y decidir una nueva operación manual tras comprobar otra
 vez la identidad. No se deben copiar contraseñas en motivos, bitácoras o Jira.
 
@@ -47,3 +47,11 @@ La comprobación real PG15/PG17 y el bloqueo de proveedor/remitente se detallan 
 [validación PDGLD-119](../validation/administrative-reset.md). Las cuentas con
 correo histórico sin propiedad verificada permanecen bloqueadas para entrega;
 no se registra esa verificación por iniciativa del sistema.
+
+
+Actualización técnica (8 de noviembre de 2026): se eligió Resend para pruebas y
+se implementó el adaptador HTTP. La activación permanece explícita y depende de
+configuración completa. Un único envío real con `onboarding@resend.dev` fue
+aceptado por Resend y su recepción en Hotmail fue confirmada por el usuario;
+la configuración con dominio propio en producción sigue sin validar. Véase
+[contrato y validación del proveedor](../architecture/resend-test-provider.md).

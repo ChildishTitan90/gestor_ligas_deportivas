@@ -63,17 +63,22 @@ export async function verifyAdministrativeResetBrowser(config) {
       verificationMethod:'IN_PERSON',confirmed:true,reason:'Identidad sintética comprobada en persona'});
     const post=(user,body,browser=admin)=>browser.request(`/api/account-maintenance/${user.id}/reset-access`,{method:'POST',
       headers:{origin:target.baseUrl,'content-type':'application/json'},body:JSON.stringify(body)});
-    const expect=async(response,status,code)=>{assert.equal(response.status,status);const body=await response.json();if(code)assert.equal(body.code,code);return body;};
+    const expect=async(response,status,code)=>{context.safeValues=true;assert.equal(response.status,status);context.safeValues=false;const body=await response.json();if(code)assert.equal(body.code,code);return body;};
     context.case='reset-authorization';
     await expect(await post(main,await input(main),anonymous),401);
     await expect(await post(main,await input(main),limited),403);
     await expect(await post(actor,await input(actor)),409,'RESET_NOT_ALLOWED');
     await expect(await post(inactive,await input(inactive)),409,'RESET_NOT_ALLOWED');
+    const unverifiedBefore=await snapshot(unverified.id);
     await expect(await post(unverified,await input(unverified)),409,'VERIFIED_CHANNEL_REQUIRED');
+    assert.deepEqual(await snapshot(unverified.id),unverifiedBefore);
+    assert.equal((await messages()).length,0);
     for(const patch of [{identityVerified:false},{confirmed:false},{reason:'short'},{verificationMethod:'OTHER'},{email:'not-authorized@example.test'}])
       await expect(await post(main,{...await input(main),...patch}),400);
     const unchanged=await snapshot(main.id);
     await expect(await post(main,await input(main)),503,'NOT_CONFIGURED');assert.deepEqual(await snapshot(main.id),unchanged);
+    assert.equal((await messages()).length,0);
+    checks.push('unverified-channel-and-not-configured-no-state-change-no-send');
     checks.push('permissions-scope-self-inactive-validation-verified-destination-no-provider');
     await writeFile(target.fixture.enableFile,'synthetic-only',{flag:'wx',mode:0o600});
     context.case='reset-last-superadmin';
@@ -179,6 +184,9 @@ export async function verifyAdministrativeResetBrowser(config) {
     });
     await command('Fetch.enable',{patterns:[{urlPattern:'*/reset-access',requestStage:'Response'}]});
     const beforeUi=await snapshot(main.id),messageCount=(await messages()).length;
+    assert.ok(beforeUi.user.email_verified_at);
+    assert.equal(beforeUi.user.email,main.email);
+    assert.ok(beforeUi.pending.some(row=>row.status==='PENDING'&&row.new_email!==beforeUi.user.email));
     await click('Confirmar y guardar');await wait(()=>document.body.textContent.includes('No se conoce el resultado.'));
     drop=false;await command('Fetch.disable');
     assert.equal(posts,1);const afterUi=await snapshot(main.id);assert.equal(afterUi.user.version,beforeUi.user.version+1);
@@ -201,8 +209,14 @@ export async function verifyAdministrativeResetBrowser(config) {
     assert.equal((await snapshot(main.id)).user.admin_reset_expires_at,null);
     checks.push('required-change-in-browser','new-password-works-temporary-password-unusable','public-session-remains-minimal');
     context.case='reset-typecheck';
-    await new Promise((resolve,reject)=>execFile(process.execPath,[`${process.cwd()}/node_modules/typescript/bin/tsc`,'--noEmit','--incremental','false'],{cwd:process.cwd(),env:childEnvironment(process.env),timeout:120000},error=>error?reject(Error('RESET_TYPECHECK_FAILED')):resolve()));
-    await writeFile(`${evidence}/administrative-reset-browser.json`,JSON.stringify({passed:true,typecheck:true,transport:'simulated-in-disposable-copy-only',checks},null,2),{mode:0o600});
+    await new Promise((resolve,reject)=>execFile(process.execPath,[`${process.cwd()}/node_modules/typescript/bin/tsc`,'--noEmit','--incremental','false'],{cwd:process.cwd(),env:childEnvironment(process.env),timeout:120000},async(error,stdout)=>{
+      if(!error){resolve();return;}
+      // Solo ubicaciones/códigos: el transporte de la copia contiene una clave sintética.
+      const diagnostics=[...stdout.matchAll(/^([^\n]+\(\d+,\d+\)): error (TS\d+):/gm)].map(([,location,code])=>({location,code}));
+      await writeFile(`${evidence}/reset-typecheck-failure.json`,JSON.stringify({timedOut:error.killed===true,diagnostics},null,2),{mode:0o600}).catch(()=>{});
+      reject(Error('RESET_TYPECHECK_FAILED'));
+    }));
+    await writeFile(`${evidence}/administrative-reset-browser.json`,JSON.stringify({passed:true,typecheck:true,transport:'resend-adapter-with-loopback-fetch',provider:'resend',realDelivery:false,checks},null,2),{mode:0o600});
   }catch(error){await writeFile(`${evidence}/administrative-reset-failure.json`,JSON.stringify(accountDiagnostic(error,context),null,2),{mode:0o600});throw error;}
   finally{try{await chrome?.close();}finally{await Promise.all([db.end(),prisma.$disconnect()]);}}
 }

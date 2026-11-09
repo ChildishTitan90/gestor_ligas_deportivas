@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { isDeepStrictEqual } from 'node:util';
 import { fork } from 'node:child_process';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -96,8 +97,12 @@ async function execute(config) {
       const old = new Browser(target.baseUrl);
       await old.login(before.user.username,fixturePassword);
       assert.ok((await old.session()).user);
-      assert.equal((await (await postReset(admin)).json()).code,'NOT_CONFIGURED');
-      assert.equal((await snapshot(resetTarget)).user.version,before.user.version);
+      const beforeUnavailable = await snapshot(resetTarget);
+      const unavailable = await postReset(admin);
+      assert.equal(unavailable.status,503);
+      assert.equal((await unavailable.json()).code,'NOT_CONFIGURED');
+      assert.ok(isDeepStrictEqual(await snapshot(resetTarget),beforeUnavailable),
+        'NOT_CONFIGURED modificó el estado de la cuenta sintética.');
       let credential;
       const delivery = { async send(message) { credential = message.temporaryPassword; return 'ACCEPTED'; } };
       const attempt = () => issueAdministrativeCredential(config.actorId,resetTarget,payload,prisma,delivery);

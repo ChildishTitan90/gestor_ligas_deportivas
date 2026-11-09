@@ -89,10 +89,11 @@ operación, revisiones y revocación; sin direcciones, token o enlace. La tabla 
 solicitudes contiene datos privados, no se expone como DTO y necesita una futura
 política operativa de retención. No se promete protección ante SQL directo.
 
-## Transporte y proveedor pendiente
+## Transporte y entrega real pendiente
 
 `src/server/email/transport.ts` define el adaptador intercambiable. La conexión
-de aplicación devuelve `null`: no hay proveedor ni fallback de demostración.
+de aplicación devuelve `null` sin configuración completa. El proveedor de
+pruebas es Resend; no hay fallback de demostración.
 Sin configuración se persiste la intención con `NOT_CONFIGURED`; ningún secreto
 sale al cliente. Para poder entregar esa intención se deberá crear una nueva
 solicitud explícita después de configurar el proveedor: no se puede reconstruir
@@ -131,3 +132,11 @@ El despliegue de una tabla nueva sigue detenido por el control de seguridad de
 producción hasta revisar/aprobar su plan; no se modifica ese control aquí.
 
 Véanse [resultados y comandos aislados](../validation/account-email-change.md).
+
+
+Actualización técnica (8 de noviembre de 2026): se eligió Resend para pruebas y
+se implementó el adaptador HTTP. La activación permanece explícita y depende de
+configuración completa. Un único envío real con `onboarding@resend.dev` fue
+aceptado por Resend y su recepción en Hotmail fue confirmada por el usuario;
+la configuración con dominio propio en producción sigue sin validar. Véase
+[contrato y validación del proveedor](../architecture/resend-test-provider.md).

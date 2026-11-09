@@ -99,3 +99,11 @@ la entrega real antes del cierre correspondiente. Conservar el PR Draft mientras
 falten criterios de su alcance. CI verde no acredita entrega real, despliegue ni
 revisión humana. No repetir matrices aprobadas si el código que cubren no cambia;
 una corrección requiere solo su regresión pertinente en entornos aislados.
+
+
+Actualización técnica (8 de noviembre de 2026): se eligió Resend para pruebas y
+se implementó el adaptador HTTP. La activación permanece explícita y depende de
+configuración completa. Un único envío real con `onboarding@resend.dev` fue
+aceptado por Resend y su recepción en Hotmail fue confirmada por el usuario;
+la configuración con dominio propio en producción sigue sin validar. Véase
+[contrato y validación del proveedor](../architecture/resend-test-provider.md).
