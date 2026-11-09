@@ -22,8 +22,14 @@ export async function prepareAdministrativeTransport(app, major) {
         assert.ok(['ACCEPTED','FAILED','UNKNOWN'].includes(value.delivery));delivery=value.delivery;res.end('{}');return;
       }
       if(req.url==='/delivery'&&req.method==='POST'){
-        assert.equal(value.kind,'ADMINISTRATIVE_RESET');assert.ok(typeof value.temporaryPassword==='string');
-        messages.push(value);res.end(JSON.stringify({delivery}));return;
+        assert.equal(req.headers.authorization,'Bearer synthetic-resend-key');
+        assert.equal(value.from,'fixture@example.test');assert.equal(value.to.length,1);
+        const temporaryPassword=value.text.match(/^Credencial temporal: (.+)$/m)?.[1];
+        const expiresAt=value.text.match(/^Vence: (.+)$/m)?.[1];
+        assert.ok(temporaryPassword&&expiresAt&&req.headers['idempotency-key']);
+        messages.push({kind:'ADMINISTRATIVE_RESET',to:value.to[0],temporaryPassword,expiresAt,idempotencyKey:req.headers['idempotency-key']});
+        res.writeHead(delivery==='ACCEPTED'?200:delivery==='FAILED'?422:503);
+        res.end(JSON.stringify(delivery==='ACCEPTED'?{id:'synthetic-resend-id'}:{name:'synthetic-response'}));return;
       }
       res.writeHead(404).end('{}');
     }catch{res.writeHead(400).end('{}');}
@@ -33,17 +39,18 @@ export async function prepareAdministrativeTransport(app, major) {
     const address=server.address();assert.equal(address.address,'127.0.0.1');
     const url=`http://127.0.0.1:${address.port}`,enableFile=`${app}/.synthetic-email-enabled`;
     const file=`${app}/src/server/email/transport.ts`,source=await readFile(file,'utf8');
-    const marker='export function getEmailTransport(): EmailTransport | null { return null; }';
+    const marker=`export function getEmailTransport(): EmailTransport | null {
+  const config = resendConfiguration(process.env);
+  return config ? createResendEmailTransport(config) : null;
+}`;
     assert.equal(source.split(marker).length,2);
     const replacement=`export function getEmailTransport(): EmailTransport | null {
       if (!existsSync(${JSON.stringify(enableFile)})) return null;
-      return { async send(message) {
-        const response = await fetch(${JSON.stringify(url+'/delivery')}, {method:'POST', cache:'no-store',
-          headers:{'Content-Type':'application/json','x-fixture-key':${JSON.stringify(key)}}, body:JSON.stringify(message)});
-        if (!response.ok) return 'UNKNOWN';
-        const result = await response.json();
-        return ['ACCEPTED','FAILED','UNKNOWN'].includes(result.delivery) ? result.delivery : 'UNKNOWN';
-      } };
+      return createResendEmailTransport({apiKey:'synthetic-resend-key',from:'fixture@example.test',origin:'https://ligas.example.test'},async (input,init)=>{
+        if(String(input)!=='https://api.resend.com/emails')throw Error('UNEXPECTED_SYNTHETIC_ENDPOINT');
+        const headers=new Headers(init?.headers);headers.set('x-fixture-key',${JSON.stringify(key)});
+        return fetch(${JSON.stringify(url+'/delivery')},{...init,headers});
+      });
     }`;
     await writeFile(file,"import { existsSync } from 'node:fs';\n"+source.replace(marker,replacement),{mode:0o600});
     return {config:{url,key,enableFile},async close(){try{await closeTestServer(server);}finally{messages.length=0;}}};

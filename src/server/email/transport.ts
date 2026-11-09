@@ -1,4 +1,5 @@
 import "server-only";
+import { createResendEmailTransport, resendConfiguration } from "./resend";
 
 // El adaptador recibe el secreto solo en memoria. No debe registrar payloads.
 export type AccountEmail =
@@ -9,5 +10,8 @@ export interface EmailTransport {
   // ACCEPTED significa aceptación del proveedor, nunca prueba de recepción/propiedad.
   send(message: AccountEmail): Promise<"ACCEPTED" | "FAILED" | "UNKNOWN">;
 }
-// Conexión real deliberadamente ausente. No hay fallback simulado en aplicación.
-export function getEmailTransport(): EmailTransport | null { return null; }
+// Activación explícita y configuración completa; sin fallback de demostración.
+export function getEmailTransport(): EmailTransport | null {
+  const config = resendConfiguration(process.env);
+  return config ? createResendEmailTransport(config) : null;
+}
