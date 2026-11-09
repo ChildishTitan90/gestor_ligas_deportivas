@@ -21,8 +21,18 @@ export const playerIdentitySchema = z.strictObject({
   });
 });
 
+// Limite tecnico de PostgreSQL; el rango reglamentario queda por confirmar.
+export const jerseyNumberSchema = z.number().int().min(0).max(2147483647).nullable();
+export const updateJerseyNumberSchema = z.strictObject({
+  jerseyNumber: jerseyNumberSchema.unwrap(),
+});
+export function jerseyNumberFromField(value: FormDataEntryValue | null) {
+  return value === null || String(value).trim() === "" ? null : Number(value);
+}
+
 // Club, liga, temporada y categoría se derivan del equipo inscrito, nunca del navegador.
 export const registerPlayerSchema = z.strictObject({
+  jerseyNumber: jerseyNumberSchema.optional(),
   requestAgeException: z.boolean().optional(),
   seasonTeamId: z.uuid(),
   identity: playerIdentitySchema,

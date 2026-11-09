@@ -1411,6 +1411,8 @@ model player_category_participations {
 }
 
 model player_registrations {
+  jersey_number         Int?
+  @@unique([season_team_id, jersey_number], map: "player_registration_team_jersey_key")
   history_snapshot season_registration_history?
   identity_corrections player_identity_corrections[]
 

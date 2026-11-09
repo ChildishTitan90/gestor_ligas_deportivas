@@ -1,3 +1,5 @@
+import { playerResultSchema } from "../../src/features/players/player-client";
+import { updatePlayerJerseyNumberForActor, readPlayerJerseyNumberForActor } from "../../src/features/players/server/jersey-number";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
@@ -199,6 +201,47 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
       assert.equal((await readPlayerRegistrationForActor(actors.delegate, result.registrationId))?.personId, result.personId);
       await assert.rejects(readPlayerRegistrationForActor(actors.other, result.registrationId), error => error instanceof AuthorizationError);
       await assert.rejects(readPlayerRegistrationForActor(actors.player, result.registrationId), error => error instanceof AuthorizationError);
+    });
+
+    await t.test("alta confirmada sin proveedor: con y sin dorsal conserva contrato y no consulta", async () => {
+      let calls = 0;
+      const provider = { configured: false, verify: async () => { calls++; throw Error("No debe consultar"); } };
+      for (const [date, jerseyNumber] of [["1968-04-11", undefined], ["1966-05-13", 55]] as const) {
+        const payload = { ...input(team.id, date, "JEAR"), jerseyNumber };
+        const result = await registerAndVerifyPlayerForActor(actors.delegate, payload, { provider });
+        assert.equal(playerResultSchema.safeParse(result).success, true);
+        assert.equal(result.curpVerification, "NOT_CONFIGURED");
+        const replay = await registerAndVerifyPlayerForActor(actors.delegate, payload, { provider });
+        assert.equal(replay.registrationId, result.registrationId);
+        assert.equal(replay.replayed, true);
+        assert.equal((await db.player_registrations.findUniqueOrThrow({ where: { id: result.registrationId } })).jersey_number, jerseyNumber ?? null);
+        assert.equal(await db.player_curp_checks.count({ where: { registration_id: result.registrationId } }), 0);
+      }
+      assert.equal(calls, 0);
+    });
+
+    await t.test("dorsal fijo, unico por equipo, autorizado y renovable en otra temporada", async () => {
+      const payload = input(team.id, "1978-11-17", "JEAA");
+      const first = await registerPlayerForActor(actors.delegate, { ...payload, jerseyNumber: 77 });
+      assert.equal((await readPlayerJerseyNumberForActor(actors.delegate, first.registrationId)).jerseyNumber, 77);
+      await assert.rejects(updatePlayerJerseyNumberForActor(actors.other, first.registrationId, { jerseyNumber: 77 }), e => e instanceof AuthorizationError);
+      await updatePlayerJerseyNumberForActor(actors.delegate, first.registrationId, { jerseyNumber: 77 });
+      await assert.rejects(updatePlayerJerseyNumberForActor(actors.delegate, first.registrationId, { jerseyNumber: 78 }), isCode("JERSEY_NUMBER_LOCKED"));
+      await assert.rejects(db.player_registrations.update({ where: { id: first.registrationId }, data: { jersey_number: null } }), e => String(e).includes("PLAYER_JERSEY_LOCKED"));
+      const before = await db.player_registrations.findUniqueOrThrow({ where: { id: first.registrationId } });
+      await assert.rejects(registerPlayerForActor(actors.delegate, { ...input(team.id, "1970-06-25", "JEAE"), jerseyNumber: 77 }), isCode("JERSEY_NUMBER_TAKEN"));
+      const second = await registerPlayerForActor(actors.delegate, input(team.id, "1976-10-19", "JEAB"));
+      await assert.rejects(updatePlayerJerseyNumberForActor(actors.delegate, second.registrationId, { jerseyNumber: 77 }), isCode("JERSEY_NUMBER_TAKEN"));
+      await updatePlayerJerseyNumberForActor(actors.delegate, second.registrationId, { jerseyNumber: 78 });
+      const newer = await registerPlayerForActor(actors.delegate, { ...payload, seasonTeamId: next.id, jerseyNumber: 88 });
+      assert.equal((await readPlayerJerseyNumberForActor(actors.delegate, newer.registrationId)).jerseyNumber, 88);
+      assert.equal((await listRegisteredPlayersForActor(actors.delegate, team.id)).find(r => r.registrationId === first.registrationId)?.jerseyNumber, 77);
+      assert.deepEqual(await db.player_registrations.findUniqueOrThrow({ where: { id: first.registrationId } }), before);
+      const a = await registerPlayerForActor(actors.delegate, input(team.id, "1974-09-21", "JEAC"));
+      const b = await registerPlayerForActor(actors.delegate, input(team.id, "1972-08-23", "JEAD"));
+      const race = await Promise.allSettled([a,b].map(r => updatePlayerJerseyNumberForActor(actors.delegate, r.registrationId, { jerseyNumber: 90 })));
+      assert.equal(race.filter(r => r.status === "fulfilled").length, 1);
+      assert.equal(race.filter(r => r.status === "rejected" && r.reason instanceof PlayerRegistrationError && r.reason.code === "JERSEY_NUMBER_TAKEN").length, 1);
     });
 
     await t.test("reutiliza Persona entre temporadas sin alterar identidad ni exponer otro club", async () => {

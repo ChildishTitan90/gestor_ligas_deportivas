@@ -46,7 +46,7 @@
     "test:preview-competitions": "node scripts/test-auth.mjs --preview-competitions",
     "preview:maintain": "node scripts/preview/maintain.mjs",
     "test:database-config": "node --conditions=react-server --import tsx --test src/server/db/connection-options.test.ts",
-    "test:player-identity": "node --import tsx --test src/features/players/identity-rules.test.ts src/features/players/identity-correction.test.ts",
+    "test:player-identity": "node --import tsx --test src/features/players/identity-rules.test.ts src/features/players/identity-correction.test.ts src/features/players/jersey-number.test.ts",
     "test:player-dossier": "node --import tsx --test src/features/players/document-rules.test.ts src/features/players/document-upload.client.test.ts src/features/players/school-documents.test.ts src/features/competitions/document-policy.test.ts src/features/players/camera-framing.test.ts",
     "test:player-document-storage": "node --conditions=react-server --import tsx --test src/features/players/server/supabase-document-storage.test.ts",
     "test:curp-provider": "node --conditions=react-server --import tsx --test src/features/players/server/verificamex-curp.test.ts",

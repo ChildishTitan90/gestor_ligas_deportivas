@@ -22,7 +22,7 @@ export async function playerRequest(actorId: string, path: string, body?: unknow
   return value;
 }
 export const playerResultSchema = z.object({ registrationId: z.uuid(), status: z.string(), identityReviewStatus: z.string().nullable(),curpVerification:z.string().optional(),ageExceptionPending:z.boolean().optional() });
-export const playerListSchema = z.array(playerResultSchema.extend({ displayName: z.string(),seasonTeamId:z.uuid().optional(),teamName:z.string().optional(),clubName:z.string().optional(),seasonName:z.string().optional() }));
+export const playerListSchema = z.array(playerResultSchema.extend({ displayName: z.string(),jerseyNumber:z.number().int().nullable().optional(),seasonTeamId:z.uuid().optional(),teamName:z.string().optional(),clubName:z.string().optional(),seasonName:z.string().optional() }));
 export const curpStateSchema = z.object({ registrationId: z.uuid(), identityVersion: z.number().int().positive(), checkId: z.uuid().nullable(),
   registrationStatus:z.string().optional(),identityReviewStatus:z.string().nullable().optional(),
   status: z.enum([...curpCheckOutcomes, "PENDING", "NOT_PERFORMED", "NOT_CONFIGURED"]),
