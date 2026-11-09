@@ -1,0 +1,72 @@
+{
+  "ticket": "PDGLD-119",
+  "provider": "resend",
+  "realDelivery": false,
+  "runId": "7c7f2f80-a03c-46a7-a146-3ecc508f0119",
+  "versions": [
+    {
+      "major": 15,
+      "passed": true,
+      "cleaned": true,
+      "result": {
+        "passed": true,
+        "typecheck": true,
+        "transport": "resend-adapter-with-loopback-fetch",
+        "provider": "resend",
+        "realDelivery": false,
+        "checks": [
+          "permissions-scope-self-inactive-validation-verified-destination-no-provider",
+          "last-operational-superadmin",
+          "atomic-rollback-no-delivery",
+          "concurrent-reset-one-commit-one-delivery",
+          "concurrent-login-one-use",
+          "credential-expiry",
+          "restricted-session-expiry",
+          "failed-unknown-delivery-no-automatic-replay",
+          "replacement-invalidates-previous-credential",
+          "secret-free-audit",
+          "real-browser-form-select-keyboard-focus-themes-mobile",
+          "stale-review",
+          "response-lost-consult-without-replay",
+          "current-email-not-pending",
+          "sessions-resets-and-pending-email-invalidated",
+          "required-change-in-browser",
+          "new-password-works-temporary-password-unusable",
+          "public-session-remains-minimal"
+        ]
+      }
+    },
+    {
+      "major": 17,
+      "passed": true,
+      "cleaned": true,
+      "result": {
+        "passed": true,
+        "typecheck": true,
+        "transport": "resend-adapter-with-loopback-fetch",
+        "provider": "resend",
+        "realDelivery": false,
+        "checks": [
+          "permissions-scope-self-inactive-validation-verified-destination-no-provider",
+          "last-operational-superadmin",
+          "atomic-rollback-no-delivery",
+          "concurrent-reset-one-commit-one-delivery",
+          "concurrent-login-one-use",
+          "credential-expiry",
+          "restricted-session-expiry",
+          "failed-unknown-delivery-no-automatic-replay",
+          "replacement-invalidates-previous-credential",
+          "secret-free-audit",
+          "real-browser-form-select-keyboard-focus-themes-mobile",
+          "stale-review",
+          "response-lost-consult-without-replay",
+          "current-email-not-pending",
+          "sessions-resets-and-pending-email-invalidated",
+          "required-change-in-browser",
+          "new-password-works-temporary-password-unusable",
+          "public-session-remains-minimal"
+        ]
+      }
+    }
+  ]
+}

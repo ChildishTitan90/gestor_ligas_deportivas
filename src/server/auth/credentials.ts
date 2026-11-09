@@ -1,8 +1,10 @@
 import "server-only";
 
 import { loginSchema } from "@/features/auth/schemas";
+import { matchesLoginIdentifier } from "@/features/auth/login-identifier";
 import { getPrisma } from "@/server/db/prisma";
 import { lockAuthUser } from "./lock-user";
+import { canUseAdministrativeCredential } from "./administrative-credential";
 import { getLoginPolicy } from "./login-policy";
 import { verifyPassword } from "./password";
 import { loginLockoutCode } from "@/features/auth/login-feedback";
@@ -39,7 +41,7 @@ export async function authorizeCredentials(input: unknown) {
       // puede haber modificado la cuenta mientras esta petición esperaba.
       const user = await lockAuthUser(tx, identity.id);
       const now = new Date();
-      if (!user) {
+      if (!user || !matchesLoginIdentifier(parsed.data.email, user)) {
         await verifyPassword(null, parsed.data.password);
         await tx.authentication_events.create({ data: { action: "LOGIN_FAILED", occurred_at: now } });
         return null;
@@ -59,7 +61,7 @@ export async function authorizeCredentials(input: unknown) {
       const baseAttempts = user.locked_until ? 0 : user.failed_login_attempts;
       const valid = await verifyPassword(user.password_hash, parsed.data.password);
 
-      if (!valid) {
+      if (!valid || !canUseAdministrativeCredential(user, now)) {
         const nextAttempts = baseAttempts + 1;
         const blocking = nextAttempts >= policy.maxFailedAttempts;
         const blockedUntil = new Date(now.getTime() + policy.lockoutMs);
@@ -78,10 +80,11 @@ export async function authorizeCredentials(input: unknown) {
         return null;
       }
 
-      if (user.failed_login_attempts > 0 || user.locked_until !== null) {
+      if (user.failed_login_attempts > 0 || user.locked_until !== null || user.admin_reset_expires_at) {
         await tx.users.update({
           where: { id: user.id },
-          data: { failed_login_attempts: 0, locked_until: null },
+          data: { failed_login_attempts: 0, locked_until: null,
+            ...(user.admin_reset_expires_at ? { admin_reset_consumed_at: now } : {}) },
         });
       }
 

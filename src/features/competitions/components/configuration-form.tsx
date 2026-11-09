@@ -60,7 +60,7 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
     if (endpoint === "/api/competitions/categories") delete payload.expectedSeasonVersion;
     if (endpoint.endsWith("/player-policy")) {
       const nullable = (key: string) => fields[key] === "" ? null : Number(fields[key]);
-      payload.policy = { referenceYear: Number(fields.referenceYear), minimumAge: Number(fields.minimumAge),
+      payload.policy = { ...(fields.registrationWindowsJson ? { registrationWindows: JSON.parse(String(fields.registrationWindowsJson)) } : {}), referenceYear: Number(fields.referenceYear), minimumAge: Number(fields.minimumAge),
         maximumAge: nullable("maximumAge"), exceptionMinimumAge: nullable("exceptionMinimumAge"),
         documents: fields.documentPolicyJson ? JSON.parse(String(fields.documentPolicyJson)) : formData.getAll("documents"), registrationDays: formData.getAll("registrationDays").map(Number),
         timezone: fields.timezone, playersOnField: Number(fields.playersOnField),

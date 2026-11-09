@@ -25,7 +25,15 @@ export async function deleteEmptySeason(seasonId: string, input: unknown) {
       await tx.$queryRaw`SELECT id FROM sports_management.seasons WHERE id=${seasonId}::uuid FOR UPDATE`;
       // RF22 no tiene DELETE: el mantenimiento exige UPDATE vigente y alcance de temporada.
       await assertPermission(tx, actor.id, { module: "competitions", action: "UPDATE", context: { seasonId } });
-      const season = await tx.seasons.findUnique({ where: { id: seasonId }, include: { _count: true } });
+      // Enumerar referencias de negocio: _count:true incorporaría snapshots privados
+      // al crecer Prisma y exigiría permisos ajenos al mantenimiento de temporadas.
+      // Los cierres se rechazan por estado y las FK siguen protegiendo toda referencia.
+      const season = await tx.seasons.findUnique({ where: { id: seasonId }, include: { _count: { select: {
+        billing_plans: true, charges: true, club_affiliations: true, club_team_changes: true,
+        competition_rules: true, correction_authorizations: true, disciplinary_cases: true,
+        imports: true, matchdays: true, official_documents: true, publications: true,
+        schedule_proposals: true, season_breaks: true, season_categories: true, venue_loans: true,
+      } } } });
       if (!season) throw new CompetitionError("INVALID_CONTEXT");
       checkSeason(season, data.expectedSeasonVersion);
       if (Object.values(season._count).some(count => count > 0)) throw new CompetitionError("SEASON_IN_USE", 409);

@@ -17,9 +17,10 @@ export async function createIdentityToken(identity: User): Promise<JWT> {
     const user = await lockAuthUser(tx, identity.id);
     const now = new Date();
     if (!user || !user.is_active || user.version !== identity.userVersion ||
+      (user.admin_reset_expires_at && user.admin_reset_expires_at <= now) ||
       (user.locked_until && user.locked_until > now)) return {};
 
-    const expiresAt = new Date(now.getTime() + getIdleTimeoutMs());
+    const expiresAt = new Date(Math.min(now.getTime() + getIdleTimeoutMs(), user.admin_reset_expires_at?.getTime() ?? Infinity));
     await tx.sessions.create({
       data: {
         user_id: user.id,
@@ -66,7 +67,7 @@ export async function validateIdentitySession(identity: { sid: string; sub: stri
       where: { token_hash: tokenHash },
       select: {
         id: true, user_id: true, last_activity_at: true, expires_at: true, revoked_at: true,
-        users: { select: { id: true, is_active: true, locked_until: true, must_change_password: true, version: true } },
+        users: { select: { id: true, is_active: true, locked_until: true, must_change_password: true, version: true, admin_reset_expires_at: true } },
       },
     });
     if (!session || session.user_id !== identity.sub) return null;
@@ -74,14 +75,15 @@ export async function validateIdentitySession(identity: { sid: string; sub: stri
     const idleMs = getIdleTimeoutMs();
     const user = session.users;
     if (isSessionExpired(session, now, idleMs) || !user.is_active || user.version !== identity.userVersion ||
-        (user.locked_until && user.locked_until > now)) {
+        (user.admin_reset_expires_at && user.admin_reset_expires_at <= now) ||
+      (user.locked_until && user.locked_until > now)) {
       // Una configuración más permisiva posterior no resucita una sesión rechazada.
       if (!session.revoked_at) await tx.sessions.update({ where: { id: session.id }, data: { revoked_at: now } });
       return null;
     }
-    let expiresAt = new Date(Math.min(session.expires_at.getTime(), session.last_activity_at.getTime() + idleMs));
+    let expiresAt = new Date(Math.min(session.expires_at.getTime(), session.last_activity_at.getTime() + idleMs, user.admin_reset_expires_at?.getTime() ?? Infinity));
     if (recordActivity) {
-      expiresAt = new Date(now.getTime() + idleMs);
+      expiresAt = new Date(Math.min(now.getTime() + idleMs, user.admin_reset_expires_at?.getTime() ?? Infinity));
       await tx.sessions.update({ where: { id: session.id }, data: { last_activity_at: now, expires_at: expiresAt } });
     }
     return { userId: user.id, userVersion: user.version, mustChangePassword: user.must_change_password,

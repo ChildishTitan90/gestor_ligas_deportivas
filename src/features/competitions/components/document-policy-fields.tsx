@@ -57,7 +57,8 @@ export function DocumentPolicyFields({sportPolicy,type,canApprove}:{sportPolicy:
     {!!uniqueErrors.length && <div ref={errorsRef} tabIndex={-1} role="alert" className="rounded-xl border border-danger/30 bg-danger-surface p-4 text-sm leading-6 text-danger"><p className="font-semibold">Revisa la política antes de guardar</p><ul className="mt-2 list-disc pl-5">{uniqueErrors.map(error=><li key={error}>{error}</li>)}</ul></div>}
     <input ref={validator} className="sr-only" aria-hidden="true" tabIndex={-1} value="" onChange={()=>{}} onInvalid={event=>{event.preventDefault();errorsRef.current?.focus();}} />
     <input type="hidden" name="documentPolicyJson" value={JSON.stringify(policy)} />
-    {Object.entries(sportPolicy).filter(([key])=>key!=="documents" && key!=="registrationDays").map(([key,value])=><input key={key} type="hidden" name={key} value={value===null?"":String(value)} />)}
+    {Object.entries(sportPolicy).filter(([key])=>key!=="documents" && key!=="registrationDays" && key!=="registrationWindows").map(([key,value])=><input key={key} type="hidden" name={key} value={value===null?"":String(value)} />)}
+    {sportPolicy.registrationWindows && <input type="hidden" name="registrationWindowsJson" value={JSON.stringify(sportPolicy.registrationWindows)} />}
     {sportPolicy.registrationDays.map(day=><input key={day} type="hidden" name="registrationDays" value={day} />)}
     <p className="text-sm leading-6 text-muted">Guardar esta política conserva las edades, los días de alta y los cupos deportivos. Las edades existentes de Veteranos no cambian; la diferencia entre 35 y 37 requiere confirmación.</p>
   </div>;

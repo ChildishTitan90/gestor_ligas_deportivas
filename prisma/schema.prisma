@@ -2104,6 +2104,12 @@ model users {
   requested_identity_corrections player_identity_corrections[] @relation("correction_requester")
   reviewed_identity_corrections player_identity_corrections[] @relation("correction_reviewer")
 
+  admin_reset_expires_at DateTime? @db.Timestamptz(6)
+  admin_reset_consumed_at DateTime? @db.Timestamptz(6)
+  email_verified_at DateTime? @db.Timestamptz(6)
+  email_changes_requested account_email_changes[] @relation("email_change_actor")
+  email_changes_owned account_email_changes[] @relation("email_change_user")
+  maintenance_revision Int @default(0)
   configured_player_levels player_category_levels[]
   requested_category_participations player_category_participations[]
   curp_checks                                                             player_curp_checks[]
@@ -2360,5 +2366,33 @@ model season_identity_closures {
   format_version Int @default(1)
   seasons seasons @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users users @relation(fields: [captured_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@schema("sports_management")
+}
+
+/// Propiedad de correo independiente de password_resets; solo hashes de tokens.
+model account_email_changes {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id String @db.Uuid
+  actor_id String @db.Uuid
+  operation_key String @db.Uuid
+  input_hash String
+  old_email String
+  new_email String
+  token_hash String @unique
+  expected_revision Int
+  user_version Int
+  reason String
+  created_at DateTime @db.Timestamptz(6)
+  expires_at DateTime @db.Timestamptz(6)
+  used_at DateTime? @db.Timestamptz(6)
+  status String
+  confirmation_delivery String
+  previous_notice_delivery String
+  completion_notice_delivery String
+  user users @relation("email_change_user", fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actor users @relation("email_change_actor", fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@unique([actor_id, operation_key])
+  @@index([user_id, created_at(sort: Desc)], map: "account_email_changes_recent")
+  @@unique([user_id], map: "account_email_changes_one_pending", where: raw("(status = 'PENDING'::text)"))
   @@schema("sports_management")
 }

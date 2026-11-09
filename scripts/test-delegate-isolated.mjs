@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import {createServer} from 'node:net';
-import {access} from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { access } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { execFile, fork } from 'node:child_process';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { accountApplicationPlan, accountWorkerTimeout, independentInstallPlan } from './verification/account-independent-dependencies.mjs';
+import { ci136PortPlan } from './verification/ci136-port-plan.mjs';
+import { assertCI136PortFree, runCI136Version, cleanupCI136Applications } from './verification/ci136-isolated-suite.mjs';
 import {
   RUN_ID, ISOLATED_TEMP_ROOT, createDelegatePlan, childEnvironment, executeDelegateMatrix, cleanupDelegateResources,
   isMissingDockerResource,
@@ -17,25 +19,30 @@ export function parseDelegateArguments(args) {
   let selected = false;
   let accountIntegration = false;
   let accountMode = 'http';
+  let ci136 = false;
   for (let index = 0; index < args.length; index++) {
     if (args[index] === '--run-id' && runId === undefined) runId = args[++index];
     else if (['--execute', '--cleanup'].includes(args[index]) && !selected) {
       mode = args[index] === '--execute' ? 'execute' : 'cleanup'; selected = true;
-    } else if (args[index] === '--account-integration' && !accountIntegration) accountIntegration = true;
-    else if (['--account-browser', '--account-preview', '--account-provisioning', '--competition-seasons', '--player-identity-correction', '--player-identity-age'].includes(args[index]) && !accountIntegration) {
-      accountIntegration = true; accountMode = args[index] === '--account-browser' ? 'browser' : args[index] === '--account-preview' ? 'preview' : args[index] === '--account-provisioning' ? 'accounts' : args[index] === '--player-identity-correction' ? 'identity-correction' : args[index] === '--player-identity-age' ? 'identity-age-regression' : 'seasons';
+    } else if (args[index] === '--ci136' && !ci136 && !accountIntegration) ci136 = true;
+    else if (args[index] === '--account-integration' && !accountIntegration && !ci136) accountIntegration = true;
+    else if (['--account-browser', '--account-preview', '--account-provisioning', '--competition-seasons', '--player-identity-correction', '--player-identity-age', '--account-navigation', '--account-password-change-regression', '--account-administrative-reset', '--account-email-confirmation', '--account-maintenance-ui', '--account-maintenance', '--account-maintenance-preview'].includes(args[index]) && !accountIntegration && !ci136) {
+      accountIntegration = true; accountMode = args[index] === '--account-browser' ? 'browser' : args[index] === '--account-preview' ? 'preview' : args[index] === '--account-provisioning' ? 'accounts' : args[index] === '--competition-seasons' ? 'seasons' : args[index] === '--player-identity-correction' ? 'identity-correction' : args[index] === '--player-identity-age' ? 'identity-age-regression' : args[index] === '--account-navigation' ? 'navigation' : args[index] === '--account-password-change-regression' ? 'password-change-regression' : args[index] === '--account-administrative-reset' ? 'administrative-reset' : args[index] === '--account-email-confirmation' ? 'email-confirmation' : args[index] === '--account-maintenance-ui' ? 'maintenance-ui' : args[index] === '--account-maintenance-preview' ? 'maintenance-preview' : 'maintenance';
     }
     else throw new Error('Usa --run-id UUID y, opcionalmente, --execute, --cleanup o --account-integration.');
   }
   assert.match(runId ?? '', RUN_ID, 'Falta un UUID v4 válido de ejecución.');
-  return { runId, mode, accountIntegration, accountMode };
+  return { runId, mode, accountIntegration, accountMode, ci136 };
 }
 
-export const accountSuiteNames = { http: 'PDGLD-107 HTTP/SSR', browser: 'PDGLD-107 navegador', preview: 'PDGLD-107 Preview/RLS temporal', accounts: 'PDGLD-93 accounts.test.mjs con catálogo real', seasons: 'PDGLD-93 seasons.test.mjs completa', 'identity-correction':'PDGLD-117 corrección de identidad deportiva', 'identity-age-regression':'PDGLD-117 compatibilidad edad/excepciones' };
+export const ci136SuiteName = 'PDGLD-118 CI136 seed y clubes';
+export const accountSuiteNames = { http: 'PDGLD-107 HTTP/SSR', browser: 'PDGLD-107 navegador', preview: 'PDGLD-107 Preview/RLS temporal', accounts: 'PDGLD-93 accounts.test.mjs con catálogo real', seasons: 'PDGLD-93 seasons.test.mjs completa', 'identity-correction': 'PDGLD-117 corrección de identidad deportiva', 'identity-age-regression': 'PDGLD-117 compatibilidad edad/excepciones', navigation: 'PDGLD-120 navegación de cuentas', 'password-change-regression': 'PDGLD-119 regresión de cambio concurrente de contraseña', 'administrative-reset': 'PDGLD-119 restablecimiento administrativo integrado', 'email-confirmation': 'PDGLD-118 confirmación de correo en navegador', 'maintenance-ui': 'PDGLD-118 interfaz integrada de cuentas', maintenance: 'PDGLD-118 mantenimiento de cuentas', 'maintenance-preview': 'PDGLD-118 mantenimiento Preview/RLS' };
 const isAccountRegistry = registry => Object.values(accountSuiteNames).includes(registry.suite);
+const isIndependentRegistry = registry => isAccountRegistry(registry) || registry.suite === ci136SuiteName;
 
 export function restoreDelegateRegistry(data, runId) {
-  const plan = createDelegatePlan(runId, data.plan?.ownerToken ?? '');
+  const plan = data.suite === ci136SuiteName ? ci136PortPlan(runId, data.plan?.ownerToken ?? '') : createDelegatePlan(runId, data.plan?.ownerToken ?? '');
+  if (data.suite === ci136SuiteName) assert.notEqual(plan.ownerToken, '0'.repeat(32), 'Propietario público no autorizado.');
   assert.deepEqual(data.plan, plan, 'El registro no corresponde al plan local esperado.');
   assert.ok(Array.isArray(data.resources) && data.resources.length <= 2);
   const resources = data.resources.map((resource, index) => {
@@ -132,21 +139,31 @@ async function worker(config, signal, accountIntegration = false, accountMode = 
 }
 
 async function assertPortsFree(ports) {
- for (const port of ports) {
-  const server=createServer();
-  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen({host:'127.0.0.1',port,exclusive:true},resolve);});
-  await new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
- }
+  for (const port of ports) {
+    const server = createServer();
+    await new Promise((resolve,reject) => { server.once('error',reject); server.listen({host:'127.0.0.1',port,exclusive:true},resolve); });
+    await new Promise((resolve,reject) => server.close(error=>error?reject(error):resolve()));
+  }
 }
-
 async function main() {
-  const { runId, mode, accountIntegration, accountMode } = parseDelegateArguments(process.argv.slice(2));
+  const { runId, mode, accountIntegration, accountMode, ci136 } = parseDelegateArguments(process.argv.slice(2));
   const scratch = `${ISOLATED_TEMP_ROOT}/pdgld106-${runId}`;
   if (mode === 'plan') {
+    if (ci136) {
+      const plan = ci136PortPlan(runId);
+      delete plan.ownerToken;
+      console.log(JSON.stringify({ mode, suite: ci136SuiteName, ...plan, registry: `${scratch}/run.json`,
+        application: plan.versions.map(item => ({ app: `${scratch}/app-pg${item.major}`,
+          installation: independentInstallPlan({ directory: scratch, app: `${scratch}/app-pg${item.major}`, major: item.major }),
+          commands: ['CI=true npm run test:seed -- --existing', 'node scripts/test-auth.mjs --club-maintenance'] })),
+        sequence: 'PG15 seed y clubes -> aprobación y limpieza verificada -> PG17 seed y clubes -> limpieza',
+      }, null, 2));
+      return;
+    }
     const plan = createDelegatePlan(runId, '0'.repeat(32));
     console.log(JSON.stringify({ mode, newAgreedRuleChecks: !accountIntegration ? ['distinct-deputies-capacity', 'equal-capabilities-scoped-authorship', 'authorization-inclusive-start-exclusive-end', 'representation-change-preserves-authorship'] : undefined, suite: accountIntegration ? accountSuiteNames[accountMode] : 'PDGLD-106 SQL',
       applicationPorts: accountIntegration ? ['127.0.0.1:56515', '127.0.0.1:56517'] : undefined,
-      browser: ['browser','identity-correction'].includes(accountMode) ? { profile: `${scratch}/chrome-pg15/17`, debugging: 'solo loopback, puerto efímero de Chrome', artifacts: `${scratch}/evidence-pg15/17` } : undefined,
+      browser: ['browser', 'identity-correction', 'navigation', 'maintenance', 'maintenance-ui', 'email-confirmation', 'administrative-reset'].includes(accountMode) ? { profile: `${scratch}/chrome-pg15/17`, debugging: 'solo loopback, puerto efímero de Chrome', artifacts: `${scratch}/evidence-pg15/17` } : undefined,
       application: accountIntegration ? plan.versions.map(item => {
         const runtime = accountApplicationPlan({ runId, major: item.major, verificationMode: accountMode });
         return { ...runtime, installation: runtime.dependencies === 'independent' ? independentInstallPlan(runtime) : null, workerTimeoutMs: accountWorkerTimeout(accountMode) };
@@ -156,48 +173,64 @@ async function main() {
   }
   if (mode === 'cleanup') {
     const registry = JSON.parse(await readFile(`${scratch}/run.json`, 'utf8'));
+    assert.equal(registry.suite === ci136SuiteName, ci136, 'El perfil no coincide con el registro.');
     const { plan, resources } = restoreDelegateRegistry(registry, runId);
     const io = dockerIO(plan, scratch);
     const failures = await Promise.allSettled(resources.map(async item => {
       const cleanup = await Promise.allSettled([
         cleanupDelegateResources(plan, item, io),
-        isAccountRegistry(registry) ? rm(`${scratch}/app-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
-        isAccountRegistry(registry) ? rm(`${scratch}/chrome-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
-        isAccountRegistry(registry) ? rm(`${scratch}/npm-work-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
+        ci136 ? cleanupCI136Applications(scratch, item.major) : isIndependentRegistry(registry) ? rm(`${scratch}/app-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
+        !ci136 && isIndependentRegistry(registry) ? rm(`${scratch}/chrome-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
+        !ci136 && isIndependentRegistry(registry) ? rm(`${scratch}/npm-work-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
       ]);
       if (cleanup.some(result => result.status === 'rejected')) throw new Error('Limpieza incompleta.');
+      if (ci136) {
+        assert.equal(await io.inspectOptional('container', item.container), undefined);
+        assert.equal(await io.inspectOptional('network', item.network), undefined);
+      }
     }));
     if (failures.some(result => result.status === 'rejected')) throw new Error(`Recuperación incompleta: ${scratch}/run.json`);
+    if (ci136) await assertCI136PortFree();
     console.log(`Recursos propios eliminados: ${runId}. Se conserva el registro local sin credenciales.`);
     return;
   }
   if (accountIntegration) await assertPortsFree([55415,55417,56515,56517]);
-  const plan = createDelegatePlan(runId, randomBytes(16).toString('hex'));
+  const plan = (ci136 ? ci136PortPlan : createDelegatePlan)(runId, randomBytes(16).toString('hex'));
   await mkdir(scratch, { mode: 0o700 }); // EEXIST prevents reusing an old execution.
   await mkdir(`${scratch}/docker`, { mode: 0o700 });
   const controller = new AbortController();
   const stop = () => controller.abort(new Error('Ejecución interrumpida.'));
   process.once('SIGINT', stop); process.once('SIGTERM', stop);
   const docker = dockerIO(plan, scratch);
+  const record = async registry => {
+    const temporary = `${scratch}/run-${randomUUID()}.tmp`;
+    await writeFile(temporary, JSON.stringify({ ...registry, suite: ci136 ? ci136SuiteName : accountIntegration ? accountSuiteNames[accountMode] : 'PDGLD-106 SQL', accountMode: accountIntegration ? accountMode : undefined }, null, 2), { flag: 'wx', mode: 0o600 });
+    await rename(temporary, `${scratch}/run.json`);
+  };
   try {
+    if (ci136) await record({ plan, resources: [] });
     await executeDelegateMatrix(plan, {
       ...docker,
-      beforeVersion: accountIntegration ? async item => {
+      beforeVersion: ci136 ? async item => {
+        try {
+          await assertCI136PortFree();
+          assert.equal(await docker.inspectOptional('container', item.container), undefined);
+          assert.equal(await docker.inspectOptional('network', item.network), undefined);
+        } catch { throw Object.assign(new Error('CI136_PREFLIGHT_BLOCKED: puerto o identidad/disponibilidad de Docker no verificados; sin conexiones PostgreSQL.'),
+          { code: 'CI136_PREFLIGHT_BLOCKED' }); }
+      } : accountIntegration ? async item => {
         await assertPortsFree([item.port,56500+item.major]);
         assert.equal(await docker.inspectOptional('container',item.container),undefined);
         assert.equal(await docker.inspectOptional('network',item.network),undefined);
       } : undefined,
-      worker: (config, signal) => worker(config, signal, accountIntegration, accountMode), secret: () => randomBytes(32).toString('base64url'),
+      worker: (config, signal) => ci136 ? runCI136Version(config, plan, docker, signal) : worker(config, signal, accountIntegration, accountMode),
+      secret: () => randomBytes(32).toString('base64url'),
       progress: message => console.log(message),
-      record: async registry => {
-        const temporary = `${scratch}/run-${randomUUID()}.tmp`;
-        await writeFile(temporary, JSON.stringify({ ...registry, suite: accountIntegration ? accountSuiteNames[accountMode] : 'PDGLD-106 SQL', accountMode: accountIntegration ? accountMode : undefined }, null, 2), { flag: 'wx', mode: 0o600 });
-        await rename(temporary, `${scratch}/run.json`);
-      },
+      record,
       cleanup: async (ownedPlan, item) => {
         const results = await Promise.allSettled([
           cleanupDelegateResources(ownedPlan, item, docker),
-          accountIntegration ? rm(`${scratch}/app-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
+          ci136 ? cleanupCI136Applications(scratch, item.major) : accountIntegration ? rm(`${scratch}/app-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
           accountIntegration ? rm(`${scratch}/chrome-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
           accountIntegration ? rm(`${scratch}/npm-work-pg${item.major}`, { recursive: true, force: true }) : Promise.resolve(),
         ]);
@@ -206,10 +239,23 @@ async function main() {
           assert.equal(await docker.inspectOptional('container',item.container),undefined);
           assert.equal(await docker.inspectOptional('network',item.network),undefined);
           await assertPortsFree([item.port,56500+item.major]);
-          for(const prefix of ['app','chrome','npm-work'])await assert.rejects(access(`${scratch}/${prefix}-pg${item.major}`),{code:'ENOENT'});
+          for (const prefix of ['app','npm-work','chrome']) await assert.rejects(access(`${scratch}/${prefix}-pg${item.major}`),{code:'ENOENT'});
+        }
+        if (ci136) {
+          assert.equal(await docker.inspectOptional('container', item.container), undefined);
+          assert.equal(await docker.inspectOptional('network', item.network), undefined);
+          await assertCI136PortFree();
         }
       },
     }, controller.signal);
+  } catch (error) {
+    if (ci136) {
+      const registry = JSON.parse(await readFile(`${scratch}/run.json`, 'utf8'));
+      await record({ ...registry, execution: { status: 'STOPPED',
+        code: ['CI136_PREFLIGHT_BLOCKED', 'CI136_CHECKS_FAILED', 'CI136_INFRASTRUCTURE_FAILED'].includes(error.code)
+          ? error.code : 'CI136_RESOURCES_OR_CLEANUP_FAILED' } });
+    }
+    throw error;
   } finally {
     process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop);
   }

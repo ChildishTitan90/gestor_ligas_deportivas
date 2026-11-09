@@ -57,7 +57,7 @@ export function SessionActivity() {
         if (!response.ok) throw new Error("SESSION_UNAVAILABLE");
         const session = await response.json();
         if (stopped) return;
-        const publicPage = ["/", "/futbol", "/login"].includes(window.location.pathname);
+        const publicPage = ["/", "/futbol", "/login", "/email-change/confirm"].includes(window.location.pathname);
         const sessionState = session?.user?.id ? `${session.user.id}:${Boolean(session.user.mustChangePassword)}` : null;
         const changed = lastSessionState.current !== undefined && lastSessionState.current !== sessionState;
         lastSessionState.current = sessionState;

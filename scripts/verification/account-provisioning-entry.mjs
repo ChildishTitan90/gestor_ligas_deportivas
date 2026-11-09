@@ -3,6 +3,7 @@ import { fork } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { independentInstallPlan } from './account-independent-dependencies.mjs';
 import { childEnvironment } from '../ci/delegate-isolated-runtime.mjs';
+import { PREVIEW_ROLE } from '../preview/runtime-plan.mjs';
 
 // No .env, database import or connection before checking the exact isolated target.
 export function validateAccountProvisioningTarget(config) {
@@ -10,13 +11,33 @@ export function validateAccountProvisioningTarget(config) {
   assert.ok(['postgres:', 'postgresql:'].includes(target.protocol));
   assert.equal(target.hostname, '127.0.0.1');
   assert.ok(['55415', '55417'].includes(target.port));
-  assert.equal(target.username, 'postgres');
   assert.match(target.pathname, /^\/pdgld48_test_[a-f0-9]{16}$/);
   assert.ok(target.pathname.endsWith(target.port.slice(-2)));
   assert.equal(target.search + target.hash, '');
   assert.equal(config.baseUrl, `http://127.0.0.1:${56500 + Number(target.port.slice(-2))}`);
   const suite = config.suite ?? 'accounts';
-  assert.ok(['accounts', 'seasons', 'identity-correction', 'identity-age-regression'].includes(suite));
+  assert.ok(['accounts', 'seasons', 'identity-correction', 'identity-age-regression', 'navigation', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'preview-prisma-account', 'maintenance-preview'].includes(suite));
+  assert.equal(target.username, suite === 'preview-prisma-account' ? PREVIEW_ROLE : 'postgres');
+  if (suite === 'maintenance-preview') {
+    const runtime = validateAccountProvisioningTarget({ databaseUrl: config.runtimeDatabaseUrl,
+      baseUrl: config.baseUrl, suite: 'preview-prisma-account' });
+    const runtimeTarget = new URL(runtime.databaseUrl);
+    assert.equal(runtimeTarget.host + runtimeTarget.pathname, target.host + target.pathname);
+    return { databaseUrl: target.href, baseUrl: config.baseUrl, suite, runtimeDatabaseUrl: runtime.databaseUrl };
+  }
+  if (suite === 'administrative-reset') {
+    assert.equal(config.runtimeDatabaseUrl,undefined);
+    const fixtureUrl=new URL(config.fixture?.url);
+    assert.equal(fixtureUrl.protocol,'http:');assert.equal(fixtureUrl.hostname,'127.0.0.1');
+    assert.ok(Number(fixtureUrl.port)>1024);assert.equal(fixtureUrl.pathname,'/');
+    assert.equal(fixtureUrl.search+fixtureUrl.hash+fixtureUrl.username+fixtureUrl.password,'');
+    assert.match(config.fixture.key,/^[A-Za-z0-9_-]{43}$/);
+    assert.match(config.fixture.enableFile,/^\/(?:private\/tmp|tmp)\/pdgld106-[a-f0-9-]{36}\/app-pg(?:15|17)\/\.synthetic-email-enabled$/);
+    assert.ok(config.fixture.enableFile.endsWith(`app-pg${target.port.slice(-2)}/.synthetic-email-enabled`));
+    return {databaseUrl:target.href,baseUrl:config.baseUrl,suite,fixture:config.fixture};
+  }
+  assert.equal(config.fixture,undefined);
+  assert.equal(config.runtimeDatabaseUrl, undefined);
   return { databaseUrl: target.href, baseUrl: config.baseUrl, suite };
 }
 
@@ -29,22 +50,30 @@ export function runAccountProvisioningSuite(config, { signal, application } = {}
   assert.equal(application.dependencies, 'independent');
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
-    const child = fork(`${application.app}/scripts/verification/account-provisioning-entry.mjs`, [], { execArgv: target.suite === 'identity-correction' ? ['--conditions=react-server'] : [], cwd: application.app,
+    const child = fork(`${application.app}/scripts/verification/account-provisioning-entry.mjs`, [], { execArgv: ['identity-correction', 'navigation', 'password-change-regression','administrative-reset','email-confirmation'].includes(target.suite) ? ['--conditions=react-server'] : [], cwd: application.app,
       env: childEnvironment(process.env), stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
     let completed = false; let cancelled = false; let force;
+    let failureLocation;
     const stop = () => {
       cancelled = true; child.kill('SIGTERM');
       force ??= setTimeout(() => child.kill('SIGKILL'), 2000);
     };
     signal?.addEventListener('abort', stop, { once: true });
-    child.on('message', message => { if (message?.completed === true) completed = true; });
+    child.on('message', message => {
+      if (message?.completed === true) completed = true;
+      if (message?.type === 'maintenance-failure' &&
+        /^tests\/(?:integration\/account-(?:identifiers|maintenance-preview)|e2e\/account-(?:navigation|administrative-reset|email-confirmation)-browser)\.mjs:\d+:\d+$/.test(message.location ?? ''))
+        failureLocation ??= message.location;
+    });
     child.once('error', () => { completed = false; });
     child.once('close', code => {
       clearTimeout(force); signal?.removeEventListener('abort', stop);
       if (code === 0 && completed && !cancelled) resolve();
       else {
-        const code = target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
-        reject(Object.assign(new Error(code), { code }));
+        const code = target.suite === 'preview-prisma-account' ? 'PREVIEW_PRISMA_ACCOUNT_FAILED' : ['navigation', 'password-change-regression','administrative-reset','email-confirmation','maintenance-ui','maintenance','maintenance-preview'].includes(target.suite) ? 'ACCOUNT_MAINTENANCE_FAILED' : target.suite === 'seasons' ? 'SEASONS_SUITE_FAILED' : 'ACCOUNT_PROVISIONING_FAILED';
+        const failure = Object.assign(new Error(code), { code });
+        if (failureLocation) failure.stack = `Error: ${code}\n    at ${failureLocation}`;
+        reject(failure);
       }
     });
     if (signal?.aborted) stop(); else child.send(target);
@@ -66,6 +95,31 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       } else if (target.suite === 'identity-age-regression') {
         const {runPlayerAgeCompatibility}=await import('./player-identity-age-entry.mjs');
         await runPlayerAgeCompatibility(target);
+      } else if (target.suite === 'preview-prisma-account') {
+        const { verifyPreviewPrismaAccountCreation } = await import('../../tests/integration/preview-prisma-account.mjs');
+        await verifyPreviewPrismaAccountCreation(target);
+      } else if (target.suite === 'maintenance-preview') {
+        const { runAccountMaintenanceSuite } = await import('../../tests/integration/account-maintenance.test.mjs');
+        const { verifyAccountMaintenancePreview } = await import('../../tests/integration/account-maintenance-preview.mjs');
+        await verifyAccountMaintenancePreview(target, () => runAccountMaintenanceSuite(target));
+      } else if (target.suite === 'navigation') {
+        const { verifyAccountNavigation } = await import('../../tests/e2e/account-navigation-browser.mjs');
+        await verifyAccountNavigation(target);
+      } else if (target.suite === 'password-change-regression') {
+        const { verifyPasswordChangeVersion } = await import('../../tests/integration/password-change-version.mjs');
+        await verifyPasswordChangeVersion(target);
+      } else if (target.suite === 'administrative-reset') {
+        const { verifyAdministrativeResetBrowser } = await import('../../tests/e2e/account-administrative-reset-browser.mjs');
+        await verifyAdministrativeResetBrowser(target);
+      } else if (target.suite === 'email-confirmation') {
+        const { verifyAccountEmailConfirmationBrowser } = await import('../../tests/e2e/account-email-confirmation-browser.mjs');
+        await verifyAccountEmailConfirmationBrowser(target);
+      } else if (target.suite === 'maintenance-ui') {
+        const { prepareMaintenanceUI } = await import('../../tests/integration/account-maintenance-ui-fixtures.mjs');
+        await prepareMaintenanceUI(target);
+      } else if (target.suite === 'maintenance') {
+        const { runAccountMaintenanceSuite } = await import('../../tests/integration/account-maintenance.test.mjs');
+        await runAccountMaintenanceSuite(target);
       } else if (target.suite === 'seasons') {
         const { runSeasonIntegrationSuite } = await import('../../tests/integration/seasons.test.mjs');
         await runSeasonIntegrationSuite(target);
@@ -86,7 +140,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         await writeFile(`${dirname(process.cwd())}/evidence-pg${new URL(config.databaseUrl).port.slice(-2)}/identity-failure.json`,JSON.stringify({code,frames}),{mode:0o600}).catch(()=>{});
       }
       process.exitCode = 1;
-      process.send({ completed: false }, () => process.disconnect());
+      const location = error?.stack?.match(/tests\/(?:integration\/account-maintenance-preview|e2e\/account-(?:navigation|administrative-reset|email-confirmation)-browser)\.mjs:\d+:\d+/)?.[0];
+      process.send({ completed: false, ...(location ? { type:'maintenance-failure',location } : {}) }, () => process.disconnect());
     }
   });
 }
