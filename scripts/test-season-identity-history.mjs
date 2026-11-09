@@ -9,6 +9,7 @@ const runId = randomUUID();
 console.log(`PDGLD-117 historial: run-id ${runId}; PG15 → limpieza → PG17 → limpieza.`);
 const snapshotMigration = '20261108020000_pdgld117_season_identity_snapshots';
 const migration = '20261108030000_pdgld117_identity_closure_receipts';
+const selectiveMigration = '20261109010000_pdgld117_selective_history';
 const env = childEnvironment(process.env);
 const actor = `SELECT set_config('app.user_id','11700000-0000-4000-8000-000000000002',false),set_config('app.reason','Prueba sintetica aislada',false);`;
 function command(args, input = '', { interactive = false } = {}) {
@@ -135,6 +136,41 @@ for (const major of [15, 17]) {
     assert.equal(await scalar(`SELECT count(*) FROM sports_management.season_person_identity_snapshots WHERE season_id=${season('legacy')}`), '0');
     assert.equal(await scalar(`SELECT count(*) FROM information_schema.columns WHERE table_schema='sports_management' AND table_name='season_person_identity_snapshots' AND column_name IN ('curp','birth_date','bytes')`), '0');
     assert.equal(await scalar(`SELECT count(*) FROM sports_management.audit_logs WHERE (new_data::text LIKE '%Nombre corregido%' OR previous_data::text LIKE '%Nombre anterior%')`), '0');
+    // Actualizar después de verificar las migraciones históricas originales.
+    // Debe dejar TODOS los cierres anteriores sin hechos nuevos (sin backfill).
+    await query(await readFile(`prisma/migrations/${selectiveMigration}/migration.sql`, 'utf8'));
+    assert.equal(await scalar('SELECT count(*) FROM sports_management.season_registration_history'),'0');
+    await create('private_refs');
+    const registration = `(SELECT registration_id FROM history_test.cases WHERE name='private_refs')`;
+    await query(actor + `INSERT INTO sports_management.player_documents(registration_id,document_type_id,file_id)
+      SELECT ${registration},dt.id,g.document_file_id FROM sports_management.guardian_consents g
+      CROSS JOIN sports_management.document_types dt WHERE g.registration_id=${registration} AND dt.code='GUARDIAN_CONSENT';`);
+    const fileCount=await scalar('SELECT count(*) FROM sports_management.files');
+    await query(actor+close('private_refs'));
+    assert.equal(await scalar(`SELECT birth_date::text||':'||identity_version FROM sports_management.season_registration_history WHERE registration_id=${registration}`),'1990-01-01:1');
+    assert.equal(await scalar(`SELECT jsonb_array_length(document_refs) FROM sports_management.season_registration_history WHERE registration_id=${registration}`),'1');
+    assert.equal(await scalar(`SELECT (document_refs->0->>'fileId')::uuid=g.document_file_id FROM sports_management.season_registration_history h JOIN sports_management.guardian_consents g USING(registration_id) WHERE h.registration_id=${registration}`),'t');
+    assert.equal(await scalar('SELECT count(*) FROM sports_management.files'),fileCount);
+    assert.equal(await scalar(`SELECT document_refs::text LIKE '%bytes%' OR document_refs::text LIKE '%storage_key%' FROM sports_management.season_registration_history WHERE registration_id=${registration}`),'f');
+    await query('UPDATE sports_management.season_registration_history SET birth_date=now()::date',3);
+    await query('DELETE FROM sports_management.season_registration_history',3);
+    await query('TRUNCATE sports_management.season_registration_history',3);
+    console.log(`PG${major}: captura futura por referencias, sin backfill/duplicación y con inmutabilidad aprobada.`);
+    // Un trámite/GUC coincidente sin APPLIED + auditoría no autoriza un COMMIT.
+    await query(actor + `WITH p AS (INSERT INTO sports_management.people(first_name,paternal_surname)
+      VALUES('Solicitante','Sintético') RETURNING id),u AS (
+      INSERT INTO sports_management.users(person_id,username,email,password_hash)
+      SELECT id,'history-requester','history-requester@example.test','synthetic-not-valid' FROM p RETURNING id)
+      INSERT INTO sports_management.player_identity_corrections(registration_id,person_id,requester_id,operation_key,request_hash,expected_identity_version,proposed_identity,reason,identity_doubt)
+      SELECT ${registration},p.id,u.id,gen_random_uuid(),'synthetic',p.identity_version,
+        jsonb_build_object('curp',p.curp,'firstName','Propuesta sin finalizar','paternalSurname',p.paternal_surname,'maternalSurname',p.maternal_surname,'birthDate',p.birth_date),
+        'Prueba sintética de commit incompleto',false FROM u CROSS JOIN sports_management.people p WHERE p.id=${person('private_refs')};`);
+    const unfinished=await query(actor + `BEGIN;
+      SELECT set_config('app.identity_correction_id',(SELECT id::text FROM sports_management.player_identity_corrections WHERE registration_id=${registration}),true);
+      UPDATE sports_management.people SET first_name='Propuesta sin finalizar' WHERE id=${person('private_refs')};
+      COMMIT;`,3);
+    assert.match(unfinished.stderr,/HISTORICAL_CORRECTION_NOT_COMMITTED/);
+    assert.equal(await scalar(`SELECT first_name FROM sports_management.people WHERE id=${person('private_refs')}`),'Nombre anterior');
     // RLS de Supabase se verifica aparte sobre otra base del mismo contenedor.
     await query('CREATE DATABASE history_rls');
     const rlsArgs = [...psqlArgs.slice(0, -1), 'history_rls'];
@@ -147,10 +183,10 @@ for (const major of [15, 17]) {
       }
       await rls(await readFile(`prisma/migrations/${name}/migration.sql`, 'utf8'));
     }
-    for (const name of [snapshotMigration,migration]) await rls(await readFile(`prisma/migrations/${name}/migration.sql`, 'utf8'));
+    for (const name of [snapshotMigration,migration,selectiveMigration]) await rls(await readFile(`prisma/migrations/${name}/migration.sql`, 'utf8'));
     assert.equal(await rls("SELECT relrowsecurity FROM pg_class WHERE oid='sports_management.season_person_identity_snapshots'::regclass"), 't');
     assert.equal(await rls("SELECT has_table_privilege('anon','sports_management.season_person_identity_snapshots','SELECT') OR has_table_privilege('authenticated','sports_management.season_person_identity_snapshots','INSERT') OR has_table_privilege('service_role','sports_management.season_person_identity_snapshots','SELECT')"), 'f');
-    for (const table of ['player_identity_corrections','player_identity_correction_evidence','season_identity_closures']) {
+    for (const table of ['player_identity_corrections','player_identity_correction_evidence','season_identity_closures','season_registration_history']) {
       assert.equal(await rls(`SELECT relrowsecurity FROM pg_class WHERE oid='sports_management.${table}'::regclass`), 't');
       for (const role of ['anon','authenticated','service_role']) {
         assert.equal(await rls(`SELECT has_table_privilege('${role}','sports_management.${table}','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')`), 'f');

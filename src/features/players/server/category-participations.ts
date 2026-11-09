@@ -64,9 +64,9 @@ export async function configurePlayerPathwayForActor(actorId:string,seasonId:str
 }
 
 const participationSelect={id:true,origin_registration_id:true,target_season_team_id:true,target_season_category_id:true,status:true,version:true,eligibility_fingerprint:true,review_event_id:true,request_hash:true} satisfies Prisma.player_category_participationsSelect;
-function receipt(row:Prisma.player_category_participationsGetPayload<{select:typeof participationSelect}>,replayed:boolean,assessment?:EligibilityAssessment){
+function receipt(row:Prisma.player_category_participationsGetPayload<{select:typeof participationSelect}>,replayed:boolean,assessment?:EligibilityAssessment,historical=false){
   return {id:row.id,originRegistrationId:row.origin_registration_id,targetSeasonTeamId:row.target_season_team_id,targetSeasonCategoryId:row.target_season_category_id,status:participationStatusSchema.parse(row.status),version:row.version,
-    sportsEligible:row.status==="AUTHORIZED" && !!assessment?.ready && row.eligibility_fingerprint===assessment.fingerprint,assessment,replayed};
+    historical,sportsEligible:historical ? null : row.status==="AUTHORIZED" && !!assessment?.ready && row.eligibility_fingerprint===assessment.fingerprint,assessment,replayed};
 }
 export async function readCategoryParticipationsForActor(actorId:string,registrationId:string){
   if(!z.uuid().safeParse(registrationId).success)throw new CategoryParticipationError("VALIDATION_ERROR",400);
@@ -80,7 +80,7 @@ export async function readCategoryParticipationsInTransaction(tx:Prisma.Transact
     const result=[];
     for(const row of rows){const {row:target}=await lockPlayerTeamContext(tx,actorId,row.target_season_team_id,"READ");const assessment = context.seasonStatus === "CLOSED" || target.seasonStatus === "CLOSED"
         ? undefined : await assessPlayerEligibility(tx,registrationId,[context,target],true);
-      result.push(receipt(row,true,assessment));}
+      result.push(receipt(row,true,assessment,context.seasonStatus === "CLOSED" || target.seasonStatus === "CLOSED"));}
     return result;
 }
 export async function createCategoryParticipationForActor(actorId:string,registrationId:string,input:unknown){

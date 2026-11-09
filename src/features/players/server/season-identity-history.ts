@@ -53,3 +53,19 @@ export async function readSeasonIdentityHistory(
     maternalSurname: row.maternal_surname, identityVersion: row.identity_version,
     seasonVersion: row.season_version, capturedAt: row.captured_at.toISOString(), source: "SEASON_CLOSURE_V1" };
 }
+
+/** El llamador ya autorizó READ del expediente. Datos capturados, nunca people.
+ * Las referencias privadas a archivos/decisiones se quedan en servidor.
+ */
+export async function readHistoricalRegistrationFacts(tx: Prisma.TransactionClient, registrationId: string) {
+  const [row] = await tx.$queryRaw<{birth_date:Date|null;reference_year:number|null;identity_version:number;
+    rule_version:number;registration_status:string;captured_at:Date}[]>`
+    SELECT h.birth_date,h.reference_year,h.identity_version,h.rule_version,h.registration_status,h.captured_at
+    FROM sports_management.season_registration_history h
+    JOIN sports_management.seasons s ON s.id=h.season_id
+    WHERE h.registration_id=${registrationId}::uuid AND s.status='CLOSED'`;
+  return row ? {status:"CAPTURED" as const,birthDate:row.birth_date?.toISOString().slice(0,10) ?? null,
+    referenceYear:row.reference_year,identityVersion:row.identity_version,ruleVersion:row.rule_version,
+    registrationStatus:row.registration_status,capturedAt:row.captured_at.toISOString()}
+    : {status:"UNAVAILABLE" as const};
+}

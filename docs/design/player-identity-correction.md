@@ -20,7 +20,10 @@ En una temporada cerrada, el expediente presenta el nombre capturado o
 «Información histórica no disponible». No presenta edad/documentos/habilitación
 calculados con people actual como hechos históricos. Participaciones mantiene
 estados registrados y explica que la evaluación histórica no está disponible.
-Aplicar sigue bloqueado aun con nombres capturados; solicitar/devolver continúa.
+La UI presenta nacimiento/año/estado capturados o su ausencia sin reevaluar
+hechos del cierre. Aplicar solo modifica la identidad vigente y reevalúa abiertas;
+se deshabilita según el bloqueo específico devuelto por servidor (por ejemplo,
+lectores arbitrales sin protección). Solicitar/devolver continúa.
 
 La validación de navegador usa Chrome y datos sintéticos, con autenticación y
 servicios reales sobre PostgreSQL desechable. Las capturas de ambos temas y

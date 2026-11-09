@@ -44,7 +44,7 @@ export function IdentityCorrectionWorkspace({ data, actorId }: {
         }
     }
     const base = `/api/player-registrations/${data.registrationId}/identity-corrections`;
-    return <section className="mx-auto w-full min-w-0 max-w-4xl space-y-6 break-words"><Link href={`/players/registrations/${data.registrationId}/documents`} className="underline">Volver al expediente</Link><h1 className="text-2xl font-semibold">Corrección de identidad deportiva</h1>
+    return <section className="mx-auto w-full min-w-0 max-w-4xl space-y-6 break-words"><Link href={`/players/registrations/${data.registrationId}/documents`} className="underline">Volver al expediente</Link><h1 className="text-2xl font-semibold">Corrección de identidad deportiva</h1><p>La propuesta modifica la identidad vigente de la misma persona; no sustituye los datos de temporadas cerradas.</p>
   <p>Solicitar o devolver una corrección no cambia la identidad ni la habilitación. La aprobación requiere evidencia privada y autoridad sobre todas las referencias de la misma persona.</p>
   <p>Las referencias en temporadas cerradas sin identidad histórica acreditada bloquean la aplicación, sin cambiar el historial.</p>
   <p>CURP: constancia correcta y documento de vinculación si hay duda. Nombre o nacimiento: acta o documento rectificatorio; constancia actualizada si cambia la clave o existe discrepancia. Para menores no hay excepciones nuevas y se conserva la acreditación de tutor.</p>

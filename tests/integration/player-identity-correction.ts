@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {verifyMixedSeasonHistory} from './player-mixed-season-history';
 import { randomUUID, createHash } from 'node:crypto';
 import { dirname } from 'node:path';
 import { writeFile } from 'node:fs/promises';
@@ -247,9 +248,16 @@ export async function verifyIdentityCorrection(config: unknown) {
         assert.deepEqual(await db.player_registrations.findUniqueOrThrow({ where: { id: b.r.id } }), statusBefore);
         assert.equal((await db.player_identity_corrections.findUniqueOrThrow({ where: { id: rollbackRequest.id } })).status, 'PENDING');
         checks.push('audit-failure-full-rollback');
+        checks.push(...await verifyMixedSeasonHistory({admin:admin.id,delegate:delegate.id,foreign:foreign.id,
+          context:{seasonId:f[0].season.id,stId:f[0].st.id,clubId:f[0].club.id,leagueId:f[0].league.id,sportId:f[0].sport.id,higherTeamId:participation.target_season_team_id,higherCategoryId:participation.target_season_category_id},curp,evidence}));
         // Closure uses real triggers. The correction remains pending, and labels stay identical.
         const historic = await request(delegate.id, b.r.id, { ...req(b.p), expectedIdentityVersion: 2, identity: { ...proposed(b.p), firstName: 'Otro Nombre' } }, evidence);
         const legacy = await create('1996-08-08', 'SIAA');
+        await db.$transaction(async tx=>{
+          const referee=await tx.referees.create({data:{person_id:b.p.id}});
+          await tx.club_season_referees.create({data:{season_id:f[0].season.id,club_id:f[0].club.id,referee_id:referee.id}});
+        });
+
         // Simula un cierre anterior a la migración, solo en esta base desechable.
         // El resto de triggers siguen activos y la barrera nunca se deshabilita.
         await db.$transaction(async tx => {
@@ -274,7 +282,7 @@ export async function verifyIdentityCorrection(config: unknown) {
         assert.deepEqual(legacyParticipation.targets,[]);
         checks.push('legacy-closure-without-snapshot-never-falls-back-to-current-identity');
         await db.$transaction(async (tx) => { await tx.$queryRaw `SELECT set_config('app.user_id',${admin.id},true),set_config('app.reason','Cierre sintético aislado',true)`; await tx.seasons.update({ where: { id: f[0].season.id }, data: { status: 'ACTIVE' } }); await tx.seasons.update({ where: { id: f[0].season.id }, data: { status: 'CLOSED', closed_at: new Date() } }); });
-        assert.equal((await workspace(admin.id, b.r.id)).applyBlockedCode, 'HISTORICAL_IDENTITY_UNAVAILABLE');
+        assert.equal((await workspace(admin.id, b.r.id)).applyBlockedCode, 'HISTORICAL_REFEREE_UNPROTECTED');
         const labelsBefore = await db.$transaction(tx => readRegistrationLabels(tx, b.r.id));
         const captured=await db.$transaction(tx=>readSeasonIdentityHistory(tx,b.p.id,f[0].season.id));
         assert.equal(captured.status,'CAPTURED');
@@ -292,7 +300,7 @@ export async function verifyIdentityCorrection(config: unknown) {
         assert.ok(closedParticipation.participations.every(p=>!p.assessment && !p.canReview && !p.sportsEligible));
         checks.push('captured-names-do-not-accredit-historical-age-documents-or-eligibility');
         const personBefore = await db.people.findUniqueOrThrow({ where: { id: b.p.id } });
-        await assert.rejects(decide(admin.id, b.r.id, historic.id, decision()), code('HISTORICAL_IDENTITY_UNAVAILABLE'));
+        await assert.rejects(decide(admin.id, b.r.id, historic.id, decision()), code('HISTORICAL_REFEREE_UNPROTECTED'));
         assert.deepEqual(await db.people.findUniqueOrThrow({ where: { id: b.p.id } }), personBefore);
         assert.deepEqual(await db.$transaction(tx => readRegistrationLabels(tx, b.r.id)), labelsBefore);
         await assert.rejects(db.people.update({ where: { id: b.p.id }, data: { first_name: 'SQL no permitido' } }));
@@ -334,7 +342,7 @@ export async function verifyIdentityCorrection(config: unknown) {
             return { status: response.status, body: await response.json(), cache: response.headers.get('cache-control') };
         }, `${endpoint}/${historic.id}`, admin.id, decision());
         assert.equal(httpDecision.status, 409);
-        assert.equal(httpDecision.body.code, 'HISTORICAL_IDENTITY_UNAVAILABLE');
+        assert.equal(httpDecision.body.code, 'HISTORICAL_REFEREE_UNPROTECTED');
         assert.match(httpDecision.cache, /no-store/);
         const switched = await run(async (path: string, actor: string) => (await fetch(path, { headers: { 'X-Expected-Actor-Id': actor } })).status, endpoint, delegate.id);
         assert.equal(switched, 403);

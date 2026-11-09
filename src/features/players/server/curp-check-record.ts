@@ -8,7 +8,7 @@ import { lockPlayerTeamContext } from "./access";
 
 export class CurpVerificationError extends Error {
   constructor(public readonly code: "VALIDATION_ERROR" | "IDENTITY_CHANGED" | "LOCAL_IDENTITY_INVALID" |
-    "CONTEXT_NOT_AVAILABLE" | "OPERATION_CONFLICT" | "USAGE_LIMIT_REACHED" | "RETRY_CONFIRMATION_REQUIRED" |
+    "HISTORICAL_VERIFICATION_UNAVAILABLE" | "CONTEXT_NOT_AVAILABLE" | "OPERATION_CONFLICT" | "USAGE_LIMIT_REACHED" | "RETRY_CONFIRMATION_REQUIRED" |
     "SERVICE_UNAVAILABLE", public readonly status = 409) { super(code); }
 }
 
@@ -27,6 +27,7 @@ export async function lockCurpSnapshot(tx: Prisma.TransactionClient, actorId: st
     // El estado de una comprobación es parte del expediente, no una lectura pública de jugador.
     await lockPlayerTeamContext(tx, actorId, registration.season_team_id, "UPDATE");
   }
+  if (row.seasonStatus === "CLOSED") throw new CurpVerificationError("HISTORICAL_VERIFICATION_UNAVAILABLE");
   const people = await tx.$queryRaw<{ personId: string; curp: string | null; firstName: string;
     paternalSurname: string; maternalSurname: string | null; birthDate: Date | null; version: number; withdrawn: boolean }[]>`
     SELECT p.id AS "personId", p.curp, p.first_name AS "firstName", p.paternal_surname AS "paternalSurname",

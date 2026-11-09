@@ -72,15 +72,15 @@ async function historyProtectionBlock(tx: Prisma.TransactionClient, personId: st
             AND NOT t.tgisinternal AND n.nspname='sports_management'
             AND p.proname='protect_closed_person_identity') AS active`;
     if (!guard?.active) return "HISTORY_PROTECTION_UNAVAILABLE";
-    const [closed] = await tx.$queryRaw<{ present: boolean }[]>`
-        SELECT EXISTS(SELECT 1 FROM sports_management.seasons s WHERE s.status='CLOSED' AND s.id IN (
-          SELECT season_id FROM sports_management.player_registrations WHERE person_id=${personId}::uuid
-          UNION SELECT ca.season_id FROM sports_management.club_officers co JOIN sports_management.club_affiliations ca ON ca.id=co.affiliation_id WHERE co.person_id=${personId}::uuid
-          UNION SELECT pr.season_id FROM sports_management.guardian_consents gc JOIN sports_management.player_registrations pr ON pr.id=gc.registration_id WHERE gc.guardian_person_id=${personId}::uuid
-          UNION SELECT csr.season_id FROM sports_management.referees r JOIN sports_management.club_season_referees csr ON csr.referee_id=r.id WHERE r.person_id=${personId}::uuid
-          UNION SELECT m.season_id FROM sports_management.referees r JOIN sports_management.referee_assignments ra ON ra.referee_id=r.id JOIN sports_management.matches m ON m.id=ra.match_id WHERE r.person_id=${personId}::uuid
-        )) AS present`;
-    return closed?.present ? "HISTORICAL_IDENTITY_UNAVAILABLE" : null;
+    const [version] = await tx.$queryRaw<{ready:boolean}[]>`
+      SELECT obj_description(to_regprocedure('sports_management.closed_identity_reader_block(uuid)'), 'pg_proc')
+        = 'PDGLD117_READERS_V2' AND EXISTS(SELECT 1 FROM pg_trigger
+        WHERE tgrelid='sports_management.people'::regclass AND tgname='historical_correction_committed'
+          AND tgenabled IN ('O','A')) AS ready`;
+    if (!version?.ready) return "HISTORY_PROTECTION_UNAVAILABLE";
+    const [row] = await tx.$queryRaw<{code:string|null}[]>`
+      SELECT sports_management.closed_identity_reader_block(${personId}::uuid) AS code`;
+    return row?.code ?? null;
 }
 export async function correctionWorkspaceForActor(actorId: string, registrationId: string): Promise<CorrectionWorkspace> {
     return getPrisma().$transaction(async (tx) => {
@@ -179,7 +179,7 @@ export async function decideIdentityCorrectionForActor(actorId: string, registra
                 throw new AuthorizationError();
             if (row.requester_id === actorId)
                 fail("SELF_APPROVAL", 403);
-            let refs = await allReferenceScope(tx, actorId, reg.person_id);
+            await allReferenceScope(tx, actorId, reg.person_id);
             const decisionHash = digest(data);
             if (row.status !== "PENDING") {
                 if (row.reviewed_by === actorId && row.decision_key === data.operationKey && row.decision_hash === decisionHash)
@@ -201,25 +201,21 @@ export async function decideIdentityCorrectionForActor(actorId: string, registra
             for (const date of [...new Set([before.birthDate, next.birthDate].filter(Boolean).flatMap(adjacentBirthDates))].sort())
                 await tx.$queryRaw `SELECT pg_advisory_xact_lock(hashtextextended(${`PDGLD-97:birth:${date}`},0))::text`;
             await tx.$queryRaw `SELECT id FROM sports_management.people WHERE id=${reg.person_id}::uuid FOR UPDATE`;
-            refs = await allReferenceScope(tx, actorId, reg.person_id);
+            await allReferenceScope(tx, actorId, reg.person_id);
             if ((await tx.people.findUniqueOrThrow({ where: { id: reg.person_id }, select: { identity_version: true } })).identity_version !== row.expected_identity_version)
                 fail("IDENTITY_CHANGED");
-            // These screens still join people. Without an accredited historical source, fail closed.
-            for (const ref of refs)
-                if (ref.seasonId) {
-                    const s = await tx.seasons.findUniqueOrThrow({ where: { id: ref.seasonId }, select: { status: true } });
-                    if (s.status === "CLOSED")
-                        fail("HISTORICAL_IDENTITY_UNAVAILABLE");
-                }
+            const currentHistoryBlock = await historyProtectionBlock(tx, reg.person_id);
+            if (currentHistoryBlock) fail(currentHistoryBlock);
             const needed = requiredCorrectionEvidence(before, next, row.identity_doubt, data.curpDiscrepancy);
             if (!data.evidenceChecked || !data.samePersonChecked || needed.some(k => !row.evidence.some(e => e.kind === k)))
                 fail("EVIDENCE_INCOMPLETE");
             const duplicate = await tx.people.findFirst({ where: { curp: next.curp, id: { not: reg.person_id } }, select: { id: true } });
             if (duplicate)
                 fail("DUPLICATE_CURP");
-            const regs = await tx.player_registrations.findMany({ where: { person_id: reg.person_id }, orderBy: { id: "asc" }, select: { id: true, season_team_id: true, status: true } });
+            const regs = await tx.player_registrations.findMany({ where: { person_id: reg.person_id, season_teams: { club_affiliations: { seasons: { status: { not: "CLOSED" } } } } }, orderBy: { id: "asc" }, select: { id: true, season_team_id: true, status: true } });
             const matches = await findPossibleIdentityMatches(tx, next, reg.person_id);
             await tx.$queryRaw `SELECT set_config('app.user_id',${actorId},true),set_config('app.reason','Corrección administrativa de identidad; reevaluación requerida',true)`;
+            await tx.$queryRaw`SELECT set_config('app.identity_correction_id',${row.id},true)`;
             const updated = await tx.people.update({ where: { id: reg.person_id }, data: { curp: next.curp, first_name: next.firstName, paternal_surname: next.paternalSurname, maternal_surname: next.maternalSurname, birth_date: new Date(next.birthDate) }, select: { identity_version: true } });
             for (const r of regs) {
                 // Keep accredited guardian evidence attached to the SAME person/registration.
@@ -246,7 +242,7 @@ export async function decideIdentityCorrectionForActor(actorId: string, registra
                 await tx.player_registrations.update({ where: { id: r.id }, data: { ...(r.status === "ACTIVE" ? { status: "INELIGIBLE" } : {}), identity_review_status: matches.length ? "REQUIRED" : "NOT_REQUIRED" } });
                 if (r.status === "ACTIVE")
                     await tx.player_status_history.create({ data: { registration_id: r.id, previous_status: "ACTIVE", new_status: "INELIGIBLE", user_id: actorId, reason: "Identidad corregida: requiere verificaciones vigentes y nueva habilitación" } });
-                const participations = await tx.player_category_participations.findMany({ where: { origin_registration_id: r.id, status: "AUTHORIZED" }, orderBy: { id: "asc" } });
+                const participations = await tx.player_category_participations.findMany({ where: { origin_registration_id: r.id, status: "AUTHORIZED", season_teams: { club_affiliations: { seasons: { status: { not: "CLOSED" } } } } }, orderBy: { id: "asc" } });
                 for (const participation of participations) {
                     const eventId = randomUUID(), version = participation.version + 1;
                     await tx.audit_logs.create({ data: { id: eventId, user_id: actorId, action: "PLAYER_PARTICIPATION_REVIEWED", table_name: "player_category_participations", entity_id: participation.id, reason: "Autorización invalidada por corrección de identidad; requiere nueva evaluación", previous_data: { status: participation.status, version: participation.version }, new_data: { status: "WITHDRAWN", version, fingerprint: null, decision: "WITHDRAW", correctionId: row.id } } });

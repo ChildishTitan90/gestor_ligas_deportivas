@@ -88,26 +88,26 @@ Lista de jugadores, etiquetas de expediente/participaciones y directivos de
 Afiliación leen los nombres capturados. Si el cierre carece de captura, muestran
 «Información histórica no disponible», sin usar people como respaldo. El
 expediente cerrado no vuelve a calcular minoría, documentos ni verificaciones
-sobre la identidad vigente: presenta el nombre histórico si existe y explica la
-indisponibilidad del resto. Participaciones conserva estados registrados, pero
+sobre la identidad vigente: presenta el nombre histórico si existe, y nacimiento/año/estado cuando se
+capturaron con la migración selectiva; explica la indisponibilidad del resto. Participaciones conserva estados registrados, pero
 no evalúa elegibilidad actual como si fuera histórica ni ofrece autorizar o
 solicitar en un cierre. Los casos abiertos mantienen su evaluación habitual.
 
-## Barrera de corrección que sigue activa
+## Protección histórica selectiva
 
-APPLY devuelve `HISTORICAL_IDENTITY_UNAVAILABLE` si cualquier referencia con
-temporada está CLOSED, **incluso con snapshot de nombres**. La captura no acredita
-nacimiento, edad, documentos ni decisiones de habilitación al cierre. Levantar
-esta barrera requiere definir esos hechos históricos y revisar todos sus
-consumidores con el equipo. Cierres legados requieren fuentes privadas acreditadas
-o indisponibilidad explícita; nunca reconstrucción desde people actual.
+El incremento acordado permite corregir la identidad vigente sin invalidar
+inscripciones o participaciones CLOSED. Antes de sustituir la barrera global
+se protegieron los lectores del inventario: snapshots o ausencia, sin cálculos
+históricos sobre people actual. CURP/INE operativos rechazan cierres; las
+participaciones cerradas no afirman habilitación vigente. Referencias arbitrales
+cerradas conservan `HISTORICAL_REFEREE_UNPROTECTED` hasta validar sus lectores.
+Los cierres legados sin hechos muestran indisponibilidad, no reconstrucción.
 
-Solicitar, consultar y devolver siguen disponibles. La pantalla del expediente
-cerrado conserva acceso al trámite de corrección; la interfaz deshabilita APPLY
-con `applyBlockedCode`, y el servicio/HTTP impone la misma regla. Un trigger
-`closed_person_identity` también protege UPDATE directo de los cinco campos de
-identidad. Si ese trigger no está instalado y activo, el servicio devuelve
-`HISTORY_PROTECTION_UNAVAILABLE`. Los casos abiertos independientes continúan.
+Solicitar, consultar y devolver siguen disponibles. La UI muestra `applyBlockedCode`
+por caso y el servicio/HTTP impone el mismo bloqueo. Si falta la protección v2,
+se devuelve `HISTORY_PROTECTION_UNAVAILABLE`. SQL directo con historia exige un
+trámite privado coincidente y su finalización/auditoría atómica; un GUC no basta.
+Véase el [contrato selectivo y sus lectores](season-history-selective-correction.md).
 
 El flujo de corrección y los cierres usan el bloqueo transaccional compartido
 `pg_advisory_xact_lock(117,20261108)`, antes de bloquear filas de temporada/persona.
@@ -123,7 +123,8 @@ solo en contenedores desechables. El compose.yml de la rama original
 feat/PDGLD-117-correccion-identidad conserva su puerto local 5434 y no se utiliza
 en estas pruebas; el compose.yml de este worktree permanece igual que develop.
 El esquema de esta entrega independiente añade únicamente las tablas y
-relaciones de PDGLD-117, sin incorporar mantenimiento de cuentas ni correo.
+relaciones de PDGLD-117; conserva las entregas de cuentas/correo ya integradas
+en develop sin modificarlas en este incremento.
 
 Antes de producción siguen pendientes revisión del plan exacto de seguridad/ACL,
 retención, respaldos y protección en reposo de evidencia privada. bytea y RBAC no
@@ -131,16 +132,11 @@ acreditan por sí solos todo RNF02 del ERS. No se habilita despliegue ni se debi
 el bloqueo de tablas nuevas del pipeline. La base Docker sigue sin RLS; la
 prueba de RLS usa un schema auth y roles sintéticos en otra base desechable.
 
-Esta preparación aislada parte de origin/develop `26081d0` (PR #44), e incluye
-las entregas de edad/ventana y excepciones de PDGLD-103/104/15 de esa base.
-Se reutiliza la resolución de compatibilidad: AgeExceptionPanel permanece en el
-expediente abierto, junto con requisitos documentales y huellas de excepción.
-No se integra ni modifica la rama original. Los resultados de esta separación
-se registran en [preparación sobre develop](../validation/pdgld117-on-develop-preparation.md).
-
-
-La captura mínima futura se completa con un acuse privado de cierre en una
-migración nueva, sin levantar APPLY ni inventar hechos históricos. Véase
-[captura y procedencia](season-identity-capture.md). La compatibilidad con edad
-y excepciones se valida en este worktree temporal, sin integrar en la rama
-original. Las pruebas usan actores y proveedores sintéticos.
+La separación original partió de `26081d0` y quedó documentada en los informes
+históricos. El estado publicado `7ba6b35` integra `780795e` y conserva edad,
+ventanas por fase, excepciones, cuentas y correo. Este incremento selectivo se
+prepara en el mismo worktree/PR #45, sin modificar la rama original.
+La captura adicional de nacimiento/estado/referencias para cierres futuros se
+describe en [captura y procedencia](season-identity-capture.md). No duplica
+archivos privados ni rellena cierres antiguos. ACL/RLS productivos y protección
+privada siguen sujetos a revisión; no se autoriza despliegue con evidencia local.

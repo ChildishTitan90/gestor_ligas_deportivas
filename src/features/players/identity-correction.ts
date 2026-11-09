@@ -39,7 +39,7 @@ export function requiredCorrectionEvidence(before: CorrectionIdentity, after: Co
         kinds.push("LINK_DOCUMENT");
     return kinds;
 }
-export const correctionMessages: Record<string, string> = { HISTORY_PROTECTION_UNAVAILABLE: "La protección del historial no está conectada. Puedes solicitar o devolver; aplicar permanece deshabilitado.", FORBIDDEN: "No tienes permiso sobre todas las referencias afectadas. Solicita revisión a una autoridad con alcance suficiente.",
+export const correctionMessages: Record<string, string> = { HISTORICAL_REFEREE_UNPROTECTED: "La persona tiene referencias arbitrales en temporadas cerradas sin un lector histórico protegido. Aplicar sigue bloqueado para ese caso.", HISTORY_PROTECTION_UNAVAILABLE: "La protección del historial no está conectada. Puedes solicitar o devolver; aplicar permanece deshabilitado.", FORBIDDEN: "No tienes permiso sobre todas las referencias afectadas. Solicita revisión a una autoridad con alcance suficiente.",
     SELF_APPROVAL: "No puedes resolver tu propia solicitud.", EVIDENCE_INCOMPLETE: "La evidencia o su comprobación están incompletas. Devuelve la solicitud con observaciones.",
     HISTORICAL_IDENTITY_UNAVAILABLE: "La persona tiene referencias en temporadas cerradas sin identidad histórica acreditada. La corrección no se aplicó; requiere decisión del equipo.",
     IDENTITY_CHANGED: "La identidad cambió. Consulta el estado y prepara una solicitud nueva.", DUPLICATE_CURP: "La CURP propuesta no está disponible. No se modificó el expediente.",
