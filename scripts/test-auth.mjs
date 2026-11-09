@@ -372,6 +372,8 @@ try {
     });
   } else if (process.argv.includes('--preview')) {
     stage = 'HTTP de afiliaciones, correcciones e inscripciones con rol limitado y RLS';
+    const { verifyPreviewPrismaAccountCreation } = await import('../tests/integration/preview-prisma-account.mjs');
+    await verifyPreviewPrismaAccountCreation({ databaseUrl: childEnv.DATABASE_URL });
     const { runCatalogAccountIntegrationSuite } = await import('../tests/integration/catalog-accounts.test.mjs');
     await runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl, onAdministrator: async actor => {
       await command(['--conditions=react-server', '--import', 'tsx', '--test', 'tests/integration/preview-authorization.test.ts'],

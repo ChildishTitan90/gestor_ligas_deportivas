@@ -16,6 +16,8 @@
     "fsevents": false
   },
   "scripts": {
+    "test:email-confirmation": "node --import tsx --test src/features/accounts/email-confirmation.test.ts",
+    "test:account-maintenance-ui": "node --import tsx --test src/features/accounts/maintenance-ui.test.tsx",
     "test:club-maintenance-input": "node --import tsx --test src/features/clubs/maintenance.test.ts",
     "test:club-maintenance": "npm run test:club-maintenance-input && node scripts/test-auth.mjs --club-maintenance",
     "test:competitions": "node --import tsx --test src/features/competitions/player-policy.test.ts && node scripts/test-auth.mjs --competitions",
@@ -26,7 +28,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit --incremental false",
     "postinstall": "prisma generate",
-    "test:ci": "node --test scripts/ci/account-diagnostics.test.mjs scripts/ci/migration-helpers.test.mjs scripts/ci/production-plans.test.mjs scripts/ci/preview-fixture-target.test.mjs scripts/ci/delegate-position-fixture-target.test.mjs scripts/ci/delegate-preview-privileges.test.mjs scripts/ci/delegate-isolated-runtime.test.mjs scripts/preview/connection.test.mjs",
+    "test:ci": "node --test scripts/ci/ci136-port-plan.test.mjs scripts/ci/chrome-page-discovery.test.mjs scripts/ci/account-diagnostics.test.mjs scripts/ci/migration-helpers.test.mjs scripts/ci/production-plans.test.mjs scripts/ci/preview-fixture-target.test.mjs scripts/ci/delegate-position-fixture-target.test.mjs scripts/ci/delegate-preview-privileges.test.mjs scripts/ci/delegate-isolated-runtime.test.mjs scripts/preview/connection.test.mjs",
     "test:delegate-model": "node --conditions=react-server --import tsx --test tests/integration/delegate-positions.test.ts",
     "test:delegate-isolated": "node scripts/test-delegate-isolated.mjs",
     "test:account-isolated": "node scripts/test-delegate-isolated.mjs --account-integration",
@@ -60,6 +62,7 @@
     "test:seed": "node scripts/test-seed.mjs",
     "ci:guard-migrations": "node scripts/ci/guard-migrations.mjs",
     "ci:database": "node scripts/ci/verify-database.mjs",
+    "test:account-maintenance": "node --conditions=react-server --import tsx --test src/features/accounts/maintenance-contract.test.ts src/features/accounts/server/email-change.test.ts src/server/auth/administrative-credential.test.ts src/server/auth/public-session.test.ts",
     "test:account-form": "node --import tsx --test src/features/accounts/form-input.test.ts src/features/accounts/account-form.test.tsx src/features/accounts/delegate-contract.test.ts src/features/accounts/delegate-options.test.tsx",
     "test:team-registration-form": "node --import tsx --test src/features/clubs/team-registration-form.test.tsx",
     "test:team-registration-http": "node --import tsx --test src/features/clubs/team-registration-http.test.tsx",

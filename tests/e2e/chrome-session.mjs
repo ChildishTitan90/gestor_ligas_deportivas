@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { assertChromeEndpoint, discoverChromePage } from './chrome-page-discovery.mjs';
+export { assertChromeEndpoint } from './chrome-page-discovery.mjs';
 
 export function bounded(promise, ms, phase, signal) {
   return new Promise((resolve, reject) => {
@@ -14,15 +16,6 @@ export function bounded(promise, ms, phase, signal) {
     Promise.resolve(promise).then(value => finish(resolve, value), error => finish(reject, error));
   });
 }
-export function assertChromeEndpoint(endpoint) {
-  const url = new URL(endpoint);
-  assert.equal(url.protocol, 'ws:');
-  assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname));
-  assert.match(url.pathname, /^\/devtools\/browser\/[a-zA-Z0-9-]+$/);
-  assert.equal(url.username + url.password + url.search + url.hash, '');
-  assert.ok(Number(url.port) > 0 && Number(url.port) <= 65535);
-  return url;
-}
 /** Only servers opened by the fixture, including its active/keepalive connections. */
 export async function closeTestServer(server) {
   const closed = new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
@@ -32,6 +25,8 @@ export async function closeTestServer(server) {
 /** Owned profile/process group; never terminates another browser session. */
 export async function launchChrome(origin, { profileDirectory, signal, commandTimeoutMs = 45000, waitForDocument = false } = {}) {
   assert.equal(new URL(origin).hostname, '127.0.0.1');
+  assert.equal(new URL(origin).protocol, 'http:');
+  assert.equal(new URL(origin).username + new URL(origin).password, '');
   assert.ok(Number.isInteger(commandTimeoutMs) && commandTimeoutMs > 0 && commandTimeoutMs <= 45000);
   if (profileDirectory) {
     assert.match(profileDirectory, /^\/private\/tmp\/pdgld106-[a-f0-9-]{36}\/chrome-pg(?:15|17)$/);
@@ -43,7 +38,8 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
     : process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : 'google-chrome'), [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     '--no-sandbox', '--disable-dev-shm-usage', // <--- Añadido para estabilidad en CI (Linux/Docker)
-    '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', `--user-data-dir=${profile}`, origin,
+    // Una página local permite conectar CDP antes de navegar/compilar la app.
+    '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank',
   ], {
     windowsHide: true, detached: process.platform !== 'win32',
     env: Object.fromEntries(['PATH', 'SystemRoot', 'TMPDIR', 'TEMP', 'TMP'].flatMap(key =>
@@ -56,6 +52,10 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
     chrome.once('exit', done); chrome.once('error', done);
   });
   let socket, closing, sequence = 0;
+  const startedAt = Date.now();
+  let startupPhase = 'process-start', cdpPublishedMs = null, pageConnectedMs = null, pageActivatedMs = null, initialNavigationMs = null;
+  let navigationRequestedMs = null, documentLoadedMs = null, documentReadyMs = null;
+  const loadedDocuments = new Map(), loadListeners = new Set();
   const pending = new Map();
   const rejectPending = error => { for (const entry of pending.values()) entry.reject(error); pending.clear(); };
   const stop = async force => {
@@ -66,11 +66,12 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
       await bounded(new Promise(resolve => { killer.once('exit', resolve); killer.once('error', resolve); }), 2000, 'Chrome: taskkill');
     } else {
       try { process.kill(-chrome.pid, force ? 'SIGKILL' : 'SIGTERM'); }
-      catch (error) { if (error.code !== 'ESRCH') throw error; }
+      catch (error) { if (error.code !== 'ESRCH' && !(exited && error.code === 'EPERM')) throw error; }
     }
   };
   const close = () => closing ??= (async () => {
     signal?.removeEventListener('abort', cancel);
+    process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel);
     rejectPending(new Error('CDP: navegador cerrado')); socket?.close();
     try {
       try { await stop(false); await bounded(exit, 1500, 'Chrome: salida'); }
@@ -84,6 +85,9 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
   })();
   const cancel = () => { void close().catch(() => { }); };
   signal?.addEventListener('abort', cancel, { once: true });
+  // The isolated supervisor gives suite processes time to close their own Chrome
+  // groups before escalation. A detached browser must not outlive its test worker.
+  process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
   try {
     const endpoint = await bounded(new Promise((resolve, reject) => {
       chrome.once('error', () => reject(new Error('Chrome: ejecutable no disponible')));
@@ -96,35 +100,33 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
       });
     }), 30000, 'Chrome: arranque', signal);
     const base = assertChromeEndpoint(endpoint);
-    let page;
-    const deadline = Date.now() + 5000;
-    while (!page && Date.now() < deadline) {
-      const requestSignal = AbortSignal.any([AbortSignal.timeout(1000), ...(signal ? [signal] : [])]);
-      let targets;
-      try {
+    cdpPublishedMs = Date.now() - startedAt;
+    startupPhase = 'page-discovery';
+    const page = await discoverChromePage({ browserEndpoint: endpoint, startUrl: origin, signal,
+      async readTargets(timeoutMs, abort) {
+        const requestSignal = AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(abort ? [abort] : [])]);
         const response = await fetch(`http://${base.host}/json/list`, { signal: requestSignal });
-        targets = await response.json();
-      } catch (error) {
-        if (signal?.aborted || error.name !== "TimeoutError") throw error;
-        continue; // Solo descubrimiento de lectura, dentro del plazo total de 5 s.
-      }
-      page = targets.find(target => {
-        try { return target.type === 'page' && new URL(target.url).origin === new URL(origin).origin; } catch { return false; }
-      });
-      if (!page) await bounded(new Promise(resolve => setTimeout(resolve, 50)), 1000, 'CDP: búsqueda de página', signal);
-    }
-    assert.ok(page, 'CDP: no apareció la página sintética en 5 s');
+        return { status: response.status, targets: response.ok ? await response.json() : null };
+      } });
     const pageUrl = new URL(page.webSocketDebuggerUrl);
     assert.equal(pageUrl.host, base.host); assert.equal(pageUrl.protocol, 'ws:');
+    startupPhase = 'page-connection';
     socket = new WebSocket(pageUrl);
     await bounded(new Promise((resolve, reject) => {
       socket.addEventListener('open', resolve, { once: true });
       socket.addEventListener('error', () => reject(new Error('CDP: falló la conexión')), { once: true });
     }), 3000, 'CDP: conexión', signal);
+    pageConnectedMs = Date.now() - startedAt;
     socket.addEventListener('close', () => rejectPending(new Error('CDP: conexión cerrada durante una orden')));
     socket.addEventListener('error', () => rejectPending(new Error('CDP: error de transporte')));
     socket.addEventListener('message', event => {
-      const message = JSON.parse(event.data), entry = pending.get(message.id);
+      const message = JSON.parse(event.data);
+      if (message.method === 'Page.lifecycleEvent' && message.params.name === 'load') {
+        const key = `${message.params.frameId}:${message.params.loaderId}`;
+        loadedDocuments.set(key, Date.now() - startedAt);
+        for (const listener of loadListeners) listener(key);
+      }
+      const entry = pending.get(message.id);
       if (!entry) return;
       if (message.error) entry.reject(new Error(`CDP_COMMAND_FAILED (${message.error.code}): ${message.error.message}`));
       else entry.resolve(message.result);
@@ -144,19 +146,58 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
       if (result.exceptionDetails) throw new Error(`BROWSER_ASSERTION_FAILED: ${result.exceptionDetails.exception?.description ?? result.exceptionDetails.text}`);
       return result.result.value;
     };
-    // Standalone fixtures opt in; backend suites retain their own loading contract.
-    // /json/list can expose the page before its first navigation commits.
-    // Retry only this read, never an assertion or a user action from the scenario.
-    let ready = !waitForDocument;
-    const readyDeadline = Date.now() + 5000;
-    while (!ready && Date.now() < readyDeadline) {
-      try { ready = await evaluate(`location.origin === ${JSON.stringify(new URL(origin).origin)} && document.readyState === 'complete'`); }
-      catch (error) { if (!error.message.includes('Execution context was destroyed')) throw error; }
-      if (!ready) await bounded(new Promise(resolve => setTimeout(resolve, 30)), 1000, 'Chrome: documento inicial', signal);
+    // A CDP connection does not activate its target. Do this before navigation:
+    // fixtures can start exercising focus synchronously while their scripts load.
+    // Activate only our verified tab; never focus a field or emulate focus events.
+    startupPhase = 'page-activation';
+    await command('Page.bringToFront');
+    // CDP acknowledges the request before the renderer necessarily receives focus.
+    // Observe the real focus event, with a deadline; do not emulate focus or inputs.
+    assert.equal(await evaluate(`new Promise(resolve => {
+      let timer;
+      const finish = () => { clearTimeout(timer); window.removeEventListener('focus', focused); resolve(document.hasFocus()); };
+      const focused = () => { if (document.hasFocus()) finish(); };
+      window.addEventListener('focus', focused);
+      timer = setTimeout(finish, 3000);
+      focused();
+    })`), true, 'Chrome: la página propia no está activa');
+    pageActivatedMs = Date.now() - startedAt;
+    if (waitForDocument) {
+      await command('Page.enable');
+      await command('Page.setLifecycleEventsEnabled', { enabled: true });
     }
-    assert.ok(ready, 'Chrome: el documento inicial no terminó de cargar en 5 s');
-    return { socket, command, evaluate, close };
+    startupPhase = 'initial-navigation';
+    navigationRequestedMs = Date.now() - startedAt;
+    const navigation = await command('Page.navigate', { url: origin });
+    if (navigation.errorText) throw new Error('CDP_INITIAL_NAVIGATION_FAILED');
+    initialNavigationMs = Date.now() - startedAt;
+    // Standalone fixtures opt in; backend suites retain their own loading contract.
+    // Match this navigation's loader, including events arriving before its reply.
+    // A complete about:blank or a previous same-origin document cannot satisfy it.
+    startupPhase = 'initial-document';
+    if (waitForDocument) {
+      assert.ok(navigation.frameId && navigation.loaderId, 'Chrome: falta identidad de navegación inicial');
+      const key = `${navigation.frameId}:${navigation.loaderId}`;
+      let listener;
+      try {
+        await bounded(new Promise(resolve => {
+          listener = loaded => { if (loaded === key) resolve(); };
+          loadListeners.add(listener);
+          if (loadedDocuments.has(key)) resolve();
+        }), 5000, 'Chrome: carga del documento inicial', signal);
+      } finally { loadListeners.delete(listener); }
+      documentLoadedMs = loadedDocuments.get(key);
+      assert.equal(await evaluate(`location.href === ${JSON.stringify(new URL(origin).href)} && document.readyState === 'complete'`),
+        true, 'Chrome: el documento cargado no corresponde a la navegación inicial');
+      assert.equal(await evaluate('document.hasFocus()'), true, 'Chrome: el documento cargado no está activo');
+      documentReadyMs = Date.now() - startedAt;
+    }
+    return { socket, command, evaluate, close, startup: { cdpPublishedMs, pageConnectedMs, pageActivatedMs, navigationRequestedMs,
+      initialNavigationMs, documentLoadedMs, documentReadyMs } };
   } catch (error) {
+    error.chromeStartup = { phase: startupPhase, elapsedMs: Date.now() - startedAt,
+      cdpPublishedMs, pageConnectedMs, pageActivatedMs, navigationRequestedMs, initialNavigationMs, documentLoadedMs, documentReadyMs, processExited: exited,
+      processExitCode: typeof chrome.exitCode === 'number' ? chrome.exitCode : null };
     try { await close(); } catch (cleanup) { throw new AggregateError([error, cleanup], 'Chrome: falló la prueba y su limpieza'); }
     throw error;
   }
