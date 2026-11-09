@@ -18,7 +18,9 @@ export async function withDelegateValidity(db, userId, mode, work) {
   let invalid;
   try {
     await db.query('UPDATE sports_management.user_roles SET ends_at=clock_timestamp() WHERE id=$1', [row.id]);
-    const start = mode === 'future' ? new Date(Date.now() + 86_400_000) : new Date('2020-01-01T00:00:00Z');
+    const start = mode === 'future'
+      ? (await db.query("SELECT clock_timestamp() + interval '1 day' AS start")).rows[0].start
+      : new Date('2020-01-01T00:00:00Z');
     const end = mode === 'future' ? null : new Date('2020-02-01T00:00:00Z');
     invalid = (await db.query(insert, [...values, start, end])).rows[0].id;
     await db.query('COMMIT');
@@ -29,7 +31,11 @@ export async function withDelegateValidity(db, userId, mode, work) {
     try {
       // A future designation has not taken effect and can be cancelled.
       if (mode === 'future') await db.query('DELETE FROM sports_management.user_roles WHERE id=$1', [invalid]);
-      await db.query(insert, [...values, new Date(), null]);
+      // Usar el reloj de PostgreSQL, igual que el cierre de la asignación.
+      // Un reloj host adelantado puede crear starts_at futuro y luego ends_at < starts_at.
+      await db.query(`INSERT INTO sports_management.user_roles
+        (user_id,role_id,league_id,club_id,delegate_position,starts_at,ends_at)
+        VALUES ($1,$2,$3,$4,$5,clock_timestamp(),NULL)`, values);
       await db.query('COMMIT');
     } catch (error) { await db.query('ROLLBACK'); throw error; }
   }

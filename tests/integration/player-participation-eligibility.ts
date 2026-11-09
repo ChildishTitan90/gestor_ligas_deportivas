@@ -41,9 +41,10 @@ export async function runParticipationEligibilityTests(t:TestContext,db:PrismaCl
     const verified=await verifyPlayerCurpForActor(actors.delegate,originId,{operationKey:randomUUID(),identityVersion:1,confirmCharge:true},{provider:{configured:true,verify:async()=>{providerCalls++;return{status:"VERIFIED" as const,mismatchedFields:[]};}},policy:{globalDailyLimit:1000,actorDailyLimit:1000,cooldownMs:0}});
     assert.equal(verified.registrationStatus,"INELIGIBLE");
     let s=await state();participationId=s.participations[0].id;
+    assert.ok(s.source.assessment);
     assert.ok(s.source.assessment.blockers.some(b=>b.code==="DOCUMENT_CURP"));
-    const curp=await document("CURP");assert.equal((await state()).source.assessment.ready,false,"Recibir no equivale a aprobar");await curp.approve();
-    s=await state();assert.equal(s.source.assessment.ready,true,JSON.stringify(s.source.assessment.blockers));
+    const curp=await document("CURP");const received=await state();assert.ok(received.source.assessment);assert.equal(received.source.assessment.ready,false,"Recibir no equivale a aprobar");await curp.approve();
+    s=await state();assert.ok(s.source.assessment);assert.equal(s.source.assessment.ready,true,JSON.stringify(s.source.assessment.blockers));
     const payload={operationKey:randomUUID(),fingerprint:s.source.assessment.fingerprint,reason};
     await assert.rejects(approvePlayerOriginForActor(actors.delegate,originId,payload),e=>e instanceof AuthorizationError);
     await assert.rejects(approvePlayerOriginForActor(actors.other,originId,payload),e=>e instanceof AuthorizationError);

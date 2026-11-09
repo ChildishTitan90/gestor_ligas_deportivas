@@ -42,9 +42,14 @@ export async function runLifecycleTests({t,db,admin,reader,baseUrl,league,users}
   try { assert.equal((await send(close,body,admin,'POST')).status,503); }
   finally { await db.query('DROP TRIGGER test_closure_audit ON sports_management.audit_logs'); }
   assert.equal((await db.query('SELECT status FROM sports_management.seasons WHERE id=$1',[season])).rows[0].status,'ACTIVE');
+  assert.equal((await db.query('SELECT count(*)::int n FROM sports_management.season_identity_closures WHERE season_id=$1',[season])).rows[0].n,0);
   const results=await Promise.all([send(close,body,admin,'POST'),send(close,body,admin,'POST')]);assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
   const row=(await db.query('SELECT status,version,closed_at FROM sports_management.seasons WHERE id=$1',[season])).rows[0];assert.equal(row.status,'CLOSED');assert.equal(row.version,3);assert.ok(row.closed_at);
   assert.equal((await db.query("SELECT count(*)::int n FROM sports_management.audit_logs WHERE entity_id=$1 AND new_data->>'status'='CLOSED'",[season])).rows[0].n,1);
+  const capture=(await db.query('SELECT season_version,closed_at,captured_by,person_count,format_version FROM sports_management.season_identity_closures WHERE season_id=$1',[season])).rows[0];
+  assert.ok(capture);assert.equal(capture.season_version,row.version);assert.equal(capture.closed_at.toISOString(),row.closed_at.toISOString());
+  assert.equal(capture.captured_by,users.operational.id);assert.equal(capture.format_version,1);
+  assert.equal(capture.person_count,(await db.query('SELECT count(*)::int n FROM sports_management.season_person_identity_snapshots WHERE season_id=$1',[season])).rows[0].n);
   assert.equal((await send(url,{policy,reason,expectedSeasonVersion:3})).status,409);
   await assert.rejects(db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1",[season]));
   await assert.rejects(db.query("UPDATE sports_management.season_categories SET hierarchy_order=2 WHERE id=$1",[category]));
@@ -63,7 +68,7 @@ export async function runLifecycleTests({t,db,admin,reader,baseUrl,league,users}
   const version=(await db.query('SELECT version FROM sports_management.seasons WHERE id=$1',[sid])).rows[0].version;
   const endpoint=`/api/competitions/seasons/${sid}/close`,payload={...body,expectedSeasonVersion:version};
   const rejected=await send(endpoint,payload,admin,'POST');assert.equal(rejected.status,409);assert.equal((await rejected.json()).code,'UNRESOLVED_MATCHES');
-  await assert.rejects(db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1",[sid]));
+  await assert.rejects(db.query("UPDATE sports_management.seasons SET status='CLOSED',closed_at=clock_timestamp() WHERE id=$1",[sid]));
   await db.query("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('FINISHED') WHERE id=$1",[match]);
   assert.equal((await send(endpoint,payload,admin,'POST')).status,409);
   await db.query("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by) VALUES($1,2,1,'MATCH_REPORT',$2)",[match,users.operational.id]);

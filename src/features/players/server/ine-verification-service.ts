@@ -37,6 +37,7 @@ async function snapshot(tx: Prisma.TransactionClient, actorId: string, id: strin
   const reg = await tx.player_registrations.findUnique({ where: { id }, select: { season_team_id: true } });
   if (!reg) throw new AuthorizationError();
   const context = await assertPlayerRegistrationRead(tx, actorId, id, reg.season_team_id);
+  if (context.seasonStatus === "CLOSED") throw new IneVerificationError("HISTORICAL_VERIFICATION_UNAVAILABLE");
   if (write) await lockPlayerTeamContext(tx, actorId, reg.season_team_id, "UPDATE");
   await tx.$queryRaw`SELECT pr.id FROM sports_management.player_registrations pr JOIN sports_management.people p ON p.id=pr.person_id WHERE pr.id=${id}::uuid FOR SHARE OF pr,p`;
   const locked = await tx.player_registrations.findUniqueOrThrow({ where: { id }, select: {
@@ -91,14 +92,14 @@ export async function readIneReviewQueueForActor(actorId: string) {
     const scope: Prisma.clubsWhereInput = grants.some(g => !g.contextOnly && !g.clubId && !g.leagueId) ? {} : {
       OR: grants.flatMap((g): Prisma.clubsWhereInput[] => g.clubId ? [{ id: g.clubId, ...(g.leagueId ? { league_id: g.leagueId } : {}) }] : g.leagueId ? [{ league_id: g.leagueId }] : []),
     };
-    const rows = await tx.player_registrations.findMany({ where: { status: "INELIGIBLE", withdrawn_at: null, season_teams: { teams: { clubs: scope } } }, select: { id: true, season_team_id: true }, orderBy: { id: "asc" } });
+    const rows = await tx.player_registrations.findMany({ where: { status: "INELIGIBLE", withdrawn_at: null, season_teams: { teams: { clubs: scope }, club_affiliations: { seasons: { status: { not: "CLOSED" } } } } }, select: { id: true, season_team_id: true }, orderBy: { id: "asc" } });
     const result = [];
     for (const row of rows) {
       try {
         await lockPlayerTeamContext(tx, actorId, row.season_team_id, "APPROVE");
         const state = await dto(tx, actorId, row.id);
         if (state.applicable && state.attemptId && state.status !== "PENDING" && state.status!=="IDENTITY_VERIFIED") result.push({ ...await readRegistrationLabels(tx,row.id), status: state.status });
-      } catch (error) { if (!(error instanceof AuthorizationError)) throw error; }
+      } catch (error) { if (!(error instanceof AuthorizationError) && !(error instanceof IneVerificationError && error.code === "HISTORICAL_VERIFICATION_UNAVAILABLE")) throw error; }
     }
     return result;
   }, { timeout: 15000 });

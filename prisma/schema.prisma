@@ -441,6 +441,7 @@ model competition_rule_parameters {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model competition_rules {
+  registration_history season_registration_history[]
   id                             String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   season_id                      String                           @db.Uuid
   version_number                 Int
@@ -1260,6 +1261,10 @@ model payments {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model people {
+  registration_history season_registration_history[]
+  season_identity_snapshots season_person_identity_snapshots[]
+  identity_corrections player_identity_corrections[]
+
   curp_checks          player_curp_checks[]
   identity_version    Int                    @default(1)
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -1406,6 +1411,9 @@ model player_category_participations {
 }
 
 model player_registrations {
+  history_snapshot season_registration_history?
+  identity_corrections player_identity_corrections[]
+
   category_participations player_category_participations[]
   curp_checks           player_curp_checks[]
   id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -1846,6 +1854,10 @@ model season_teams {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model seasons {
+  registration_history season_registration_history[]
+  identity_closure season_identity_closures?
+  person_identity_snapshots season_person_identity_snapshots[]
+
   id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   league_id                 String                      @db.Uuid
   sport_id                  String                      @db.Uuid
@@ -2092,6 +2104,10 @@ model user_roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
+  captured_identity_closures season_identity_closures[]
+  requested_identity_corrections player_identity_corrections[] @relation("correction_requester")
+  reviewed_identity_corrections player_identity_corrections[] @relation("correction_reviewer")
+
   admin_reset_expires_at DateTime? @db.Timestamptz(6)
   admin_reset_consumed_at DateTime? @db.Timestamptz(6)
   email_verified_at DateTime? @db.Timestamptz(6)
@@ -2281,6 +2297,82 @@ model withdrawal_match_effects {
   @@schema("sports_management")
 }
 
+
+model player_identity_corrections {
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ registration_id String @db.Uuid
+ person_id String @db.Uuid
+ requester_id String @db.Uuid
+ operation_key String @db.Uuid
+ request_hash String
+ expected_identity_version Int
+ proposed_identity Json
+ previous_identity Json?
+ reason String
+ identity_doubt Boolean
+ status String @default("PENDING")
+ reviewed_by String? @db.Uuid
+ decision_key String? @db.Uuid
+ decision_hash String?
+ observations String?
+ created_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+ reviewed_at DateTime? @db.Timestamptz(6)
+ registration player_registrations @relation(fields:[registration_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ person people @relation(fields:[person_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ requester users @relation("correction_requester",fields:[requester_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ reviewer users? @relation("correction_reviewer",fields:[reviewed_by],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ evidence player_identity_correction_evidence[]
+ @@unique([requester_id,operation_key])
+ @@index([registration_id,created_at],map:"player_identity_corrections_registration")
+ @@schema("sports_management")
+}
+
+
+model player_identity_correction_evidence {
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ correction_id String @db.Uuid
+ kind String
+ mime_type String
+ sha256 String
+ bytes Bytes
+ correction player_identity_corrections @relation(fields:[correction_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ @@unique([correction_id,kind])
+ @@schema("sports_management")
+}
+
+
+model season_person_identity_snapshots {
+  season_id String @db.Uuid
+  person_id String @db.Uuid
+  first_name String
+  paternal_surname String
+  maternal_surname String?
+  identity_version Int
+  season_version Int
+  captured_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  source String @default("SEASON_CLOSURE_V1")
+  seasons seasons @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  people people @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([season_id, person_id])
+  @@index([person_id], map: "season_person_identity_person_idx")
+  @@schema("sports_management")
+}
+
+
+model season_identity_closures {
+  season_id String @id @db.Uuid
+  season_version Int
+  closed_at DateTime @db.Timestamptz(6)
+  captured_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  captured_by String @db.Uuid
+  person_count Int
+  format_version Int @default(1)
+  seasons seasons @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users users @relation(fields: [captured_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@schema("sports_management")
+}
+
 /// Propiedad de correo independiente de password_resets; solo hashes de tokens.
 model account_email_changes {
   id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -2307,4 +2399,27 @@ model account_email_changes {
   @@index([user_id, created_at(sort: Desc)], map: "account_email_changes_recent")
   @@unique([user_id], map: "account_email_changes_one_pending", where: raw("(status = 'PENDING'::text)"))
   @@schema("sports_management")
+}
+
+model season_registration_history {
+ registration_id String @id @db.Uuid
+ season_id String @db.Uuid
+ person_id String @db.Uuid
+ identity_version Int
+ birth_date DateTime? @db.Date
+ reference_year Int?
+ policy_fingerprint String?
+ rule_id String @db.Uuid
+ rule_version Int
+ registration_status String
+ identity_review_status String?
+ document_refs Json
+ verification_refs Json
+ participation_refs Json
+ captured_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+ player_registrations player_registrations @relation(fields:[registration_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ seasons seasons @relation(fields:[season_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ people people @relation(fields:[person_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ competition_rules competition_rules @relation(fields:[rule_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ @@schema("sports_management")
 }

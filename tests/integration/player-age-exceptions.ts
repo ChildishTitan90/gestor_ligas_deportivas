@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {requestIdentityCorrectionForActor,decideIdentityCorrectionForActor} from "../../src/features/players/server/identity-correction";
 import { randomUUID } from "node:crypto";
 import type { TestContext } from "node:test";
 import type { PrismaClient } from "@prisma/client";
@@ -108,6 +109,7 @@ export async function runAgeExceptionTests(t: TestContext, db: PrismaClient, act
     const stored = await db.player_registrations.findUniqueOrThrow({ where: { id: reg.registrationId } });
     assert.equal(stored.authorized_by, actors.secretary); assert.equal(stored.status, "INELIGIBLE");
     const workspace = await readPlayerParticipationWorkspaceForActor(actors.secretary, reg.registrationId);
+    assert.ok(workspace.source.assessment);
     assert.ok(!workspace.source.assessment.blockers.some(b => b.code === "AGE_REQUIRES_REVIEW"));
     assert.equal(workspace.source.assessment.ready, false, "Los demás requisitos siguen pendientes");
     assert.equal(await db.audit_logs.count({ where: { entity_id: reg.registrationId, action: "PLAYER_AGE_EXCEPTION_DECIDED" } }), 1);
@@ -174,5 +176,33 @@ export async function runAgeExceptionTests(t: TestContext, db: PrismaClient, act
         await tx.$executeRaw`UPDATE sports_management.user_roles SET ends_at=clock_timestamp() WHERE id=${assignment.id}::uuid`;
       });
     }
+  });
+  await t.test("Compatibilidad PDGLD-117/104: corregir identidad invalida excepción aprobada sin borrar su acuse",async()=>{
+    const reg=await registerPlayerForActor(actors.delegate,payload("2013-11-11"));
+    await attach(reg.registrationId);
+    let state=await readAgeExceptionForActor(actors.delegate,reg.registrationId);
+    await actOnAgeExceptionForActor(actors.delegate,reg.registrationId,{action:"REQUEST",operationKey:randomUUID(),fingerprint:state.fingerprint,documentId:state.documentId,reason:"Solicitud sintética para compatibilidad"});
+    state=await readAgeExceptionForActor(actors.secretary,reg.registrationId);
+    await actOnAgeExceptionForActor(actors.secretary,reg.registrationId,{action:"DECIDE",decision:"APPROVE",requestId:state.requestId,fingerprint:state.fingerprint,operationKey:randomUUID(),reason:"Carta aprobada antes de rectificación sintética"});
+    const before=await db.$transaction(tx=>readAgeExceptionRecord(tx,reg.registrationId,fixture.categoryId));
+    assert.equal(before.validApproval,true);
+    const row=await db.player_registrations.findUniqueOrThrow({where:{id:reg.registrationId},include:{people:true}});
+    const person=row.people;
+    const correction=await requestIdentityCorrectionForActor(actors.delegate,reg.registrationId,{
+      operationKey:randomUUID(),expectedIdentityVersion:person.identity_version,
+      identity:{curp:person.curp,firstName:"Caso Rectificado",paternalSurname:person.paternal_surname,maternalSurname:person.maternal_surname,birthDate:person.birth_date!.toISOString().slice(0,10)},
+      reason:"Rectificación sintética de la misma persona",identityDoubt:false,
+    },[{kind:"CIVIL_RECORD",mimeType:file.mimeType,bytes:file.bytes}]);
+    await decideIdentityCorrectionForActor(actors.admin,reg.registrationId,correction.id,{operationKey:randomUUID(),decision:"APPLY",observations:"Evidencia sintética de nombre comprobada",evidenceChecked:true,samePersonChecked:true,curpDiscrepancy:false});
+    const after=await db.$transaction(tx=>readAgeExceptionRecord(tx,reg.registrationId,fixture.categoryId));
+    assert.equal(after.validApproval,false);
+    assert.notEqual(after.binding,before.binding);
+    assert.equal(after.registration.authorized_by,before.registration.authorized_by);
+    assert.equal(after.registration.age_exception_file_id,before.registration.age_exception_file_id);
+    assert.equal(await db.audit_logs.count({where:{entity_id:reg.registrationId,action:"PLAYER_AGE_EXCEPTION_DECIDED"}}),1);
+    const workspace=await readPlayerParticipationWorkspaceForActor(actors.admin,reg.registrationId);
+    assert.ok(workspace.source.assessment);
+    assert.ok(workspace.source.assessment.blockers.some(b=>b.code==="AGE_REQUIRES_REVIEW"));
+    assert.equal(workspace.source.status,"INELIGIBLE");
   });
 }

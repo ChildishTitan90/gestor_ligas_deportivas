@@ -9,7 +9,7 @@ export async function runPendingDistributionTests({t,db,admin,reader,delegate,cl
       const previous=(await db.query('SELECT season_id FROM sports_management.season_teams LIMIT 1')).rows[0];
       assert.ok(previous);
       await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1",[previous.season_id]);
-      await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1",[previous.season_id]);
+      await db.query("UPDATE sports_management.seasons SET status='CLOSED',closed_at=clock_timestamp() WHERE id=$1",[previous.season_id]);
       await db.query('SET CONSTRAINTS ALL IMMEDIATE');
       const snapshot=async()=> (await db.query(`SELECT to_jsonb(e)-'season_category_id' AS row FROM sports_management.season_teams e ORDER BY id`)).rows;
       const audit=async()=> (await db.query('SELECT to_jsonb(a) AS row FROM sports_management.audit_logs a ORDER BY id')).rows;

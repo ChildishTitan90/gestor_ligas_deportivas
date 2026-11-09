@@ -1,4 +1,5 @@
 import "server-only";
+import {readHistoricalRegistrationFacts} from "./season-identity-history";
 import {z} from "zod";
 import {getPrisma} from "@/server/db/prisma";
 import {requireOperationalUser} from "@/server/auth/session";
@@ -10,7 +11,14 @@ import {schoolDocumentStatus} from "../school-documents";
 import {readRegistrationLabels} from "./registration-labels";
 import {readCategoryDocumentState} from "./category-document-requirements";
 import {resolveRegistrationDocuments} from "./registration-document-requirements";
+import {PlayerDocumentError} from "./document-service";
 import {assessPlayerEligibility} from "./eligibility-assessment";
+
+export class HistoricalDossierUnavailable extends PlayerDocumentError {
+  constructor(readonly displayName: string, readonly facts?: Awaited<ReturnType<typeof readHistoricalRegistrationFacts>>) {
+    super("CONTEXT_UNAVAILABLE");
+  }
+}
 
 export async function getPlayerDossier(registrationId:string){
   return readPlayerDossierForActor((await requireOperationalUser()).id,registrationId);
@@ -24,6 +32,7 @@ export async function readPlayerDossierForActor(actorId:string,registrationId:st
     const context=await assertPlayerRegistrationRead(tx,actorId,registrationId,registration.season_team_id);
     const owner=await readRegistrationLabels(tx,registrationId);
     const player={displayName:owner.name,teamName:owner.team,clubName:owner.club,categoryName:owner.category,seasonName:owner.season};
+    if (context.seasonStatus === "CLOSED") throw new HistoricalDossierUnavailable(player.displayName, await readHistoricalRegistrationFacts(tx,registrationId));
     let canUpdate=true;try{await lockPlayerTeamContext(tx,actorId,registration.season_team_id,"UPDATE");}catch(error){if(!(error instanceof AuthorizationError))throw error;canUpdate=false;}
     const referenceDate=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Mexico_City"}).format(registration.registered_at);
     const actualMinor=minorAtDate(registration.people.birth_date?.toISOString().slice(0,10) ?? null,referenceDate);

@@ -2,10 +2,10 @@ import {z} from "zod";
 import type {EligibilityAssessment} from "./category-participation";
 import type {PlayerReviewLabels} from "./review-workspace";
 
-export const participationReceiptSchema=z.object({id:z.uuid(),originRegistrationId:z.uuid(),targetSeasonTeamId:z.uuid(),targetSeasonCategoryId:z.uuid(),status:z.enum(["PENDING_ELIGIBILITY","AUTHORIZED","WITHDRAWN"]),version:z.number().int().positive(),sportsEligible:z.boolean(),replayed:z.boolean()});
+export const participationReceiptSchema=z.object({id:z.uuid(),originRegistrationId:z.uuid(),targetSeasonTeamId:z.uuid(),targetSeasonCategoryId:z.uuid(),status:z.enum(["PENDING_ELIGIBILITY","AUTHORIZED","WITHDRAWN"]),version:z.number().int().positive(),sportsEligible:z.boolean().nullable(),historical:z.boolean().optional(),replayed:z.boolean()});
 export type ParticipationWorkspace={
   actorId:string;registrationId:string;player:PlayerReviewLabels;
-  source:{status:string;pathwayCode:string|null;level:number|null;canApprove:boolean;assessment:EligibilityAssessment};
+  source:{status:string;pathwayCode:string|null;level:number|null;canApprove:boolean;assessment:EligibilityAssessment|null};
   canRequest:boolean;targets:{targetId:string;targetTeam:string;targetCategory:string;targetCategoryId:string}[];
   participations:(z.infer<typeof participationReceiptSchema>&{assessment?:EligibilityAssessment;targetId:string;targetTeam:string;targetCategory:string;targetCategoryId:string;canReview:boolean})[];
 };

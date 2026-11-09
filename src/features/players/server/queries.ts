@@ -24,6 +24,13 @@ export async function readPlayerRegistrationForActor(actorId: string, registrati
     } });
     if (!registration) return null;
     const context = await assertPlayerRegistrationRead(tx, actorId, registrationId, registration.season_team_id);
+    if (context.seasonStatus === "CLOSED") return {
+      personId: registration.person_id, registrationId, seasonTeamId: context.seasonTeamId,
+      teamId: context.teamId, clubId: context.clubId, leagueId: context.leagueId,
+      seasonId: context.seasonId, seasonCategoryId: context.seasonCategoryId,
+      categoryId: context.categoryId, groupId: context.groupId, status: registration.status,
+      identityReviewStatus: registration.identity_review_status as PlayerRegistrationContext["identityReviewStatus"],
+    };
     const person = await tx.people.findUniqueOrThrow({ where: { id: registration.person_id }, select: personIdentitySelect });
     // La lectura vuelve a evaluar coincidencias: no confía en una captura antigua.
     const matches = person.birth_date ? await findPossibleIdentityMatches(tx, identityFromPerson(person), person.id) : [];

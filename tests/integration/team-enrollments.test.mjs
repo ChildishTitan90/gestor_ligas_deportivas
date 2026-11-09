@@ -643,7 +643,8 @@ export async function runTeamEnrollmentIntegrationSuite({ databaseUrl, baseUrl, 
       });
       await t.test('temporada cerrada bloquea nuevas altas; reintento confirmado y lectura conservan historial', async () => {
         await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1", [context.id]);
-        await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1", [context.id]);
+        await db.query("SELECT set_config('app.user_id',$1,false),set_config('app.reason','PDGLD-117 cierre sintético de equipos',false)", [actor.id]);
+        await db.query("UPDATE sports_management.seasons SET status='CLOSED',closed_at=clock_timestamp() WHERE id=$1", [context.id]);
         await deny(actor.browser, payload(), 409, 'SEASON_CLOSED');
         const before = await counts();
         const replay = await post(actor.browser, body);

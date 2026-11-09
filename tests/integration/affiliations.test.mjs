@@ -330,10 +330,14 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
       await t.test('temporada cerrada impide nuevas solicitudes y conserva reenvíos sin escrituras', async () => {
         const closed = await season();
         await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1", [closed.id]);
-        await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1", [closed.id]);
+        await assert.rejects(db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1", [closed.id]),
+          /SEASON_IDENTITY_CAPTURE_CONTEXT_REQUIRED/);
+        assert.equal((await db.query('SELECT status FROM sports_management.seasons WHERE id=$1', [closed.id])).rows[0].status, 'ACTIVE');
+        await db.query("SELECT set_config('app.user_id',$1,false),set_config('app.reason','PDGLD-117 cierre sintético de afiliación',false)", [actor.id]);
+        await db.query("UPDATE sports_management.seasons SET status='CLOSED', closed_at=clock_timestamp() WHERE id=$1", [closed.id]);
         await deny(actor.browser, payload(closed), 409, 'SEASON_CLOSED');
         await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1", [context.id]);
-        await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1", [context.id]);
+        await db.query("UPDATE sports_management.seasons SET status='CLOSED', closed_at=clock_timestamp() WHERE id=$1", [context.id]);
         const before = await counts();
         assert.equal((await post(actor.browser, body)).status, 200);
         assert.deepEqual(await counts(), before);

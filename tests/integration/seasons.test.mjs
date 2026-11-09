@@ -126,7 +126,7 @@ export async function runSeasonIntegrationSuite({ databaseUrl, baseUrl, preview 
         assert.equal(protectedDates.status,409); assert.equal((await protectedDates.json()).code,'SEASON_DATES_IN_USE');
         assert.equal((await patch({...payload,expectedSeasonVersion:2})).status,200);
         await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1",[season]);
-        await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1",[season]);
+        await db.query("UPDATE sports_management.seasons SET status='CLOSED',closed_at=clock_timestamp() WHERE id=$1",[season]);
         const closed = await patch({...payload,expectedSeasonVersion:3});
         assert.equal(closed.status,409); assert.equal((await closed.json()).code,'SEASON_CLOSED');
       });

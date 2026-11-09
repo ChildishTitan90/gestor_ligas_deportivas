@@ -16,6 +16,11 @@
     "fsevents": false
   },
   "scripts": {
+    "test:player-identity-ui": "node --test tests/e2e/identity-correction-workspace.test.mjs",
+    "test:season-identity-history": "node scripts/test-season-identity-history.mjs",
+    "test:player-identity-isolated": "node scripts/test-delegate-isolated.mjs --player-identity-correction",
+    "test:player-identity-age-isolated": "node scripts/test-delegate-isolated.mjs --player-identity-age",
+
     "test:email-transport": "node --conditions=react-server --import tsx --test src/server/email/resend.test.ts",
     "test:email-confirmation": "node --import tsx --test src/features/accounts/email-confirmation.test.ts",
     "test:account-maintenance-ui": "node --import tsx --test src/features/accounts/maintenance-ui.test.tsx",
@@ -29,7 +34,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit --incremental false",
     "postinstall": "prisma generate",
-    "test:ci": "node --test scripts/ci/ci136-port-plan.test.mjs scripts/ci/chrome-page-discovery.test.mjs scripts/ci/account-diagnostics.test.mjs scripts/ci/migration-helpers.test.mjs scripts/ci/production-plans.test.mjs scripts/ci/preview-fixture-target.test.mjs scripts/ci/delegate-position-fixture-target.test.mjs scripts/ci/delegate-preview-privileges.test.mjs scripts/ci/delegate-isolated-runtime.test.mjs scripts/preview/connection.test.mjs",
+    "test:ci": "node --test scripts/ci/ci136-port-plan.test.mjs scripts/ci/chrome-page-discovery.test.mjs scripts/ci/player-identity-isolated-profile.test.mjs scripts/ci/account-diagnostics.test.mjs scripts/ci/migration-helpers.test.mjs scripts/ci/production-plans.test.mjs scripts/ci/preview-fixture-target.test.mjs scripts/ci/delegate-position-fixture-target.test.mjs scripts/ci/delegate-preview-privileges.test.mjs scripts/ci/delegate-isolated-runtime.test.mjs scripts/preview/connection.test.mjs",
     "test:delegate-model": "node --conditions=react-server --import tsx --test tests/integration/delegate-positions.test.ts",
     "test:delegate-isolated": "node scripts/test-delegate-isolated.mjs",
     "test:account-isolated": "node scripts/test-delegate-isolated.mjs --account-integration",
@@ -41,7 +46,7 @@
     "test:preview-competitions": "node scripts/test-auth.mjs --preview-competitions",
     "preview:maintain": "node scripts/preview/maintain.mjs",
     "test:database-config": "node --conditions=react-server --import tsx --test src/server/db/connection-options.test.ts",
-    "test:player-identity": "node --import tsx --test src/features/players/identity-rules.test.ts",
+    "test:player-identity": "node --import tsx --test src/features/players/identity-rules.test.ts src/features/players/identity-correction.test.ts",
     "test:player-dossier": "node --import tsx --test src/features/players/document-rules.test.ts src/features/players/document-upload.client.test.ts src/features/players/school-documents.test.ts src/features/competitions/document-policy.test.ts src/features/players/camera-framing.test.ts",
     "test:player-document-storage": "node --conditions=react-server --import tsx --test src/features/players/server/supabase-document-storage.test.ts",
     "test:curp-provider": "node --conditions=react-server --import tsx --test src/features/players/server/verificamex-curp.test.ts",
@@ -86,7 +91,7 @@
     "test:browser-harness": "node --test tests/e2e/chrome-session.test.mjs",
     "test:signature-preview": "node --test tests/e2e/signature-review-preview.test.mjs",
     "test:guardian-signature": "node --test tests/e2e/guardian-signature.test.mjs",
-    "test:player-workspace": "node --test --test-concurrency=1 tests/e2e/player-workspace-review.test.mjs tests/e2e/player-dossier-upload.test.mjs tests/e2e/player-review-workspace.test.mjs tests/e2e/player-participation-workspace.test.mjs tests/e2e/private-document-preview.test.mjs",
+    "test:player-workspace": "node --test --test-concurrency=1 tests/e2e/player-workspace-review.test.mjs tests/e2e/player-dossier-upload.test.mjs tests/e2e/player-review-workspace.test.mjs tests/e2e/player-participation-workspace.test.mjs tests/e2e/private-document-preview.test.mjs tests/e2e/identity-correction-workspace.test.mjs",
     "players:demo": "node scripts/test-auth.mjs --player-demo",
     "test:player-admission": "node --import tsx --test src/features/competitions/player-policy.test.ts src/features/competitions/player-admission.test.ts",
     "test:age-exception": "node --conditions=react-server --import tsx --test src/features/players/age-exception.test.ts src/features/players/server/age-exception-record.test.ts",

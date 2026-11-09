@@ -60,7 +60,7 @@ export async function runMaintenanceTests({ t, db, baseUrl, admin, reader, leagu
     assert.equal(response.status,409);assert.equal((await response.json()).code,'CATEGORY_ELIGIBILITY_CONFIGURED');
     assert.equal(await version(),3);
     for (const status of ['ACTIVE','CLOSED']) {
-      await db.query('UPDATE sports_management.seasons SET status=$1 WHERE id=$2',[status,season]);
+      await db.query("UPDATE sports_management.seasons SET status=$1,closed_at=CASE WHEN $1='CLOSED' THEN clock_timestamp() ELSE closed_at END WHERE id=$2",[status,season]);
       for (const [method,payload] of [['PATCH',{...edit,expectedSeasonVersion:3}],['DELETE',{expectedSeasonVersion:3,reason}]]) {
         const rejected=await send(url,method,payload);assert.equal(rejected.status,409);
         assert.equal((await rejected.json()).code,status==='CLOSED'?'SEASON_CLOSED':'COMPETITION_ALREADY_STARTED');
@@ -82,7 +82,7 @@ export async function runMaintenanceTests({ t, db, baseUrl, admin, reader, leagu
     assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.audit_logs WHERE entity_id=$1 AND action='DELETE' AND table_name='seasons'",[empty])).rows[0].n,1);
     const closed=await createSeason(league);
     await db.query("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1",[closed]);
-    await db.query("UPDATE sports_management.seasons SET status='CLOSED' WHERE id=$1",[closed]);
+    await db.query("UPDATE sports_management.seasons SET status='CLOSED',closed_at=clock_timestamp() WHERE id=$1",[closed]);
     const response=await send(`/api/competitions/seasons/${closed}`,'DELETE',payload);assert.equal(response.status,409);assert.equal((await response.json()).code,'SEASON_CLOSED');
   });
 }

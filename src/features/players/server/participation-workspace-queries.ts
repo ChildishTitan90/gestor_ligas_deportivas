@@ -49,16 +49,17 @@ export async function readPlayerParticipationWorkspaceForActor(actorId:string,re
     const origin=await assertPlayerRegistrationRead(tx,actorId,registrationId,initial.season_team_id);
     const canRequest=await can(tx,actorId,initial.season_team_id,"CREATE"),canApprove=await can(tx,actorId,initial.season_team_id,"APPROVE");
     if(!canRequest && !canApprove)throw new AuthorizationError();
+    const closed = origin.seasonStatus === "CLOSED";
     const levels=await tx.player_category_levels.findMany({where:{season_id:origin.seasonId},select:{season_category_id:true,pathway_code:true,level:true}});
     const from=levels.find(l=>l.season_category_id===origin.seasonCategoryId);
     const to=levels.find(l=>l.pathway_code===from?.pathway_code && l.level===(from?.level ?? -2)+1);
-    const candidates=to && canRequest?await tx.season_teams.findMany({where:{club_id:origin.clubId,season_id:origin.seasonId,status:{not:"WITHDRAWN"},groups:{season_category_id:to.season_category_id}},select:{id:true},orderBy:{id:"asc"}}):[];
+    const candidates=to && canRequest && !closed?await tx.season_teams.findMany({where:{club_id:origin.clubId,season_id:origin.seasonId,status:{not:"WITHDRAWN"},groups:{season_category_id:to.season_category_id}},select:{id:true},orderBy:{id:"asc"}}):[];
     const targets=[];
     for(const candidate of candidates){try{const {row:target}=await lockPlayerTeamContext(tx,actorId,candidate.id,"CREATE");await lockPlayerTeamContext(tx,actorId,candidate.id,"READ");if(target.affiliationStatus==="APPROVED" && (target.categoryAuthorized && target.operational))targets.push(await targetLabels(tx,target));}catch(error){if(!(error instanceof AuthorizationError))throw error;}}
     const items=await readCategoryParticipationsInTransaction(tx,actorId,registrationId);
     const participations=[];
-    for(const item of items){const {row:target}=await lockPlayerTeamContext(tx,actorId,item.targetSeasonTeamId,"READ");participations.push({...item,...await targetLabels(tx,target),canReview:canApprove && await can(tx,actorId,item.targetSeasonTeamId,"APPROVE")});}
-    return {actorId,registrationId,player:await readRegistrationLabels(tx,registrationId),source:{status:initial.status,pathwayCode:from?.pathway_code ?? null,level:from?.level ?? null,canApprove,assessment:await assessPlayerEligibility(tx,registrationId,[origin])},canRequest,targets,participations};
+    for(const item of items){const {row:target}=await lockPlayerTeamContext(tx,actorId,item.targetSeasonTeamId,"READ");participations.push({...item,...await targetLabels(tx,target),canReview:!closed && canApprove && await can(tx,actorId,item.targetSeasonTeamId,"APPROVE")});}
+    return {actorId,registrationId,player:await readRegistrationLabels(tx,registrationId),source:{status:initial.status,pathwayCode:from?.pathway_code ?? null,level:from?.level ?? null,canApprove:!closed && canApprove,assessment:closed ? null : await assessPlayerEligibility(tx,registrationId,[origin])},canRequest:!closed && canRequest,targets,participations};
   },{isolationLevel:"RepeatableRead",timeout:25000});
 }
 async function targetLabels(tx:Prisma.TransactionClient,context:PlayerTeamContext){
