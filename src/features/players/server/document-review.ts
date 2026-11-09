@@ -35,7 +35,7 @@ export async function readDocumentReviewForActor(actorId:string,id:string){
   return getPrisma().$transaction(async tx=>{
     const state=await snapshot(tx,actorId,id);
     const reviews=await tx.audit_logs.findMany({where:{entity_id:id,action:"PLAYER_DOCUMENT_REVIEWED"},select:{occurred_at:true,reason:true,new_data:true},orderBy:[{occurred_at:"desc"},{id:"desc"}]});
-    return {registrationId:id,player:await readRegistrationLabels(tx,id),fingerprint:state.fingerprint,documents:state.documents.map(d=>({id:d.id,code:d.document_types.code,name:d.document_types.name,status:d.status,identityVerified:d.document_types.code==="INE" && !!state.evidence.ine})),history:reviews.map(r=>({date:r.occurred_at.toISOString(),reason:r.reason,decision:(r.new_data as {decision:string}).decision}))};
+    return {registrationId:id,player:await readRegistrationLabels(tx,id),fingerprint:state.fingerprint,documents:state.documents.filter(d=>d.document_types.code!=="AGE_EXCEPTION_LETTER").map(d=>({id:d.id,code:d.document_types.code,name:d.document_types.name,status:d.status,identityVerified:d.document_types.code==="INE" && !!state.evidence.ine})),history:reviews.map(r=>({date:r.occurred_at.toISOString(),reason:r.reason,decision:(r.new_data as {decision:string}).decision}))};
   });
 }
 export async function decideDocumentReviewForActor(actorId:string,id:string,input:unknown){
@@ -49,6 +49,7 @@ export async function decideDocumentReviewForActor(actorId:string,id:string,inpu
     if(prior){if(prior.entity_id!==id || (prior.new_data as {requestHash:string}).requestHash!==hash(body))throw new PlayerDocumentError("UPLOAD_CONFLICT");return {confirmed:true,replayed:true};}
     if(state.fingerprint!==body.fingerprint)throw new PlayerDocumentError("UPLOAD_CONFLICT");
     const doc=state.documents.find(d=>d.id===body.documentId);if(!doc)throw new PlayerDocumentError("UPLOAD_CONFLICT");
+    if(doc.document_types.code==="AGE_EXCEPTION_LETTER")throw new PlayerDocumentError("INVALID_DOCUMENT",400);
     if(doc.document_types.code==="INE" && state.evidence.ine)throw new PlayerDocumentError("UPLOAD_CONFLICT");
     const guardian=doc.document_types.code==="GUARDIAN_CONSENT";
     if(guardian && body.decision==="APPROVE" && (!body.identityChecked || !body.relationshipChecked || !body.signatureChecked || !body.authorizationChecked || !body.guardianName || !body.relationship))throw new PlayerDocumentError("INVALID_DOCUMENT",400);

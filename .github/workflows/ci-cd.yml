@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [develop, main]
   push:
-    branches: [develop, main]
+    branches: [develop, main, feat/PDGLD-104-excepciones-edad]
   workflow_dispatch:
     inputs:
       deploy_production:
@@ -65,11 +65,11 @@ jobs:
         run: npm run test:signatures
       - name: Probar captura y vista previa de firmas con datos sintéticos
         timeout-minutes: 2
-        run: npm run test:direct-signature && npm run test:signature-preview && npm run test:guardian-signature && npm run test:player-workspace
+        run: npm run test:direct-signature && npm run test:signature-preview && npm run test:guardian-signature && npm run test:player-workspace && npm run test:age-exception-browser
         env:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Probar validación local de identidad de jugadores
-        run: npm run test:player-identity && npm run test:curp-provider && npm run test:ine-provider && npm run test:player-dossier && npm run test:player-document-storage
+        run: npm run test:player-admission && npm run test:age-exception && npm run test:player-identity && npm run test:curp-provider && npm run test:ine-provider && npm run test:player-dossier && npm run test:player-document-storage
       - name: Probar recuperación de inscripciones y capacidades del cliente
         run: npm run test:team-enrollment-client
       - name: Revisar el código

@@ -4,6 +4,11 @@ import { Prisma } from "@prisma/client";
 import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "@/server/auth/session";
 import { AuthorizationError } from "@/server/auth/authorization";
+import { readPlayerPolicy } from "@/features/competitions/server/player-policy";
+import { CompetitionError } from "@/features/competitions/server/configuration";
+import { isAgeExceptionCapture } from "./age-exception-record";
+import { requireAgeExceptionRole } from "./age-exception-service";
+import { evaluatePlayerMovement } from "@/features/competitions/player-admission";
 import { adjacentBirthDates, sameIdentity } from "../identity-rules";
 import { registerPlayerSchema } from "../schemas";
 import type { RegisterPlayerResult } from "../types";
@@ -20,10 +25,11 @@ export async function registerPlayer(input: unknown, expectedActorId?: string): 
 export async function registerPlayerForActor(actorId: string, input: unknown): Promise<RegisterPlayerResult> {
   const parsed = registerPlayerSchema.safeParse(input);
   if (!parsed.success) throw new PlayerRegistrationError("VALIDATION_ERROR", 400);
-  const { identity, seasonTeamId } = parsed.data;
+  const { identity, seasonTeamId, requestAgeException = false } = parsed.data;
   try {
     return await getPrisma().$transaction(async tx => {
-      const { row: context } = await lockPlayerTeamContext(tx, actorId, seasonTeamId, "CREATE");
+      const { row: context, grants } = await lockPlayerTeamContext(tx, actorId, seasonTeamId, "CREATE");
+      if (requestAgeException) await requireAgeExceptionRole(tx, grants, "CLUB_DELEGATE");
       // Orden estable, incluyendo fechas vecinas, para dos identidades similares concurrentes.
       for (const date of adjacentBirthDates(identity.birthDate)) {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`PDGLD-97:birth:${date}`}, 0))::text`;
@@ -48,6 +54,7 @@ export async function registerPlayerForActor(actorId: string, input: unknown): P
           if (prior.season_team_id !== seasonTeamId || prior.withdrawn_at) throw new PlayerRegistrationError("REGISTRATION_CONFLICT");
           return { personId, registrationId: prior.id, ...safeContext(context), status: prior.status,
             identityReviewStatus: prior.identity_review_status as RegisterPlayerResult["identityReviewStatus"],
+            ageExceptionPending: await isAgeExceptionCapture(tx, prior.id),
             localValidation: "VALID", externalVerification: "NOT_PERFORMED", replayed: true };
         }
       } else {
@@ -63,11 +70,32 @@ export async function registerPlayerForActor(actorId: string, input: unknown): P
       if (context.teamStatus === "WITHDRAWN" || context.seasonStatus === "CLOSED" ||
         context.affiliationStatus !== "APPROVED" || (!context.categoryAuthorized || !context.operational))
         throw new PlayerRegistrationError("CONTEXT_NOT_AVAILABLE");
+      // Solo altas nuevas: los reintentos anteriores ya recuperaron su inscripción.
+      // Política bloqueada y reloj SQL compartidos con el trigger de altas.
+      const policy = await readPlayerPolicy(tx, context.seasonId, context.seasonCategoryId);
+      const [clock] = await tx.$queryRaw<{ now: Date }[]>`SELECT sports_management.player_participation_now() AS now`;
+      if (!clock) throw new PlayerRegistrationError("RETRY_REQUIRED");
+      const evaluation = evaluatePlayerMovement({ operation: "REGISTER", policy,
+        birthDate: identity.birthDate, now: clock.now });
+      const exceptional = evaluation.blockers.some(b => b.code === "AGE_EXCEPTION_REQUIRED");
+      if (requestAgeException && !exceptional) throw new PlayerRegistrationError("AGE_EXCEPTION_NOT_APPLICABLE");
+      const blocker = evaluation.blockers.find(b => !(requestAgeException && b.code === "AGE_EXCEPTION_REQUIRED"));
+      if (blocker) {
+        if (blocker.code === "AGE_OUTSIDE_RANGE" || blocker.code === "AGE_EXCEPTION_REQUIRED" ||
+          blocker.code === "REGISTRATION_WINDOW_CLOSED" || blocker.code === "PLAYER_POLICY_PENDING")
+          throw new PlayerRegistrationError(blocker.code, 409, {referenceYear:policy.referenceYear,minimumAge:policy.minimumAge,
+            maximumAge:policy.maximumAge,exceptionMinimumAge:policy.exceptionMinimumAge,registrationDays:policy.registrationDays,timezone:policy.timezone});
+        if (blocker.code === "INVALID_BIRTH_DATE") throw new PlayerRegistrationError("VALIDATION_ERROR", 400);
+        throw new PlayerRegistrationError("RETRY_REQUIRED");
+      }
       const matches = await findPossibleIdentityMatches(tx, identity, personId);
       const reviewStatus = matches.length ? "REQUIRED" : "NOT_REQUIRED";
       const registration = await tx.player_registrations.create({ data: { person_id: personId,
         season_team_id: seasonTeamId, season_id: context.seasonId, reference_number: `PLAYER-${randomUUID()}`,
         status: "INELIGIBLE", identity_review_status: reviewStatus }, select: { id: true } });
+      if (requestAgeException) await tx.audit_logs.create({ data: { user_id: actorId,
+        action: "PLAYER_AGE_EXCEPTION_CAPTURED", table_name: "player_registrations", entity_id: registration.id,
+        reason: "Captura explícita para solicitar excepción; no autoriza edad ni participación", new_data: { categoryId: context.seasonCategoryId } } });
       if (matches.length) {
         // Señal interna de seguridad: también el primer alta concurrente debe revisarse.
         // No cambia identidades ni revoca aprobaciones deportivas históricas.
@@ -78,9 +106,15 @@ export async function registerPlayerForActor(actorId: string, input: unknown): P
       await tx.player_status_history.create({ data: { registration_id: registration.id, new_status: "INELIGIBLE",
         user_id: actorId, reason: "PDGLD-97: captura local pendiente de aprobación deportiva" } });
       return { personId, registrationId: registration.id, ...safeContext(context), status: "INELIGIBLE",
-        identityReviewStatus: reviewStatus, localValidation: "VALID", externalVerification: "NOT_PERFORMED", replayed: false };
+        identityReviewStatus: reviewStatus, ...(requestAgeException ? { ageExceptionPending: true } : {}),
+        localValidation: "VALID", externalVerification: "NOT_PERFORMED", replayed: false };
     }, { timeout: 15_000 });
   } catch (error) {
+    if (error instanceof CompetitionError) {
+      if (error.code === "PLAYER_POLICY_PENDING") throw new PlayerRegistrationError("PLAYER_POLICY_PENDING");
+      if (error.code === "SEASON_CLOSED" || error.code === "INVALID_CONTEXT")
+        throw new PlayerRegistrationError("CONTEXT_NOT_AVAILABLE");
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === "P2002") throw new PlayerRegistrationError("REGISTRATION_CONFLICT");
       if (["P2034", "P2028"].includes(error.code)) throw new PlayerRegistrationError("RETRY_REQUIRED");
@@ -91,6 +125,9 @@ export async function registerPlayerForActor(actorId: string, input: unknown): P
       meta?: { driverAdapterError?: { cause?: { originalMessage?: string } } } } | null;
     const detail = adapter?.meta?.driverAdapterError?.cause?.originalMessage ?? adapter?.cause?.originalMessage ??
       (error instanceof Error ? error.message : "");
+    if (detail.includes("PLAYER_ADMISSION_POLICY_PENDING")) throw new PlayerRegistrationError("PLAYER_POLICY_PENDING");
+    if (detail.includes("PLAYER_ADMISSION_CONTEXT")) throw new PlayerRegistrationError("CONTEXT_NOT_AVAILABLE");
+    if (detail.includes("PLAYER_ADMISSION_WINDOW_CLOSED")) throw new PlayerRegistrationError("REGISTRATION_WINDOW_CLOSED");
     if (detail.includes("Las altas solo se permiten")) throw new PlayerRegistrationError("REGISTRATION_WINDOW_CLOSED");
     if (detail.includes("No se permite cambiar equipo")) throw new PlayerRegistrationError("TEAM_CHANGE_NOT_ALLOWED");
     if (detail.includes("PLAYER_ORIGIN_LOWER_CATEGORY")) throw new PlayerRegistrationError("REGISTRATION_CONFLICT");

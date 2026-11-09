@@ -1,4 +1,5 @@
 import Link from "next/link";
+import {AgeExceptionPanel} from "@/features/players/components/age-exception-panel";
 import {redirect} from "next/navigation";
 import {AuthAccessError,requireOperationalUser} from "@/server/auth/session";
 import {readPlayerDossierForActor} from "@/features/players/server/document-queries";
@@ -18,6 +19,7 @@ export default async function Page({params}:{params:Promise<{registrationId:stri
       <p className="break-words text-sm text-muted">{data.player.clubName} · {data.player.seasonName}</p>
     </div>}
     {data && <Link className="primary-action inline-flex min-h-12 items-center rounded-xl px-5 py-3 font-semibold" href={`/players/registrations/${data.registrationId}/participations`}>Consultar habilitación y participaciones</Link>}
+    {data && <AgeExceptionPanel actorId={actorId} registrationId={data.registrationId}/>}
     {data?<PlayerDossier key={`${actorId}:${data.registrationId}`} actorId={actorId} initial={data} storageConfigured={Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_STORAGE_SERVER_KEY && process.env.SUPABASE_PLAYER_DOCUMENTS_BUCKET==="expedientes-jugadores")}/>:<p role="alert">El expediente no está disponible o tu cuenta no tiene acceso.</p>}
     {ine && <IneVerificationPanel key={`${actorId}:${ine.registrationId}:ine`} actorId={actorId} initial={ine}/>}
   </section>;

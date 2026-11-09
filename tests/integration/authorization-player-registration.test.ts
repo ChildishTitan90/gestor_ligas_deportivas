@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
+import { syntheticPlayerPolicy } from "../fixtures/player-document-policy";
 import { getPrisma } from "../../src/server/db/prisma";
 import { assertPermission, AuthorizationError, lockAuthorization } from "../../src/server/auth/authorization";
 import { assertOwnPlayerRegistration } from "../../src/server/auth/authorization-domain";
@@ -38,7 +39,8 @@ test("PDGLD-54: lectura de inscripciones reales exige permiso y propiedad", asyn
         const rule = await tx.competition_rules.create({ data: { season_id: season.id, version_number: 1 } });
         const category = await tx.categories.create({ data: { league_id: league.id, sport_id: soccer.id, name: "Abierta sintética" } });
         const seasonCategory = await tx.season_categories.create({ data: { season_id: season.id, category_id: category.id,
-          competition_rule_id: rule.id, hierarchy_order: 1, type: "OPEN", age_cutoff_date: new Date("2026-01-01") } });
+          competition_rule_id: rule.id, hierarchy_order: 1, type: "OPEN",
+          eligibility_pending: false, player_policy: syntheticPlayerPolicy(), age_cutoff_date: new Date("2026-01-01") } });
         const group = await tx.groups.create({ data: { season_id: season.id, season_category_id: seasonCategory.id, name: "Grupo sintético" } });
         const club = await tx.clubs.create({ data: { league_id: league.id, name: "Club sintético", reference_number: `player-club-${suffix}` } });
         await tx.club_affiliations.create({ data: { club_id: club.id, league_id: league.id, season_id: season.id,
@@ -55,29 +57,21 @@ test("PDGLD-54: lectura de inscripciones reales exige permiso y propiedad", asyn
         await tx.user_roles.create({ data: { user_id: actor.id, role_id: role.id, league_id: league.id, club_id: club.id,
           starts_at: new Date(Date.now() - 60_000) } });
 
-        // Solo el reloj de preparación. El baseline fija search_path en cada
-        // función: cambiar únicamente el de la sesión no controla el trigger.
-        const [triggerConfig] = await tx.$queryRaw<{ settings: string[] }[]>`
-          SELECT proconfig AS settings FROM pg_catalog.pg_proc
-          WHERE oid = 'sports_management.validate_player_registration()'::regprocedure
+        // Solo se sustituye el reloj compartido en esta transacción desechable.
+        // El trigger y sus validaciones permanecen intactos.
+        const [original] = await tx.$queryRaw<{ definition: string }[]>`
+          SELECT pg_get_functiondef('sports_management.player_participation_now()'::regprocedure) AS definition
         `;
-        assert.ok(triggerConfig.settings.includes("search_path=sports_management, pg_temp"),
-          "Revisar la preparación si cambia la configuración del trigger compartido.");
-        await tx.$executeRaw`CREATE SCHEMA pdgld54_test_clock`;
-        await tx.$executeRaw`CREATE FUNCTION pdgld54_test_clock.now() RETURNS timestamptz LANGUAGE sql STABLE
+        await tx.$executeRaw`CREATE OR REPLACE FUNCTION sports_management.player_participation_now()
+          RETURNS timestamptz LANGUAGE sql STABLE SET search_path=pg_catalog,pg_temp
           AS 'SELECT current_setting(''pdgld54_test.now'')::timestamptz'`;
         await tx.$queryRaw`SELECT set_config('pdgld54_test.now', '2026-10-22T12:00:00-06:00', true)`;
-        // DDL exclusivamente en esta transacción desechable; conserva el cuerpo
-        // y los triggers activos. Restaurar antes de ejecutar la autorización.
-        const [original] = await tx.$queryRaw<{ definition: string }[]>`SELECT pg_get_functiondef('sports_management.validate_player_registration()'::regprocedure) AS definition`;
-        // Referencia expl�cita: el plan PL/pgSQL puede conservar now() ya resuelto.
-        await tx.$executeRawUnsafe(original.definition.replace(/\bnow\(\)/g, "pdgld54_test_clock.now()"));
         const createRegistration = (personId: string, reference: string) => tx.player_registrations.create({
           data: { person_id: personId, season_id: season.id, season_team_id: seasonTeam.id, reference_number: reference },
         });
 
         await t.test("fixtures: el trigger activo rechaza jueves; admite miércoles con CURP y relaciones válidas", async () => {
-          const [clock] = await tx.$queryRaw<{ day: number }[]>`SELECT extract(isodow FROM pdgld54_test_clock.now() AT TIME ZONE 'America/Mexico_City')::int AS day`;
+          const [clock] = await tx.$queryRaw<{ day: number }[]>`SELECT extract(isodow FROM sports_management.player_participation_now() AT TIME ZONE 'America/Mexico_City')::int AS day`;
           assert.equal(clock.day, 4);
           await tx.$executeRaw`SAVEPOINT closed_registration_window`;
           let rejectedByWindow = false;
@@ -89,7 +83,7 @@ test("PDGLD-54: lectura de inscripciones reales exige permiso y propiedad", asyn
             const adapter = error as { cause?: { originalMessage?: string };
               meta?: { driverAdapterError?: { cause?: { originalMessage?: string } } } };
             const message = adapter.meta?.driverAdapterError?.cause?.originalMessage ?? adapter.cause?.originalMessage ?? String(error);
-            rejectedByWindow = message.includes("Las altas solo se permiten lunes a miercoles");
+            rejectedByWindow = message.includes("PLAYER_ADMISSION_WINDOW_CLOSED");
           }
           await tx.$executeRaw`ROLLBACK TO SAVEPOINT closed_registration_window`;
           await tx.$executeRaw`RELEASE SAVEPOINT closed_registration_window`;
@@ -101,13 +95,10 @@ test("PDGLD-54: lectura de inscripciones reales exige permiso y propiedad", asyn
         const own = await createRegistration(ownPerson.id, `own-${suffix}`);
         const other = await createRegistration(otherPerson.id, `other-${suffix}`);
         await tx.$executeRawUnsafe(original.definition);
-        const [restoredConfig] = await tx.$queryRaw<{ settings: string[] }[]>`
-          SELECT proconfig AS settings FROM pg_catalog.pg_proc
-          WHERE oid = 'sports_management.validate_player_registration()'::regprocedure
+        const [restored] = await tx.$queryRaw<{ definition: string }[]>`
+          SELECT pg_get_functiondef('sports_management.player_participation_now()'::regprocedure) AS definition
         `;
-        assert.deepEqual(restoredConfig.settings, triggerConfig.settings);
-        const [clockRestored] = await tx.$queryRaw<{ restored: boolean }[]>`SELECT now() = pg_catalog.now() AS restored`;
-        assert.equal(clockRestored.restored, true);
+        assert.equal(restored.definition, original.definition);
 
         // Composición del contrato compartido en la misma transacción, con el
         // contexto derivado de la inscripción; el DTO solo se lee tras autorizar.
@@ -139,7 +130,7 @@ test("PDGLD-54: lectura de inscripciones reales exige permiso y propiedad", asyn
           await tx.role_permissions.create({ data: { role_id: role.id, permission_id: permission.id, context_only: true } });
           assert.deepEqual(await readRegistration(own.id), { id: own.id, status: "ACTIVE" });
         });
-        // Revierte fixtures, concesiones, esquema de reloj y auditoría sintética.
+        // Revierte fixtures, concesiones, reloj y auditoría sintética.
         throw rollback;
       }, { timeout: 30_000 });
     } catch (error) {

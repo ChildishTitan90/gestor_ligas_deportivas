@@ -51,6 +51,11 @@ export const seasonCloseSchema = z.strictObject({ ...groupVersion, confirm: z.li
 export const ruleApprovalSchema = z.strictObject({ ...groupVersion, confirm: z.literal("APROBAR") });
 
 export const playerPolicySchema = z.strictObject({
+  registrationWindows: z.array(z.strictObject({
+    phase: z.string().trim().min(1).max(120),
+    opensAt: z.iso.datetime({ local: true, precision: 0 }).refine(v => !v.endsWith("Z"), "Usa la hora local de la categoría."),
+    closesAt: z.iso.datetime({ local: true, precision: 0 }).refine(v => !v.endsWith("Z"), "Usa la hora local de la categoría."),
+  }).refine(w => w.opensAt < w.closesAt, "El cierre debe ser posterior a la apertura.")).max(20).optional(),
   referenceYear: z.number().int().min(2000).max(2200),
   minimumAge: z.number().int().min(0).max(120),
   maximumAge: z.number().int().min(0).max(120).nullable(),

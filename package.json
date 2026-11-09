@@ -86,7 +86,10 @@
     "test:signature-preview": "node --test tests/e2e/signature-review-preview.test.mjs",
     "test:guardian-signature": "node --test tests/e2e/guardian-signature.test.mjs",
     "test:player-workspace": "node --test --test-concurrency=1 tests/e2e/player-workspace-review.test.mjs tests/e2e/player-dossier-upload.test.mjs tests/e2e/player-review-workspace.test.mjs tests/e2e/player-participation-workspace.test.mjs tests/e2e/private-document-preview.test.mjs",
-    "players:demo": "node scripts/test-auth.mjs --player-demo"
+    "players:demo": "node scripts/test-auth.mjs --player-demo",
+    "test:player-admission": "node --import tsx --test src/features/competitions/player-policy.test.ts src/features/competitions/player-admission.test.ts",
+    "test:age-exception": "node --conditions=react-server --import tsx --test src/features/players/age-exception.test.ts src/features/players/server/age-exception-record.test.ts",
+    "test:age-exception-browser": "node --test tests/e2e/player-age-exception.test.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

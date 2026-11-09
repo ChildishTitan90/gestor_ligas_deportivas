@@ -12,7 +12,7 @@ export function curpVerificationFailure(error: unknown) {
   return NextResponse.json({ code: "SERVICE_UNAVAILABLE" }, { status: 503, headers: curpVerificationHeaders });
 }
 
-export async function readCurpVerificationBody(request: Request): Promise<unknown> {
+export async function readCurpVerificationBody(request: Request, maximumBytes = 2048): Promise<unknown> {
   const fail = (code: string, status: number) => NextResponse.json({ code }, { status, headers: curpVerificationHeaders });
   if (request.headers.get("origin") !== new URL(process.env.NEXTAUTH_URL ?? request.url).origin ||
     request.headers.get("sec-fetch-site") === "cross-site") return fail("INVALID_ORIGIN", 403);
@@ -27,7 +27,7 @@ export async function readCurpVerificationBody(request: Request): Promise<unknow
       const { value, done } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > 2048) { await reader.cancel(); return fail("PAYLOAD_TOO_LARGE", 413); }
+      if (size > maximumBytes) { await reader.cancel(); return fail("PAYLOAD_TOO_LARGE", 413); }
       chunks.push(value);
     }
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));

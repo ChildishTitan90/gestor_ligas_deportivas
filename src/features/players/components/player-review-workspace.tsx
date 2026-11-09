@@ -12,8 +12,10 @@ const groups = [
   { value: "IDENTITY", label: "Posibles coincidencias", icon: UsersRound },
   { value: "INE", label: "INE y selfie", icon: Fingerprint },
   { value: "DOCUMENTS", label: "Documentos y tutor", icon: ShieldCheck },
+  { value: "AGE_EXCEPTION", label: "Excepciones de edad", icon: ShieldCheck },
 ] as const;
 const labels: Record<PlayerReviewKind, { name: string; action: string }> = {
+  AGE_EXCEPTION: { name: "Excepción de edad", action: "Revisar excepción" },
   IDENTITY: { name: "Posible coincidencia", action: "Comparar identidades" },
   INE: { name: "INE y selfie", action: "Revisar evidencias" },
   DOCUMENTS: { name: "Documentos y tutor", action: "Revisar documentos" },
@@ -23,7 +25,7 @@ const date = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeZone: "
 const secondary = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm font-semibold text-primary hover:bg-soft disabled:opacity-50";
 
 function ReviewAction({ item }: { item: PlayerReviewItem }) {
-  const href = item.kind === "IDENTITY" ? `/players/review/${item.id}` : item.kind === "INE" ?
+  const href = item.kind === "AGE_EXCEPTION" ? `/players/review/${item.id}/age-exception` : item.kind === "IDENTITY" ? `/players/review/${item.id}` : item.kind === "INE" ?
     `/players/registrations/${item.id}/documents` : `/players/review/${item.id}/documents`;
   return <ActionLink href={href} prefetch={false} aria-label={`${labels[item.kind].action} de ${item.name}`} className="w-full whitespace-nowrap lg:w-auto">{labels[item.kind].action}</ActionLink>;
 }
