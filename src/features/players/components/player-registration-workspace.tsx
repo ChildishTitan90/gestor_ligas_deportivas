@@ -4,7 +4,7 @@ import { z } from "zod";
 import { SelectField } from "@/components/ui/select-field";
 import { FormDialog } from "@/components/ui/form-dialog";
 import { focusFormControl } from "@/components/ui/focus-form-control";
-import { registerPlayerSchema } from "../schemas";
+import { registerPlayerSchema, jerseyNumberFromField } from "../schemas";
 import { playerRequest, PlayerRequestError, playerListSchema, playerResultSchema } from "../player-client";
 import {describeAdmissionRule} from "../age-exception";
 import { playerErrorMessages } from "../player-feedback";
@@ -74,7 +74,7 @@ export function PlayerRegistrationWorkspace({ actorId, teams, initialPlayers=[],
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (lock.current || frozen) return;
     const data = new FormData(event.currentTarget);
-    const parsed = registerPlayerSchema.safeParse({ seasonTeamId: teamId, requestAgeException, identity: {
+    const parsed = registerPlayerSchema.safeParse({ seasonTeamId: teamId, requestAgeException, jerseyNumber: jerseyNumberFromField(data.get("jerseyNumber")), identity: {
       curp: data.get("curp"), firstName: data.get("firstName"), paternalSurname: data.get("paternalSurname"),
       maternalSurname: data.get("maternalSurname"), birthDate: data.get("birthDate"),
     } });
@@ -109,7 +109,7 @@ export function PlayerRegistrationWorkspace({ actorId, teams, initialPlayers=[],
   }
   function field(name: string, label: string, type = "text", required = true) {
     return <div><label htmlFor={`${prefix}-${name}`} className="text-sm font-medium">{label}{required ? " *" : ""}</label>
-      <input id={`${prefix}-${name}`} name={name} type={type} required={required} autoComplete="off" maxLength={name === "curp" ? 18 : type === "text" ? 120 : undefined}
+      <input id={`${prefix}-${name}`} name={name} type={type} min={type === "number" ? 0 : undefined} step={type === "number" ? 1 : undefined} required={required} autoComplete="off" maxLength={name === "curp" ? 18 : type === "text" ? 120 : undefined}
         aria-invalid={Boolean(errors[name])} aria-describedby={errors[name] ? `${prefix}-${name}-error` : undefined} className={inputClass} />
       {errors[name] && <p id={`${prefix}-${name}-error`} className="mt-2 text-sm text-danger">{errors[name]}</p>}</div>;
   }
@@ -121,7 +121,7 @@ export function PlayerRegistrationWorkspace({ actorId, teams, initialPlayers=[],
       <div className="grid items-start gap-4 sm:grid-cols-2"><div><label htmlFor={`${prefix}-search`} className="block text-sm font-medium">Buscar jugador, club o temporada</label><input id={`${prefix}-search`} type="search" value={search} onChange={e=>setSearch(e.target.value)} className={inputClass}/></div><div><label htmlFor={`${prefix}-list-team`} className="block text-sm font-medium">Filtrar por equipo</label><div className="mt-2"><SelectField id={`${prefix}-list-team`} value={listTeam} onValueChange={setListTeam} options={[{value:"",label:"Todos mis equipos"},...directoryTeams]}/></div></div></div>
       {listMessage && <p role="status" className="rounded-xl border border-border bg-surface p-4">{listMessage}</p>}
       {!listMessage && !visibleRows.length && <p role="status">{rows.length?"No hay jugadores que coincidan con la búsqueda.":"Todavía no hay jugadores registrados en tus equipos."}</p>}
-      <ul className="grid gap-3">{visibleRows.map(row=><li key={row.registrationId} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4"><div><p className="font-semibold">{row.displayName}</p><p className="text-sm text-muted">{[row.clubName,row.teamName,row.seasonName].filter(Boolean).join(" · ")}</p><p className="text-sm">{row.status==="ACTIVE"?"Activo":row.status==="INELIGIBLE"?"Pendiente de habilitación":row.status==="WITHDRAWN"?"Baja registrada":"Suspendido"}{row.identityReviewStatus==="REQUIRED"?" · Revisión de identidad pendiente":""}</p></div><div className="flex flex-wrap gap-3"><Link href={`/players/registrations/${row.registrationId}/documents`} className={secondary}>Abrir expediente</Link><Link href={`/players/registrations/${row.registrationId}/participations`} className="min-h-12 rounded-xl border border-border px-4 py-3 font-semibold">Participaciones</Link><button type="button" onClick={()=>setSelectedRecord(row.registrationId)} className={secondary}>Estado de CURP</button></div></li>)}</ul>
+      <ul className="grid gap-3">{visibleRows.map(row=><li key={row.registrationId} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-surface p-4"><div><p className="font-semibold">{row.displayName}</p><p className="text-sm">Dorsal habitual: {row.jerseyNumber ?? "Sin asignar"}</p><p className="text-sm text-muted">{[row.clubName,row.teamName,row.seasonName].filter(Boolean).join(" · ")}</p><p className="text-sm">{row.status==="ACTIVE"?"Activo":row.status==="INELIGIBLE"?"Pendiente de habilitación":row.status==="WITHDRAWN"?"Baja registrada":"Suspendido"}{row.identityReviewStatus==="REQUIRED"?" · Revisión de identidad pendiente":""}</p></div><div className="flex flex-wrap gap-3"><Link href={`/players/registrations/${row.registrationId}/documents`} className={secondary}>Abrir expediente</Link><Link href={`/players/registrations/${row.registrationId}/participations`} className="min-h-12 rounded-xl border border-border px-4 py-3 font-semibold">Participaciones</Link><button type="button" onClick={()=>setSelectedRecord(row.registrationId)} className={secondary}>Estado de CURP</button></div></li>)}</ul>
     </section>
     {!teams.length && <div className="rounded-2xl border border-border bg-surface p-6 space-y-4">
     <h2 className="text-xl font-semibold text-primary">Todavía no hay equipos disponibles para registrar jugadores</h2>
@@ -136,6 +136,7 @@ export function PlayerRegistrationWorkspace({ actorId, teams, initialPlayers=[],
         <div><label htmlFor={`${prefix}-season`} className="text-sm font-medium">Temporada *</label><div className="mt-2"><SelectField id={`${prefix}-season`} name="seasonId" value={seasonId} onValueChange={value => { setDirty(true);setSeasonId(value); setTeamId(""); }} options={seasons} disabled={!clubId} required /></div></div>
         <div className="sm:col-span-2"><label htmlFor={`${prefix}-team`} className="text-sm font-medium">Equipo inscrito *</label><div className="mt-2"><SelectField id={`${prefix}-team`} name="seasonTeamId" value={teamId} onValueChange={value=>{setDirty(true);setTeamId(value);}} options={availableTeams.map(option => ({ value: option.id, label: option.teamName, description: option.categoryName }))} disabled={!seasonId} required aria-invalid={Boolean(errors.seasonTeamId)} /></div>
           {team && <p className="mt-2 text-sm text-muted">{team.categoryName} · {team.groupName}</p>}</div>
+        <div>{field("jerseyNumber", "Dorsal habitual (opcional)", "number", false)}<p className="mt-2 text-sm text-muted">Si lo asignas, queda fijo durante esta temporada y no puede repetirse en el mismo equipo.</p></div>
         {field("curp", "CURP")}{field("birthDate", "Fecha de nacimiento", "date")}
         {field("firstName", "Nombre(s)")}{field("paternalSurname", "Apellido paterno")}{field("maternalSurname", "Apellido materno (opcional)", "text", false)}
         <label className="flex items-start gap-3 rounded-xl border border-border p-4 sm:col-span-2"><input type="checkbox" name="requestAgeException" checked={requestAgeException} onChange={e=>setRequestAgeException(e.target.checked)} className="mt-1 size-5"/><span><strong>Presentar una petición de excepción de edad</strong><span className="mt-1 block text-sm leading-6 text-muted">Solo si la edad está dentro del margen excepcional configurado. Se abrirá un expediente pendiente para cargar la carta y solicitar la decisión de Secretaría. No se autoriza la edad ni se consulta la CURP automáticamente.</span></span></label>

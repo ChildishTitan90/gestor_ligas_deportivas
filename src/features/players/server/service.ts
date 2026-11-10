@@ -25,7 +25,7 @@ export async function registerPlayer(input: unknown, expectedActorId?: string): 
 export async function registerPlayerForActor(actorId: string, input: unknown): Promise<RegisterPlayerResult> {
   const parsed = registerPlayerSchema.safeParse(input);
   if (!parsed.success) throw new PlayerRegistrationError("VALIDATION_ERROR", 400);
-  const { identity, seasonTeamId, requestAgeException = false } = parsed.data;
+  const { identity, seasonTeamId, jerseyNumber = null, requestAgeException = false } = parsed.data;
   try {
     return await getPrisma().$transaction(async tx => {
       const { row: context, grants } = await lockPlayerTeamContext(tx, actorId, seasonTeamId, "CREATE");
@@ -92,7 +92,7 @@ export async function registerPlayerForActor(actorId: string, input: unknown): P
       const reviewStatus = matches.length ? "REQUIRED" : "NOT_REQUIRED";
       const registration = await tx.player_registrations.create({ data: { person_id: personId,
         season_team_id: seasonTeamId, season_id: context.seasonId, reference_number: `PLAYER-${randomUUID()}`,
-        status: "INELIGIBLE", identity_review_status: reviewStatus }, select: { id: true } });
+        status: "INELIGIBLE", jersey_number: jerseyNumber, identity_review_status: reviewStatus }, select: { id: true } });
       if (requestAgeException) await tx.audit_logs.create({ data: { user_id: actorId,
         action: "PLAYER_AGE_EXCEPTION_CAPTURED", table_name: "player_registrations", entity_id: registration.id,
         reason: "Captura explícita para solicitar excepción; no autoriza edad ni participación", new_data: { categoryId: context.seasonCategoryId } } });
@@ -116,6 +116,8 @@ export async function registerPlayerForActor(actorId: string, input: unknown): P
         throw new PlayerRegistrationError("CONTEXT_NOT_AVAILABLE");
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2002" && JSON.stringify(error.meta ?? {}).includes("jersey"))
+        throw new PlayerRegistrationError("JERSEY_NUMBER_TAKEN");
       if (error.code === "P2002") throw new PlayerRegistrationError("REGISTRATION_CONFLICT");
       if (["P2034", "P2028"].includes(error.code)) throw new PlayerRegistrationError("RETRY_REQUIRED");
     }

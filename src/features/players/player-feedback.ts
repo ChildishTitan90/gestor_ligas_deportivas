@@ -1,6 +1,8 @@
 import { ageExceptionMessages } from "./age-exception";
 export const playerErrorMessages: Record<string, string> = {
   ...ageExceptionMessages,
+  JERSEY_NUMBER_LOCKED: "El dorsal ya fue asignado y queda fijo hasta una nueva temporada.",
+  JERSEY_NUMBER_TAKEN: "Ese dorsal ya pertenece a otro jugador de este equipo en la temporada. Elige otro.",
   UNAUTHENTICATED: "Tu sesión terminó. Vuelve a iniciar sesión.",
   PASSWORD_CHANGE_REQUIRED: "Debes cambiar tu contraseña antes de continuar.",
   FORBIDDEN: "Tu cuenta ya no tiene permiso para esta operación. Consulta nuevamente con tu sesión actual.",

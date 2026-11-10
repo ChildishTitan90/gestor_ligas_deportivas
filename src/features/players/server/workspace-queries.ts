@@ -83,7 +83,7 @@ export async function listRegisteredPlayersForActor(actorId:string,seasonTeamId?
         CASE WHEN h.person_id IS NULL THEN 'Información histórica no disponible'
           ELSE concat_ws(' ',h.first_name,h.paternal_surname,h.maternal_surname) END
         ELSE concat_ws(' ',p.first_name,p.paternal_surname,p.maternal_surname) END AS "displayName",
-        pr.status, pr.identity_review_status AS "identityReviewStatus", pr.season_team_id AS "seasonTeamId",
+        pr.jersey_number AS "jerseyNumber", pr.status, pr.identity_review_status AS "identityReviewStatus", pr.season_team_id AS "seasonTeamId",
         t.name AS "teamName", c.name AS "clubName", s.name AS "seasonName"
       FROM sports_management.player_registrations pr
       JOIN sports_management.people p ON p.id=pr.person_id

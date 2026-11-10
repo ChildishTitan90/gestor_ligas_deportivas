@@ -27,6 +27,7 @@ export type PlayerTeamOption = {
   categoryName: string; groupName: string;
 };
 export type PlayerListItem = {
+  jerseyNumber?: number | null;
   registrationId: string; displayName: string; status: string; identityReviewStatus: string | null;
   seasonTeamId?:string; teamName?:string; clubName?:string; seasonName?:string;
 };

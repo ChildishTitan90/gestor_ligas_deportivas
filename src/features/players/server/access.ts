@@ -9,7 +9,7 @@ export class PlayerRegistrationError extends Error {
     "IDENTITY_UNAVAILABLE" | "REGISTRATION_CONFLICT" | "REGISTRATION_WINDOW_CLOSED" |
     "TEAM_CHANGE_NOT_ALLOWED" | "REVIEW_CAPACITY_EXCEEDED" | "RETRY_REQUIRED" |
     "PLAYER_POLICY_PENDING" | "AGE_OUTSIDE_RANGE" | "AGE_EXCEPTION_REQUIRED" | "AGE_EXCEPTION_NOT_APPLICABLE" | "AGE_EXCEPTION_DOCUMENT_REQUIRED" |
-    "AGE_EXCEPTION_STALE" | "AGE_EXCEPTION_CONFLICT", public readonly status = 409, public readonly rule?: AdmissionRule) {
+    "AGE_EXCEPTION_STALE" | "AGE_EXCEPTION_CONFLICT" | "JERSEY_NUMBER_LOCKED" | "JERSEY_NUMBER_TAKEN", public readonly status = 409, public readonly rule?: AdmissionRule) {
     super(code);
   }
 }
