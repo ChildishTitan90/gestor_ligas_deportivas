@@ -72,6 +72,10 @@ jobs:
         run: npm run test:player-admission && npm run test:age-exception && npm run test:player-identity && npm run test:curp-provider && npm run test:ine-provider && npm run test:player-dossier && npm run test:player-document-storage
       - name: Probar recuperación de inscripciones y capacidades del cliente
         run: npm run test:team-enrollment-client
+      - name: Probar elegibilidad por partido en PostgreSQL aislado y Chrome sintético
+        run: npm run test:match-eligibility-integration && npm run test:match-eligibility-browser
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
       - name: Revisar el código
         run: npm run lint
       - name: Compilar la aplicación

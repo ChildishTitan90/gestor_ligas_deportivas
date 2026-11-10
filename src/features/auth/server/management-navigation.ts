@@ -14,6 +14,7 @@ import { canAccessPlayerRegistration } from "@/features/players/server/workspace
 import { canReviewPlayerIdentity } from "@/features/players/server/identity-review";
 import {canAccessPlayerParticipations} from "@/features/players/server/participation-workspace-queries";
 import { canReadAccountMaintenance } from "@/features/accounts/server/maintenance-workspace";
+import { canAccessMatchEligibility } from "@/features/matches/server/eligibility";
 
 /** Solo una denegación esperada oculta el enlace; los fallos de sesión o servicio se propagan. */
 async function allowed(check: () => Promise<boolean>): Promise<boolean> {
@@ -43,7 +44,7 @@ async function navigationCapabilities(checks: (() => Promise<boolean>)[]) {
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
   await requireOperationalUser();
-  const [teams, capture, review, accounts, players, playerReview, seasons, leagues,participations,maintenance,accountMaintenance] = await navigationCapabilities([
+  const [teams, capture, review, accounts, players, playerReview, seasons, leagues,participations,maintenance,accountMaintenance,matchEligibility] = await navigationCapabilities([
     async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0,
     canAccessAffiliationCapture,
     async () => (await getAffiliationReviewLeagueOptions()).length > 0,
@@ -55,6 +56,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
     canAccessPlayerParticipations,
     canAccessClubMaintenance,
     canReadAccountMaintenance,
+    canAccessMatchEligibility,
   ]);
 
   const groups: ManagementNavigationGroup[] = [
@@ -71,6 +73,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if(playerReview) playerLinks.items.push({href:"/players/review",label:"Revisión de identidad",icon:"review"});
   if(participations)playerLinks.items.push({href:"/players/participations",label:"Participaciones superiores",icon:"players"});
   if(playerLinks.items.length) groups.push(playerLinks);
+  if(matchEligibility) groups.push({label:"Arbitraje",items:[{href:"/matches",label:"Mis partidos · Alineación",icon:"players"}]});
   const competitions: ManagementNavigationGroup = { label: "Competencias", items: [] };
   if (leagues) competitions.items.push({ href: "/competitions/leagues/new", label: "Crear liga", icon: "overview" });
   if (seasons) competitions.items.push({ href: "/competitions/seasons", label: "Temporadas", icon: "overview" });
