@@ -29,6 +29,17 @@ export const DISTRIBUTION_PLAN = Object.freeze({
   checksum: '8cd0c79f5a5044ced2575e1648c38a0ec2bff72d6ba620af8684dca1893c76b9',
 });
 
+// Cada migración se revisó con RLS en Supabase y sin acceso de roles de API.
+// El checksum impide que un cambio posterior herede esta autorización.
+export const PRIVATE_TABLE_PLANS = Object.freeze([
+  ['20261104020000_pdgld13_category_participations', 'd705a50e6e0e9b8c7864a8bc7eaaf04baf59990e62fb9a6c70c94bb2550b655b', ['player_category_levels', 'player_category_participations']],
+  ['20261105020000_pdgld118_pending_email', '95416e2811d865d283ca44eace7ab0f4ab15556af6ac3a2961a98d3e9dbef1dd', ['account_email_changes']],
+  ['20261108010000_pdgld117_identity_corrections', '5c8244040be0e00bbd7a2c2c781f7a34afdf7d901461eabb14b842c356a4365f', ['player_identity_corrections', 'player_identity_correction_evidence']],
+  ['20261108020000_pdgld117_season_identity_snapshots', 'd14923ab7bff900a6dcc982ff1b0447a2954c1cfe08a51ba75f4b39c410a4309', ['season_person_identity_snapshots']],
+  ['20261108030000_pdgld117_identity_closure_receipts', '1fb5ea49cffff85a278ed6b4424bb334de1dda4e9d6c9b17c3fe3ca75ed27aa6', ['season_identity_closures']],
+  ['20261109010000_pdgld117_selective_history', '9df24df62d11b9d0383e8a252757daefcb058c15c0ea269bfc7b005eb71bc148', ['season_registration_history']],
+]);
+
 export function sqlChecksum(sql) {
   return createHash('sha256').update(sql.replace(/\r\n/g, '\n')).digest('hex');
 }
@@ -43,6 +54,11 @@ export function assertProductionPlan(migrations, applied, readSql) {
   const pendingSecurity = migrations.has(plan.securityMigration) && !applied.has(plan.securityMigration);
   const pendingEnrollmentCreation = migrations.has(ENROLLMENT_PLAN.migration) && !applied.has(ENROLLMENT_PLAN.migration);
   const pendingCurpCreation = migrations.has(CURP_PLAN.migration) && !applied.has(CURP_PLAN.migration);
+  const pendingPrivateCreations = PRIVATE_TABLE_PLANS.filter(([name]) => migrations.has(name) && !applied.has(name));
+  for (const [name, checksum] of PRIVATE_TABLE_PLANS) {
+    if (migrations.has(name) && sqlChecksum(readSql(name)) !== checksum)
+      throw new Error(`El plan de seguridad de ${name} exige el SQL original y su checksum revisado.`);
+  }
   if (migrations.has(CURP_PLAN.migration) && sqlChecksum(readSql(CURP_PLAN.migration)) !== CURP_PLAN.checksum)
     throw new Error('El plan PDGLD-97 exige la migración original y su checksum revisado.');
   // Revisar también el original al reintentar una base ya actualizada.
@@ -63,9 +79,11 @@ export function assertProductionPlan(migrations, applied, readSql) {
     if (name === ENROLLMENT_PLAN.migration && pendingEnrollmentCreation) continue;
     if (name === CURP_PLAN.migration && pendingCurpCreation) continue;
     if (name === DISTRIBUTION_PLAN.migration) continue;
+    if (PRIVATE_TABLE_PLANS.some(([planned]) => planned === name)) continue;
     assertProductionSql(readSql(name), name);
   }
-  return { pendingCreation, pendingEnrollmentCreation, pendingCurpCreation };
+  return { pendingCreation, pendingEnrollmentCreation, pendingCurpCreation,
+    ...(pendingPrivateCreations.length ? { pendingPrivateCreations: pendingPrivateCreations.map(([name]) => name) } : {}) };
 }
 
 export function readProductionPlan(directory, migrations, applied) {
@@ -126,4 +144,7 @@ export async function assertAppliedProductionSecurity(client, applied) {
   if (applied.has(AFFILIATION_PLAN.migration)) await assertAffiliationProductionSecurity(client);
   if (applied.has(ENROLLMENT_PLAN.migration)) await assertEnrollmentProductionSecurity(client);
   if (applied.has(CURP_PLAN.migration)) await assertCurpProductionSecurity(client);
+  for (const [migration, , tables] of PRIVATE_TABLE_PLANS) {
+    if (applied.has(migration)) for (const table of tables) await assertReviewedTableSecurity(client, table);
+  }
 }

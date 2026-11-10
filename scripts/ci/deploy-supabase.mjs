@@ -55,7 +55,7 @@ try {
   const applied = assertAppliedHistory(await history(), migrations);
   await securityState();
   const plan = readProductionPlan(migrationsPath, migrations, applied);
-  if (plan.pendingCreation || plan.pendingEnrollmentCreation || plan.pendingCurpCreation) await assertProductionCreationAccess(client);
+  if (plan.pendingCreation || plan.pendingEnrollmentCreation || plan.pendingCurpCreation || plan.pendingPrivateCreations?.length) await assertProductionCreationAccess(client);
   await assertAppliedProductionSecurity(client, applied);
   console.log(`Historial verificado; ${migrations.size - applied.size} migraciones pendientes.`);
   prisma(['migrate', 'deploy']);
