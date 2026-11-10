@@ -1,0 +1,340 @@
+{
+  "scope": "PDGLD-118 CI136 isolated browser, seed and club validation",
+  "date": "2026-11-06",
+  "sourceCommit": "a6397fd18251606eda22fb58de44b72f778264e9",
+  "currentStatus": "LOCAL_VALIDATION_PASSED_REMOTE_CI_PENDING",
+  "remoteCI": {
+    "runNumber": 136,
+    "runId": 42176461712,
+    "url": "https://github.com/ChildishTitan90/gestor_ligas_deportivas/actions/runs/42176461712",
+    "originalResult": "failure",
+    "correctedCommitPublished": false,
+    "correctedRunStatus": "PENDING"
+  },
+  "browserHarness": {
+    "runId": "118e2026-1106-4a18-8a15-000000000211",
+    "passed": 5,
+    "failed": 0,
+    "slowHttp": "PASSED",
+    "cleanupVerified": true
+  },
+  "latestExecution": {
+    "runId": "118e2026-1106-4a18-8a15-000000000207",
+    "runIdConsumed": true,
+    "status": "PASSED_AND_CLEANED",
+    "exitCode": 0,
+    "preflight": {
+      "runIdUnused": true,
+      "port55433BindFree": true,
+      "exactContainersAbsent": 2,
+      "exactNetworksAbsent": 2
+    },
+    "versions": [
+      {
+        "postgres": 15,
+        "serverVersionNum": 150019,
+        "seed": {
+          "status": "PASSED",
+          "passed": 19,
+          "failed": 0
+        },
+        "demoSeed": {
+          "status": "PASSED",
+          "passed": 7,
+          "failed": 0
+        },
+        "clubs": {
+          "status": "PASSED",
+          "passed": 13,
+          "failed": 0
+        },
+        "databaseCleanup": "PASSED",
+        "resourceCleanup": {
+          "postgres": 15,
+          "registryPassed": true,
+          "registryCleaned": true,
+          "pending": false,
+          "containerNameAbsent": true,
+          "containerIdAbsent": true,
+          "networkNameAbsent": true,
+          "networkIdAbsent": true,
+          "appAbsent": true,
+          "npm-workAbsent": true,
+          "chromeAbsent": true,
+          "ownProcessesAbsent": true
+        },
+        "dependencyIntegrity": {
+          "packageSha256": "bf94419d91acda7a8f9619b6f92a858d8ba24b0ce0e390ccb3030ea80fa67f64",
+          "lockSha256": "818843564eb733efb3bae8e4f6f74ad9c8a57c29cf3fe21030040e84a4539482",
+          "versions": {
+            "next": "16.4.3",
+            "pg": "8.23.1",
+            "@prisma/adapter-pg": "7.10.1",
+            "@prisma/client": "7.10.1",
+            "prisma": "7.10.1",
+            "react": "19.3.0",
+            "react-dom": "19.3.0"
+          }
+        }
+      },
+      {
+        "postgres": 17,
+        "serverVersionNum": 170011,
+        "seed": {
+          "status": "PASSED",
+          "passed": 19,
+          "failed": 0
+        },
+        "demoSeed": {
+          "status": "PASSED",
+          "passed": 7,
+          "failed": 0
+        },
+        "clubs": {
+          "status": "PASSED",
+          "passed": 13,
+          "failed": 0
+        },
+        "databaseCleanup": "PASSED",
+        "resourceCleanup": {
+          "postgres": 17,
+          "registryPassed": true,
+          "registryCleaned": true,
+          "pending": false,
+          "containerNameAbsent": true,
+          "containerIdAbsent": true,
+          "networkNameAbsent": true,
+          "networkIdAbsent": true,
+          "appAbsent": true,
+          "npm-workAbsent": true,
+          "chromeAbsent": true,
+          "ownProcessesAbsent": true
+        },
+        "dependencyIntegrity": {
+          "packageSha256": "bf94419d91acda7a8f9619b6f92a858d8ba24b0ce0e390ccb3030ea80fa67f64",
+          "lockSha256": "818843564eb733efb3bae8e4f6f74ad9c8a57c29cf3fe21030040e84a4539482",
+          "versions": {
+            "next": "16.4.3",
+            "pg": "8.23.1",
+            "@prisma/adapter-pg": "7.10.1",
+            "@prisma/client": "7.10.1",
+            "prisma": "7.10.1",
+            "react": "19.3.0",
+            "react-dom": "19.3.0"
+          }
+        }
+      }
+    ],
+    "cleanup": {
+      "runId": "118e2026-1106-4a18-8a15-000000000207",
+      "versions": [
+        {
+          "postgres": 15,
+          "registryPassed": true,
+          "registryCleaned": true,
+          "pending": false,
+          "containerNameAbsent": true,
+          "containerIdAbsent": true,
+          "networkNameAbsent": true,
+          "networkIdAbsent": true,
+          "appAbsent": true,
+          "npm-workAbsent": true,
+          "chromeAbsent": true,
+          "ownProcessesAbsent": true
+        },
+        {
+          "postgres": 17,
+          "registryPassed": true,
+          "registryCleaned": true,
+          "pending": false,
+          "containerNameAbsent": true,
+          "containerIdAbsent": true,
+          "networkNameAbsent": true,
+          "networkIdAbsent": true,
+          "appAbsent": true,
+          "npm-workAbsent": true,
+          "chromeAbsent": true,
+          "ownProcessesAbsent": true
+        }
+      ],
+      "port55433BindFree": true,
+      "evidenceAndRegistryRetained": true
+    },
+    "browserHarnessRepeated": false,
+    "emailMatricesRepeated": false,
+    "ordinaryDatabasesOrSupabaseUsed": false,
+    "realEmailSent": false,
+    "codeRestrictionsExpectationsOrTimeoutsChanged": false
+  },
+  "cleanCopyTypecheck": {
+    "runId": "118e2026-1106-4a18-8a15-000000000213",
+    "postgresUsed": false,
+    "servicesStarted": false,
+    "noEnvironmentFilesOrGeneratedRouteCache": true,
+    "installation": {
+      "packageSha256": "bf94419d91acda7a8f9619b6f92a858d8ba24b0ce0e390ccb3030ea80fa67f64",
+      "lockSha256": "818843564eb733efb3bae8e4f6f74ad9c8a57c29cf3fe21030040e84a4539482",
+      "versions": {
+        "next": "16.4.3",
+        "pg": "8.23.1",
+        "@prisma/adapter-pg": "7.10.1",
+        "@prisma/client": "7.10.1",
+        "prisma": "7.10.1",
+        "react": "19.3.0",
+        "react-dom": "19.3.0"
+      }
+    },
+    "prisma-generate": "PASSED",
+    "route-typegen": "PASSED",
+    "typescript": "PASSED",
+    "lockSha256After": "818843564eb733efb3bae8e4f6f74ad9c8a57c29cf3fe21030040e84a4539482",
+    "status": "PASSED",
+    "copiesAndDependenciesRemoved": true,
+    "cleanupVerification": {
+      "runId": "118e2026-1106-4a18-8a15-000000000213",
+      "appAbsent": true,
+      "npmWorkAbsent": true,
+      "ownProcessesAbsent": true,
+      "postgresConnectionsOpened": 0,
+      "servicesStarted": false
+    }
+  },
+  "historicalWorkspaceTypecheck": {
+    "status": "FAILED",
+    "reason": [
+      "stale-generated-next-route-references",
+      "workspace-react-signature-canvas-missing"
+    ],
+    "workspaceDependenciesOrCacheChanged": false
+  },
+  "pureTests": {
+    "passed": 91,
+    "failed": 0
+  },
+  "lint": "PASSED",
+  "diffCheck": "PASSED",
+  "historicalAttempts": [
+    {
+      "runId": "118e2026-1106-4a18-8a15-000000000205",
+      "executionRootCreated": false,
+      "runIdConsumed": true,
+      "status": "ENVIRONMENT_BLOCKED",
+      "stage": "PREFLIGHT",
+      "port": 5433,
+      "bindError": "EADDRINUSE",
+      "hostErrno": 48,
+      "postgresConnectionsOpened": 0,
+      "components": [
+        {
+          "name": "browser-harness-including-slow-http",
+          "postgres": null,
+          "status": "NOT_STARTED"
+        },
+        {
+          "name": "seed-complete",
+          "postgres": 15,
+          "status": "NOT_STARTED"
+        },
+        {
+          "name": "club-maintenance",
+          "postgres": 15,
+          "status": "NOT_STARTED"
+        },
+        {
+          "name": "seed-complete",
+          "postgres": 17,
+          "status": "NOT_STARTED"
+        },
+        {
+          "name": "club-maintenance",
+          "postgres": 17,
+          "status": "NOT_STARTED"
+        }
+      ],
+      "cleanupVerification": {
+        "executionRootAbsent": true,
+        "exactContainersAbsent": 2,
+        "exactNetworksAbsent": 2,
+        "ownResourcesCreated": false,
+        "deletionNeeded": false,
+        "existingPortServiceStoppedOrReused": false,
+        "portDeclaredFree": false
+      },
+      "dependenciesInstalled": false,
+      "functionalValidationPassed": false,
+      "timeoutsExpectationsOrRestrictionsChanged": false
+    },
+    {
+      "suffix": ".206",
+      "status": "WRAPPER_ERROR",
+      "browserStarted": false,
+      "reason": "Capture prefix rejected after independent npm ci",
+      "copiesAndInstallationRemoved": true
+    },
+    {
+      "suffix": ".208",
+      "status": "FUNCTIONAL_FAILURE",
+      "browser": {
+        "passed": 4,
+        "failed": 1,
+        "slowHttp": "Content assertion false; CDP timing assertion passed"
+      },
+      "postgresUsed": false,
+      "copiesAndInstallationRemoved": true,
+      "ownProcessesAbsent": true
+    },
+    {
+      "suffix": ".209",
+      "status": "SYNTHETIC_DIAGNOSIS",
+      "charset": "windows-1252",
+      "aboutBlank": false,
+      "expectedOrigin": true,
+      "readyState": "complete",
+      "scriptExecuted": true,
+      "observedSyntheticText": "Documento sintÃ©tico lento",
+      "postgresUsed": false
+    },
+    {
+      "suffix": ".210",
+      "status": "PASSED",
+      "browser": {
+        "passed": 5,
+        "failed": 0,
+        "slowHttp": "PASSED"
+      },
+      "postgresUsed": false,
+      "copiesAndInstallationRemoved": true,
+      "ownProcessesAbsent": true
+    },
+    {
+      "suffix": ".211",
+      "status": "PASSED",
+      "browser": {
+        "passed": 5,
+        "failed": 0,
+        "slowHttp": "PASSED"
+      },
+      "postgresUsed": false,
+      "copiesAndInstallationRemoved": true,
+      "ownProcessesAbsent": true
+    }
+  ],
+  "exclusions": [
+    "compose.yml",
+    "docs/validation/account-delegate-commit-plan.md",
+    "docs/validation/account-delegate-pr-draft.md",
+    "docs/validation/account-delegate-worktree-inventory.md",
+    "temporary diagnostic scripts",
+    "original logs and evidence",
+    "secrets and tokens",
+    "backups"
+  ],
+  "stagingCommitOrPushPerformed": false,
+  "review": {
+    "localLinksAndRelativeImports": "PASSED",
+    "remoteLinks": "VERIFIED_READ_ONLY",
+    "remotePRDraft": true,
+    "remoteHeadUnchanged": "a6397fd18251606eda22fb58de44b72f778264e9",
+    "remoteCorrectionPending": true
+  }
+}

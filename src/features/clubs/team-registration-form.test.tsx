@@ -43,9 +43,37 @@ function existing(controller: TeamRegistrationFormController) {
 }
 const render = (controller: TeamRegistrationFormController) => renderToStaticMarkup(<TeamRegistrationFormView controller={controller} />);
 
+test("tabla general omite selección y envío de grupo; cambiar formato limpia el grupo previo", async () => {
+  const next = structuredClone(options);
+  const season = next.clubs[0].seasons[0];
+  const configured: TeamRegistrationFormOptions = {clubs:[{...next.clubs[0],seasons:[{...season,categories:[
+    {...season.categories[0],format:"GENERAL_TABLE",groups:[{id:"automatic-general",name:"General"}]},
+  ]}]}]};
+  const {controller,calls}=setup();existing(controller);
+  controller.configure(configured,async capture=>{calls.push(capture);return confirmed;});
+  assert.equal(controller.getSnapshot().draft.groupId,"");
+  const html=render(controller);assert.doesNotMatch(html,/name="groupId"/);assert.match(html,/asignará automáticamente el grupo General/);
+  await controller.submit();assert.equal(calls.length,1);assert.equal("groupId" in calls[0],false);
+});
+
+test("fase de grupos permite inscribir sin grupos y conserva el envío original al recuperar", async () => {
+  const season=options.clubs[0].seasons[0];
+  const configured:TeamRegistrationFormOptions={clubs:[{...options.clubs[0],seasons:[{...season,categories:[{...season.categories[0],format:"GROUP_STAGE",groups:[]}]}]}]};
+  const calls:TeamRegistrationSubmission[]=[];
+  const controller=createTeamRegistrationFormController(configured,async capture=>{calls.push(capture);return calls.length===1?{kind:"unconfirmed",retryAllowed:true}:confirmed;});
+  chooseScope(controller);controller.change("teamId","team-a");controller.change("categoryId","category-a");
+  const html=render(controller);assert.doesNotMatch(html,/name="groupId"|No hay grupos disponibles/);assert.match(html,/pendiente de asignación de grupo/);
+  await controller.submit();assert.equal(calls.length,1);assert.equal("groupId" in calls[0],false);
+  controller.configure(options,async capture=>{calls.push(capture);return confirmed;});
+  await controller.retry();assert.deepEqual(calls[1],calls[0]);assert.equal(controller.getSnapshot().outcome,"confirmed");
+});
+
 test("opciones iniciales: padres obligatorios, sin nombre ni creación sin contexto", () => {
   const { controller } = setup(); const html = render(controller);
-  assert.match(html, /Club sintético A/); assert.match(html, /Club sintético B/);
+  assert.match(html, /role="combobox"/);
+  assert.match(html, /name="clubId" value=""/);
+  controller.change("clubId", "club-a"); assert.match(render(controller), /value="Club sintético A"/);
+  controller.change("clubId", "club-b"); assert.match(render(controller), /value="Club sintético B"/);
   assert.doesNotMatch(html, /Crear equipo|name="teamName"|value="group-a"/);
   assert.match(html, /no activa el equipo/);
 });
@@ -87,8 +115,9 @@ test("captura existente entrega identidad y ámbito sin nombre nuevo ni estado",
 
 test("captura nueva exige nombre, muestra errores asociados y entrega solo nombre recortado", async () => {
   const { controller, calls } = setup(); chooseScope(controller);
+  controller.change("teamMode", "new");
   assert.match(render(controller), /Crear equipo/);
-  controller.change("teamMode", "new"); chooseGroup(controller);
+  chooseGroup(controller);
   controller.change("teamName", "   "); await controller.submit();
   assert.equal(calls.length, 0); assert.ok(controller.getSnapshot().errors.teamName);
   const html = render(controller);
@@ -144,7 +173,7 @@ test("durante el callback bloquea cambios y envíos concurrentes y libera al ter
   await controller.submit(); assert.equal(writes, 1); assert.deepEqual(controller.getSnapshot().draft, before);
   const html = render(controller);
   assert.match(html, /aria-busy="true"/); assert.match(html, /Enviando inscripción/);
-  assert.equal((html.match(/<select[^>]*disabled=""/g) ?? []).length, 6);
+  assert.equal((html.match(/<input[^>]*role="combobox"[^>]*disabled=""/g) ?? []).length, 6);
   assert.match(html, /<button[^>]*disabled=""/);
   finish(confirmed); await pending; assert.equal(controller.getSnapshot().submitting, false);
 });
@@ -212,6 +241,7 @@ test("sin categorías o grupos muestra avisos y mantiene envío deshabilitado", 
     assert.match(render(controller), missing === "categories" ? /No hay categorías disponibles/ : /No hay grupos disponibles/);
     assert.match(render(controller), /<button[^>]*disabled=""/);
     // La capacidad de crear se mantiene; no compensa la falta de categoría/grupo.
+    controller.change("teamMode", "new");
     assert.match(render(controller), /Crear equipo/);
   }
 });
@@ -236,10 +266,10 @@ test("sin equipos existentes conserva Crear equipo y permite enviar en modo nuev
   });
   chooseScope(controller);
   assert.match(render(controller), /No hay equipos existentes disponibles/);
-  assert.match(render(controller), /Crear equipo/);
   assert.match(render(controller), /<button[^>]*disabled=""/);
   await controller.submit(); assert.equal(writes, 0);
   controller.change("teamMode", "new"); controller.change("teamName", "Equipo nuevo sintético"); chooseGroup(controller);
+  assert.match(render(controller), /Crear equipo/);
   assert.doesNotMatch(render(controller), /<button[^>]*disabled=""/);
   await controller.submit(); assert.equal(writes, 1);
 });

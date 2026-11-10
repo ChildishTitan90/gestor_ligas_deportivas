@@ -3,6 +3,8 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { createTeamRegistrationFormController, registrationChoices, type TeamRegistrationField, type TeamRegistrationFormController } from "../team-registration-form-controller";
 import type { TeamRegistrationFormOptions, TeamRegistrationOption, TeamRegistrationSubmit } from "../team-registration-model";
+import { SelectField } from "@/components/ui/select-field";
+import { focusFormControl } from "@/components/ui/focus-form-control";
 
 const controlClass = "mt-2 min-h-12 w-full rounded-xl border border-border bg-surface px-3.5 py-3 text-base focus:border-primary disabled:opacity-50";
 
@@ -20,17 +22,16 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
   const { draft, options, errors, submitting } = state;
   const locked = disabled || submitting || state.outcome !== "idle";
   const { club, season, category, seasons, teams, categories, groups, hasRequiredOptions } = registrationChoices(options, draft);
+  const manualGroup = !category?.format || category.format === "LEGACY_GROUPS";
   const messageRef = useRef<HTMLParagraphElement>(null);
   const previousOutcome = useRef(state.outcome);
   useEffect(() => {
     if (disabled || submitting) return;
     const firstError = Object.keys(errors)[0];
-    const target = firstError ? formRef.current?.elements.namedItem(firstError) : null;
-    if (target instanceof HTMLElement) target.focus();
-    else if (state.message) messageRef.current?.focus();
-    else if (["confirmed", "cancelled"].includes(previousOutcome.current) && state.outcome === "idle") {
-      const clubControl = formRef.current?.elements.namedItem("clubId");
-      if (clubControl instanceof HTMLElement) clubControl.focus();
+    const focused = firstError && focusFormControl(formRef.current, firstError);
+    if (!focused && state.message) messageRef.current?.focus();
+    else if (!focused && ["confirmed", "cancelled"].includes(previousOutcome.current) && state.outcome === "idle") {
+      focusFormControl(formRef.current, "clubId");
     }
     previousOutcome.current = state.outcome;
   }, [disabled, submitting, errors, state.message, state.outcome]);
@@ -46,15 +47,13 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
     items: readonly TeamRegistrationOption[], disabled = false) {
     return <div>
       <label htmlFor={`${prefix}-${field}`} className="text-sm font-medium">{label} *</label>
-      <select id={`${prefix}-${field}`} name={field} value={draft[field]} required disabled={disabled || locked}
-        onChange={event => {
-          controller.change(field, event.target.value);
+      <SelectField id={`${prefix}-${field}`} name={field} value={draft[field]} required disabled={disabled || locked}
+        onValueChange={value => {
+          controller.change(field, value);
           if (field === "clubId" || field === "seasonId") { const next = controller.getSnapshot().draft; onContextChange?.(next.clubId, next.seasonId); }
         }} aria-invalid={!!errors[field]}
-        aria-describedby={errors[field] ? `${prefix}-${field}-error` : undefined} className={controlClass}>
-        <option value="">Selecciona una opción</option>
-        {items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select>
+        aria-describedby={errors[field] ? `${prefix}-${field}-error` : undefined} className="mt-2"
+        options={items.map(item => ({ value: item.id, label: item.name }))} />
       {error(field)}
     </div>;
   }
@@ -62,12 +61,10 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
     className="space-y-6 rounded-3xl border border-border bg-surface p-5 sm:p-8">
     <header>
       <h2 id={`${prefix}-title`} className="text-2xl font-semibold text-primary">Inscribir equipo</h2>
-      <p className="mt-2 text-sm text-muted">Selecciona el club, la temporada y el grupo. La inscripción inicial será «Inscrito»; no activa el equipo.</p>
+      <p className="mt-2 text-sm text-muted">Selecciona el club, la temporada y la categoría. El formato determina la asignación de grupo. La inscripción inicial será «Inscrito»; no activa el equipo.</p>
     </header>
     {!options.clubs.length && <p>No hay clubes disponibles para inscribir equipos en tu ámbito.</p>}
     {!!Object.keys(errors).length && <p role="alert" className="text-danger">Revisa los campos señalados.</p>}
-    {state.message && <p ref={messageRef} tabIndex={-1} role={["confirmed", "cancelled"].includes(state.outcome) ? "status" : "alert"}
-      className={["confirmed", "cancelled"].includes(state.outcome) ? "text-primary" : "text-danger"}>{state.message}</p>}
     <div className="grid gap-5 sm:grid-cols-2">
       {select("clubId", "Club", options.clubs, !options.clubs.length)}
       {select("seasonId", "Temporada", seasons, !club || !seasons.length)}
@@ -83,18 +80,22 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
         {error("teamName")}
       </div> : select("teamId", "Equipo", teams, !season || !teams.length)}
       {select("categoryId", "Categoría", categories, !season || !categories.length)}
-      {select("groupId", "Grupo", groups, !category || !groups.length)}
+      {manualGroup && select("groupId", "Grupo", groups, !category || !groups.length)}
     </div>
+    {category?.format === "GENERAL_TABLE" && <p role="status">El servidor asignará automáticamente el grupo General al inscribir.</p>}
+    {category?.format === "GROUP_STAGE" && <p role="status">El equipo quedará pendiente de asignación de grupo. Secretaría u organizador autorizado lo distribuirá después.</p>}
     {season && !season.canEnroll && <p role="status">El servidor no habilita inscripciones para este club. Puedes consultar su historial y resolver tus envíos pendientes.</p>}
     {season && draft.teamMode === "existing" && !teams.length && <p className="text-sm text-muted">No hay equipos existentes disponibles para esta selección.</p>}
     {club && !seasons.length && <p className="text-sm text-muted">No hay temporadas disponibles para este club.</p>}
     {season && !categories.length && <p className="text-sm text-muted">No hay categorías disponibles para esta temporada.</p>}
-    {season && categories.length > 0 && (category ? !groups.length : !categories.some(item => item.groups.length > 0)) &&
+    {season && categories.length > 0 && (category ? manualGroup && !groups.length : !categories.some(item => item.format === "GROUP_STAGE" || item.groups.length > 0)) &&
       <p className="text-sm text-muted">No hay grupos disponibles para {category ? "la categoría seleccionada" : "las categorías de esta temporada"}.</p>}
     <button type="submit" disabled={locked || !hasRequiredOptions}
-      className="min-h-12 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-surface hover:bg-primary-hover disabled:opacity-50">
+      className="min-h-12 rounded-xl primary-action px-5 py-3 text-sm font-semibold disabled:opacity-50">
       {submitting ? "Enviando inscripción…" : "Inscribir equipo"}
     </button>
+    {state.message && <p ref={messageRef} tabIndex={-1} role={["confirmed", "cancelled"].includes(state.outcome) ? "status" : "alert"}
+      className={`rounded-xl border border-border p-4 font-semibold ${["confirmed", "cancelled"].includes(state.outcome) ? "bg-soft text-primary" : "text-danger"}`}>{state.message}</p>}
     {state.retryAvailable && <button type="button" className={controlClass} disabled={disabled || submitting || !season?.canEnroll} onClick={() => void controller.retry()}>Recuperar resultado con el mismo envío</button>}
     {["confirmed", "cancelled"].includes(state.outcome) && !state.pendingCleanup && <button type="button" className={controlClass} onClick={() => { controller.reset(); onContextChange?.("", ""); }}>Iniciar otra inscripción</button>}
     {submitting && <p role="status">Espera mientras se procesa el envío.</p>}

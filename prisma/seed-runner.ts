@@ -70,7 +70,8 @@ export async function seedBaseDatabase(tx: Prisma.TransactionClient) {
         type: SEED_CONTEXT.categoryType, age_cutoff_date: new Date(`${SEED_CONTEXT.ageCutoffDate}T00:00:00Z`) } });
     if (seasonCategory.competition_rule_id !== rule.id || seasonCategory.type !== SEED_CONTEXT.categoryType ||
         seasonCategory.hierarchy_order !== SEED_CONTEXT.hierarchyOrder ||
-        seasonCategory.age_cutoff_date.toISOString().slice(0, 10) !== SEED_CONTEXT.ageCutoffDate ||
+        seasonCategory.eligibility_pending ||
+        seasonCategory.age_cutoff_date?.toISOString().slice(0, 10) !== SEED_CONTEXT.ageCutoffDate ||
         seasonCategory.minimum_age !== null || seasonCategory.maximum_age !== null) {
       throw new SeedConfigurationError("La categoría por temporada existente no coincide con el fixture; no se sobrescribió.");
     }

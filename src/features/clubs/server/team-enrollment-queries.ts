@@ -26,7 +26,7 @@ export async function getTeamEnrollmentCatalogs(input: unknown, forRegistration 
       ...(seasonId ? { id: seasonId } : seasonAfter ? { id: { gt: seasonAfter } } : {}) },
       select: { id: true, name: true, status: true }, orderBy: { id: "asc" }, take: limit + 1 });
     const seasons = seasonRows.slice(0, limit);
-    const teams = forRegistration ? await tx.teams.findMany({ where: { club_id: clubId, ...(teamAfter ? { id: { gt: teamAfter } } : {}) },
+    const teams = forRegistration ? await tx.teams.findMany({ where: { club_id: clubId, status: "ACTIVE", ...(teamAfter ? { id: { gt: teamAfter } } : {}) },
       select: { id: true, name: true, reference_number: true, season_teams: { select: { season_id: true } } },
       orderBy: { id: "asc" }, take: limit + 1 }) : [];
     const affiliation = forRegistration && seasonId ? await tx.club_affiliations.findUnique({
@@ -36,15 +36,15 @@ export async function getTeamEnrollmentCatalogs(input: unknown, forRegistration 
       ? await tx.season_categories.findMany({ where: { season_id: seasonId,
         categories: { league_id: club.league_id, sports: { code: "SOCCER" } },
         club_affiliation_categories: { some: { affiliation_id: affiliation.id, authorized_by: { not: null }, authorized_at: { not: null } } } },
-        select: { id: true, category_id: true, categories: { select: { name: true } },
+        select: { id: true, category_id: true, competition_format: true, categories: { select: { name: true } },
           groups: { select: { id: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }] } },
         orderBy: [{ hierarchy_order: "asc" }, { id: "asc" }] }) : [];
     return { ...base, teams: teams.slice(0, limit).map((team) => ({ id: team.id, clubId, name: team.name,
       referenceNumber: team.reference_number, enrolledSeasonIds: team.season_teams.map((row) => row.season_id) })), seasons,
       nextSeasonAfter: seasonRows.length > limit ? seasons[limit - 1].id : null,
       nextTeamAfter: teams.length > limit ? teams[limit - 1].id : null,
-      categories: categories.map((c) => ({ id: c.category_id, seasonCategoryId: c.id, seasonId: seasonId!, name: c.categories.name })),
-      groups: categories.flatMap((c) => c.groups.map((g) => ({ id: g.id, name: g.name, categoryId: c.category_id, seasonId: seasonId! }))) };
+      categories: categories.map((c) => ({ id: c.category_id, seasonCategoryId: c.id, seasonId: seasonId!, name: c.categories.name, format: c.competition_format })),
+      groups: categories.flatMap((c) => c.competition_format === "GROUP_STAGE" ? [] : c.groups.map((g) => ({ id: g.id, name: g.name, categoryId: c.category_id, seasonId: seasonId! }))) };
   });
 }
 
@@ -63,6 +63,7 @@ export async function listTeamEnrollments(input: unknown) {
     const rows = await tx.season_teams.findMany({
       where: { club_id: clubId, ...(seasonId ? { season_id: seasonId } : {}), ...(after ? { id: { gt: after } } : {}) },
       select: { id: true, team_id: true, club_id: true, season_id: true, group_id: true, status: true,
+        season_categories: { select: { category_id: true, categories: { select: { name: true } } } },
         teams: { select: { name: true, reference_number: true } },
         club_affiliations: { select: { seasons: { select: { name: true } } } },
         groups: { select: { name: true, season_categories: { select: { category_id: true, categories: { select: { name: true } } } } } } },
@@ -71,8 +72,8 @@ export async function listTeamEnrollments(input: unknown) {
     return { items: rows.slice(0, limit).map((row) => ({ id: row.id, teamId: row.team_id, teamName: row.teams.name,
       teamReferenceNumber: row.teams.reference_number, clubId: row.club_id, seasonId: row.season_id,
       seasonName: row.club_affiliations.seasons.name,
-      categoryId: row.groups.season_categories.category_id, categoryName: row.groups.season_categories.categories.name,
-      groupId: row.group_id, groupName: row.groups.name, status: row.status })),
+      categoryId: row.season_categories!.category_id, categoryName: row.season_categories!.categories.name,
+      groupId: row.group_id, groupName: row.groups?.name ?? null, status: row.status })),
       nextAfter: rows.length > limit ? rows[limit - 1].id : null };
   });
 }

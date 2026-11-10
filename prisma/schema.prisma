@@ -394,6 +394,8 @@ model club_team_changes {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model clubs {
+  version                                        Int                  @default(1)
+  player_category_participations player_category_participations[]
   team_enrollment_operations team_enrollment_operations[]
   id                                             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   league_id                                      String               @db.Uuid
@@ -439,6 +441,7 @@ model competition_rule_parameters {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model competition_rules {
+  registration_history season_registration_history[]
   id                             String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   season_id                      String                           @db.Uuid
   version_number                 Int
@@ -1258,6 +1261,12 @@ model payments {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model people {
+  registration_history season_registration_history[]
+  season_identity_snapshots season_person_identity_snapshots[]
+  identity_corrections player_identity_corrections[]
+
+  curp_checks          player_curp_checks[]
+  identity_version    Int                    @default(1)
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   first_name           String
   paternal_surname     String
@@ -1275,6 +1284,7 @@ model people {
   referees             referees?
   users                users?
 
+  @@index([birth_date], map: "people_birth_date_identity")
   @@schema("sports_management")
 }
 
@@ -1328,7 +1338,86 @@ model player_period_participations {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model player_curp_checks {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  operation_key     String    @db.Uuid
+  actor_id          String    @db.Uuid
+  person_id         String    @db.Uuid
+  registration_id   String    @db.Uuid
+  identity_version  Int
+  fingerprint       String    @db.VarChar(64)
+  status            String    @default("PENDING")
+  mismatched_fields String[]  @default([])
+  created_at        DateTime  @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  finished_at       DateTime? @db.Timestamptz(6)
+  users             users     @relation(fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  people            people    @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  player_registrations player_registrations @relation(fields: [registration_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([actor_id, operation_key])
+  @@index([person_id, identity_version, created_at(sort: Desc)], map: "player_curp_checks_person_version")
+  @@index([actor_id, created_at(sort: Desc)], map: "player_curp_checks_actor_date")
+  @@index([created_at(sort: Desc)], map: "player_curp_checks_date")
+  @@index([registration_id], map: "player_curp_checks_registration")
+  @@schema("sports_management")
+}
+
+model player_category_levels {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  season_category_id String @unique @db.Uuid
+  season_id String @db.Uuid
+  pathway_code String @db.VarChar(40)
+  level Int
+  configured_by String @db.Uuid
+  configured_at DateTime @default(now()) @db.Timestamptz(6)
+  season_categories season_categories @relation(fields:[season_category_id,season_id],references:[id,season_id],onDelete:NoAction,onUpdate:NoAction,map:"player_level_category_fk")
+  users users @relation(fields:[configured_by],references:[id],onDelete:NoAction,onUpdate:NoAction,map:"player_level_actor_fk")
+  participations player_category_participations[]
+
+  @@unique([season_category_id,season_id],map:"player_level_category_season_key")
+  @@unique([season_id,pathway_code,level],map:"player_level_pathway_key")
+  @@index([configured_by],map:"player_level_actor_idx")
+  @@schema("sports_management")
+}
+
+model player_category_participations {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  origin_registration_id String @db.Uuid
+  season_id String @db.Uuid
+  club_id String @db.Uuid
+  target_season_team_id String @db.Uuid
+  target_season_category_id String @db.Uuid
+  requested_by String @db.Uuid
+  request_key String @db.Uuid
+  request_hash String @db.VarChar(64)
+  status String @default("PENDING_ELIGIBILITY")
+  version Int @default(1)
+  eligibility_fingerprint String? @db.VarChar(64)
+  review_event_id String? @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  player_registrations player_registrations @relation(fields:[origin_registration_id,season_id],references:[id,season_id],onDelete:NoAction,onUpdate:NoAction,map:"player_participation_origin_fk")
+  season_teams season_teams @relation(fields:[target_season_team_id,season_id],references:[id,season_id],onDelete:NoAction,onUpdate:NoAction,map:"player_participation_team_fk")
+  player_category_levels player_category_levels @relation(fields:[target_season_category_id,season_id],references:[season_category_id,season_id],onDelete:NoAction,onUpdate:NoAction,map:"player_participation_level_fk")
+  clubs clubs @relation(fields:[club_id],references:[id],onDelete:NoAction,onUpdate:NoAction,map:"player_participation_club_fk")
+  users users @relation(fields:[requested_by],references:[id],onDelete:NoAction,onUpdate:NoAction,map:"player_participation_actor_fk")
+
+  @@unique([origin_registration_id,target_season_category_id],map:"player_participation_category_key")
+  @@unique([requested_by,request_key],map:"player_participation_operation_key")
+  @@index([origin_registration_id,season_id],map:"player_participation_origin_idx")
+  @@index([target_season_team_id,season_id],map:"player_participation_team_idx")
+  @@index([target_season_category_id,season_id],map:"player_participation_level_idx")
+  @@index([club_id],map:"player_participation_club_idx")
+  @@schema("sports_management")
+}
+
 model player_registrations {
+  jersey_number         Int?
+  @@unique([season_team_id, jersey_number], map: "player_registration_team_jersey_key")
+  history_snapshot season_registration_history?
+  identity_corrections player_identity_corrections[]
+
+  category_participations player_category_participations[]
+  curp_checks           player_curp_checks[]
   id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   person_id             String                  @db.Uuid
   season_id             String                  @db.Uuid
@@ -1337,6 +1426,7 @@ model player_registrations {
   registered_at         DateTime                @default(now()) @db.Timestamptz(6)
   withdrawn_at          DateTime?               @db.Timestamptz(6)
   status                String                  @default("ACTIVE")
+  identity_review_status String?
   authorized_by         String?                 @db.Uuid
   age_exception_reason  String?
   age_exception_file_id String?                 @db.Uuid
@@ -1680,6 +1770,8 @@ model season_breaks {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model season_categories {
+  player_level player_category_levels?
+  season_teams          season_teams[]
   club_affiliation_categories club_affiliation_categories[]
   id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   season_id             String                  @db.Uuid
@@ -1689,7 +1781,10 @@ model season_categories {
   type                  String
   minimum_age           Int?
   maximum_age           Int?
-  age_cutoff_date       DateTime                @db.Date
+  age_cutoff_date       DateTime?               @db.Date
+  eligibility_pending   Boolean                 @default(false)
+  player_policy         Json?
+  competition_format    String                  @default("LEGACY_GROUPS")
   competition_stages    competition_stages[]
   document_requirements document_requirements[]
   groups                groups[]
@@ -1708,12 +1803,15 @@ model season_categories {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model season_teams {
+  player_category_participations player_category_participations[]
+  season_category_id                                   String?                          @db.Uuid
+  season_categories                                    season_categories?               @relation(fields: [season_category_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction, map: "enrollment_category_season_fk")
   team_enrollment_operation team_enrollment_operations?
   id                                                   String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   season_id                                            String                           @db.Uuid
   team_id                                              String                           @db.Uuid
   club_id                                              String                           @db.Uuid
-  group_id                                             String                           @db.Uuid
+  group_id                                             String?                          @db.Uuid
   status                                               String                           @default("REGISTERED")
   enrolled_by                                          String?                          @db.Uuid
   enrolled_at                                          DateTime?                        @db.Timestamptz(6)
@@ -1737,7 +1835,7 @@ model season_teams {
   sanctions                                            sanctions[]
   season_awards                                        season_awards[]
   club_affiliations                                    club_affiliations                @relation(fields: [club_id, season_id], references: [club_id, season_id], onDelete: NoAction, onUpdate: NoAction)
-  groups                                               groups                           @relation(fields: [group_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
+  groups                                               groups?                          @relation(fields: [group_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
   teams                                                teams                            @relation(fields: [team_id, club_id], references: [id, club_id], onDelete: NoAction, onUpdate: NoAction)
   standing_entries                                     standing_entries[]
   team_byes                                            team_byes[]
@@ -1750,6 +1848,7 @@ model season_teams {
   @@unique([enrolled_by, enrollment_key])
   @@index([club_id, season_id], map: "fk_season_teams_club_id_season_id_fkey")
   @@index([group_id, season_id], map: "fk_season_teams_group_id_season_id_fkey")
+  @@index([season_category_id, season_id])
   @@index([team_id, club_id], map: "fk_season_teams_team_id_club_id_fkey")
   @@schema("sports_management")
 }
@@ -1757,6 +1856,10 @@ model season_teams {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model seasons {
+  registration_history season_registration_history[]
+  identity_closure season_identity_closures?
+  person_identity_snapshots season_person_identity_snapshots[]
+
   id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   league_id                 String                      @db.Uuid
   sport_id                  String                      @db.Uuid
@@ -1765,6 +1868,7 @@ model seasons {
   end_date                  DateTime                    @db.Date
   status                    String                      @default("PLANNED")
   competition_starts_at     DateTime?                   @db.Timestamptz(6)
+  team_registration_closed_at DateTime?                 @db.Timestamptz(6)
   closed_at                 DateTime?                   @db.Timestamptz(6)
   version                   Int                         @default(1)
   billing_plans             billing_plans[]
@@ -1954,6 +2058,8 @@ model team_enrollment_operations {
 }
 
 model teams {
+  status                                                 String              @default("ACTIVE")
+  version                                                Int                 @default(1)
   id                                                     String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   club_id                                                String              @db.Uuid
   reference_number                                       String              @unique
@@ -1979,6 +2085,9 @@ model user_roles {
   club_id                                   String?   @db.Uuid
   starts_at                                 DateTime  @default(now()) @db.Timestamptz(6)
   ends_at                                   DateTime? @db.Timestamptz(6)
+  /// PRIMARY/DEPUTY. NULL on legacy delegates means the position is unknown.
+  /// CHECK, three exclusion constraints and transition guards live in the SQL migration.
+  delegate_position                         String?
   clubs_user_roles_club_idToclubs           clubs?    @relation("user_roles_club_idToclubs", fields: [club_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   clubs_user_roles_club_id_league_idToclubs clubs?    @relation("user_roles_club_id_league_idToclubs", fields: [club_id, league_id], references: [id, league_id], onDelete: NoAction, onUpdate: NoAction)
   leagues                                   leagues?  @relation(fields: [league_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1997,6 +2106,19 @@ model user_roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
+  captured_identity_closures season_identity_closures[]
+  requested_identity_corrections player_identity_corrections[] @relation("correction_requester")
+  reviewed_identity_corrections player_identity_corrections[] @relation("correction_reviewer")
+
+  admin_reset_expires_at DateTime? @db.Timestamptz(6)
+  admin_reset_consumed_at DateTime? @db.Timestamptz(6)
+  email_verified_at DateTime? @db.Timestamptz(6)
+  email_changes_requested account_email_changes[] @relation("email_change_actor")
+  email_changes_owned account_email_changes[] @relation("email_change_user")
+  maintenance_revision Int @default(0)
+  configured_player_levels player_category_levels[]
+  requested_category_participations player_category_participations[]
+  curp_checks                                                             player_curp_checks[]
   team_enrollment_operations team_enrollment_operations[]
   authorized_affiliation_categories club_affiliation_categories[]
   enrolled_season_teams season_teams[]
@@ -2175,4 +2297,131 @@ model withdrawal_match_effects {
   @@unique([withdrawal_id, match_id])
   @@index([match_id], map: "fk_withdrawal_match_effects_match_id_fkey")
   @@schema("sports_management")
+}
+
+
+model player_identity_corrections {
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ registration_id String @db.Uuid
+ person_id String @db.Uuid
+ requester_id String @db.Uuid
+ operation_key String @db.Uuid
+ request_hash String
+ expected_identity_version Int
+ proposed_identity Json
+ previous_identity Json?
+ reason String
+ identity_doubt Boolean
+ status String @default("PENDING")
+ reviewed_by String? @db.Uuid
+ decision_key String? @db.Uuid
+ decision_hash String?
+ observations String?
+ created_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+ reviewed_at DateTime? @db.Timestamptz(6)
+ registration player_registrations @relation(fields:[registration_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ person people @relation(fields:[person_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ requester users @relation("correction_requester",fields:[requester_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ reviewer users? @relation("correction_reviewer",fields:[reviewed_by],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ evidence player_identity_correction_evidence[]
+ @@unique([requester_id,operation_key])
+ @@index([registration_id,created_at],map:"player_identity_corrections_registration")
+ @@schema("sports_management")
+}
+
+
+model player_identity_correction_evidence {
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ correction_id String @db.Uuid
+ kind String
+ mime_type String
+ sha256 String
+ bytes Bytes
+ correction player_identity_corrections @relation(fields:[correction_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ @@unique([correction_id,kind])
+ @@schema("sports_management")
+}
+
+
+model season_person_identity_snapshots {
+  season_id String @db.Uuid
+  person_id String @db.Uuid
+  first_name String
+  paternal_surname String
+  maternal_surname String?
+  identity_version Int
+  season_version Int
+  captured_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  source String @default("SEASON_CLOSURE_V1")
+  seasons seasons @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  people people @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([season_id, person_id])
+  @@index([person_id], map: "season_person_identity_person_idx")
+  @@schema("sports_management")
+}
+
+
+model season_identity_closures {
+  season_id String @id @db.Uuid
+  season_version Int
+  closed_at DateTime @db.Timestamptz(6)
+  captured_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  captured_by String @db.Uuid
+  person_count Int
+  format_version Int @default(1)
+  seasons seasons @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users users @relation(fields: [captured_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@schema("sports_management")
+}
+
+/// Propiedad de correo independiente de password_resets; solo hashes de tokens.
+model account_email_changes {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id String @db.Uuid
+  actor_id String @db.Uuid
+  operation_key String @db.Uuid
+  input_hash String
+  old_email String
+  new_email String
+  token_hash String @unique
+  expected_revision Int
+  user_version Int
+  reason String
+  created_at DateTime @db.Timestamptz(6)
+  expires_at DateTime @db.Timestamptz(6)
+  used_at DateTime? @db.Timestamptz(6)
+  status String
+  confirmation_delivery String
+  previous_notice_delivery String
+  completion_notice_delivery String
+  user users @relation("email_change_user", fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actor users @relation("email_change_actor", fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@unique([actor_id, operation_key])
+  @@index([user_id, created_at(sort: Desc)], map: "account_email_changes_recent")
+  @@unique([user_id], map: "account_email_changes_one_pending", where: raw("(status = 'PENDING'::text)"))
+  @@schema("sports_management")
+}
+
+model season_registration_history {
+ registration_id String @id @db.Uuid
+ season_id String @db.Uuid
+ person_id String @db.Uuid
+ identity_version Int
+ birth_date DateTime? @db.Date
+ reference_year Int?
+ policy_fingerprint String?
+ rule_id String @db.Uuid
+ rule_version Int
+ registration_status String
+ identity_review_status String?
+ document_refs Json
+ verification_refs Json
+ participation_refs Json
+ captured_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+ player_registrations player_registrations @relation(fields:[registration_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ seasons seasons @relation(fields:[season_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ people people @relation(fields:[person_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ competition_rules competition_rules @relation(fields:[rule_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ @@schema("sports_management")
 }

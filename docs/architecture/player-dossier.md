@@ -1,0 +1,71 @@
+# PDGLD-100 — Backend documental e integración privada de Storage
+
+Actualización 04/11/2026, entrega 2: los requisitos se resuelven de manera común
+desde `player_policy.documents` para lectura, carga, confirmación y habilitación.
+Las listas/configuraciones históricas conservan sus archivos e IDs, pero no son
+una política documental aprobada. El contrato vigente, las alternativas de
+identificación, las decisiones pendientes y la compatibilidad se describen en
+[política documental de categoría](player-category-document-policy.md). Las
+secciones siguientes conservan el historial de entregas anteriores; no implican
+que sus decisiones provisionales sigan aprobadas tras las aclaraciones nuevas.
+
+Se conserva PDGLD-13 en ad2e7ca. Rama local renombrada sin cambiar historial ni referencias remotas. PDGLD-13 permanece en pruebas y la comprobación operativa lunes–miércoles sigue pendiente.
+
+Contrato implementado: getPlayerDossier obtiene sesión; readPlayerDossierForActor autoriza la inscripción existente con el servicio de jugadores. Deriva categoría/temporada desde el equipo inscrito. Devuelve requisitos configurados, cantidades registradas, faltantes y revisión, sin nombres originales, rutas, CURP ni enlaces de archivos. Lectura consistente RepeatableRead. No crea personas, inscripciones ni archivos.
+
+document_requirements determina documentos por categoría de temporada. player_documents y guardian_consents se vinculan actualmente a inscripción; files guarda objetos. No existe evidencia de política aprobada para reutilización documental entre temporadas ni documentos de identidad de ámbito Persona: no se implementa reutilización automática. Cero requisitos significa configuración ausente. Las filas históricas solo se presentan como registradas, con confirmación de Storage no comprobada. Ningún resultado autoriza aprobar en este avance.
+
+## Decisión documental revisada con los comentarios de PDGLD-68
+
+Corrección del análisis inicial: consultar solo la descripción omitió las decisiones registradas en comentarios. Se revisaron los tres comentarios el 31/10/2026. La [aclaración de Sergio del 30/10, comentario 10032](https://victoranhernandez.atlassian.net/browse/PDGLD-68?focusedCommentId=10032) confirma los documentos por categoría y corrige lo que el comentario 10026 marcaba pendiente de confirmación. El comentario 10036 aclara el mínimo de plantel configurable; no añade documentos. La evidencia disponible es el resumen escrito; no se escuchó ni verificó el audio.
+
+Por indicación de Víctor, los documentos obligatorios del expediente en este alcance son **CURP, INE y autorización de padres/tutores para menores de edad**, según configuración aplicable. La INE está confirmada para Veteranos; su exigencia en otras categorías procede de configuración explícita, sin deducirla del nombre. Actualización del 04/11/2026: Víctor confirmó **credencial escolar o constancia de estudios como alternativas obligatorias para menores**; basta una vigente y revisada. No sustituyen la autorización del tutor. No añadir acta de nacimiento, fotos reglamentarias u otros requisitos. Esta delimitación actual prevalece sobre las menciones más amplias del primer comentario. No incorpora selfie, OCR ni comparación facial.
+
+Decisión posterior de Víctor en esta conversación: la edad se calcula con la fecha de nacimiento **el día del registro del jugador**, usando registered_at en America/Mexico_City. Cargar y sustituir se permite **cualquier día mientras el expediente permanezca pendiente** (INELIGIBLE, sin baja, temporada abierta y categoría afiliada autorizada). No cambia la ventana lunes–miércoles para crear jugadores. El contrato PENDING_DOSSIER_V1 identifica esta decisión; cambios futuros deben versionarse. La revisión administrativa obligatoria del tutor ya acredita identidad, relación, firma y autorización mediante atestaciones y motivo, vinculados a documento e identidad vigentes. Recibir GUARDIAN_CONSENT por sí solo no acredita consentimiento. La habilitación deportiva continúa separada y bloqueada en este contrato; no se afirma originalidad pericial de archivos.
+
+Infraestructura: el usuario reportó creado el bucket privado expedientes-jugadores en pruebas y producción. El adaptador comprobó realmente el bucket de **pruebas**, límite exacto 10485760 y los MIME application/pdf, image/jpeg, image/png. No se abrió el archivo privado de producción, ni se cambió infraestructura/políticas. URL y clave de .env.local se compararon sin mostrar valores con Documents/Codex/storage-expedientes-20261031/.env.storage-pruebas; se añadió la variable SUPABASE_PLAYER_DOCUMENTS_BUCKET. Prefijo generado exclusivamente en servidor: player-documents/v1/<leagueId>/<seasonId>/<registrationId>/<requirementId>/<fileId>.
+
+## Primer entregable de código
+
+Actualización posterior: [habilitación automática de adultos por CURP](player-automatic-activation.md). La constancia se solicita para completar el expediente, pero su ausencia no impide esa habilitación. Un ACTIVE creado por esa política puede completar CURP/foto con acuse y versión vigentes mientras su constancia no esté revisada. No concede esa ventana a ACTIVE históricos/manuales, menores o Veteranos. El resto de requisitos conserva sus controles.
+
+### Foto del jugador: incorporación posterior
+
+Por decisión posterior de Víctor, se permite añadir o sustituir la foto después del alta mientras el expediente esté pendiente, para menores, mayores y Veteranos. Usa PHOTO existente y no bloquea el alta ni añade condiciones de habilitación deportiva. No sustituye selfie, INE, CURP ni autorización de tutor; no se reutiliza automáticamente entre temporadas.
+
+Se reutilizan preparación, PUT, confirmación, acuse, descarga privada, hashes, versiones e idempotencia. Solo PNG/JPEG hasta 10 MiB, con validación binaria. Una posición y una versión vigente; sustituciones conservan historial. Se mantienen permisos READ/UPDATE por club y estado pendiente cualquier día.
+
+Sin requisito PHOTO explícito, se ofrece una posición opcional cuyo UUID deriva de player-photo:v1 y la categoría. No se insertan requisitos ni se modifica configuración; el UUID se comprueba contra el contexto servidor en cada operación. Un requisito explícito prevalece; no puede eludirse con la posición opcional. PHOTO obligatorio o con varias posiciones se señala para revisión, sin cambiarlo por iniciativa del agente. La foto no convierte una configuración documental ausente en completa.
+
+La cámara se comparte mediante DevicePhotoCamera con INE. Foto con cámara frontal preferida, un único selector y vista previa local. Nunca se remite a Verificamex. Probado con PostgreSQL desechable y transportes simulados: 25 casos de integración con regresiones previas, alcance, formatos, concurrencia de sustitución y bloqueo al cerrar cargas. Sin objetos remotos nuevos. La cámara física sigue pendiente de aceptación humana.
+
+Validador binario compartido en server/files/private-file-validation: PNG/JPEG reales decodificados y PDF parseado, máximo 10 MiB, 10 millones de píxeles y 50 páginas. Son límites técnicos; no acreditan originalidad ni titularidad. Firmas conserva sus contratos y códigos de error mediante un adaptador, sin importar internals de clubes desde jugadores.
+
+document-service implementa preparación, confirmación y consulta de acuse. Deriva contexto autorizado de la inscripción, exige READ/UPDATE y categoría afiliada autorizada. document-policy resuelve edad y ventana del servidor; no se aceptan desde el navegador. Las pruebas aisladas pueden inyectar referencia y ventana explícitas solo con AUTH_TEST_RUN y una BD loopback pdgld48_test_<16hex>; ese fixture no se habilita en bases habituales. La preparación reserva intención de 15 minutos sin crear files/player_documents. Solo admite CURP, INE, GUARDIAN_CONSENT y STUDENT_ID configurados. STUDENT_ID solo es opcional para menores; STUDENT_CERTIFICATE significa constancia de estudios y no se adopta silenciosamente como credencial. No se alteró el catálogo habitual ni sus requisitos.
+
+La carga PUT pasa por el servidor: autoriza, valida bytes y huella, sube con upsert:false y reautoriza al terminar la red. No se entregan claves de servidor ni permisos directos de bucket. La confirmación vuelve a descargar con límite de bytes/tiempo, compara MIME, contenido, tamaño y SHA-256 y reautoriza antes de asociar. files, player_documents PENDING y acuse se guardan atómicamente. Si la respuesta de una subida se pierde o el objeto ya existe, solo se recupera si sus bytes son idénticos; nunca se sobrescribe. Consultar el acuse no vuelve a subir ni leer Storage.
+
+Se reutiliza audit_logs inmutable como registro aditivo de intenciones y recibos: PLAYER_DOCUMENT_PREPARED y PLAYER_DOCUMENT_CONFIRMED, con contexto/identificadores y huellas, sin contenido, nombres originales, CURP, rutas de almacenamiento ni URLs. No se requiere migración de esquema para este avance. La intención tiene una clave estable por actor/operación. Cada posición de requisito se serializa mediante lock PostgreSQL. Una sustitución exige el documento vigente como versión base; dos sustituciones concurrentes no se pisan. El archivo anterior y su revisión permanecen en el historial; solo la versión vigente cuenta para faltantes. Cambiar identidad invalida su cómputo. Archivos históricos sin recibo no se presentan como confirmados y requieren reconciliación explícita.
+
+El transporte real valida bucket privado antes de cada operación, permite solo el prefijo documental con UUID, rechaza redirecciones, aplica 20 segundos por petición y limita lecturas a 10 MiB. Una descarga comprueba asociación, autorización de lectura y huella del objeto; emite URL firmada de 60 segundos y reautoriza antes de devolverla. Ese enlace es un permiso temporal de portador hasta expirar; no se publica ni conserva en evidencias. Las intenciones vencidas sin asociación son candidatos a reconciliación, no huérfanos demostrados. Una limpieza futura comprobará existencia, referencias y período de gracia antes de borrar. No hay limpieza automática.
+
+Adjuntar GUARDIAN_CONSENT solo acredita recepción de un archivo; no crea guardian_consents ni prueba parentesco, firma o consentimiento legal. Ese registro requiere política de acreditación y revisión, pendientes. No se ha implementado aprobación documental/deportiva: approvalAllowed permanece false incluso si todos los archivos están presentes.
+
+Actualización del 04/11/2026: el requisito configurado GUARDIAN_CONSENT de un menor
+también permite preparar evidencia con firma dibujada en el portal, reutilizando
+la captura de PDGLD-109. El PDF reúne datos declarados, inscripción y firma;
+reutiliza el transporte documental existente y conserva los límites anteriores.
+No se da por aprobado un texto de autorización ni se acredita al tutor.
+Ver [captura y revisión pendiente](../design/guardian-signature-capture.md).
+
+Pruebas normales: test:player-dossier (reglas y recuperación del cliente), test:player-document-storage (transporte simulado), test:signatures (regresión del validador compartido), test:player-registrations (servicios y PDGLD-13 en PostgreSQL desechable). La verificación optativa verify:player-document-storage comprueba configuración privada de pruebas antes de iniciar Next, usa PostgreSQL desechable y prueba el transporte **real** por HTTP con PDF sintéticos. Las consultas de CURP/INE continúan simuladas, sin consumo de créditos. Evidencia y comandos: docs/validation/PDGLD-100-storage.md.
+
+## Entradas y primer avance de PDGLD-101
+
+POST /api/player-documents/uploads prepara; PUT /api/player-documents/uploads/[uploadId] carga bytes; POST .../[uploadId]/confirm confirma; GET .../[uploadId] recupera acuse. GET /api/player-registrations/[registrationId]/documents consulta el DTO; POST /api/player-documents/[documentId]/download emite enlace temporal. Las escrituras exigen sesión operativa, origen válido, esquema estricto y contexto autorizado; JSON máximo 2048 bytes y binarios máximo 10 MiB. Respuestas privadas sin caché y errores saneados.
+
+La página /players/registrations/[registrationId]/documents enlaza desde el listado de jugadores y reutiliza ManagementShell, SelectField y tokens. Presenta edad al registro, requisitos por categoría, faltantes, autorización del tutor sin acreditar, captura desde archivo/cámara e historial. Conserva bytes e intención en memoria ante errores recuperables; no hay IndexedDB ni borrador persistente. Consultar acuse solo lee. Reintentar conserva clave y fase: después de perder una confirmación no vuelve a subir el archivo. Recargar exige volver a seleccionar archivo; las cargas ya enviadas pueden continuar aunque se abandone la pantalla. La captura de cámara depende del navegador/dispositivo; sigue disponible la selección de archivo. La aprobación permanece bloqueada.
+
+El plan de runtime privado incorpora SELECT de requisitos/tipos/documentos, INSERT mínimo de documentos y la columna id del ledger de auditoría. No se aplicaron esos permisos en Supabase: solo se verifican en PostgreSQL desechable con RLS. No hay políticas públicas nuevas.
+
+La regresión del runtime detectó además que la corrección de afiliaciones antiguas necesitaba inicializar submission_key/submission_hash. Se preparó la migración aditiva 20261031030000_pdgld100_legacy_affiliation_key: permite únicamente esa inicialización por el solicitante de una corrección pendiente con versión incrementada y contexto de auditoría; impide modificar claves ya existentes. El plan privado incluye esas columnas de UPDATE y se detiene antes de concederlas si el guard de base falta o está deshabilitado. No se aplicó en bases habituales ni Supabase. Las migraciones anteriores se conservaron.

@@ -2,16 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { build } from "esbuild";
 import { createServer } from "node:http";
-import { spawn } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { launchChrome, closeTestServer, waitForTestDone } from "./chrome-session.mjs";
+import { readFile } from "node:fs/promises";
 
 // React DOM real en Chrome headless; red y datos de negocio exclusivamente sintéticos.
 // No inicia Next, importa servicios de servidor ni contacta una base de datos.
-test("foco de formulario y modal; cambio de usuario oculta respuestas tardías", { timeout: 45000 }, async () => {
+test("selectores, modales breves, envíos inciertos y separación de usuarios", { timeout: 45000 }, async t => {
   const bundle = await build({ write: false, bundle: true, platform: "browser", format: "iife",
-    define: { "process.env.NODE_ENV": '"development"' },
+    define: { "process.env.NODE_ENV": '"development"', "process.env": '{}' },
     stdin: { resolveDir: process.cwd(), loader: "tsx", contents: `
       import React, { useState } from 'react';
       import { createRoot } from 'react-dom/client';
@@ -19,6 +17,10 @@ test("foco de formulario y modal; cambio de usuario oculta respuestas tardías",
       import { TeamRegistrationFormView } from './src/features/clubs/components/team-registration-form';
       import { createTeamRegistrationFormController } from './src/features/clubs/team-registration-form-controller';
       import { TeamRegistrationWorkspace } from './src/features/clubs/components/team-registration-workspace';
+      import { SelectField } from './src/components/ui/select-field';
+      import { AffiliationReviewView } from './src/features/clubs/components/affiliation-review-workspace';
+      import { createReviewController } from './src/features/clubs/affiliation-review-controller';
+      import { ReviewApiError } from './src/features/clubs/affiliation-review-model';
       const id = n => '00000000-0000-4000-8000-' + String(n).padStart(12,'0');
       const a = id(90), b = id(91);
       let currentUser = a, changeUser, late, lateSignal, delayList = false;
@@ -45,9 +47,179 @@ test("foco de formulario y modal; cambio de usuario oculta respuestas tardías",
       };
       function Parent(){const [user,setUser]=useState(a);changeUser=setUser;return <div id="stable-parent"><TeamRegistrationWorkspace userId={user}/></div>;}
       const check=(value,message)=>{if(!value)throw Error(message);};
-      const wait=async predicate=>{for(let n=0;n<300;n++){if(predicate())return;await new Promise(r=>setTimeout(r,10));}throw Error('Timed out');};
+      // Only identities and event flags of this synthetic selector, never field values.
+      const focusTrace=[];let tracingFocus=false;
+      const focusNode=node=>node===document.body?'body':node?.id==='fixture-choice'?'choice':node?.id==='next-control'?'next':node?.id==='reset-control'?'reset':node?'other':'none';
+      const traceFocus=(phase,event)=>{
+        if(!tracingFocus)return;
+        const field=document.getElementById('fixture-choice');
+        focusTrace.push({phase,active:focusNode(document.activeElement),target:focusNode(event?.target),related:focusNode(event?.relatedTarget),
+          key:['ArrowDown','Tab','Enter','Escape'].includes(event?.key)?event.key:null,trusted:event?.isTrusted??null,
+          prevented:event?.defaultPrevented??null,cancelable:event?.cancelable??null,
+          documentFocused:document.hasFocus(),ready:document.readyState,expanded:field?.getAttribute('aria-expanded'),
+          disabled:field?.matches(':disabled'),listbox:!!document.querySelector('[role=listbox]')});
+        if(focusTrace.length>80)focusTrace.shift();
+      };
+      window.selectFocusDiagnostic=focusTrace;
+      window.fixtureDocumentDiagnostic={focusedAtScript:document.hasFocus(),readyAtScript:document.readyState};
+      let startScenario;const scenarioStart=new Promise(resolve=>{startScenario=resolve;});
+      window.startScenario=startScenario;
+      let nativeReady;window.selectorNativeReady=new Promise(resolve=>{nativeReady=resolve;});
+      for(const type of ['keydown','keyup','blur','focus','focusin','focusout']){
+        document.addEventListener(type,event=>traceFocus(type+'-capture',event),true);
+        document.addEventListener(type,event=>traceFocus(type+'-bubble',event));
+      }
+      const wait=async predicate=>{for(let n=0;n<300;n++){if(predicate())return;await new Promise(r=>setTimeout(r,10));}throw Error('Timed out: '+predicate.toString()+'; menus='+Array.from(document.querySelectorAll('[role=listbox]')).map(node=>node.textContent).join('|')+'; fields='+Array.from(document.querySelectorAll('[role=combobox]')).map(node=>node.id+':'+node.getAttribute('aria-expanded')+':'+node.disabled).join('|'));};
       window.testDone=(async()=>{
+        // Start only after the driver has loaded/activated the owned document.
+        // Inline execution while the parser is running is not user interaction.
+        await scenarioStart;
+        window.fixtureDocumentDiagnostic.focusedAtStart=document.hasFocus();
+        window.fixtureDocumentDiagnostic.readyAtStart=document.readyState;
+        check(document.hasFocus() && document.readyState==='complete','Fixture document not ready for interaction');
         let root=createRoot(document.getElementById('root'));
+        // Componente real; valores y red de negocio exclusivamente sintéticos.
+        let replaceChoices, disableChoices;
+        const selections=[];
+        const initialChoices=[{value:'a',label:'Águilas Centro',description:'AGC'},{value:'b',label:'Real Morelia',description:'RMO'},{value:'x',label:'No disponible',disabled:true}];
+        function SelectFixture(){
+          const [choices,setChoices]=useState(initialChoices),[disabled,setDisabled]=useState(false);
+          replaceChoices=setChoices;disableChoices=setDisabled;
+          return <form id="select-fixture" style={{position:'fixed',bottom:20,left:16,width:'min(340px, calc(100vw - 32px))'}}>
+            <fieldset disabled={disabled}><label htmlFor="fixture-choice">Club de prueba</label>
+              <SelectField id="fixture-choice" name="choice" required options={choices} onValueChange={value=>selections.push(value)}/>
+            </fieldset><button type="reset" id="reset-control">Restablecer</button><button type="button" id="next-control">Siguiente</button>
+          </form>;
+        }
+        flushSync(()=>root.render(<SelectFixture/>));
+        const choice=()=>document.getElementById('fixture-choice');
+        const selected=()=>new FormData(document.getElementById('select-fixture')).get('choice');
+        const key=(key,extra={})=>flushSync(()=>choice().dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...extra})));
+        const typeQuery=text=>flushSync(()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(choice(),text);choice().dispatchEvent(new Event('input',{bubbles:true}));});
+        choice().focus();flushSync(()=>choice().click());
+        check(choice().getAttribute('aria-expanded')==='true','Select did not open');
+        check(document.querySelector('[role=listbox]').getBoundingClientRect().bottom<=choice().getBoundingClientRect().top,'Menu did not open upward near the viewport edge');
+        typeQuery('aguilas');
+        check(document.querySelectorAll('[role=option]').length===1,'Search must ignore accents');
+        check(selected()==='' && selections.length===0,'Typing committed a choice');
+        key('Enter');check(selected()==='a' && selections[0]==='a','Selection did not send its identifier');
+        check(choice().value==='Águilas Centro','Selected label missing');
+        check(document.activeElement===choice(),'Selection lost input focus');
+        key('ArrowDown');typeQuery('sin coincidencias');
+        check(document.querySelector('[role=status]').textContent.includes('No hay opciones'),'Missing empty search');
+        key('Escape');check(selected()==='a' && choice().value==='Águilas Centro','Escape changed selection');
+        key('ArrowDown');key('End');key('Enter');check(selected()==='b','Keyboard did not skip disabled option');
+        flushSync(()=>document.getElementById('select-fixture').reset());
+        check(selected()==='' && !choice().checkValidity(),'Reset lost required validation');
+        flushSync(()=>replaceChoices(Array.from({length:80},(_,index)=>({value:'item-'+index,label:'Club '+index}))));
+        key('ArrowDown');key('End');
+        const list=document.querySelector('[role=listbox]');
+        check(list.scrollTop>0,'Keyboard did not scroll active option');
+        list.scrollTop=10;list.dispatchEvent(new Event('scroll',{bubbles:true}));
+        await new Promise(resolve=>requestAnimationFrame(resolve));
+        check(list.scrollTop===10,'Manual list scrolling snapped back');
+        key('Enter');check(selected()==='item-79','End key chose the wrong option');
+        flushSync(()=>replaceChoices([{value:'other',label:'Otro club'}]));
+        check(selected()==='' && choice().value==='','Removed option retained a stale identifier');
+        tracingFocus=true;traceFocus('before-disable');
+        key('ArrowDown');flushSync(()=>disableChoices(true));traceFocus('after-disable');
+        await wait(()=>choice().matches(':disabled') && !document.querySelector('[role=listbox]'));
+        traceFocus('disabled-closed');
+        check(selected()===null,'Disabled fieldset submitted a hidden value');
+        flushSync(()=>disableChoices(false));traceFocus('reenabled');key('ArrowDown');traceFocus('reopened');
+        document.getElementById('next-control').focus();
+        traceFocus('after-programmatic-focus');
+        await wait(()=>document.activeElement.id==='next-control' && !document.querySelector('[role=listbox]'));
+        traceFocus('closed-outside');tracingFocus=false;
+        check(document.activeElement.id==='next-control','Closing moved focus away from next control');
+        // Preserve the programmatic outside-focus regression above. Also exercise
+        // actual Tab defaults: dispatchEvent alone cannot traverse the tab order.
+        tracingFocus=true;traceFocus('native-ready');
+        const nativeStart=focusTrace.length;
+        const nativeDone=new Promise(resolve=>{window.finishSelectorNative=resolve;});
+        window.observeSelectorNative=async stage=>{
+          if(stage==='open')await wait(()=>document.activeElement===choice() && choice().getAttribute('aria-expanded')==='true');
+          else if(stage==='reset')await wait(()=>document.activeElement.id==='reset-control' && !document.querySelector('[role=listbox]'));
+          else if(stage==='next')await wait(()=>document.activeElement.id==='next-control' && !document.querySelector('[role=listbox]'));
+          else throw Error('Unknown native selector phase');
+          traceFocus('native-'+stage);
+        };
+        nativeReady();await nativeDone;
+        const nativeEvents=focusTrace.slice(nativeStart);
+        check(nativeEvents.some(event=>event.phase==='keydown-bubble' && event.key==='Tab' && event.target==='choice' && event.trusted && !event.prevented),'Tab must retain the browser default action');
+        check(nativeEvents.some(event=>event.phase==='blur-capture' && event.target==='choice' && event.trusted),'Native Tab did not blur the selector');
+        check(document.activeElement.id==='next-control' && !document.querySelector('[role=listbox]'),'Native Tab changed the expected focus/close result');
+        traceFocus('native-complete');tracingFocus=false;
+        root.unmount();root=createRoot(document.getElementById('root'));
+        flushSync(()=>root.render(<form><label htmlFor="fixture-choice">Selección sin búsqueda</label>
+          <SelectField id="fixture-choice" name="choice" required searchable={false} options={initialChoices}/></form>));
+        check(!choice().checkValidity(),'Non-searchable required choice bypassed validation');
+        choice().focus();key(' ');key('Enter');
+        check(choice().checkValidity() && document.querySelector('input[name="choice"]').value==='a','Non-searchable keyboard selection failed');
+        root.unmount();root=createRoot(document.getElementById('root'));
+        const reviewLeague=id(200), reviewCategory=id(201), reviewWrites=[];
+        let rejectReview, reviewedId=null;
+        const reviewRows=Array.from({length:26},(_,index)=>({id:id(300+index),leagueId:reviewLeague,seasonId:id(202),seasonName:'Apertura sintética',referenceNumber:'AFI-'+index,clubName:'Club '+index,status:'PENDING',reviewPhase:'AWAITING_REVIEW',version:0}));
+        const reviewDetail=identifier=>({...reviewRows.find(item=>item.id===identifier),version:reviewedId===identifier?1:0,
+          reviewPhase:reviewedId===identifier?'CORRECTIONS_REQUESTED':'AWAITING_REVIEW',uniformColors:'Azul',categories:['Categoría sintética'],
+          categoryOptions:[{id:reviewCategory,name:'Categoría sintética',authorized:false}],observations:reviewedId===identifier?'Corregir colores':null,
+          allowedActions:reviewedId===identifier?[]:['APPROVE','REQUEST_CORRECTIONS'],history:[],officers:[]});
+        const reviewController=createReviewController({list:async()=>reviewRows,detail:async identifier=>reviewDetail(identifier),
+          signature:async()=>{throw Error('Unexpected signature');},review:async(...args)=>{reviewWrites.push(args);return new Promise((resolve,reject)=>{rejectReview=reject;});}});
+        flushSync(()=>root.render(<AffiliationReviewView controller={reviewController} leagues={[{id:reviewLeague,name:'Liga sintética'}]}/>));
+        const searchField=()=>document.querySelector('input[placeholder="Folio o nombre del club"]');
+        flushSync(()=>searchField().form.requestSubmit());
+        await wait(()=>reviewController.getSnapshot().loaded && document.body.textContent.includes('26 resultados'));
+        check(document.querySelectorAll('tbody tr').length===10,'Review table did not paginate');
+        const setSearch=text=>flushSync(()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(searchField(),text);searchField().dispatchEvent(new Event('input',{bubbles:true}));});
+        setSearch('Club 23');flushSync(()=>searchField().form.requestSubmit());
+        await wait(()=>!reviewController.getSnapshot().loading && document.querySelectorAll('tbody tr').length===1);
+        const reviewButton=Array.from(document.querySelectorAll('button')).find(button=>button.getAttribute('aria-label')?.startsWith('Revisar de Club 23,'));
+        reviewButton.click();await wait(()=>!!reviewController.getSnapshot().detail);
+        const correctionTrigger=Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Solicitar correcciones');
+        correctionTrigger.focus();correctionTrigger.click();await wait(()=>document.querySelector('dialog')?.open);
+        const note=()=>document.querySelector('textarea[name=observations]');
+        await wait(()=>document.activeElement===note());
+        const setNote=text=>flushSync(()=>{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(note(),text);note().dispatchEvent(new Event('input',{bubbles:true}));});
+        setNote('Corregir colores');
+        document.querySelector('button[aria-label="Cerrar: Solicitar correcciones"]').click();
+        await wait(()=>document.body.textContent.includes('¿Descartar los cambios sin guardar?'));
+        check(reviewWrites.length===0,'Closing sent a review');
+        Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Seguir editando').click();
+        await wait(()=>document.activeElement===note());check(note().value==='Corregir colores','Dirty capture lost');
+        document.querySelector('dialog').dispatchEvent(new Event('cancel',{cancelable:true}));
+        await wait(()=>document.body.textContent.includes('¿Descartar los cambios sin guardar?'));
+        Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Descartar cambios').click();
+        await wait(()=>!document.querySelector('dialog'));
+        check(reviewController.getSnapshot().observations==='' && document.activeElement===correctionTrigger,'Discard/focus failed');
+        correctionTrigger.click();await wait(()=>document.querySelector('dialog')?.open);setNote('Corregir colores');
+        const send=()=>Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Enviar correcciones');
+        send().click();await wait(()=>reviewController.getSnapshot().submitting);
+        document.querySelector('dialog').dispatchEvent(new Event('cancel',{cancelable:true}));
+        send().click();check(document.querySelector('dialog').open && reviewWrites.length===1,'Pending close or duplicate send');
+        rejectReview(new ReviewApiError('unavailable'));await wait(()=>!!reviewController.getSnapshot().pendingReview && !reviewController.getSnapshot().submitting);
+        Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Cerrar y conservar pendiente').click();
+        await wait(()=>!document.querySelector('dialog'));
+        check(reviewController.getSnapshot().observations==='Corregir colores','Uncertain close discarded capture');
+        Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Ver envío pendiente').click();
+        await wait(()=>document.querySelector('dialog')?.open);check(note().value==='Corregir colores','Reopen lost pending draft');
+        Array.from(document.querySelectorAll('dialog button')).find(button=>button.textContent==='Consultar resultado sin reenviar').click();
+        await wait(()=>!reviewController.getSnapshot().detailLoading);
+        check(!!reviewController.getSnapshot().pendingReview && reviewWrites.length===1,'Old GET declared failure or resent');
+        reviewedId=id(323);
+        Array.from(document.querySelectorAll('dialog button')).find(button=>button.textContent==='Consultar resultado sin reenviar').click();
+        await wait(()=>!reviewController.getSnapshot().pendingReview && !document.querySelector('dialog'));
+        check(reviewWrites.length===1,'Reconciliation wrote another review');
+        await reviewController.open(id(300));
+        await wait(()=>!!document.querySelector('input[type=checkbox]'));
+        document.querySelector('input[type=checkbox]').click();
+        Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Aprobar solicitud').click();
+        await wait(()=>document.querySelector('dialog')?.open);
+        await wait(()=>document.activeElement?.textContent==='Cancelar');
+        const backgroundSearch=searchField();backgroundSearch.focus();check(document.querySelector('dialog').contains(document.activeElement),'Native modal focus escaped');
+        Array.from(document.querySelectorAll('dialog button')).find(button=>button.textContent==='Cancelar').click();
+        await wait(()=>!document.querySelector('dialog'));check(reviewWrites.length===1,'Cancelling approval sent a write');
+        root.unmount();root=createRoot(document.getElementById('root'));
         let finish;
         const formOptions={clubs:[{id:id(1),name:'SYNTHETIC',seasons:[{id:id(2),name:'SYNTHETIC',canEnroll:true,canCreateTeam:false,
           teams:[{id:id(5),name:'SYNTHETIC'}],categories:[{id:id(3),name:'SYNTHETIC',groups:[{id:id(4),name:'SYNTHETIC'}]}]}]}]};
@@ -55,14 +227,14 @@ test("foco de formulario y modal; cambio de usuario oculta respuestas tardías",
         flushSync(()=>root.render(<TeamRegistrationFormView controller={formController}/>));
         for(const [field,value] of Object.entries({clubId:id(1),seasonId:id(2),teamId:id(5)})) flushSync(()=>formController.change(field,value));
         document.querySelector('form').requestSubmit();
-        await wait(()=>document.activeElement?.getAttribute('name')==='categoryId');
+        await wait(()=>document.activeElement?.getAttribute('data-select-field')==='categoryId');
         check(document.getElementById(document.activeElement.getAttribute('aria-describedby'))?.textContent.includes('categoría'),'Field error association missing');
         flushSync(()=>{formController.change('categoryId',id(3));formController.change('groupId',id(4));});
         document.querySelector('form').requestSubmit();
         await wait(()=>!!finish);
         check(document.querySelector('button[type="submit"]').disabled,'Duplicate submit enabled');
         finish({kind:'correctable',fieldErrors:{groupId:'SYNTHETIC-SERVER-ERROR'}});
-        await wait(()=>document.activeElement?.getAttribute('name')==='groupId');
+        await wait(()=>document.activeElement?.getAttribute('data-select-field')==='groupId');
         check(document.getElementById(document.activeElement.getAttribute('aria-describedby')).textContent==='SYNTHETIC-SERVER-ERROR','Async error not linked');
         flushSync(()=>formController.change('groupId',id(4)));
         document.querySelector('form').requestSubmit();
@@ -70,7 +242,7 @@ test("foco de formulario y modal; cambio de usuario oculta respuestas tardías",
         await wait(()=>document.activeElement?.getAttribute('role')==='status');
         check(document.activeElement.textContent.includes('Inscripción confirmada'),'Confirmation did not receive focus');
         Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Iniciar otra inscripción').click();
-        await wait(()=>document.activeElement?.getAttribute('name')==='clubId');
+        await wait(()=>document.activeElement?.getAttribute('data-select-field')==='clubId');
         // Montar la vista real con captura pendiente; abrir/cancelar no hace POST.
         flushSync(()=>root.render(<Parent/>));
         const parent=document.getElementById('stable-parent');
@@ -94,10 +266,14 @@ test("foco de formulario y modal; cambio de usuario oculta respuestas tardías",
         check(!document.querySelector('input[name="teamName"]'),'Previous capture still visible');
         await wait(()=>lateSignal.aborted);
         late(json({items:[{id:id(7),teamId:id(5),teamName:'PRIVATE-LATE-A',teamReferenceNumber:'SYNTHETIC',clubId:id(1),seasonId:id(2),categoryId:id(3),categoryName:'SYNTHETIC',groupId:id(4),groupName:'SYNTHETIC',seasonName:'SYNTHETIC-SEASON',status:'REGISTERED'}],nextAfter:null}));
-        await wait(()=>document.body.textContent.includes('CLUB-B'));
+        await wait(()=>document.querySelector('form[aria-labelledby] input[data-select-field="clubId"]:enabled') && document.getElementById('registration-query-club')?.matches(':enabled'));
+        document.getElementById('registration-query-club').focus();
+        flushSync(()=>document.getElementById('registration-query-club').click());
+        await wait(()=>document.querySelector('[role=listbox]')?.textContent.includes('CLUB-B'));
         await new Promise(r=>setTimeout(r,40));
         check(!document.body.textContent.includes('PRIVATE-LATE-A'),'Late response leaked');
         check(!document.body.textContent.includes('CLUB-A'),'Previous options leaked');
+        flushSync(()=>document.querySelector('[role=combobox][aria-expanded=true]').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
         check(!document.querySelector('input[name="teamName"]'),'Previous draft leaked');
         check(sessionStorage.getItem('team-enrollment:pending:'+a)===stored,'Previous key was removed');
         check(sessionStorage.getItem('team-enrollment:pending:'+b)===null,'Previous capture reassigned');
@@ -136,44 +312,43 @@ test("foco de formulario y modal; cambio de usuario oculta respuestas tardías",
         root.unmount();return {parentPreserved:true,oldReadAborted:true,lateResponseHidden:true,pendingPreserved:true,posts:posts.length};
       })();
     ` }, plugins: [{ name: "synthetic-navigation", setup(plugin) {
+      // This standalone React fixture has no Next runtime (process/image loader).
+      // Keep the real signature preview; replace only the framework image adapter.
+      plugin.onResolve({ filter: /^next\/image$/ }, () => ({ path: "image", namespace: "synthetic-image" }));
+      plugin.onLoad({ filter: /.*/, namespace: "synthetic-image" }, () => ({ contents: "import React from 'react';export default function Image({unoptimized,...props}){return React.createElement('img',props)}", resolveDir: process.cwd() }));
       plugin.onResolve({ filter: /^@\/components\/ui\/action-link$/ }, () => ({ path: "action-link", namespace: "synthetic" }));
       plugin.onLoad({ filter: /.*/, namespace: "synthetic" }, () => ({ contents: "import React from 'react';export function ActionLink({children,href}){return React.createElement('a',{href},children)}", resolveDir: process.cwd() }));
     } }],
   });
+  const controlsCss = await readFile(new URL('../../src/styles/tokens.css', import.meta.url), 'utf8') + '\n' + await readFile(new URL('../../src/app/globals.css', import.meta.url), 'utf8');
   const server = createServer((request, response) => {
     if (request.url === "/bundle.js") { response.setHeader("Content-Type", "text/javascript"); response.end(bundle.outputFiles[0].contents); }
-    else { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><div id="root"></div><script src="/bundle.js"></script>'); }
+    else if (request.url === "/controls.css") { response.setHeader("Content-Type", "text/css"); response.end(controlsCss.replace(/^@import.*$/gm,'')); }
+    else { response.setHeader("Content-Type", "text/html"); response.end('<!doctype html><link rel="stylesheet" href="/controls.css"><div id="root"></div><script>window.addEventListener("error",e=>{window.testFailure=e.message});window.addEventListener("unhandledrejection",e=>{window.testFailure=String(e.reason?.stack||e.reason)})</script><script src="/bundle.js"></script>'); }
   });
+  t.after(() => closeTestServer(server));
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  const profile = await mkdtemp(join(tmpdir(), "pdgld63-browser-"));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const chrome = spawn(process.env.CHROME_BIN ?? (process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "google-chrome"), [
-    "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=0", `--user-data-dir=${profile}`, origin,
-  ], { stdio: ["ignore", "ignore", "pipe"] });
-  let socket;
+  let browser;
   try {
-    const endpoint = await new Promise((resolve, reject) => {
-      let stderr = "";
-      chrome.once("error", reject); chrome.once("exit", code => reject(new Error(`Chrome exited: ${code}`)));
-      chrome.stderr.on("data", chunk => { stderr += chunk; const match = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/); if (match) resolve(match[1]); });
-    });
-    const base = new URL(endpoint); const listUrl = `http://${base.host}/json/list`;
-    let page;
-    for (let n = 0; n < 100 && !page; n++) { page = (await (await fetch(listUrl)).json()).find(target => target.url.startsWith(origin)); if (!page) await new Promise(resolve => setTimeout(resolve, 20)); }
-    assert.ok(page, "Missing synthetic page");
-    socket = new WebSocket(page.webSocketDebuggerUrl);
-    await new Promise((resolve, reject) => { socket.addEventListener("open", resolve, { once: true }); socket.addEventListener("error", reject, { once: true }); });
-    let commandId = 0;
-    const evaluate = () => new Promise((resolve, reject) => {
-      const id = ++commandId;
-      const listener = event => { const message = JSON.parse(event.data); if (message.id !== id) return;
-        socket.removeEventListener("message", listener);
-        if (message.result?.exceptionDetails || message.error) reject(new Error("Browser assertion failed: " + JSON.stringify(message.result?.exceptionDetails ?? message.error)));
-        else resolve(message.result.result.value);
-      };
-      socket.addEventListener("message", listener);
-      socket.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: "(async()=>{while(!window.testDone)await new Promise(r=>setTimeout(r,10));return await window.testDone})()", awaitPromise: true, returnByValue: true } }));
-    });
+    console.log('Chrome: iniciando navegador de prueba');
+    browser = await launchChrome(origin, { signal: t.signal, commandTimeoutMs: 15000, waitForDocument: true });
+    t.after(() => browser.close());
+    await browser.evaluate('window.startScenario()');
+    // The fixture signals its own readiness; no sleep, forced field focus or close.
+    await browser.evaluate('Promise.race([window.selectorNativeReady, window.testDone])');
+    const { x, y } = await browser.evaluate('(()=>{const r=document.getElementById("fixture-choice").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()');
+    await browser.command('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+    await browser.command('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+    await browser.evaluate('window.observeSelectorNative("open")');
+    for(const destination of ['reset','next']) {
+      for(const type of ['rawKeyDown','keyUp'])
+        await browser.command('Input.dispatchKeyEvent', { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+      await browser.evaluate('window.observeSelectorNative('+JSON.stringify(destination)+')');
+    }
+    await browser.evaluate('window.finishSelectorNative()');
+    console.log('Chrome: CDP conectado; esperando recorrido sintético');
+    const evaluate = () => waitForTestDone(browser);
     let result;
     for (let attempt = 0; attempt < 5; attempt++) {
       try { result = await evaluate(); break; }
@@ -181,5 +356,11 @@ test("foco de formulario y modal; cambio de usuario oculta respuestas tardías",
         await new Promise(resolve => setTimeout(resolve, 100)); }
     }
     assert.deepEqual(result, { parentPreserved: true, oldReadAborted: true, lateResponseHidden: true, pendingPreserved: true, posts: 0 });
-  } finally { socket?.close(); chrome.kill(); await new Promise(resolve => server.close(resolve)); }
+  } finally {
+    if(browser) {
+      try { t.diagnostic(JSON.stringify({fixtureDocument:await browser.evaluate('window.fixtureDocumentDiagnostic ?? {}'),selectorFocus:await browser.evaluate('window.selectFocusDiagnostic ?? []')})); }
+      catch { t.diagnostic('Selector focus diagnostic unavailable'); }
+    }
+    await browser?.close();
+  }
 });

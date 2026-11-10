@@ -5,6 +5,7 @@ import { ReviewApiError, type ReviewApi, type ReviewAction, type ReviewDetail, t
 const summarySchema = z.object({
   id: z.uuid(), leagueId: z.uuid(), referenceNumber: z.string().min(1),
   clubName: z.string().min(1), seasonName: z.string().min(1),
+  seasonId: z.uuid().optional(),
   version: z.number().int().nonnegative(),
   status: z.enum(["PENDING", "APPROVED"]),
   reviewPhase: z.enum(["AWAITING_REVIEW", "CORRECTIONS_REQUESTED"]).nullable(),

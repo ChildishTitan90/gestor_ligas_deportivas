@@ -9,7 +9,8 @@ import {
   assertPermission,
 } from "@/server/auth/authorization";
 import { assertSignatureUploadAccess } from "./signature-access";
-import { affiliationOfficeCodes, affiliationFormSchema } from "../schemas";
+import { affiliationOfficeCodes, type AffiliationFormValues } from "../schemas";
+import { affiliationCorrectionKey } from "./affiliation-correction-key";
 import { getAffiliation, AffiliationReviewError } from "./affiliation-review-service";
 import type { AffiliationFormProps } from "../types";
 
@@ -32,14 +33,12 @@ export async function canAccessAffiliationCapture() {
   });
 }
 
-function readStorageOrigin(): string {
+function readStorageOrigin(): string | null {
   const value = process.env.SUPABASE_URL;
 
-  if (!value) {
-    throw new Error("SIGNATURE_STORAGE_NOT_CONFIGURED");
-  }
-
-  const url = new URL(value);
+  if (!value || !process.env.SUPABASE_STORAGE_SERVER_KEY) return null;
+  let url: URL;
+  try { url = new URL(value); } catch { return null; }
 
   if (
     url.protocol !== "https:" ||
@@ -49,7 +48,7 @@ function readStorageOrigin(): string {
     url.hash ||
     url.pathname !== "/"
   ) {
-    throw new Error("SIGNATURE_STORAGE_NOT_CONFIGURED");
+    return null;
   }
 
   // Solo se expone el origen público, nunca la credencial.
@@ -280,7 +279,7 @@ export async function getAffiliationFormPageData(
 export async function getAffiliationCorrectionFormPageData(id: string): Promise<AffiliationFormProps> {
   const actor = await requireOperationalUser();
   const detail = await getAffiliation(id);
-  if (!detail.submissionKey || detail.reviewPhase !== "CORRECTIONS_REQUESTED") throw new AuthorizationError();
+  if (detail.reviewPhase !== "CORRECTIONS_REQUESTED") throw new AuthorizationError();
   return getPrisma().$transaction(async tx => {
     await assertSignatureUploadAccess(tx, actor.id, { clubId: detail.clubId, seasonId: detail.seasonId });
     await assertPermission(tx, actor.id, { module: "clubs", action: "READ",
@@ -297,14 +296,17 @@ export async function getAffiliationCorrectionFormPageData(id: string): Promise<
       return [office, { firstName: person?.firstName ?? "", paternalSurname: person?.paternalSurname ?? "",
         maternalSurname: person?.maternalSurname ?? "" }];
     }));
-    const initialValues = affiliationFormSchema.parse({ clubName: detail.clubName,
-      uniformColors: detail.uniformColors ?? "", categoryIds: detail.categoryIds, officers });
+    // Una captura anterior puede carecer de categorías/directivos. Es un formulario
+    // incompleto para corregir; la validación obligatoria sigue al enviar, también en servidor.
+    const initialValues: AffiliationFormValues = { clubName: detail.clubName,
+      uniformColors: detail.uniformColors ?? "", categoryIds: detail.categoryIds,
+      officers: officers as AffiliationFormValues["officers"] };
     const signatureFileIds = Object.fromEntries(detail.officers.filter(person => person.signatureFileId)
       .map(person => [person.office, person.signatureFileId!])) as NonNullable<AffiliationFormProps["correction"]>["signatureFileIds"];
     return {
       categories: categories.map(item => ({ id: item.category_id, name: item.categories.name })), initialValues,
       submissionContext: { actorId: actor.id, clubId: detail.clubId, seasonId: detail.seasonId, storageOrigin: readStorageOrigin() },
-      correction: { id, submissionKey: detail.submissionKey!, expectedVersion: detail.version,
+      correction: { id, submissionKey: affiliationCorrectionKey(id, detail.submissionKey ?? null), expectedVersion: detail.version,
         referenceNumber: detail.referenceNumber, observations: detail.observations ?? "", signatureFileIds },
     };
   });

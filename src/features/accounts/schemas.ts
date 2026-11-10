@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { changePasswordSchema, loginSchema } from "@/features/auth/schemas";
+import { changePasswordSchema, emailSchema } from "@/features/auth/schemas";
 
 // Alcance de HU22-01: cuentas administrativas y delegados, sin cuentas GUEST.
 export const accountRoleCodes = [
@@ -21,17 +21,40 @@ const clubSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("new"), name: z.string().trim().min(1).max(150) }),
 ]);
 
+export const delegatePeriodSchema = z.strictObject({
+  startsAt: z.iso.datetime({ offset: true }),
+  endsAt: z.iso.datetime({ offset: true }).nullable(),
+}).superRefine((period, context) => {
+  if (period.endsAt !== null && Date.parse(period.endsAt) <= Date.parse(period.startsAt))
+    context.addIssue({ code: "custom", path: ["endsAt"], message: "El fin debe ser posterior al inicio." });
+});
+
+export const delegateOptionsSchema = z.strictObject({
+  leagueId: z.uuid(),
+  club: z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("existing"), id: z.uuid() }),
+    z.strictObject({ kind: z.literal("new") }),
+  ]),
+  period: delegatePeriodSchema.optional(),
+});
+
 export const createAccountSchema = z.strictObject({
   username: z.string().trim().min(1).max(64)
     .regex(/^[A-Za-z0-9._-]+$/, "Usa letras, números, punto, guion o guion bajo.")
     .transform((value) => value.toLowerCase()),
-  email: loginSchema.shape.email,
+  email: emailSchema,
   temporaryPassword: changePasswordSchema.shape.newPassword,
   person: personSchema,
   roles: z.array(z.enum(accountRoleCodes)).min(1).max(accountRoleCodes.length),
   leagueId: z.uuid().optional(),
   club: clubSchema.optional(),
+  delegatePosition: z.enum(["PRIMARY", "DEPUTY"]).optional(),
+  delegatePeriod: delegatePeriodSchema.optional(),
 }).superRefine((data, context) => {
+  if (data.delegatePeriod && !data.roles.includes("CLUB_DELEGATE"))
+    context.addIssue({ code: "custom", path: ["delegatePeriod"], message: "La vigencia corresponde al delegado." });
+  if (data.roles.includes("CLUB_DELEGATE") !== (data.delegatePosition !== undefined))
+    context.addIssue({ code: "custom", path: ["delegatePosition"], message: "Indica un cargo explícito únicamente para CLUB_DELEGATE." });
   if (new Set(data.roles).size !== data.roles.length)
     context.addIssue({ code: "custom", path: ["roles"], message: "No repitas roles." });
   if (data.roles.includes("SUPERADMIN")) {

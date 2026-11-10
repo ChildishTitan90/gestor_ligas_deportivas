@@ -29,7 +29,7 @@ export function SportSelection() {
             </div>
             <h2 id="football-title" className="mt-6 text-2xl font-semibold tracking-tight text-primary">Fútbol</h2>
             <p className="mt-3 text-sm leading-7 text-muted">Accede a tu cuenta de la liga o continúa como espectador desde la pantalla de acceso.</p>
-            <span id="football-action" className="mt-8 inline-flex min-h-12 items-center justify-between gap-3 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-surface group-hover:bg-primary-hover">
+            <span id="football-action" className="mt-8 inline-flex min-h-12 items-center justify-between gap-3 rounded-xl primary-action px-4 py-3 text-sm font-semibold">
               Entrar a fútbol<ArrowRight size={18} aria-hidden="true" />
             </span>
           </div>

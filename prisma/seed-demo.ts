@@ -4,7 +4,7 @@ import { SEED_ACTOR } from "./seed-data";
 import { DEMO_ACCOUNTS, DEMO_CONTEXT, DEMO_PASSWORD, LEGACY_DEMO_ACCOUNTS } from "./seed-demo-data";
 import { validatePermissionCatalog } from "./permissions-catalog";
 import { readSeedDatabaseUrl, SeedConfigurationError } from "./seed-env";
-import { installPermissionCatalog } from "./seed-permissions";
+import { installLeagueCreationPermission, installPermissionCatalog } from "./seed-permissions";
 import { seedBaseDatabase } from "./seed-runner";
 
 export const DEMO_INSTALLATION = {
@@ -30,11 +30,14 @@ export async function seedDemoDatabase(prisma: PrismaClient, input: unknown, env
       if (previous.table_name !== DEMO_INSTALLATION.tableName || previous.action !== "INSTALL") {
         throw new SeedConfigurationError("El identificador reservado del perfil demo pertenece a otro evento; no se modificó.");
       }
+      const actor = await tx.users.findUniqueOrThrow({ where: { person_id: SEED_ACTOR.personId }, select: { id: true } });
+      await installLeagueCreationPermission(tx, actor.id);
       return { alreadyInstalled: true, createdAccounts: 0, installedMatrix: false };
     }
     await seedBaseDatabase(tx);
     const actor = await tx.users.findUniqueOrThrow({ where: { person_id: SEED_ACTOR.personId }, select: { id: true } });
     const matrix = await installPermissionCatalog(tx, catalog, actor.id);
+    await installLeagueCreationPermission(tx, actor.id);
     await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true),
       set_config('app.reason', ${DEMO_INSTALLATION.reason}, true)`;
     const sport = await tx.sports.findUniqueOrThrow({ where: { code: "SOCCER" }, select: { id: true } });
@@ -64,6 +67,7 @@ export async function seedDemoDatabase(prisma: PrismaClient, input: unknown, env
       }, select: { id: true } });
       await tx.user_roles.create({ data: {
         user_id: user.id, role_id: role.id,
+        delegate_position: "delegatePosition" in account ? account.delegatePosition : null,
         league_id: account.scope === "global" ? null : DEMO_CONTEXT.leagueId,
         club_id: account.scope === "clubA" ? DEMO_CONTEXT.clubAId : account.scope === "clubB" ? DEMO_CONTEXT.clubBId : null,
         starts_at: startsAt, ends_at: account.temporary ? new Date(startsAt.getTime() + 30 * 86_400_000) : null,

@@ -2,6 +2,11 @@ import type { ZodIssue } from "zod";
 
 export function accountErrorMessage(code: string): string {
   switch (code) {
+    case "DELEGATE_POSITION_REQUIRED": return "Selecciona titular o subdelegado para esta asignación.";
+    case "INVALID_DELEGATE_POSITION": return "Revisa el cargo y el perfil de la asignación.";
+    case "DELEGATE_POSITION_OCCUPIED": return "El cargo ya está ocupado durante ese periodo.";
+    case "DELEGATE_ACCOUNT_OVERLAP": return "La cuenta ya tiene una asignación solapada en ese club.";
+    case "DELEGATE_LEGACY_OVERLAP": return "Debe regularizarse una asignación anterior con cargo no identificado.";
     case "DUPLICATE_ACCOUNT": return "No se pudo crear la cuenta porque alguno de sus identificadores ya está registrado. Revisa los datos de acceso.";
     case "PERSON_UNAVAILABLE": return "No se puede utilizar la persona indicada. Revisa la referencia o solicita apoyo al administrador.";
     case "UNAUTHENTICATED": return "Tu sesión terminó. Inicia sesión para continuar.";
@@ -18,7 +23,7 @@ export function accountErrorMessage(code: string): string {
 /** Mensajes de presentación: no modifica esquemas ni la configuración global de Zod. */
 export function accountValidationMessage(issue: ZodIssue): string {
   const field = issue.path.map(String).join(".");
-  const selection = field === "leagueId" || field.startsWith("roles") || field.startsWith("club");
+  const selection = field === "delegatePosition" || field === "leagueId" || field.startsWith("roles") || field.startsWith("club");
   switch (issue.code) {
     case "invalid_type":
       return selection ? "Selecciona una opción válida." : "Completa este campo con un valor válido.";
@@ -30,6 +35,7 @@ export function accountValidationMessage(issue: ZodIssue): string {
       if (issue.origin === "array") return `Selecciona como máximo ${issue.maximum} roles.`;
       return `No superes los ${issue.maximum} caracteres.`;
     case "invalid_format":
+      if (field.startsWith("delegatePeriod.")) return "Indica una fecha y hora válidas.";
       if (issue.format === "email") return "Escribe un correo electrónico válido.";
       if (issue.format === "uuid") return selection ? "Selecciona una opción válida." : "Escribe un UUID de persona válido.";
       if (field === "username") return "Usa letras, números, punto, guion o guion bajo.";
@@ -47,6 +53,9 @@ export function accountValidationMessage(issue: ZodIssue): string {
     case "invalid_union": return "Revisa los datos de la persona o la selección indicada.";
     case "unrecognized_keys": return "Revisa los campos del formulario.";
     case "custom":
+      if (field === "delegatePeriod.endsAt") return "El fin debe ser posterior al inicio.";
+      if (field === "delegatePeriod") return "La vigencia corresponde únicamente al perfil de delegado.";
+      if (field === "delegatePosition") return "Selecciona titular o subdelegado únicamente para el perfil de delegado.";
       if (field === "roles") return "No repitas roles. SUPERADMIN debe asignarse de forma global y exclusiva.";
       if (field === "leagueId") return "Selecciona una liga.";
       if (field === "club") return "Selecciona un club o crea su registro inicial únicamente para el rol de delegado.";

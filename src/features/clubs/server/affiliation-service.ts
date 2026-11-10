@@ -10,6 +10,7 @@ import { requireOperationalUser } from "@/server/auth/session";
 import { assertPermission, AuthorizationError } from "@/server/auth/authorization";
 import { affiliationResubmissionSchema } from "../affiliation-review";
 import { AffiliationReviewError } from "./affiliation-review-service";
+import { affiliationCorrectionKey } from "./affiliation-correction-key";
 
 export class AffiliationInputError extends Error {
   constructor(public readonly code:
@@ -63,7 +64,8 @@ export async function submitAffiliation(input: unknown, correctionId?: string) {
       if (!correction?.success || row.review_version !== correction.data.expectedVersion)
         throw new AffiliationReviewError("STALE_AFFILIATION", 409);
       if (!row.review_reason) throw new AffiliationReviewError("CORRECTIONS_NOT_REQUESTED", 409);
-      if (row.submission_key !== data.submissionKey) throw new AffiliationInputError("IDEMPOTENCY_CONFLICT", 409);
+      if (affiliationCorrectionKey(row.id, row.submission_key) !== data.submissionKey)
+        throw new AffiliationInputError("IDEMPOTENCY_CONFLICT", 409);
       return row;
     })() : null;
     const prior = !corrected ? await tx.club_affiliations.findUnique({
@@ -161,6 +163,7 @@ export async function submitAffiliation(input: unknown, correctionId?: string) {
     }) : [];
     const affiliation = corrected ? await tx.club_affiliations.update({ where: { id: corrected.id },
       data: { club_name: data.clubName, uniform_colors: data.uniformColors,
+        ...(!corrected.submission_key ? { submission_key: data.submissionKey, submission_hash: fingerprint } : {}),
         reviewed_by: null, reviewed_at: null, review_reason: null, review_version: { increment: 1 } },
       select: { id: true, reference_number: true, status: true },
     }) : await tx.club_affiliations.create({

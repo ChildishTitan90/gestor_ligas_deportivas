@@ -125,15 +125,18 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
     await t.test("dos instalaciones concurrentes crean un perfil y las 127 concesiones aprobadas", async () => {
       const results = await Promise.all([seedDemoDatabase(prisma, approvedCatalog), seedDemoDatabase(prisma, approvedCatalog)]);
       assert.equal(results.filter(result => result.alreadyInstalled).length, 1);
-      assert.equal(await prisma.role_permissions.count(), 127);
-      const installed = await prisma.role_permissions.findMany({ select: {
+      assert.equal(await prisma.role_permissions.count(), 131);
+      const extension = await prisma.role_permissions.findMany({ where: { permissions: { module: "leagues", action: "CREATE" } }, include: { roles: true } });
+      assert.deepEqual(extension.map(grant => grant.roles.code).sort(), ["SECRETARY", "SUPERADMIN"]);
+      assert.ok(extension.every(grant => !grant.context_only));
+      const installed = await prisma.role_permissions.findMany({ where: { permissions: { module: { not: "leagues" } } }, select: {
         roles: { select: { code: true } }, permissions: { select: { module: true, action: true } }, context_only: true,
       } });
       const normalize = (grants: readonly { roleCode: string; module: string; action: string; contextOnly: boolean }[]) =>
         grants.map(grant => JSON.stringify([grant.roleCode, grant.module, grant.action, grant.contextOnly])).sort();
       assert.deepEqual(normalize(installed.map(grant => ({ roleCode: grant.roles.code,
         module: grant.permissions.module, action: grant.permissions.action, contextOnly: grant.context_only }))),
-      normalize(approvedCatalog), "Cada fila instalada conserva rol, módulo, acción y contexto exactos de RF22.");
+      normalize([...approvedCatalog, ...["CREATE", "UPDATE"].map(action => ({ roleCode: "SECRETARY", module: "competitions", action, contextOnly: false }))]), "Cada fila instalada conserva rol, módulo, acción y contexto exactos de RF22.");
       assert.equal(await prisma.audit_logs.count({ where: { id: DEMO_INSTALLATION.id } }), 1);
       const users = await prisma.users.findMany({ where: { person_id: { in: DEMO_ACCOUNTS.map(account => account.personId) } }, include: { user_roles: true } });
       assert.equal(users.length, 7);
@@ -144,6 +147,7 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
         assert.equal(user.is_active, account.active);
         assert.equal(user.must_change_password, account.temporary);
         assert.equal(user.user_roles.length, 1);
+        assert.equal(user.user_roles[0].delegate_position, "delegatePosition" in account ? account.delegatePosition : null);
         assert.equal(user.user_roles[0].league_id, account.scope === "global" ? null : DEMO_CONTEXT.leagueId);
         assert.equal(user.user_roles[0].club_id, account.scope === "clubA" ? DEMO_CONTEXT.clubAId : account.scope === "clubB" ? DEMO_CONTEXT.clubBId : null);
         assert.equal(!!user.user_roles[0].ends_at, account.temporary);
@@ -153,7 +157,7 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
       assert.equal(actor.user_roles.length, 0);
       assert.equal(await prisma.user_roles.count({ where: { roles: { code: "GUEST" } } }), 0);
       assert.equal(await prisma.club_affiliations.count({ where: { season_id: DEMO_CONTEXT.seasonId, league_id: DEMO_CONTEXT.leagueId, club_id: { in: [DEMO_CONTEXT.clubAId, DEMO_CONTEXT.clubBId] }, status: "PENDING" } }), 2);
-      assert.equal(await prisma.audit_logs.count({ where: { table_name: "role_permissions", action: "INSERT" } }), approvedCatalog.length, "El trigger genera un único evento por concesión.");
+      assert.equal(await prisma.audit_logs.count({ where: { table_name: "role_permissions", action: "INSERT" } }), approvedCatalog.length + 4, "El trigger genera un único evento por concesión.");
       assert.equal(await prisma.audit_logs.count({ where: { table_name: "user_roles", action: "INSERT" } }), 7);
       assert.deepEqual(await prisma.users.findUnique({ where: { id: legacy.id } }), legacy, "Se conserva la cuenta previa de desarrollo sin reactivar ni restablecer credenciales.");
     });
@@ -166,7 +170,7 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
         await tx.$queryRaw`SELECT set_config('app.user_id', ${temporary.id}, true), set_config('app.reason', 'PDGLD-54: fixture de revocación posterior al seed', true)`;
         await tx.users.update({ where: { id: temporary.id }, data: { password_hash: customHash, is_active: false, must_change_password: false } });
         await tx.user_roles.updateMany({ where: { user_id: temporary.id }, data: { starts_at: new Date("2025-01-01T00:00:00Z"), ends_at: new Date("2025-02-01T00:00:00Z") } });
-        await tx.user_roles.deleteMany({ where: { user_id: delegate.id } });
+        await tx.user_roles.updateMany({ where: { user_id: delegate.id }, data: { ends_at: new Date() } });
         await tx.role_permissions.deleteMany({ where: { roles: { code: "SECRETARY" } } });
         await tx.role_permissions.deleteMany({ where: { roles: { code: "SUPERADMIN" }, permissions: { module: "users", action: "CREATE" } } });
         await tx.role_permissions.updateMany({ where: { roles: { code: "CLUB_DELEGATE" } }, data: { context_only: false } });
@@ -177,7 +181,8 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
       assert.deepEqual(await snapshot(client), changed, "No se escriben UPDATE vacíos, eventos duplicados ni concesiones retiradas.");
       assert.equal(await prisma.role_permissions.count({ where: { roles: { code: "SECRETARY" } } }), 0);
       assert.equal(await prisma.role_permissions.count({ where: { roles: { code: "SUPERADMIN" }, permissions: { module: "users", action: "CREATE" } } }), 0);
-      assert.equal(await prisma.user_roles.count({ where: { user_id: delegate.id } }), 0);
+      assert.equal(await prisma.user_roles.count({ where: { user_id: delegate.id, ends_at: null } }), 0);
+      assert.equal(await prisma.user_roles.count({ where: { user_id: delegate.id } }), 1, "La asignación cerrada se conserva.");
     });
   } catch (error) {
     if (error instanceof assert.AssertionError) throw error;

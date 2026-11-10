@@ -1,5 +1,48 @@
 # Bandeja de revisión — PDGLD-61
 
+## Actualización visual — entrega 2 de PDGLD-115
+
+`/affiliations/review` conserva el shell de gestión, los tokens y la autorización
+existentes. La consulta reúne las páginas autorizadas de una liga y estado antes
+de mostrar resultados. La búsqueda por folio o nombre ignora mayúsculas y acentos;
+temporada y fase se aplican a esa colección completa. El contador corresponde a
+esa consulta, nunca a un total global. La presentación pagina de diez en diez.
+Esto reutiliza el contrato existente; una consulta de servidor con búsqueda y
+paginación combinadas queda para una necesidad de volumen mayor.
+
+En escritorio hay tabla; en móvil, tarjetas y filtros desplegables. «Buscar»
+aplica la selección y «Limpiar filtros» vuelve a pendientes. Si hay varias ligas
+se exige elegir una. Las temporadas proceden de los resultados del contexto
+consultado y usan su ID cuando está disponible. No se mezclan estados ni ligas.
+
+«Revisar» mantiene el expediente, directivos, firmas e historial en la página.
+«Solicitar correcciones» abre un formulario breve en `FormDialog`; «Aprobar
+solicitud» exige categorías elegidas explícitamente y abre la confirmación en
+el mismo componente. El backend sigue autorizando y validando cada operación.
+Véanse [las reglas de los diálogos](management-dialogs.md).
+
+Ante un resultado incierto se conserva el envío exacto y su versión. Ocultar el
+diálogo permite volver con «Ver envío pendiente». «Consultar resultado sin
+reenviar» solo hace lecturas: una versión sin cambios aún no prueba que el envío
+haya fallado. El reintento manual conserva el payload y expectedVersion; nunca
+se incrementa la versión ni se repite automáticamente una escritura. Al perder
+sesión/permisos se retiran los datos privados. El estado vive en esta página;
+no es un borrador persistente tras recargar o navegar a otra ruta.
+
+Validación de esta entrega: TypeScript/ESLint, 31 pruebas de revisión y una prueba
+de Chrome headless con React real, respuestas de negocio sintéticas y sin base,
+mediante `npm run test:management-ui`. Esta última comprueba filtro/paginación,
+foco inicial/retorno, fondo modal, descarte, doble envío, cierre pendiente y
+conciliación. La suite completa `test:auth` pasó además contra HTTP/PostgreSQL
+temporal. El control de escritura del navegador interactivo falló antes del login
+de la demostración: no se declara recorrido visual manual completo ni verificación
+manual de ambos temas. El servidor y la base de demostración se retiran al terminar.
+
+Para revisar: entrar con una cuenta autorizada, abrir la bandeja, elegir liga y
+«Buscar»; abrir «Revisar», escribir correcciones y probar cierre/cancelación;
+en otra solicitud, marcar categorías y cancelar la confirmación de aprobación.
+La integración de alta/edición de grupos con PDGLD-95 corresponde a la entrega 3.
+
 Interfaz de Nick conectada al backend PDGLD-60 en esta rama. La página real
 consulta el servidor con la sesión vigente; los fixtures solo viven en pruebas.
 El contrato del backend está en ../architecture/affiliation-review.md.
@@ -9,7 +52,7 @@ El contrato del backend está en ../architecture/affiliation-review.md.
 /affiliations/review conserva el encabezado y los controles de sesión existentes.
 Ofrece ligas obtenidas del servidor con READ vigente para la consulta de liga.
 Un permiso limitado a un club no abre el listado de toda la liga. No se infieren permisos del rol.
-Consultar inicia GET desde el cliente; el Server Component no llama a su API.
+Buscar inicia GET desde el cliente; el Server Component no llama a su API.
 La lista contempla carga, vacío, error, 401 y acceso denegado 403. El detalle
 se abre dentro de la misma página, con foco en su encabezado. Reutiliza los
 tokens, ActionLink y la lista existente, sin dependencias adicionales.

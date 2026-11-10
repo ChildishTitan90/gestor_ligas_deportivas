@@ -1,0 +1,49 @@
+{
+  "ticket": "PDGLD-119",
+  "scope": "real single test email; no production-domain validation",
+  "runId": "97be7231-a27f-431f-a73b-d021476cc5d7",
+  "realSend": {
+    "attempts": 1,
+    "networkAttemptedAt": "2026-11-09T00:46:46.008Z",
+    "completedAt": "2026-11-09T00:46:46.664Z",
+    "service": "administrative-reset",
+    "transport": "real Resend HTTP adapter",
+    "providerHttpStatus": 200,
+    "acceptance": "ACCEPTED",
+    "sender": "onboarding@resend.dev",
+    "recipientProvider": "Hotmail",
+    "recipientAddressOmitted": true,
+    "otherAccountsUnchanged": true,
+    "sendingDisabledAtExit": true
+  },
+  "receipt": {
+    "status": "CONFIRMED_BY_USER",
+    "source": "explicit-user-confirmation-in-conversation",
+    "confirmationRecordedAt": "2026-11-09T00:52:34.152456+00:00",
+    "subject": "Restablecimiento de acceso — Liga Municipal",
+    "sender": "onboarding@resend.dev",
+    "agentIndependentlyReadMailbox": false,
+    "actualArrivalTimestampProvided": false
+  },
+  "cleanup": {
+    "containerAbsent": true,
+    "networkAbsent": true,
+    "allThreeLoopbackPortsFree": true,
+    "applicationAndDependencyCopyRemoved": true,
+    "privateKeysAndCredentialsRemoved": true,
+    "disabledEnvStubRetained": true,
+    "cleanedAt": "2026-11-09T00:48:06.050Z"
+  },
+  "production": {
+    "ownDomainValidated": false,
+    "ownDomainConfigurationStatus": "PENDING",
+    "productionEnvironmentUsed": false
+  },
+  "redaction": {
+    "apiKeysIncluded": false,
+    "temporaryCredentialsIncluded": false,
+    "resetOrConfirmationLinksIncluded": false,
+    "screenshotsIncluded": false,
+    "connectionStringsIncluded": false
+  }
+}

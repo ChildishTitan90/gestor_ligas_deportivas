@@ -58,7 +58,7 @@ export function createEnrollmentRecovery(actorId: string, storage: PendingStorag
 
   function matches(input: Pending, result: z.infer<typeof teamEnrollmentResultSchema>) {
     return result.clubId === input.clubId && result.seasonId === input.seasonId && result.categoryId === input.categoryId &&
-      result.groupId === input.groupId && (input.team.mode !== "existing" || input.team.teamId === result.teamId);
+      (!input.groupId || result.groupId === input.groupId) && (input.team.mode !== "existing" || input.team.teamId === result.teamId);
   }
 
   async function request(inputValue: TeamEnrollmentInput, action: "check" | "retry" | "cancel"): Promise<EnrollmentRecoveryOutcome> {

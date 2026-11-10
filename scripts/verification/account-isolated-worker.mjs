@@ -1,0 +1,228 @@
+import assert from 'node:assert/strict';
+import { prepareAdministrativeTransport } from './administrative-reset-transport.mjs';
+import { randomBytes } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import pg from 'pg';
+import { ISOLATED_TEMP_ROOT, childEnvironment, RUN_ID } from '../ci/delegate-isolated-runtime.mjs';
+import { createAccountAppCopy, configureAccountTurbopack } from './account-app-copy.mjs';
+import { prepareAccountDelegateFixtures, verifyAccountDelegateHTTP } from '../../tests/integration/account-delegates-http.mjs';
+import { preparePreviewRuntime, verifyPreviewRuntime } from '../../tests/integration/preview-runtime.mjs';
+import { verifyAccountPreviewRuntime, verifyScopedAccountPreview } from '../../tests/integration/account-preview-runtime.mjs';
+import { verifyAccountMaintenanceBrowser } from '../../tests/e2e/account-maintenance-browser.mjs';
+import { verifyAccountDelegateBrowser } from '../../tests/e2e/account-delegates-browser.mjs';
+import { accountDiagnostic, nextStartupObserver, writeAccountDiagnostic } from './account-diagnostics.mjs';
+import { accountApplicationPlan, independentInstallPlan, installIndependentDependencies } from './account-independent-dependencies.mjs';
+import { privateStartupCapture } from './account-startup-probe.mjs';
+import { runAccountProvisioningSuite } from './account-provisioning-entry.mjs';
+import { PREVIEW_ROLE } from '../preview/runtime-plan.mjs';
+
+process.once('message', async config => {
+  let admin; let db; let app; let applicationPlan; let server; let serverClosed; let failure; let stopping;
+  const created = [];
+  const diagnosticContext = { case: 'account-suite', stage: 'validate-config' };
+  const startupObserver = nextStartupObserver();
+  let diagnostic; let administrativeTransport;
+  const controller = new AbortController();
+  async function stopServer() {
+    if (stopping) return stopping;
+    if (!server) return;
+    const child = server; server = undefined;
+    stopping = (async () => {
+      child.kill('SIGTERM');
+      await Promise.race([serverClosed, new Promise(resolve => setTimeout(resolve, 2_000))]);
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      await serverClosed;
+    })();
+    try { await stopping; } finally { stopping = undefined; }
+  }
+  const stop = () => { controller.abort(); void stopServer(); };
+  process.once('SIGINT', stop); process.once('SIGTERM', stop); process.once('disconnect', stop);
+  try {
+    assert.match(config.runId, RUN_ID); assert.ok([15, 17].includes(config.major));
+    assert.ok(['http', 'browser', 'preview', 'accounts', 'seasons', 'identity-correction', 'identity-age-regression', 'navigation', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode));
+    assert.equal(config.host, '127.0.0.1'); assert.equal(config.port, 55400 + config.major);
+    const stem = config.runId.replaceAll('-', '').slice(0, 14);
+    assert.equal(config.parentDatabase, `pdgld48_test_${stem}${config.major}`);
+    assert.equal(config.modelDatabase, `pdgld106_model_${stem}${config.major}`);
+    applicationPlan = accountApplicationPlan(config);
+    diagnosticContext.stage = 'database-setup';
+    admin = new pg.Client({ host: config.host, port: config.port, database: 'postgres', user: 'postgres',
+      password: config.password, ssl: false, connectionTimeoutMillis: 5_000, statement_timeout: 15_000 });
+    await admin.connect();
+    assert.equal(Math.floor(Number((await admin.query('SHOW server_version_num')).rows[0].server_version_num) / 10_000), config.major);
+    for (const database of [config.parentDatabase, config.modelDatabase]) {
+      controller.signal.throwIfAborted(); await admin.query(`CREATE DATABASE "${database}"`); created.push(database);
+    }
+    const applicationDatabase = ['preview', 'accounts', 'seasons', 'identity-correction', 'identity-age-regression', 'navigation', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode) ? config.parentDatabase : config.modelDatabase;
+    db = new pg.Client({ host: config.host, port: config.port, database: applicationDatabase, user: 'postgres',
+      password: config.password, ssl: false, connectionTimeoutMillis: 5_000, statement_timeout: 15_000 });
+    await db.connect();
+    const migrations = new URL('../../prisma/migrations/', import.meta.url);
+    const names = (await readdir(migrations)).filter(name => /^\d/.test(name)).sort();
+    const target = '20261028010000_pdgld106_delegate_positions';
+    for (const name of names.filter(name => name < target)) {
+      controller.signal.throwIfAborted(); await db.query(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
+    }
+    const fixture = ['accounts', 'seasons', 'identity-correction', 'identity-age-regression', 'navigation', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode) ? null : await prepareAccountDelegateFixtures(db, config.verificationMode === 'preview' ? { databaseName: applicationDatabase } : {});
+    for (const name of names.filter(name => name >= target)) {
+      controller.signal.throwIfAborted(); await db.query(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
+    }
+    diagnosticContext.stage = 'application-copy';
+    const root = fileURLToPath(new URL('../../', import.meta.url));
+    app = await createAccountAppCopy(root, applicationPlan.app, { dependencies: applicationPlan.dependencies, verification: ['accounts', 'seasons', 'identity-correction', 'identity-age-regression', 'navigation', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'preview', 'maintenance-preview'].includes(config.verificationMode) });
+    if (config.verificationMode === 'identity-age-regression') {
+      for (const name of ['player-registrations.test.ts','authorization-player-registration.test.ts']) {
+        const file = `${app}/tests/integration/${name}`, source = await readFile(file,'utf8');
+        const guard='assert.ok(["5432", "5433"].includes(target.port || "5432"));';
+        assert.equal(source.split(guard).length,2);
+        await writeFile(file,source.replace(guard,'assert.ok(["55415", "55417"].includes(target.port), "Solo runner aislado inspeccionado");'));
+      }
+    }
+    if (applicationPlan.dependencies === 'independent') {
+      diagnosticContext.case = 'dependency-installation';
+      await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
+      const capture = await privateStartupCapture(`${applicationPlan.evidence}/installation`, 'npm');
+      try {
+        const installed = await installIndependentDependencies(applicationPlan, capture, controller.signal);
+        await writeFile(`${applicationPlan.evidence}/installation.json`, JSON.stringify({ passed: true, ...installed }, null, 2), { flag: 'wx', mode: 0o600 });
+      } finally { capture.close(); }
+      await configureAccountTurbopack(app, root, { dependencies: 'independent' });
+    }
+    if(config.verificationMode==='administrative-reset') administrativeTransport=await prepareAdministrativeTransport(app,config.major);
+    const baseUrl = `http://127.0.0.1:${56500 + config.major}`;
+    const databaseUrl = new URL(`postgresql://postgres@127.0.0.1:${config.port}/${applicationDatabase}`);
+    databaseUrl.password = config.password;
+    const ownerDatabaseUrl = databaseUrl.href;
+    let runtimeConnection;
+    const permissionSnapshot = async () => (await db.query('SELECT * FROM sports_management.role_permissions ORDER BY id')).rows;
+    if (['preview', 'maintenance-preview'].includes(config.verificationMode)) {
+      // Empty ledger decoy only for ACL tests, not a claimed Prisma deployment history.
+      await db.query('CREATE TABLE public._prisma_migrations (id text PRIMARY KEY)');
+      const before = await permissionSnapshot();
+      const runtimePassword = randomBytes(32).toString('base64url');
+      await preparePreviewRuntime(db, applicationDatabase, runtimePassword, { isolatedPort: config.port });
+      assert.deepEqual(await permissionSnapshot(), before, 'La provisión no debe modificar RF22.');
+      runtimeConnection = { host: config.host, port: config.port, database: applicationDatabase,
+        user: PREVIEW_ROLE, password: runtimePassword, ssl: false, connectionTimeoutMillis: 5_000 };
+      databaseUrl.username = PREVIEW_ROLE; databaseUrl.password = runtimePassword;
+    }
+    const applicationDatabaseUrl = new URL(databaseUrl);
+    if (config.verificationMode === 'maintenance-preview')
+      applicationDatabaseUrl.searchParams.set('application_name','pdgld118-maintenance-preview');
+    const environment = { ...childEnvironment(process.env), NODE_ENV: 'development', AUTH_TEST_RUN: '1',
+      DATABASE_URL: applicationDatabaseUrl.href, DIRECT_URL: applicationDatabaseUrl.href, NEXTAUTH_URL: baseUrl,
+      NEXTAUTH_SECRET: randomBytes(48).toString('base64url'), NEXT_TELEMETRY_DISABLED: '1',
+      SUPABASE_URL: 'https://storage.example.test', SUPABASE_STORAGE_SERVER_KEY: 'synthetic-not-used' };
+    diagnosticContext.stage = 'next-startup';
+    let ready = false;
+    for (let startup = 0; startup < 2 && !ready; startup++) {
+      let reminder = false;
+      server = spawn(process.execPath, [`${applicationPlan.dependencies === 'independent' ? app : root}/node_modules/next/dist/bin/next`,
+        'dev', applicationPlan.bundler, '--hostname', '127.0.0.1', '--port', String(56500 + config.major)],
+      { cwd: app, env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
+      serverClosed = new Promise(resolve => server.once('close', resolve));
+      server.once('error', () => {});
+      server.once('exit', code => startupObserver.exit(code));
+      const output = chunk => { startupObserver.output(chunk); if (/SecurityFatalError|This command stopped to show the upgrade recommendation/.test(chunk.toString())) reminder = true; };
+      server.stdout.on('data', output); server.stderr.on('data', output);
+      for (let attempt = 0; attempt < 180; attempt++) {
+        controller.signal.throwIfAborted();
+        if (!server || server.exitCode !== null || reminder) break;
+        try { const response = await fetch(`${baseUrl}/api/auth/csrf`, { signal: AbortSignal.timeout(2_000) }); startupObserver.status(response.status); if (response.ok) { ready = true; break; } } catch { /* Startup still in progress. */ }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      if (!ready) { await stopServer(); if (!reminder) break; }
+    }
+    diagnosticContext.case = 'next-readiness';
+    diagnosticContext.safeValues = true;
+    assert.ok(ready, 'El servidor Next aislado no inició.');
+    diagnosticContext.safeValues = false;
+    diagnosticContext.stage = 'account-verification';
+    controller.signal.throwIfAborted();
+    if (config.verificationMode === 'preview') {
+      diagnosticContext.case = 'preview-prisma-account';
+      await runAccountProvisioningSuite({ databaseUrl: databaseUrl.href, baseUrl,
+        suite: 'preview-prisma-account' }, { signal: controller.signal, application: applicationPlan });
+      await writeFile(`${applicationPlan.evidence}/preview-prisma-account-suite.json`,
+        JSON.stringify({ suite: 'tests/integration/preview-prisma-account.mjs', passed: true }, null, 2),
+        { flag: 'wx', mode: 0o600 });
+    }
+    if (['accounts', 'seasons', 'identity-correction', 'identity-age-regression', 'navigation', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode)) {
+      const identityMode = config.verificationMode.startsWith('identity-');
+      const seasons = config.verificationMode === 'seasons';
+      const maintenance = ['navigation', 'password-change-regression', 'administrative-reset', 'email-confirmation', 'maintenance-ui', 'maintenance', 'maintenance-preview'].includes(config.verificationMode);
+      diagnosticContext.case = maintenance ? 'account-maintenance' : seasons ? 'competition-seasons' : 'account-provisioning';
+      await runAccountProvisioningSuite({ databaseUrl: config.verificationMode === 'maintenance-preview' ? ownerDatabaseUrl : databaseUrl.href, baseUrl,
+        ...(config.verificationMode === 'maintenance-preview' ? { runtimeDatabaseUrl: databaseUrl.href } : {}),
+        ...(administrativeTransport ? {fixture:administrativeTransport.config} : {}),
+        suite: config.verificationMode === 'maintenance-ui' && config.major === 17 ? 'maintenance' : config.verificationMode }, { signal: controller.signal, application: applicationPlan });
+      await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
+      await writeFile(`${applicationPlan.evidence}/backend-stage.json`, JSON.stringify({
+        passed: true, kind: config.verificationMode === 'maintenance-ui' && config.major === 15 ? 'fixtures-only' : config.verificationMode,
+      }, null, 2), { flag: 'wx', mode: 0o600 });
+      if (['maintenance','maintenance-ui'].includes(config.verificationMode)) await verifyAccountMaintenanceBrowser({ db, baseUrl, signal: controller.signal,
+        profileDirectory: `${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/chrome-pg${config.major}`,
+        artifactsDirectory: applicationPlan.evidence, diagnosticContext });
+      await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
+      const evidence = identityMode ? {suite:config.verificationMode,passed:true} : config.verificationMode === 'navigation' ? {suite:'tests/e2e/account-navigation-browser.mjs',passed:true} : config.verificationMode === 'password-change-regression' ? {suite:'tests/integration/password-change-version.mjs',passed:true} : config.verificationMode === 'administrative-reset' ? {suite:'tests/e2e/account-administrative-reset-browser.mjs',passed:true} : config.verificationMode === 'email-confirmation' ? { suite: 'tests/e2e/account-email-confirmation-browser.mjs', passed: true } : config.verificationMode === 'maintenance-ui' && config.major === 15 ? { suite: 'tests/e2e/account-maintenance-browser.mjs', passed: true, backendMatrix: 'not-repeated' } : maintenance ? { suite: 'tests/integration/account-maintenance.test.mjs', passed: true,
+        concurrentEmailRequests: { passed: true, overlap: 'two-postgresql-connections-waiting-on-rf22',
+          sameRevision: 'one-success-one-account-changed', replacement: 'only-current-token-confirms' },
+        ...(config.verificationMode === 'maintenance-preview' ? { applicationRole: PREVIEW_ROLE, rls: true, aclChecks: true } : {}) } : seasons ? { suite: 'tests/integration/seasons.test.mjs',
+        preparation: 'existing-season-fixtures', passed: true } : {
+        suite: 'tests/integration/accounts.test.mjs', preparation: 'existing-catalog-account-suite',
+        passed: true, expected: { deputyCreation: 201, primaryCreation: 201, occupiedPrimary: 409 },
+      };
+      await writeFile(`${applicationPlan.evidence}/${config.verificationMode}-suite.json`,
+        JSON.stringify(evidence, null, 2), { flag: 'wx', mode: 0o600 });
+    } else if (config.verificationMode === 'browser') {
+      await verifyAccountDelegateBrowser({ db, baseUrl, fixture, signal: controller.signal,
+        profileDirectory: `${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/chrome-pg${config.major}`,
+        artifactsDirectory: `${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/evidence-pg${config.major}`, diagnosticContext });
+    } else {
+      diagnosticContext.case = 'account-delegate-http';
+      const concurrentChecks = await verifyAccountDelegateHTTP({ db, baseUrl, fixture,
+        concurrentPositions: config.verificationMode === 'http' });
+      if (config.verificationMode === 'http') {
+        await mkdir(applicationPlan.evidence, { recursive: true, mode: 0o700 });
+        await writeFile(`${applicationPlan.evidence}/concurrent-http.json`,
+          JSON.stringify({ scope: 'isolated-http-same-position', checks: concurrentChecks }, null, 2),
+          { flag: 'wx', mode: 0o600 });
+      }
+      if (runtimeConnection) {
+        await verifyAccountPreviewRuntime({ owner: db, connection: runtimeConnection, fixture });
+        await verifyScopedAccountPreview({ owner: db, baseUrl, fixture });
+        await verifyPreviewRuntime(db);
+      }
+    }
+  } catch (error) {
+    failure = error;
+    diagnostic = { ...accountDiagnostic(error, diagnosticContext), startup: startupObserver.summary() };
+    // Only a validated execution can create diagnostic artifacts.
+    if (RUN_ID.test(config.runId) && [15, 17].includes(config.major)) {
+      try { await writeAccountDiagnostic(`${ISOLATED_TEMP_ROOT}/pdgld106-${config.runId}/evidence-pg${config.major}`, diagnostic); }
+      catch { diagnostic.artifactWriteFailed = true; }
+    }
+  }
+  finally {
+    try { await stopServer(); } catch { failure ??= new Error('NEXT_CLEANUP_FAILED'); }
+    try { await administrativeTransport?.close(); } catch { failure ??= new Error('TRANSPORT_FIXTURE_CLEANUP_FAILED'); }
+    await db?.end().catch(() => { failure ??= new Error('DB_CLOSE_FAILED'); });
+    for (const name of created.reverse()) {
+      try {
+        await admin.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND pid<>pg_backend_pid()', [name]);
+        await admin.query(`DROP DATABASE "${name}"`);
+      } catch { failure ??= new Error('DATABASE_CLEANUP_FAILED'); }
+    }
+    await admin?.end().catch(() => { failure ??= new Error('ADMIN_CLOSE_FAILED'); });
+    if (applicationPlan?.dependencies === 'independent')
+      await rm(independentInstallPlan(applicationPlan).work, { recursive: true, force: true }).catch(() => { failure ??= new Error('NPM_WORK_CLEANUP_FAILED'); });
+    if (app) await rm(app, { recursive: true, force: true }).catch(() => { failure ??= new Error('APP_COPY_CLEANUP_FAILED'); });
+    process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); process.removeListener('disconnect', stop);
+  }
+  const code = failure ? (/^[A-Z0-9_]{1,40}$/.test(failure.code ?? '') ? failure.code : 'ACCOUNT_SUITE_FAILED') : 'OK';
+  const location = diagnostic?.location;
+  if (process.connected) process.send({ type: 'result', ok: !failure, code, location, diagnostic }, () => { process.disconnect(); process.exitCode = failure ? 1 : 0; });
+  else process.exitCode = 1;
+});

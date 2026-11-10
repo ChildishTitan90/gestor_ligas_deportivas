@@ -71,11 +71,18 @@ async function snapshot(client: pg.Client): Promise<Snapshot> {
     WHERE table_schema = 'sports_management' AND table_type = 'BASE TABLE'
     ORDER BY table_name
   `);
-  assert.equal(tables.length, 98, 'La base debe conservar las 96 tablas iniciales y añadir categorías de afiliación y operaciones de inscripción.');
+  assert.equal(tables.length, 107,
+    'La base debe conservar las 96 tablas iniciales y las once adiciones: categorías de afiliación, operaciones de inscripción, comprobaciones CURP, dos tablas de participación, correo pendiente y cinco tablas privadas de corrección/historial.');
   assert.ok(tables.some(({ table_name }) => table_name === 'club_affiliation_categories'),
     'Debe existir la tabla de categorías de afiliación de PDGLD-57.');
   assert.ok(tables.some(({ table_name }) => table_name === 'team_enrollment_operations'),
     'Debe existir la tabla de recuperación de inscripciones de PDGLD-64.');
+  assert.ok(tables.some(({ table_name }) => table_name === 'account_email_changes'),
+    'Debe existir exactamente la tabla de correo pendiente añadida por 20261105020000_pdgld118_pending_email.');
+  for (const name of ['player_identity_corrections', 'player_identity_correction_evidence',
+    'season_person_identity_snapshots', 'season_identity_closures', 'season_registration_history']) {
+    assert.ok(tables.some(({ table_name }) => table_name === name), `Debe conservarse la tabla privada ${name}.`);
+  }
   const result: Snapshot = {};
   for (const { table_name: tableName } of tables) {
     assert.match(tableName, /^[a-z_]+$/, 'Los identificadores SQL deben pertenecer al esquema.');
@@ -168,12 +175,12 @@ async function createHomonymousContexts(client: pg.Client, state: Snapshot) {
       INSERT INTO sports_management.seasons(id, league_id, sport_id, name, start_date, end_date)
       VALUES ($1, $2, $3, $4, $5::date, $6::date), ($7, $8, $3, $9, $5::date, $6::date)
     `, [ids[1], ids[0], seeded.sport.id, SEED_CONTEXT.seasonName, SEED_CONTEXT.startDate,
-      SEED_CONTEXT.endDate, ids[5], seeded.league.id, 'Temporada sintética de contraste PDGLD-47']);
+    SEED_CONTEXT.endDate, ids[5], seeded.league.id, 'Temporada sintética de contraste PDGLD-47']);
     await client.query(`
       INSERT INTO sports_management.categories(id, league_id, sport_id, name)
       VALUES ($1, $2, $3, $4), ($5, $6, $3, $7)
     `, [ids[2], ids[0], seeded.sport.id, SEED_CONTEXT.categoryName,
-      ids[8], seeded.league.id, 'Categoría sintética de contraste PDGLD-47']);
+    ids[8], seeded.league.id, 'Categoría sintética de contraste PDGLD-47']);
     await client.query(`
       INSERT INTO sports_management.competition_rules(id, season_id, version_number)
       VALUES ($1, $2, $3), ($4, $5, $3)
@@ -184,12 +191,12 @@ async function createHomonymousContexts(client: pg.Client, state: Snapshot) {
       VALUES ($1, $2, $3, $4, 1, 'OPEN', $5::date),
         ($6, $7, $8, $9, 1, 'OPEN', $5::date), ($10, $11, $12, $13, 2, 'OPEN', $5::date)
     `, [ids[4], ids[1], ids[2], ids[3], SEED_CONTEXT.ageCutoffDate,
-      ids[7], ids[5], seeded.category.id, ids[6], ids[9], seeded.season.id, ids[8], seeded.rule.id]);
+    ids[7], ids[5], seeded.category.id, ids[6], ids[9], seeded.season.id, ids[8], seeded.rule.id]);
     await client.query(`
       INSERT INTO sports_management.groups(id, season_id, season_category_id, name)
       VALUES ($1, $2, $3, $4), ($5, $6, $7, $4), ($8, $9, $10, $4)
     `, [ids[10], ids[1], ids[4], SEED_CONTEXT.groupName,
-      ids[11], ids[5], ids[7], randomUUID(), seeded.season.id, ids[9]]);
+    ids[11], ids[5], ids[7], randomUUID(), seeded.season.id, ids[9]]);
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');

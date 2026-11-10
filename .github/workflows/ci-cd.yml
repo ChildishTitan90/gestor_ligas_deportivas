@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [develop, main]
   push:
-    branches: [develop, main]
+    branches: [develop, main, feat/PDGLD-104-excepciones-edad]
   workflow_dispatch:
     inputs:
       deploy_production:
@@ -49,15 +49,27 @@ jobs:
       - name: Comprobar la integridad de las migraciones
         run: npm run ci:guard-migrations
       - name: Probar los controles del pipeline
-        run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:affiliation-input && npm run test:affiliation-review
+        run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:account-maintenance && npm run test:email-transport && npm run test:account-maintenance-ui && npm run test:email-confirmation && npm run test:affiliation-input && npm run test:affiliation-review && npm run test:club-maintenance-input
       - name: Probar interfaz de inscripción y actividad de sesión sin base
         run: npm run test:team-registration
       - name: Probar inscripción en Chrome con datos sintéticos
-        run: npm run test:team-registration-browser
+        timeout-minutes: 2
+        run: npm run test:browser-harness && npm run test:team-registration-browser && npm run test:ine-browser
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - name: Probar controles de competencias en Chrome con datos sintéticos
+        run: npm run test:competition-ui
         env:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Probar firmas de afiliación
         run: npm run test:signatures
+      - name: Probar captura y vista previa de firmas con datos sintéticos
+        timeout-minutes: 2
+        run: npm run test:direct-signature && npm run test:signature-preview && npm run test:guardian-signature && npm run test:player-workspace && npm run test:age-exception-browser
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - name: Probar validación local de identidad de jugadores
+        run: npm run test:player-admission && npm run test:age-exception && npm run test:player-identity && npm run test:curp-provider && npm run test:ine-provider && npm run test:player-dossier && npm run test:player-document-storage
       - name: Probar recuperación de inscripciones y capacidades del cliente
         run: npm run test:team-enrollment-client
       - name: Revisar el código
@@ -120,8 +132,14 @@ jobs:
         run: npm run test:auth
       - name: Probar inscripción de equipos, alcance y concurrencia
         run: npm run test:team-enrollments
+      - name: Probar identidad, inscripción única y permisos de jugadores
+        run: npm run test:player-registrations && npm run test:player-participations
+      - name: Probar temporadas, alcance, auditoría y concurrencia
+        run: npm run test:competitions
       - name: Probar Preview con rol limitado, RLS, afiliaciones y operaciones por HTTP
         run: npm run test:preview-runtime
+      - name: Probar competencias, distribución y mantenimiento con rol Preview y RLS
+        run: npm run test:preview-competitions
       - name: Probar seed, integridad, rollback e idempotencia
         run: npm run test:seed -- --existing
 
