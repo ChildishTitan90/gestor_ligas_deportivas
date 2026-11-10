@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { readMigrations } from './migration-helpers.mjs';
-import { AFFILIATION_PLAN, ENROLLMENT_PLAN, CURP_PLAN, DISTRIBUTION_PLAN, assertProductionPlan, sqlChecksum } from './production-plans.mjs';
+import { AFFILIATION_PLAN, ENROLLMENT_PLAN, CURP_PLAN, DISTRIBUTION_PLAN, PRIVATE_TABLE_PLANS, assertProductionPlan, sqlChecksum } from './production-plans.mjs';
 
 const directory = fileURLToPath(new URL('../../prisma/migrations/', import.meta.url));
 const readSql = name => readFileSync(`${directory}/${name}/migration.sql`, 'utf8');
@@ -19,10 +19,16 @@ const operationsMigration = '20261026010000_pdgld64_enrollment_operations';
 const migrations = new Map([...allMigrations].filter(([name]) => name !== operationsMigration));
 const applied = new Set(['0_init']);
 
-test('PDGLD-13 entrega 1: las participaciones nuevas siguen bloqueadas para producción sin plan aprobado', () => {
+test('las seis migraciones privadas tienen un plan exacto y rechazan SQL alterado', () => {
   assert.ok(repositoryMigrations.has(participationMigration));
-  assert.throws(() => assertProductionPlan(repositoryMigrations, applied, readSql),
-    /20261104020000_pdgld13_category_participations.*plan de seguridad/);
+  const plan = assertProductionPlan(repositoryMigrations, applied, readSql);
+  assert.deepEqual(plan.pendingPrivateCreations, PRIVATE_TABLE_PLANS.map(([name]) => name));
+  for (const [name] of PRIVATE_TABLE_PLANS) {
+    for (const history of [applied, new Set(repositoryMigrations.keys())])
+      assert.throws(() => assertProductionPlan(repositoryMigrations, history,
+        migration => readSql(migration) + (migration === name ? '\n-- alterado' : '')),
+        /plan de seguridad.*checksum/);
+  }
 });
 
 test('PDGLD-38 autoriza solo la tabla temporal de la migración exacta y rechaza alteraciones', () => {
