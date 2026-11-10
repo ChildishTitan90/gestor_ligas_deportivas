@@ -3,9 +3,9 @@
 Primera prioridad Sprint 3. Rama `feat/PDGLD-16-elegibilidad-partido`, worktree
 `/private/tmp/pdgld16-20261110`, basado en develop 0a2fc44. Árbol original,
 stashes y compose conservados. El fetch inicial actualizó develop a 0a2fc44;
-los dos fetch finales fallaron por conexión HTTPS. Como alternativa, el endpoint
-GitHub `branches/develop` confirmó el mismo SHA completo el 10/11/2026; no se
-afirma que el fetch final haya tenido éxito. No se inició PDGLD-32 ni PDGLD-29.
+dos reintentos finales fallaron por conexión HTTPS. El endpoint GitHub
+`branches/develop` confirmó el mismo SHA completo y un último fetch exitoso
+volvió a comprobarlo antes de abrir el PR, el 10/11/2026. No se inició PDGLD-32 ni PDGLD-29.
 
 ## Reproducir
 
