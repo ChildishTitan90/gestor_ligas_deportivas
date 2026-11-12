@@ -45,7 +45,10 @@ export async function evaluateMatchInTransaction(tx: Prisma.TransactionClient, a
     const target = await readLockedPlayerTeamContext(tx, teamId);
     const targetLabel = await tx.teams.findUniqueOrThrow({where:{id:target.teamId},select:{name:true}});
     const registrations = await tx.player_registrations.findMany({ where: { season_id: match.season_id,
-      OR: [{ season_team_id: teamId }, { season_teams: { club_id: target.clubId } }] },
+      OR: [{ season_team_id: teamId }, { category_participations: { some: {
+        season_id: match.season_id, club_id: target.clubId, target_season_team_id: teamId,
+        target_season_category_id: target.seasonCategoryId, status: "AUTHORIZED",
+      } } }] },
       select: { id: true, person_id: true, season_team_id: true, jersey_number: true }, orderBy: { id: "asc" } });
     for (const reg of registrations) {
       const origin = await readLockedPlayerTeamContext(tx, reg.season_team_id);
@@ -57,7 +60,9 @@ export async function evaluateMatchInTransaction(tx: Prisma.TransactionClient, a
       if (!match.starts_at) blockers.push({ code: "MATCH_TIME_REQUIRED", message: "Falta el horario del partido para evaluar la vigencia de sanciones." });
       if (reg.season_team_id !== teamId) {
         const approval = await tx.player_category_participations.findFirst({ where: {
-          origin_registration_id: reg.id, target_season_team_id: teamId, status: "AUTHORIZED",
+          origin_registration_id: reg.id, target_season_team_id: teamId,
+          target_season_category_id: target.seasonCategoryId, season_id: match.season_id,
+          club_id: target.clubId, status: "AUTHORIZED",
         }, select: { id: true, eligibility_fingerprint: true } });
         if (!approval) blockers.push({ code: "SUPERIOR_NOT_AUTHORIZED", message: "No existe participación superior autorizada para este equipo inscrito." });
         else if (assessment.ready && approval.eligibility_fingerprint !== assessment.fingerprint)
@@ -117,9 +122,15 @@ const timesInput = z.strictObject({ matchId: z.uuid(), lineupId: z.uuid(),
  * No crea una alineación implícita ni sobrescribe una versión desconocida. */
 export async function recordParticipationInTransaction(tx: Prisma.TransactionClient, actorId: string, input: unknown) {
   const data = timesInput.parse(input);
+  // Mismo orden que la evaluación: historia antes del partido. FOR SHARE bloquea
+  // también UPDATE de horario/version sin cambios de clave (FOR KEY SHARE no).
+  // Se conserva hasta COMMIT/ROLLBACK de la transacción del consumidor.
+  await lockSeasonIdentityHistory(tx);
+  const locked = await tx.$queryRaw<{ version: number }[]>`
+    SELECT version FROM sports_management.matches WHERE id=${data.matchId}::uuid FOR SHARE`;
   const evaluation = await evaluateMatchInTransaction(tx, actorId, data.matchId);
   await assertPermission(tx,actorId,{module:"match-reports",action:"UPDATE",context:{matchId:data.matchId}});
-  if (evaluation.historical || evaluation.version !== data.expectedMatchVersion) throw Error("STALE_MATCH");
+  if (evaluation.historical || locked[0]?.version !== data.expectedMatchVersion || evaluation.version !== data.expectedMatchVersion) throw Error("STALE_MATCH");
   const lineup = await tx.lineups.findUnique({ where: { id: data.lineupId }, select: {
     registration_id: true, season_team_id: true, match_report_id: true,
     match_reports: { select: { match_id: true, status: true } },

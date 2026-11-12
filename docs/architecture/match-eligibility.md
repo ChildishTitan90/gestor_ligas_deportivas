@@ -31,6 +31,11 @@ general de lectura de jugadores al árbitro. Incluso un administrador sin
 designación queda denegado en este recorrido. La navegación consulta el mismo
 servicio; una URL directa reautoriza el recurso.
 
+La consulta limita candidatos a la plantilla de cada uno de los dos equipos del
+encuentro y a participaciones `AUTHORIZED` del equipo, categoría, club y temporada
+de destino. Compartir club o temporada no basta para aparecer en el DTO. Dentro
+de ese conjunto se conservan los motivos de bloqueo (incluidas sanciones).
+
 La evaluación utiliza `assessPlayerEligibility`, con inscripción ACTIVE,
 identidad/documentos vigentes, excepción de edad autorizada cuando corresponde,
 equipo inscrito/afiliado y ámbito. Un ascenso necesita la participación AUTHORIZED
@@ -77,6 +82,17 @@ partidos. La excepción coincidente sigue pendiente funcional y mantiene el PR D
   recibe `matchId`, `lineupId`, `expectedMatchVersion`, `expectedReportVersion` y
   `periods: [{periodNumber,entryMinute,exitMinute}]`. Valida enteros, orden de
   entrada/salida, periodos únicos y pertenencia de alineación/cédula al partido.
+  Toma `FOR SHARE` sobre `matches` y comprueba su versión bajo ese bloqueo,
+  conservado hasta el COMMIT/ROLLBACK del consumidor. Es incompatible con el
+  UPDATE de horario y versión, incluso si no modifica claves. La autorización
+  existente también usa FOR SHARE; el contrato de escritura lo exige explícitamente.
+  No existe todavía un servicio de reprogramación en esta rama: el flujo de base
+  actual actualiza `matches` y ejecuta `matches_reservations`, que reconstruye
+  reservas. No se sustituyen esos triggers ni se requiere un advisory lock del
+  futuro consumidor. En READ COMMITTED, una reprogramación que gana el bloqueo
+  hace que el guardado espere y devuelva `STALE_MATCH`; con aislamiento superior,
+  PostgreSQL puede abortar por serialización y el consumidor debe revertir toda
+  la transacción, nunca continuarla ni reintentar con una versión inventada.
   Reevalúa, exige cédula DRAFT y versión vigente, incrementa versión y reemplaza
   periodos de esa alineación en una transacción. Un fallo conserva los anteriores.
   Los triggers existentes auditan con actor/motivo; no se duplica auditoría manual.

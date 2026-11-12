@@ -41,10 +41,30 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
   const player = async () => (await evaluate()).players.find(p => p.registrationId === originId && p.seasonTeamId === team.id)!;
   await t.test("PDGLD-16: árbitro designado evalúa superior autorizado y origen no cambia", async () => {
     assert.equal((await player()).eligible, true, JSON.stringify((await player()).blockers));
-    const denied = (await evaluate()).players.find(p => p.registrationId === originId && p.seasonTeamId === other.id)!;
-    assert.ok(denied.blockers.some(b => b.code === "SUPERIOR_NOT_AUTHORIZED"));
+    const denied = (await evaluate()).players.find(p => p.registrationId === originId && p.seasonTeamId === other.id);
+    assert.equal(denied, undefined, "Otra categoría sin autorización para el rival queda fuera del DTO");
     assert.equal((await listAssignedMatchesForActor(user.id)).some(m => m.id === match.id), true);
     assert.equal((await db.player_registrations.findUniqueOrThrow({ where: { id: originId } })).season_team_id, reg.season_team_id);
+  });
+  await t.test("PDGLD-16: ambas plantillas aparecen y otra categoría sin autorización queda fuera", async () => {
+    const ids: string[]=[];
+    for (const seasonTeamId of [team.id,other.id,reg.season_team_id]) {
+      const prefix=`ZAX${["A","E","I"][ids.length]}000101HMNLRR0`;
+      const alphabet="0123456789ABCDEFGHIJKLMNÑOPQRSTUVWXYZ";
+      const sum=[...prefix].reduce((total,char,index)=>total+alphabet.indexOf(char)*(18-index),0);
+      const person=await db.people.create({data:{first_name:"Jugador sintético",paternal_surname:randomUUID(),
+        birth_date:new Date("2000-01-01"),curp:prefix+(10-sum%10)%10}});
+      const registration=await audit(tx=>tx.player_registrations.create({data:{person_id:person.id,
+        season_id:season.id,season_team_id:seasonTeamId,reference_number:randomUUID()}}));
+      ids.push(registration.id);
+    }
+    const result=await evaluate();
+    assert.ok(result.players.some(p=>p.registrationId===ids[0] && p.seasonTeamId===team.id));
+    assert.ok(result.players.some(p=>p.registrationId===ids[1] && p.seasonTeamId===other.id));
+    assert.equal(result.players.some(p=>p.registrationId===ids[2]),false,
+      "Mismo club y temporada no autorizan la inscripción de la categoría de origen");
+    assert.ok(result.players.some(p=>p.registrationId===originId && p.seasonTeamId===team.id && p.eligible),
+      "La participación superior válida sí se incluye");
   });
   await t.test("PDGLD-16: ni administrador sin designación ni otro árbitro obtiene el partido", async () => {
     await assert.rejects(evaluateMatchForActor(actors.admin, match.id), e => e instanceof AuthorizationError);
@@ -102,6 +122,70 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
     assert.equal(await db.player_period_participations.count({where:{lineup_id:lineup.id}}),2);
     assert.equal((await player()).participation.length,2);
     await assert.rejects(db.$transaction(tx=>recordParticipationInTransaction(tx,user.id,{...input,expectedReportVersion:2,periods:[{periodNumber:1,entryMinute:40,exitMinute:10}]})));
+  });
+  await t.test("PDGLD-16: reprogramación concurrente conserva tiempos y devuelve STALE_MATCH", async () => {
+    const {recordParticipationInTransaction} = await import("../../src/features/matches/server/eligibility");
+    const report = await db.match_reports.findUniqueOrThrow({where:{match_id:match.id}});
+    const lineup = await db.lineups.findFirstOrThrow({where:{match_report_id:report.id}});
+    const before = await db.player_period_participations.findMany({where:{lineup_id:lineup.id},orderBy:{id:"asc"}});
+    const current = await db.matches.findUniqueOrThrow({where:{id:match.id}});
+    const input = {matchId:match.id,lineupId:lineup.id,expectedMatchVersion:current.version,
+      expectedReportVersion:report.version,periods:[]};
+    // Barreras explícitas; no se usa un sleep para presumir que hubo una carrera.
+    const deferred = () => {
+      let resolve!: () => void;
+      const promise = new Promise<void>(r => { resolve = r; });
+      return {promise, resolve};
+    };
+    const waitBlocked = async (pid: number) => {
+      const deadline = Date.now()+10000;
+      while (Date.now()<deadline) {
+        const [row] = await db.$queryRaw<{blocked:boolean}[]>`SELECT cardinality(pg_blocking_pids(${pid}::int))>0 AS blocked`;
+        if (row.blocked) return;
+        await new Promise(r=>setTimeout(r,10));
+      }
+      assert.fail("La segunda transacción no esperó el bloqueo PostgreSQL");
+    };
+    const held=deferred(), release=deferred(), saveStarted=deferred();
+    let savePid=0;
+    const reschedule = audit(async tx=>{
+      await tx.matches.update({where:{id:match.id},data:{version:{increment:1},
+        starts_at:new Date("2026-11-11T18:05:00Z"),ends_at:new Date("2026-11-11T20:05:00Z"),reserved_until:new Date("2026-11-11T20:05:00Z")}});
+      held.resolve(); await release.promise;
+    });
+    await held.promise;
+    const save = db.$transaction(async tx=>{
+      const [row]=await tx.$queryRaw<{pid:number}[]>`SELECT pg_backend_pid() AS pid`;
+      savePid=row.pid; saveStarted.resolve();
+      return recordParticipationInTransaction(tx,user.id,input);
+    },{timeout:20000});
+    const rejected=assert.rejects(save,/STALE_MATCH/);
+    try { await saveStarted.promise; await waitBlocked(savePid); }
+    finally { release.resolve(); }
+    await reschedule; await rejected;
+    assert.deepEqual(await db.player_period_participations.findMany({where:{lineup_id:lineup.id},orderBy:{id:"asc"}}),before);
+    assert.equal((await db.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,report.version);
+
+    // Orden inverso: el guardado terminó, pero su transacción sigue abierta.
+    const saved=deferred(), commit=deferred(), updating=deferred();
+    let updatePid=0;
+    const saving=db.$transaction(async tx=>{
+      await recordParticipationInTransaction(tx,user.id,{...input,expectedMatchVersion:current.version+1,
+        periods:before.map(p=>({periodNumber:p.period_number,entryMinute:p.entry_minute,exitMinute:p.exit_minute}))});
+      saved.resolve(); await commit.promise;
+    },{timeout:20000});
+    await saved.promise;
+    const updatingMatch=audit(async tx=>{
+      const [row]=await tx.$queryRaw<{pid:number}[]>`SELECT pg_backend_pid() AS pid`;
+      updatePid=row.pid; updating.resolve();
+      await tx.matches.update({where:{id:match.id},data:{version:{increment:1},starts_at:current.starts_at,
+        ends_at:current.ends_at,reserved_until:current.reserved_until}});
+    });
+    try { await updating.promise; await waitBlocked(updatePid); }
+    finally { commit.resolve(); }
+    await saving; await updatingMatch;
+    assert.equal((await db.matches.findUniqueOrThrow({where:{id:match.id}})).version,current.version+2);
+    assert.equal((await db.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,report.version+1);
   });
   await t.test("PDGLD-16: partidos separados no inventan descanso; cruce horario queda pendiente explícito", async () => {
     const second = await audit(tx=>tx.matches.create({data:{...match,id:randomUUID(),number:randomUUID(),

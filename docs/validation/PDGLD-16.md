@@ -35,7 +35,7 @@ compilación sin ese secreto se detuvo por configuración; no se cambió el cont
 | --- | --- |
 | Ascenso consecutivo autorizado y mismo club | Fixture real con origen habilitado y destino AUTHORIZED; evalúa elegible por partido sin cambiar origen |
 | Descenso, salto, familia incompatible | Regresiones existentes reutilizadas de `player-category-participations.ts`; el evaluador común vuelve a exigir familia y nivel |
-| Equipo no inscrito / destino no autorizado | FK/contexto de season_team existentes; prueba nuevo rival inscrito sin autorización devuelve SUPERIOR_NOT_AUTHORIZED. No se crea un partido con FK inválida |
+| Equipo no inscrito / destino no autorizado | FK/contexto de season_team existentes; prueba rival inscrito sin autorización queda fuera de la respuesta. No se crea un partido con FK inválida |
 | Equipo tras inicio | Prueba PDGLD-16 de pertenencia inmutable y nuevo registro en otro equipo tras competencia iniciada |
 | Sanción aplicable / no aplicable | Fecha futura no bloquea partido anterior; inicio bloquea; fin exclusivo permite; otro jugador sancionado no bloquea al evaluado |
 | Árbitro ajeno o revocado | Deniega incluso administrador sin designación; revocar designación invalida consulta |
@@ -72,3 +72,28 @@ Con un árbitro operativo y designación aprobada en el entorno de revisión:
   valida su contrato sobre fixtures sintéticos de base y DTOs de interfaz.
 - Aceptación funcional humana y evidencia en entorno de pruebas. PR y CI verde
   no cierran historia ni subtareas. Mantener Draft mientras existan esos pendientes.
+
+## Corrección de revisión sobre 4b3e48d · 11/11/2026
+
+- Candidatos: prueba PostgreSQL de plantillas local/visitante, inscripción de otra
+  categoría del mismo club/temporada excluida y participación superior autorizada
+  incluida solo en su destino. La regresión de sanciones conserva el candidato
+  autorizado y muestra `PARTICIPATION_BLOCKED`.
+- Carrera: dos transacciones PostgreSQL coordinadas con barreras y comprobación
+  de `pg_blocking_pids`, sin presumir intercalación por una pausa. Reprogramación
+  actualiza horario y versión sin confirmar; el guardado con la versión entonces
+  visible espera, recibe `STALE_MATCH` tras el commit y conserva periodos completos
+  y versión de cédula. En orden inverso, se termina la función de guardado pero
+  se mantiene abierta su transacción; el UPDATE de reprogramación espera hasta
+  el commit. Se ejercitan los triggers reales de reservas y auditoría.
+- Se mantienen pendientes la regla de cruces por mitades, el contraste con el ERS
+  completo y la integración real con PDGLD-18; el PR permanece Draft.
+
+Validación final de la corrección (11/11/2026): `npm run typecheck` y
+`npm run lint` aprobados; `npm run test:ci` 93/93;
+`npm run test:match-eligibility-integration` 19/19 y
+`npm run test:match-eligibility-browser` 1/1 (cuatro combinaciones claro/oscuro,
+390/1440 y teclado). El fixture adicional falló inicialmente por omitir CURP y
+fecha de nacimiento obligatorias; se completó con valores sintéticos y la suite
+final pasó. Sin llamadas reales CURP/INE ni bases compartidas. Fetch final de
+`origin/develop`: 0a2fc44, sin avances que integrar ni regresiones ajenas en el diff.
