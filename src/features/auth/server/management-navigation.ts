@@ -13,6 +13,7 @@ import { requireOperationalUser } from "@/server/auth/session";
 import { canAccessPlayerRegistration } from "@/features/players/server/workspace-queries";
 import { canReviewPlayerIdentity } from "@/features/players/server/identity-review";
 import {canAccessPlayerParticipations} from "@/features/players/server/participation-workspace-queries";
+import { canReadGovernance } from "@/features/governance/server/service";
 import { canReadVenues } from "@/features/venues/server/service";
 import { canReadAccountMaintenance } from "@/features/accounts/server/maintenance-workspace";
 
@@ -44,7 +45,7 @@ async function navigationCapabilities(checks: (() => Promise<boolean>)[]) {
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
   await requireOperationalUser();
-  const [teams, capture, review, accounts, players, playerReview, seasons, leagues,participations,maintenance,accountMaintenance,venues] = await navigationCapabilities([
+  const [teams, capture, review, accounts, players, playerReview, seasons, leagues,participations,maintenance,accountMaintenance,venues,governance] = await navigationCapabilities([
     async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0,
     canAccessAffiliationCapture,
     async () => (await getAffiliationReviewLeagueOptions()).length > 0,
@@ -57,6 +58,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
     canAccessClubMaintenance,
     canReadAccountMaintenance,
     canReadVenues,
+    canReadGovernance,
   ]);
 
   const groups: ManagementNavigationGroup[] = [
@@ -81,6 +83,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   const administration: ManagementNavigationGroup = { label: "Administración", items: [] };
   if (accountMaintenance) administration.items.push({ href: "/accounts", label: "Administrar cuentas", icon: "accounts" });
   if (accounts) administration.items.push({ href: "/accounts/new", label: "Crear cuenta", icon: "accounts" });
+  if (governance) administration.items.push({ href: "/governance", label: "Órganos y cargos", icon: "overview" });
   if (administration.items.length) groups.push(administration);
   return groups;
 }

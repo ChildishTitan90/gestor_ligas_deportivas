@@ -148,6 +148,10 @@ jobs:
         env:
           PDGLD22_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
         run: node --test tests/integration/venue-availability.test.mjs
+      - name: Probar órganos, nombramientos, historial y permisos (PDGLD-37)
+        run: |
+          node --conditions=react-server --import tsx prisma/seed.ts --profile permissions
+          node --conditions=react-server --import tsx --test tests/integration/league-governance.test.ts
 
   checks:
     name: CI listo para integrar
