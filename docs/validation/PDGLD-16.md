@@ -97,3 +97,26 @@ Validación final de la corrección (11/11/2026): `npm run typecheck` y
 fecha de nacimiento obligatorias; se completó con valores sintéticos y la suite
 final pasó. Sin llamadas reales CURP/INE ni bases compartidas. Fetch final de
 `origin/develop`: 0a2fc44, sin avances que integrar ni regresiones ajenas en el diff.
+
+## Integración de develop · 12/11/2026
+
+Merge de `origin/develop` 8313e5c sobre 4ed7905. El único archivo en conflicto fue
+`src/features/auth/server/management-navigation.ts`, con dos fragmentos en la
+lista de capacidades y sus comprobaciones. Se conservaron `matchEligibility`
+con `canAccessMatchEligibility` y `venues` con `canReadVenues`, en el mismo orden
+entre resultados y funciones. Permanecen los enlaces autorizados de Arbitraje y
+Canchas. El workflow combinó las suites de ambos tickets automáticamente.
+
+El servicio de elegibilidad y sus pruebas conservan exactamente el contenido de
+4ed7905. La consulta limita las dos plantillas y ascensos autorizados al destino.
+El guardado conserva `FOR SHARE` y la comprobación de versión hasta el final de
+su transacción. PostgreSQL aislado pasó 19/19, incluida la exclusión de otra
+categoría, la inclusión del ascenso autorizado y la carrera coordinada en ambos
+órdenes con `pg_blocking_pids`, `STALE_MATCH` y conservación de la captura.
+
+Pasaron tipado, lint, Chrome sintético 1/1, controles de pipeline 93/93, zonas
+horarias de canchas 2/2, cierre compartido 3/3 y panel 6/6. Fue necesario iniciar
+Docker Desktop y generar el cliente Prisma en el worktree restaurado antes de
+repetir los controles que dependían de esos recursos. El fetch final confirmó
+8313e5c. Continúan declarados los pendientes de cruces por mitades, contraste con
+el ERS completo e integración real con PDGLD-18.
