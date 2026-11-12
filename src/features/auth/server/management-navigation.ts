@@ -13,6 +13,7 @@ import { requireOperationalUser } from "@/server/auth/session";
 import { canAccessPlayerRegistration } from "@/features/players/server/workspace-queries";
 import { canReviewPlayerIdentity } from "@/features/players/server/identity-review";
 import {canAccessPlayerParticipations} from "@/features/players/server/participation-workspace-queries";
+import { canReadVenues } from "@/features/venues/server/service";
 import { canReadAccountMaintenance } from "@/features/accounts/server/maintenance-workspace";
 
 /** Solo una denegación esperada oculta el enlace; los fallos de sesión o servicio se propagan. */
@@ -43,7 +44,7 @@ async function navigationCapabilities(checks: (() => Promise<boolean>)[]) {
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
   await requireOperationalUser();
-  const [teams, capture, review, accounts, players, playerReview, seasons, leagues,participations,maintenance,accountMaintenance] = await navigationCapabilities([
+  const [teams, capture, review, accounts, players, playerReview, seasons, leagues,participations,maintenance,accountMaintenance,venues] = await navigationCapabilities([
     async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0,
     canAccessAffiliationCapture,
     async () => (await getAffiliationReviewLeagueOptions()).length > 0,
@@ -55,6 +56,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
     canAccessPlayerParticipations,
     canAccessClubMaintenance,
     canReadAccountMaintenance,
+    canReadVenues,
   ]);
 
   const groups: ManagementNavigationGroup[] = [
@@ -74,6 +76,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   const competitions: ManagementNavigationGroup = { label: "Competencias", items: [] };
   if (leagues) competitions.items.push({ href: "/competitions/leagues/new", label: "Crear liga", icon: "overview" });
   if (seasons) competitions.items.push({ href: "/competitions/seasons", label: "Temporadas", icon: "overview" });
+  if (venues) competitions.items.push({ href: "/venues", label: "Canchas y disponibilidad", icon: "overview" });
   if (competitions.items.length) groups.push(competitions);
   const administration: ManagementNavigationGroup = { label: "Administración", items: [] };
   if (accountMaintenance) administration.items.push({ href: "/accounts", label: "Administrar cuentas", icon: "accounts" });

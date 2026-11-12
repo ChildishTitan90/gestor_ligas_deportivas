@@ -2252,6 +2252,8 @@ model venues {
   owner_club_id            String?                  @db.Uuid
   features                 Json                     @default("{}")
   is_active                Boolean                  @default(true)
+  match_duration_minutes   Int                      @default(90)
+  buffer_minutes           Int                      @default(0)
   home_venue_assignments   home_venue_assignments[]
   matches                  matches[]
   venue_availability       venue_availability[]
