@@ -3,20 +3,20 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import pg from "pg";
 
-// Run only against the explicitly designated disposable PostgreSQL database.
+// The fixtures persist for concurrency checks. Require a disposable database.
 const target = process.env.PDGLD22_TEST_DATABASE_URL;
-if (target) {
-  const url = new URL(target);
-  assert.equal(url.protocol, "postgresql:");
-  assert.equal(url.hostname, "127.0.0.1");
-  assert.equal(url.port, "55427");
-  assert.equal(url.pathname, "/pdgld22");
-  assert.equal(url.search, "");
-}
+assert.ok(target, "PDGLD22_TEST_DATABASE_URL debe apuntar a la base temporal de la prueba");
+const url = new URL(target);
+assert.equal(url.protocol, "postgresql:");
+assert.equal(url.hostname, "127.0.0.1");
+assert.equal(url.search, "");
+assert.equal(url.hash, "");
+const expectedTarget = process.env.GITHUB_ACTIONS === "true"
+  ? "5432/gestor_ligas_ci"
+  : "55427/pdgld22";
+assert.equal(`${url.port}${url.pathname}`, expectedTarget);
 
-test("PostgreSQL: duración, holgura, traslapes concurrentes y bloqueos con partidos", {
-  skip: !target,
-}, async () => {
+test("PostgreSQL: duración, holgura, traslapes concurrentes y bloqueos con partidos", async () => {
   let pool = new pg.Pool({ connectionString: target, statement_timeout: 5000 });
   try {
     const row = async (sql, params = []) => (await pool.query(sql, params)).rows[0];
