@@ -51,7 +51,7 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
   const target = new URL(process.env.DATABASE_URL ?? "");
   assert.ok(["localhost", "127.0.0.1", "[::1]"].includes(target.hostname));
   assert.ok(["postgres:", "postgresql:"].includes(target.protocol));
-  assert.ok(["5432", "5433"].includes(target.port || "5432"));
+  assert.ok(["5432", "5433", ...(process.env.MATCH_ELIGIBILITY_TEST_PORT ? [process.env.MATCH_ELIGIBILITY_TEST_PORT] : [])].includes(target.port || "5432"));
   assert.match(target.pathname, /^\/pdgld48_test_[a-f0-9]{16}$/);
   assert.equal(target.search, "");
   assert.equal(target.hash, "");

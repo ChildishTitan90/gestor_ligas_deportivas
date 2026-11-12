@@ -95,7 +95,9 @@
     "players:demo": "node scripts/test-auth.mjs --player-demo",
     "test:player-admission": "node --import tsx --test src/features/competitions/player-policy.test.ts src/features/competitions/player-admission.test.ts",
     "test:age-exception": "node --conditions=react-server --import tsx --test src/features/players/age-exception.test.ts src/features/players/server/age-exception-record.test.ts",
-    "test:age-exception-browser": "node --test tests/e2e/player-age-exception.test.mjs"
+    "test:age-exception-browser": "node --test tests/e2e/player-age-exception.test.mjs",
+    "test:match-eligibility-integration": "node scripts/test-match-eligibility-isolated.mjs",
+    "test:match-eligibility-browser": "node --test tests/e2e/match-eligibility.test.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

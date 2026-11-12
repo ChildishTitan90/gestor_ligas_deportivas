@@ -13,6 +13,7 @@ import {preparePlayerDocumentForActor,confirmPlayerDocumentForActor} from "../..
 import {readDocumentReviewForActor,decideDocumentReviewForActor} from "../../src/features/players/server/document-review";
 import {validatePrivateFileContent} from "../../src/server/files/private-file-validation";
 import {AuthorizationError} from "../../src/server/auth/authorization";
+import {runMatchEligibilityTests} from "./match-eligibility";
 
 export async function runParticipationEligibilityTests(t:TestContext,db:PrismaClient,actors:Record<string,string>,originId:string,sourceCategory:string,targetCategory:string){
   assert.equal(process.env.AUTH_TEST_RUN,"1");assert.match(new URL(process.env.DATABASE_URL!).pathname,/^\/pdgld48_test_[a-f0-9]{16}$/);
@@ -71,6 +72,7 @@ export async function runParticipationEligibilityTests(t:TestContext,db:PrismaCl
     assert.equal(await db.player_registrations.count({where:{person_id:before.person_id,season_id:before.season_id}}),1);
     assert.equal(await db.audit_logs.count({where:{entity_id:participationId,action:"PLAYER_PARTICIPATION_REVIEWED"}}),1);
   });
+  if(process.env.MATCH_ELIGIBILITY_TEST_PORT)await runMatchEligibilityTests(t,db,actors,originId);
   await t.test("Entrega 3: SQL protege solicitudes y acuses; baja temporal, retiro y cambio de identidad invalidan vigencia",async()=>{
     const row=await db.player_category_participations.findUniqueOrThrow({where:{id:participationId}});
     await assert.rejects(db.player_category_participations.update({where:{id:row.id},data:{status:"WITHDRAWN",version:3}}),/PLAYER_PARTICIPATION_IMMUTABLE/);
