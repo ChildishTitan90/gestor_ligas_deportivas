@@ -1,0 +1,9 @@
+# PDGLD-134: validación parcial del ciclo de partido
+
+En PostgreSQL temporal se probaron las transiciones implementadas, ámbito de liga, revocación de permisos, reenvíos, conflictos de versión, concurrencia e historial. También se verificó que un partido en FINISHED no pueda modificarse mediante el servicio de transiciones, incluso con permisos operativos y de aprobación. Esta prueba no acredita que otras entradas de la aplicación bloqueen toda edición directa.
+
+Auditoría de entradas existentes: la única escritura de `matches` en `src` corresponde al servicio de transiciones. El registro de tiempos de participación también modifica una cédula relacionada: ahora bloquea FINISHED bajo bloqueo del partido y se comprobó que conserva versión de cédula y tiempos anteriores. La regresión `npm run test:match-eligibility-integration` aprobó 19 pruebas sobre un PostgreSQL nuevo y desechable. Esto cubre el código existente revisado, no futuras entradas ni accesos directos a base de datos; la corrección autorizada sigue pendiente de su servicio.
+
+Se forzó un fallo al guardar el historial y se comprobó que también revierten el estado, la versión, la auditoría y las reservas de cancha y equipos. La suite `npm run test:match-transitions-db` pasó en PostgreSQL temporal. La base usada para esta ejecución recibió manualmente las filas de transición de la migración en desarrollo. La regresión de elegibilidad aplicó las migraciones desde cero en un contenedor independiente; falta comprobarlas en CI remoto.
+
+Pendiente: flujo completo y pruebas de reprogramación y no presentación; confirmación real de cédula con resultado y clasificación atómicos e idempotentes, más integración con PDGLD-18/25/29. El servicio de confirmación aún no está disponible en esta rama. La evidencia local no sustituye CI remoto ni revisión de otra persona.

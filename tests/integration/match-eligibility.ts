@@ -121,6 +121,14 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
     await assert.rejects(db.$transaction(tx=>recordParticipationInTransaction(tx,user.id,{...input,periods:[]})),/STALE_REPORT/);
     assert.equal(await db.player_period_participations.count({where:{lineup_id:lineup.id}}),2);
     assert.equal((await player()).participation.length,2);
+    const finished = await db.match_statuses.findUniqueOrThrow({where:{code:"FINISHED"}});
+    const beforeTimes = await db.player_period_participations.findMany({where:{lineup_id:lineup.id},orderBy:{id:"asc"}});
+    await audit(tx=>tx.matches.update({where:{id:match.id},data:{status_id:finished.id,starts_at:null,ends_at:null,reserved_until:null}}));
+    try {
+      await assert.rejects(db.$transaction(tx=>recordParticipationInTransaction(tx,user.id,{...input,expectedReportVersion:2,periods:[]})),/MATCH_FINISHED/);
+      assert.equal((await db.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,2);
+      assert.deepEqual(await db.player_period_participations.findMany({where:{lineup_id:lineup.id},orderBy:{id:"asc"}}),beforeTimes);
+    } finally { await audit(tx=>tx.matches.update({where:{id:match.id},data:{status_id:match.status_id,starts_at:match.starts_at,ends_at:match.ends_at,reserved_until:match.reserved_until}})); }
     await assert.rejects(db.$transaction(tx=>recordParticipationInTransaction(tx,user.id,{...input,expectedReportVersion:2,periods:[{periodNumber:1,entryMinute:40,exitMinute:10}]})));
   });
   await t.test("PDGLD-16: reprogramación concurrente conserva tiempos y devuelve STALE_MATCH", async () => {

@@ -143,11 +143,56 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
     await assert.rejects(run({ ...cancel, matchId: reportedMatch, operationId: randomUUID(), expectedVersion: 2 }), { code: "MATCH_REPORT_EXISTS" });
     assert.equal((await row("SELECT version FROM sports_management.matches WHERE id=$1", [reportedMatch])).version, 2);
 
+    // Un partido finalizado no se reabre ni cancela desde este servicio, aunque
+    // quien lo solicita tenga permisos de programación y aprobación.
+    const finished = await draft("finalizado", 16);
+    await row(`UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('FINISHED'),
+      starts_at=NULL, ends_at=NULL, reserved_until=NULL WHERE id=$1`, [finished]);
+    const beforeFinished = await row("SELECT version,status_id FROM sports_management.matches WHERE id=$1", [finished]);
+    for (const toStatus of ["SCHEDULED", "CONFIRMED", "IN_PROGRESS", "SUSPENDED", "CANCELED", "FINISHED"]) {
+      const caller = ["IN_PROGRESS", "SUSPENDED"].includes(toStatus) ? refereeRun : run;
+      await assert.rejects(caller({ ...input, matchId: finished, operationId: randomUUID(), expectedVersion: beforeFinished.version, toStatus }));
+    }
+    assert.deepEqual(await row("SELECT version,status_id FROM sports_management.matches WHERE id=$1", [finished]), beforeFinished);
+    assert.equal((await row("SELECT count(*)::int n FROM sports_management.match_status_history WHERE match_id=$1", [finished])).n, 0);
+
+    // Si falla el historial, la transición, su auditoría y las reservas revierten.
+    const rollbackMatch = await draft("fallo-historial", 11);
+    await pool.query(`CREATE FUNCTION sports_management.pd134_reject_history() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.reason = 'PD134 rollback sintético' THEN RAISE EXCEPTION 'fixture rollback'; END IF; RETURN NEW; END $$`);
+    await pool.query(`CREATE TRIGGER pd134_reject_history BEFORE INSERT ON sports_management.match_status_history
+      FOR EACH ROW EXECUTE FUNCTION sports_management.pd134_reject_history()`);
+    try {
+      await assert.rejects(run({ ...input, matchId: rollbackMatch, operationId: randomUUID(), reason: "PD134 rollback sintético" }));
+      const unchanged = await row(`SELECT m.version,s.code FROM sports_management.matches m
+        JOIN sports_management.match_statuses s ON s.id=m.status_id WHERE m.id=$1`, [rollbackMatch]);
+      assert.deepEqual(unchanged, { version: 1, code: "DRAFT" });
+      for (const table of ["match_status_history", "venue_reservations", "team_reservations"])
+        assert.equal((await row(`SELECT count(*)::int n FROM sports_management.${table} WHERE match_id=$1`, [rollbackMatch])).n, 0);
+      assert.equal((await row("SELECT count(*)::int n FROM sports_management.audit_logs WHERE entity_id=$1 AND action='UPDATE'", [rollbackMatch])).n, 0);
+    } finally {
+      await pool.query("DROP TRIGGER pd134_reject_history ON sports_management.match_status_history");
+      await pool.query("DROP FUNCTION sports_management.pd134_reject_history()");
+    }
+
     const concurrent = await draft("concurrencia", 13);
     const race = await Promise.allSettled([run({ ...input, matchId: concurrent, operationId: randomUUID() }),
       run({ ...input, matchId: concurrent, operationId: randomUUID() })]);
     assert.equal(race.filter(result => result.status === "fulfilled").length, 1);
     assert.equal((race.find(result => result.status === "rejected") as PromiseRejectedResult).reason.code, "STALE_MATCH");
+    // Más de una página: los cursores nunca repiten ni pierden registros visibles.
+    const paginated = await pool.query(`INSERT INTO sports_management.matches
+      (season_id,group_id,matchday_id,number,home_team_id,away_team_id)
+      SELECT $1,$2,$3,$4 || '-' || n,$5,$6 FROM generate_series(1,55) n RETURNING id`,
+    [season, group, day, `PD134-${tag}`, ...teams]);
+    const found = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const page = await prisma.$transaction(tx => getRecorderWorkspaceInTransaction(tx, actor, cursor));
+      for (const item of page.items) { assert.equal(found.has(item.id), false); found.add(item.id); }
+      cursor = page.nextAfter ?? undefined;
+    } while (cursor);
+    assert.ok(paginated.rows.every(item => found.has(item.id)));
     // Una revocación también impide obtener el acuse de una operación anterior.
     await row("UPDATE sports_management.user_roles SET ends_at=now() WHERE id=$1", [assignment]);
     await assert.rejects(run(), { code: "FORBIDDEN" });

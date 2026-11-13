@@ -126,10 +126,13 @@ export async function recordParticipationInTransaction(tx: Prisma.TransactionCli
   // también UPDATE de horario/version sin cambios de clave (FOR KEY SHARE no).
   // Se conserva hasta COMMIT/ROLLBACK de la transacción del consumidor.
   await lockSeasonIdentityHistory(tx);
-  const locked = await tx.$queryRaw<{ version: number }[]>`
-    SELECT version FROM sports_management.matches WHERE id=${data.matchId}::uuid FOR SHARE`;
+  const locked = await tx.$queryRaw<{ version: number; status_code: string }[]>`
+    SELECT m.version, s.code AS status_code FROM sports_management.matches m
+    JOIN sports_management.match_statuses s ON s.id=m.status_id
+    WHERE m.id=${data.matchId}::uuid FOR SHARE OF m`;
   const evaluation = await evaluateMatchInTransaction(tx, actorId, data.matchId);
   await assertPermission(tx,actorId,{module:"match-reports",action:"UPDATE",context:{matchId:data.matchId}});
+  if (locked[0]?.status_code === "FINISHED") throw Error("MATCH_FINISHED");
   if (evaluation.historical || locked[0]?.version !== data.expectedMatchVersion || evaluation.version !== data.expectedMatchVersion) throw Error("STALE_MATCH");
   const lineup = await tx.lineups.findUnique({ where: { id: data.lineupId }, select: {
     registration_id: true, season_team_id: true, match_report_id: true,
