@@ -15,7 +15,7 @@ const read = ['account_email_changes', 'password_resets', 'player_category_level
 // y una política RLS para que _count no oculte referencias que impiden retirar filas.
 read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competition_rule_parameters',
   'competition_stages', 'imports', 'matchdays', 'match_results',
-  'match_statuses', 'official_documents', 'publications', 'season_awards', 'season_breaks',
+  'match_statuses', 'match_status_transitions', 'match_status_history', 'official_documents', 'publications', 'season_awards', 'season_breaks',
   'standing_versions', 'venue_loans', 'venues', 'venue_availability', 'venue_reservations', 'governing_bodies', 'positions', 'appointments');
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
@@ -32,11 +32,14 @@ const readColumns = {
   competition_stages: ['id', 'season_category_id', 'season_id'],
   imports: ['id', 'season_id'],
   matchdays: ['id', 'season_id'], match_results: ['id', 'match_id'], match_statuses: ['id', 'code', 'reserves_resources'],
+  match_status_transitions: ['id', 'from_status_id', 'to_status_id', 'role_id'],
+  match_status_history: ['id', 'match_id', 'previous_status_id', 'new_status_id', 'user_id', 'reason', 'expected_version', 'created_at'],
   official_documents: ['id', 'season_id'], publications: ['id', 'season_id'],
   season_awards: ['id', 'season_category_id', 'season_id'], season_breaks: ['id', 'season_id'],
   standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
 };
 const insert = {
+  match_status_history: ['id', 'match_id', 'previous_status_id', 'new_status_id', 'user_id', 'reason', 'expected_version'],
   governing_bodies: ['league_id', 'name'],
   positions: ['governing_body_id', 'name', 'role_id'],
   appointments: ['position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
@@ -76,6 +79,7 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at', 'maintenance_revision'],
 };
 const update = {
+  matches: ['status_id', 'version'],
   appointments: ['ends_at'],
   venues: ['code', 'name', 'address', 'is_league_sports_complex', 'features', 'is_active', 'match_duration_minutes', 'buffer_minutes'],
   venue_availability: ['starts_at', 'ends_at', 'type', 'reason'],
@@ -105,7 +109,7 @@ const update = {
 };
 const remove = ['venue_availability', 'role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons', 'clubs', 'teams'];
 const lock = ['document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
-  'match_events', 'match_reports', 'matches', 'payments', 'people', 'permissions',
+  'match_events', 'match_reports', 'matches', 'match_statuses', 'match_status_transitions', 'payments', 'people', 'permissions',
   'referee_assignments', 'referees', 'roles', 'schedule_proposals', 'season_categories', 'season_teams',
   'seasons', 'teams', 'user_roles'];
 
@@ -230,6 +234,7 @@ BEGIN
     THEN RAISE EXCEPTION 'Otra política permite modificar una tabla de solo bloqueo: %',spec.name; END IF;
   END LOOP;
   GRANT EXECUTE ON FUNCTION sports_management.get_entity_season(text,uuid),sports_management.get_role_code(uuid),sports_management.player_participation_now() TO gestor_ligas_preview;
+  GRANT EXECUTE ON FUNCTION sports_management.get_match_status_code(uuid) TO gestor_ligas_preview;
   GRANT EXECUTE ON FUNCTION sports_management.maintenance_has_references(text,uuid) TO gestor_ligas_preview;
   IF has_table_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     OR has_any_column_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,REFERENCES')

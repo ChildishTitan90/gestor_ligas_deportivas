@@ -117,6 +117,33 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
     assert.ok(schedulerWorkspace.items.some(item => item.id === matchId && !item.canRecordMatch));
     const initialWorkspace = await prisma.$transaction(tx => getRecorderWorkspaceInTransaction(tx, refereeUser.id));
     assert.ok(initialWorkspace.items.some(item => item.id === matchId && item.canRecordMatch && item.status === "CONFIRMED"));
+    if (process.env.PDGLD132_PREVIEW_TEST === "1") {
+      const runtime = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
+      try {
+        const identity = await runtime.$queryRaw<{ current_user: string }[]>`SELECT current_user`;
+        assert.equal(identity[0].current_user, "gestor_ligas_preview");
+        const privileges = await runtime.$queryRaw<{ venue_write: boolean; team_write: boolean; history_write: boolean }[]>`
+          SELECT has_table_privilege(current_user, 'sports_management.venue_reservations', 'INSERT,UPDATE,DELETE') AS venue_write,
+                 has_table_privilege(current_user, 'sports_management.team_reservations', 'INSERT,UPDATE,DELETE') AS team_write,
+                 has_table_privilege(current_user, 'sports_management.match_status_history', 'UPDATE,DELETE') AS history_write`;
+        assert.deepEqual(privileges[0], { venue_write: false, team_write: false, history_write: false });
+        const { Browser } = await import("./auth.test.mjs");
+        const browser = new Browser(new URL(process.env.NEXTAUTH_URL!).origin);
+        const login = await browser.login(email, password);
+        assert.equal(login.pathname, "/access");
+        for (const path of ["/access", "/matches/recording"]) {
+          const response = await browser.request(path);
+          assert.equal(response.status, 200, `No abrió ${path} con Preview`);
+          assert.doesNotMatch(await response.text(), /No se pudo consultar la alineación|No se pudo cargar el registro/);
+        }
+        const workspace = await runtime.$transaction(tx => getRecorderWorkspaceInTransaction(tx, refereeUser.id));
+        assert.ok(workspace.items.some(item => item.id === matchId && item.canRecordMatch));
+        const previewRun = () => runtime.$transaction(tx => transitionMatchInTransaction(tx, refereeUser.id, start), { timeout: 15000 });
+        assert.equal((await previewRun()).replayed, false);
+        assert.equal((await previewRun()).replayed, true);
+        assert.equal((await row("SELECT count(*)::int AS n FROM sports_management.match_status_history WHERE id=$1", [start.operationId])).n, 1);
+      } finally { await runtime.$disconnect(); }
+    }
     if (process.env.PDGLD132_HTTP_TEST === "1" && process.env.CHROME_BIN) {
       const uiMatch = await draft("navegador-real", 18);
       await run({ ...input, matchId: uiMatch, operationId: randomUUID() });

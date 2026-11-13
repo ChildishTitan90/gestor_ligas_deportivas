@@ -57,3 +57,31 @@ test('PDGLD-133: acción autorizada, confirmación, foco y envío sintético', {
   await ev(`(async()=>{for(let i=0;i<100;i++){if(window.requests.length===3)return;await new Promise(r=>setTimeout(r,20));}throw Error('No se reenvió la solicitud');})()`);
   assert.deepEqual(await ev('window.requests.at(-1)'), firstAttempt);
 });
+
+
+test('PDGLD-133: error al cargar registro muestra mensaje propio y permite recuperar', { timeout: 60000 }, async t => {
+  const bundle = await build({ write: false, bundle: true, platform: 'browser', format: 'iife', jsx: 'automatic',
+    define: { 'process.env.NODE_ENV': '"development"' }, stdin: { resolveDir: process.cwd(), loader: 'tsx', contents: `
+      import React from 'react'; import {createRoot} from 'react-dom/client';
+      import RecordingError from './src/app/(management)/matches/recording/error';
+      class Boundary extends React.Component {
+        state = { failed: false };
+        static getDerivedStateFromError() { return { failed: true }; }
+        render() { return this.state.failed ? <RecordingError reset={() => { window.failLoad = false; this.setState({ failed: false }); }} /> : this.props.children; }
+      }
+      function Recording() { if (window.failLoad) throw Error('Fallo de carga controlado'); return <h1>Registro de partidos disponible</h1>; }
+      window.failLoad = true;
+      createRoot(document.getElementById('root')).render(<Boundary><Recording /></Boundary>);
+    ` } });
+  const server = createServer((req, res) => { res.setHeader('Content-Type', req.url === '/bundle.js' ? 'text/javascript' : 'text/html');
+    res.end(req.url === '/bundle.js' ? bundle.outputFiles[0].contents : '<!doctype html><html lang="es"><div id="root"></div><script src="/bundle.js"></script></html>'); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => closeTestServer(server));
+  const browser = await launchChrome(`http://127.0.0.1:${server.address().port}`, { signal: t.signal, waitForDocument: true }); t.after(() => browser.close());
+  const ev = expression => browser.evaluate(expression);
+  await ev(`(async()=>{for(let i=0;i<100;i++){if(document.querySelector('[role=alert]'))return;await new Promise(r=>setTimeout(r,20));}throw Error('No se mostró el error');})()`);
+  const message = await ev("document.querySelector('[role=alert]').innerText");
+  assert.match(message, /No se pudo consultar el registro de partidos/);
+  assert.doesNotMatch(message, /alineación/i);
+  await ev("document.querySelector('[role=alert] button').click()");
+  await ev(`(async()=>{for(let i=0;i<100;i++){if(document.body.innerText.includes('Registro de partidos disponible'))return;await new Promise(r=>setTimeout(r,20));}throw Error('No se recuperó la pantalla');})()`);
+});

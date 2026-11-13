@@ -152,6 +152,8 @@ jobs:
         run: npm run test:preview-runtime
       - name: Probar competencias, distribución y mantenimiento con rol Preview y RLS
         run: npm run test:preview-competitions
+      - name: Probar navegación y transiciones con rol limitado de Preview
+        run: npm run test:match-transitions-preview
       - name: Probar seed, integridad, rollback e idempotencia
         run: npm run test:seed -- --existing
       - name: Probar disponibilidad, reservas concurrentes y bloqueos (PDGLD-22)
