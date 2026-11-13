@@ -153,7 +153,8 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
       const { Browser } = await import("./auth.test.mjs");
       const { launchChrome } = await import("../e2e/chrome-session.mjs");
       const { mkdir, writeFile } = await import("node:fs/promises");
-      await mkdir(".next-auth-tests/match-evidence", { recursive: true });
+      const evidenceDir = process.env.PDGLD132_EVIDENCE_DIR ?? ".next-auth-tests/match-evidence";
+      await mkdir(evidenceDir, { recursive: true });
       const origin = new URL(process.env.NEXTAUTH_URL!).origin;
       const http = new Browser(origin);
       await http.login(email, password);
@@ -165,14 +166,6 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
         await wait("document.body?.innerText.includes('navegador-real')");
         const selector = "[...document.querySelectorAll('article')].find(a=>a.innerText.includes('navegador-real'))";
         await wait(`(()=>{const b=${selector}?.querySelector('button');return b&&Object.keys(b).some(k=>k.startsWith('__reactProps'));})()`);
-        await mkdir(".next-auth-tests/match-evidence", { recursive: true });
-        for (const width of [390, 1280]) for (const theme of ["light", "dark"]) {
-          await chrome.command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
-          await chrome.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
-          assert.ok(await chrome.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
-          const image = await chrome.command("Page.captureScreenshot", { format: "png" });
-          await writeFile(`.next-auth-tests/match-evidence/${width}-${theme}.png`, Buffer.from(image.data, "base64"));
-        }
         await chrome.evaluate(`${selector}.querySelector('button').click()`);
         await wait("!!document.querySelector('dialog[open]')");
         assert.ok(await chrome.evaluate("document.querySelector('dialog[open]').contains(document.activeElement)"));
@@ -181,6 +174,13 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
         await wait("document.body.innerText.includes('Estado actualizado.')");
         assert.equal((await row(`SELECT s.code FROM sports_management.matches m JOIN sports_management.match_statuses s ON s.id=m.status_id WHERE m.id=$1`, [uiMatch])).code, "IN_PROGRESS");
         assert.equal((await row("SELECT count(*)::int n FROM sports_management.match_status_history WHERE match_id=$1", [uiMatch])).n, 3);
+        for (const width of [390, 1280]) for (const theme of ["light", "dark"]) {
+          await chrome.command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
+          await chrome.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+          assert.ok(await chrome.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
+          const image = await chrome.command("Page.captureScreenshot", { format: "png" });
+          await writeFile(`${evidenceDir}/${width}-${theme}.png`, Buffer.from(image.data, "base64"));
+        }
       } finally { await chrome.close(); }
     }
     const refereeRun = (data: typeof start) => prisma.$transaction(tx => transitionMatchInTransaction(tx, refereeUser.id, data), { timeout: 15000 });
