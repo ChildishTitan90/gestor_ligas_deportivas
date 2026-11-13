@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+
 import { Prisma } from "@prisma/client";
 import { assertPermission, AuthorizationError, getPermissionGrants, lockAuthorization } from "@/server/auth/authorization";
 import { requireOperationalUser } from "@/server/auth/session";
@@ -152,10 +154,24 @@ export async function changeGovernanceForActor(actorId: string, input: unknown) 
       if (!position) throw new AuthorizationError();
       const person = await tx.people.findFirst({ where: { id: data.personId, ...personInLeague(data.leagueId) }, select: { id: true } });
       if (!person) throw new AuthorizationError();
-      const appointment = await tx.appointments.create({ data: {
-        position_id: position.id, person_id: person.id, starts_at: asDate(data.startsAt),
-        ends_at: data.endsAt ? asDate(data.endsAt) : null,
-      }, select: { id: true } });
+      const requestHash = createHash("sha256").update(JSON.stringify([
+        actorId, data.leagueId, position.id, person.id, data.startsAt, data.endsAt, data.reason,
+      ])).digest("hex");
+      const [appointment] = await tx.appointments.createManyAndReturn({
+        data: {
+          position_id: position.id, person_id: person.id, starts_at: asDate(data.startsAt),
+          ends_at: data.endsAt ? asDate(data.endsAt) : null,
+          request_id: data.requestId, request_hash: requestHash,
+        },
+        skipDuplicates: true, select: { id: true },
+      });
+      if (!appointment) {
+        const existing = await tx.appointments.findUnique({
+          where: { request_id: data.requestId }, select: { request_hash: true },
+        });
+        if (existing?.request_hash !== requestHash) throw new GovernanceError("REQUEST_CONFLICT");
+        return position.governing_body_id;
+      }
       await record(tx, actorId, "appointments", appointment.id, data.reason,
         { positionId: position.id, personId: person.id, startsAt: data.startsAt, endsAt: data.endsAt || null });
       return position.governing_body_id;

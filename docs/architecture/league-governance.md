@@ -22,7 +22,10 @@ nombramiento, cambiar su identidad/cargo/inicio o ampliar su final.
 
 RF22 usa los permisos existentes `users:READ` y `users:UPDATE` para la liga.
 Se verifica el ámbito real del recurso y se usa una actualización condicional
-para detectar una finalización concurrente. El motivo debe describir el cambio
+para detectar una finalización concurrente. Cada solicitud de alta conserva
+su identificador al reenviarse. PostgreSQL admite un solo nombramiento por
+solicitud y la auditoría se escribe en la misma transacción. Reutilizar el
+identificador con datos distintos devuelve un conflicto. El motivo debe describir el cambio
 administrativo y mantenerse libre de datos personales o referencias a
 documentación privada.
 

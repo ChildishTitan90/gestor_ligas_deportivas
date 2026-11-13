@@ -9,13 +9,14 @@ export function GovernanceForm({ title, description, submit, operation, leagueId
 }) {
   const [open, setOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [requestId, setRequestId] = useState('');
   const reasonId = useId();
   const [, action, pending] = useActionState(async (_previous: null, form: FormData) => {
     await saveGovernance(form);
     return null;
   }, null);
   return <>
-    <button type="button" onClick={() => setOpen(true)} className="min-h-11 rounded-xl border border-border px-4 py-2 font-semibold">
+    <button type="button" onClick={() => { if (operation === "appoint") setRequestId(crypto.randomUUID()); setOpen(true); }} className="min-h-11 rounded-xl border border-border px-4 py-2 font-semibold">
       {title}
     </button>
     {open && <FormDialog open title={title} description={description}
@@ -23,6 +24,7 @@ export function GovernanceForm({ title, description, submit, operation, leagueId
       <form action={action} onChange={() => setDirty(true)} className="space-y-4">
         <input type="hidden" name="operation" value={operation} />
         <input type="hidden" name="leagueId" value={leagueId} />
+        {operation === "appoint" && <input type="hidden" name="requestId" value={requestId} />}
         {children}
         <div>
           <label htmlFor={reasonId}>Motivo del cambio</label>

@@ -27,7 +27,7 @@ export async function lockEligibilityIdentity(tx:Prisma.TransactionClient,id:str
 
 /** Sin sesión, escrituras o proveedor: el consumidor ya autorizó cada contexto.
  * Puede evaluar documentos del destino sobre el único expediente del origen. */
-export async function assessPlayerEligibility(tx:Prisma.TransactionClient,id:string,contexts:readonly PlayerTeamContext[],requireActiveOrigin=false):Promise<EligibilityAssessment>{
+export async function assessPlayerEligibility(tx:Prisma.TransactionClient,id:string,contexts:readonly PlayerTeamContext[],requireActiveOrigin=false,options?:{sanctionAt?:Date}):Promise<EligibilityAssessment>{
   const reg=await tx.player_registrations.findUniqueOrThrow({where:{id},select:eligibilityRegistrationSelect});
   const blockers:EligibilityBlocker[]=[];
   const block=(code:string,message:string,categoryId?:string)=>blockers.push({code,message,...(categoryId?{categoryId}:{})});
@@ -70,7 +70,8 @@ export async function assessPlayerEligibility(tx:Prisma.TransactionClient,id:str
     if(origin.clubId!==target.clubId || origin.seasonId!==target.seasonId || !from || !to || from.pathway_code!==to.pathway_code || to.level!==from.level+1)block("SUPERIOR_CATEGORY_REQUIRED","El destino debe ser la categoría siguiente del orden autorizado, dentro del mismo club y torneo.");
   }
   const [clock]=await tx.$queryRaw<{now:Date}[]>`SELECT sports_management.player_participation_now() AS now`;
-  const sanctions=await tx.sanctions.findMany({where:{blocks_participation:true,starts_at:{lte:clock.now},AND:[{OR:[{ends_at:null},{ends_at:{gt:clock.now}}]},{OR:[{player_registrations:{person_id:reg.person_id}},{season_team_id:{in:contexts.map(c=>c.seasonTeamId)}}]}]},select:{id:true},orderBy:{id:"asc"}});
+  const at=options?.sanctionAt ?? clock.now;
+  const sanctions=await tx.sanctions.findMany({where:{blocks_participation:true,starts_at:{lte:at},AND:[{OR:[{ends_at:null},{ends_at:{gt:at}}]},{OR:[{player_registrations:{person_id:reg.person_id}},{season_team_id:{in:contexts.map(c=>c.seasonTeamId)}}]}]},select:{id:true},orderBy:{id:"asc"}});
   if(sanctions.length)block("PARTICIPATION_BLOCKED","Hay una sanción vigente que impide la participación.");
   return {ready:!blockers.length,blockers,fingerprint:eligibilityDigest([id,reg.people.identity_version,reg.status,reg.withdrawn_at,check?.id,check?.status,check?.fingerprint,candidates,resolution,categoryEvidence,sanctions])};
 }

@@ -16,6 +16,7 @@ const periodLabels = { all: "Todos los periodos", current: "Vigentes", past: "Fi
 const errorMessages: Record<string, string> = {
   INVALID: "Revisa los campos obligatorios, el motivo y el orden de las fechas.",
   INVALID_END: "La fecha final debe corresponder al periodo y no puede ampliar una vigencia registrada.",
+  REQUEST_CONFLICT: "Esta solicitud ya se utilizó con otros datos. Abre un nuevo formulario para registrar otro nombramiento.",
   STALE: "El nombramiento cambió mientras lo consultabas. Revisa la vigencia antes de volver a guardar.",
   FORBIDDEN: "Tu cuenta no tiene permiso para ese recurso de la liga.",
   DUPLICATE: "El órgano ya tiene un cargo con ese nombre.",

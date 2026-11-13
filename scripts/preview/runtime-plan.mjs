@@ -20,7 +20,7 @@ read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competitio
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
-  appointments: ['id', 'position_id', 'person_id', 'starts_at', 'ends_at'],
+  appointments: ['id', 'position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
   venue_reservations: ['venue_id', 'match_id', 'time_range'],
   password_resets: ['user_id','used_at'],
   sanctions:['id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
@@ -39,7 +39,7 @@ const readColumns = {
 const insert = {
   governing_bodies: ['league_id', 'name'],
   positions: ['governing_body_id', 'name', 'role_id'],
-  appointments: ['position_id', 'person_id', 'starts_at', 'ends_at'],
+  appointments: ['position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
   venues: ['league_id', 'code', 'name', 'address', 'is_league_sports_complex', 'features', 'is_active', 'match_duration_minutes', 'buffer_minutes'],
   venue_availability: ['venue_id', 'starts_at', 'ends_at', 'type', 'reason'],
   account_email_changes: ['id','user_id','actor_id','operation_key','input_hash','old_email','new_email','token_hash','expected_revision','user_version','reason','created_at','expires_at','status','confirmation_delivery','previous_notice_delivery','completion_notice_delivery'],

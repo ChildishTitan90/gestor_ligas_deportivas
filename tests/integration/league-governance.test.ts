@@ -51,14 +51,21 @@ test("registra órganos y periodos con auditoría y alcance de liga, sin concede
     await changeGovernanceForActor(admin.user.id, { ...base, operation: "position", bodyId: body.id, name: "Cargo sintético", roleId: superadmin.id });
     const position = await db.positions.findFirstOrThrow({ where: { governing_body_id: body.id } });
     assert.equal(position.role_id, superadmin.id);
-    const appoint = { ...base, operation: "appoint", positionId: position.id, personId: member.person.id,
+    const appoint = { ...base, operation: "appoint", requestId: randomUUID(), positionId: position.id, personId: member.person.id,
       startsAt: "2026-01-01", endsAt: "" };
     await assert.rejects(changeGovernanceForActor(admin.user.id, { ...appoint, personId: outsider.person.id }), AuthorizationError);
     await assert.rejects(changeGovernanceForActor(admin.user.id, { ...appoint, endsAt: "2025-01-01" }), /INVALID/);
-    await changeGovernanceForActor(admin.user.id, appoint);
+    const submitted = await Promise.all([
+      changeGovernanceForActor(admin.user.id, appoint),
+      changeGovernanceForActor(admin.user.id, appoint),
+    ]);
+    assert.deepEqual(submitted, [body.id, body.id]);
+    await assert.rejects(changeGovernanceForActor(admin.user.id, { ...appoint, reason: "Motivo distinto" }), /REQUEST_CONFLICT/);
+    assert.equal(await db.appointments.count({ where: { position_id: position.id } }), 1);
     assert.equal(await db.user_roles.count({ where: { user_id: member.user.id } }), 1);
     await assert.rejects(getGovernanceWorkspaceForActor(member.user.id, { league: league.id }), AuthorizationError);
     const appointment = await db.appointments.findFirstOrThrow({ where: { position_id: position.id } });
+    assert.equal(await db.audit_logs.count({ where: { entity_id: appointment.id, action: 'INSERT' } }), 1);
     const finish = { ...base, operation: "finish", appointmentId: appointment.id, expectedEnd: "", endsAt: "2026-02-01" };
     const outcomes = await Promise.allSettled([changeGovernanceForActor(admin.user.id, finish), changeGovernanceForActor(admin.user.id, finish)]);
     assert.equal(outcomes.filter(result => result.status === "fulfilled").length, 1);

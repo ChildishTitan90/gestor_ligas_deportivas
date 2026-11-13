@@ -12,7 +12,7 @@ export const governanceMutation = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("initialize"), leagueId: id, reason }),
   z.object({ operation: z.literal("position"), leagueId: id, bodyId: id,
     name: z.string().trim().min(1).max(120), roleId: optionalId, reason }),
-  z.object({ operation: z.literal("appoint"), leagueId: id, positionId: id,
+  z.object({ operation: z.literal("appoint"), leagueId: id, positionId: id, requestId: id,
     personId: id, startsAt: date, endsAt: optionalDate, reason })
     .refine(data => !data.endsAt || data.startsAt <= data.endsAt),
   z.object({ operation: z.literal("finish"), leagueId: id, appointmentId: id,
