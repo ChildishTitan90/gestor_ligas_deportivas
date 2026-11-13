@@ -65,12 +65,11 @@ bloquea por un margen inventado. Una coincidencia o intervalo incompleto devuelv
 también otras temporadas de la Persona, sin revelar sus detalles privados en el
 motivo. Se excluyen partidos cancelados/eliminados.
 
-**Decisión requerida:** la Liga debe precisar qué significa «un tiempo y la otra
-mitad»: periodos que pueden combinarse, relación con hora programada/real,
-desfases, tiempos incompletos, prórroga y reingreso. Confirmar además si hay
-descanso o límite diario y su vigencia por temporada/categoría. No se inventaron
-45/90 minutos, distancia, tolerancia ni una prohibición definitiva de compartir
-partidos. La excepción coincidente sigue pendiente funcional y mantiene el PR Draft.
+**Participación por mitades aceptada en principio.** Queda pendiente precisar
+qué periodos cuentan, qué reloj se usa como referencia y cómo se determinan los
+cruces de horario. Esa precisión debe cubrir desfases, tiempos incompletos,
+prórroga y reingreso, y su vigencia por temporada/categoría. La validación
+automatizada de la excepción y el recorrido real con PDGLD-18 siguen pendientes.
 
 ## Contrato transaccional para PDGLD-18
 
@@ -107,3 +106,117 @@ partidos. La excepción coincidente sigue pendiente funcional y mantiene el PR D
 No hay migración, paquetes nuevos ni cambio de `compose.yml`. Las tablas y
 restricciones existentes permiten este contrato. La integración real y la
 validación humana del alcance temporal siguen pendientes antes de aceptar la HU.
+
+## Revisión de pendientes · 12/11/2026
+
+El PR #53 fue fusionado como d46c2db. Esta revisión parte de ese estado de
+`origin/develop`. La publicación de un seguimiento requiere otro PR, porque un
+PR fusionado ya no admite nuevos commits ni puede convertirse de nuevo a Draft.
+
+### Criterios temporales pendientes de la participación por mitades
+
+[PDGLD-68](https://victoranhernandez.atlassian.net/browse/PDGLD-68), comentarios
+10026, 10032 y 10036 del 30/10, recoge la participación entre categorías.
+La aclaración humana del 13/11 confirma que la participación por mitades en
+partidos con horarios coincidentes ya está aceptada en principio. Quedan
+pendientes los periodos que cuentan, el reloj de referencia y la determinación
+de los cruces de horario para automatizar esa regla.
+
+La fuente de ERS accesible sigue siendo
+[ERS_Gestor_Ligas_Deportivas_IEEE830, versión 0.1](https://docs.google.com/document/d/1iJRdP4IOxhM__ft8X_y5gWOeOOflszzZcCvfqr4ckPU/edit),
+del 03/10. RF02 trata inscripción única y RF03 captura de cédula. No define esta
+excepción. El PDF completo citado por el proyecto continúa sin localizar en las
+fuentes accesibles. Se conserva `PARTICIPATION_RULE_PENDING` ante coincidencia o
+horario incompleto.
+
+Ejemplo ilustrativo que requiere decisión de Liga/profesor, con equipos distintos
+y ascenso ya autorizado del jugador, en hora local de Morelia. Los horarios y
+minutos del ejemplo son supuestos, pendientes del reglamento de cada categoría:
+
+- Partido A de origen programado de 10:00 a 11:30. El jugador disputa su primer
+  periodo, del minuto 0 al 45.
+- Partido B de destino programado de 10:15 a 11:45. Se solicita su segundo
+  periodo, del minuto 0 al 45.
+- Si ambos siguen el horario previsto, los periodos pueden quedar separados. Si
+  A se retrasa veinte minutos, pueden coincidir. Los minutos actuales son
+  relativos a cada periodo y no acreditan esos instantes reales.
+
+Falta que Liga/profesor defina si basta elegir primer periodo en A y segundo en B
+o si deben quedar separados en tiempo real. Para la segunda opción debe definir
+qué reloj y evidencia se usan, cómo cuentan descanso y retrasos, si se permiten
+fracciones o reingreso en ambas mitades, y desde qué temporada/categorías rige.
+Sin esa respuesta, el mismo payload puede representar un cruce permitido o uno
+simultáneo. No se fijan duraciones, márgenes ni equivalencias de periodo por
+inferencia.
+
+### Punto de integración con PDGLD-18
+
+[PDGLD-18](https://victoranhernandez.atlassian.net/browse/PDGLD-18) y sus subtareas
+147/148/149 siguen Por hacer, a cargo de Víctor. Inicio objetivo 16/11 y entrega
+revisable 19/11. Se comprobaron las ramas remotas y los PR disponibles el 12/11.
+No se encontró una implementación de captura online para integrar. En el árbol
+actual, `/matches` y `/matches/[matchId]/lineup` muestran consulta. No existe
+entrada HTTP o Server Action que invoque `recordParticipationInTransaction`.
+Sus consumidores actuales están en `tests/integration/match-eligibility.ts`.
+
+El servicio de cédulas de PDGLD-18 debe realizar estas operaciones:
+
+1. Obtener el actor desde la sesión del servidor, validar el payload y autorizar
+   captura, alcance y estado del partido mediante los contratos de PDGLD-85/86.
+2. Abrir una única transacción. Crear o resolver cédula DRAFT y alineación por
+   sus identificadores oficiales. Mantener el dorsal del partido según su propio
+   contrato, separado del dorsal habitual del DTO de elegibilidad.
+3. Invocar `recordParticipationInTransaction(tx, actorId, input)` desde esa misma
+   transacción. `input` contiene `matchId`, `lineupId`, `expectedMatchVersion`,
+   `expectedReportVersion` y `periods`. Cada periodo contiene `periodNumber`,
+   `entryMinute` y `exitMinute`, con minutos relativos y nulos explícitos.
+4. Conservar el bloqueo compartido de partido hasta confirmar toda la escritura.
+   Un error revierte también los cambios de alineación y cédula del consumidor.
+   `STALE_MATCH` exige volver a consultar la versión del partido conservando la
+   captura del usuario. `STALE_REPORT` exige resolver la versión de cédula.
+   `PLAYER_NOT_ELIGIBLE` exige mostrar los motivos de la reevaluación autorizada.
+   No se continúa una transacción fallida ni se cambia la versión para reenviar
+   automáticamente una operación incierta.
+5. Devolver el acuse después del commit. Para varios jugadores, cada llamada
+   incrementa la versión de cédula y la siguiente usa `reportVersion` devuelta por
+   la anterior. Si falla una, toda la operación compuesta debe revertirse.
+6. Reabrir mediante una lectura autorizada de la cédula y de sus periodos. La
+   lectura de elegibilidad actual presenta periodos agrupados por Persona y
+   temporada y no sustituye la lectura exacta de una cédula/alineación guardada.
+
+Existe una diferencia de autorización que debe resolverse en la integración:
+PDGLD-18 contempla DATA_ENTRY autorizado y árbitro designado. El contrato actual
+de PDGLD-16 exige siempre designación propia de árbitro, además de CREATE/UPDATE.
+Por tanto, DATA_ENTRY todavía no puede consumirlo sin una política deliberada de
+captura por alcance. PDGLD-18/85/86 deben definir y probar ese acceso antes de
+ampliar el servicio común. Ocultar el botón o enviar un rol desde el navegador
+no aporta autorización.
+
+El recorrido de aceptación pendiente debe usar sesión real de una cuenta
+sintética operativa, designación aprobada, partido capturable y candidato
+habilitado. Desde Mis partidos debe abrir cédula, capturar tiempos, guardar con
+acuse, navegar fuera y volver a abrir comprobando los periodos persistidos.
+Debe repetir guardado con reprogramación concurrente y comprobar conflicto,
+conservación del payload y ausencia de sobrescritura de la captura anterior.
+El servicio actual ya tiene regresión PostgreSQL de esa carrera. La pantalla,
+sesión HTTP y reapertura de cédula siguen dependiendo de PDGLD-18.
+
+### Evidencia de esta revisión
+
+Sobre develop d46c2db, el 12/11 pasaron `npm run typecheck`, `npm run lint`,
+`npm run test:match-eligibility-integration` (19/19) y
+`npm run test:match-eligibility-browser` (1/1). La integración utiliza servicios
+reales y PostgreSQL 15 desechable con proveedores simulados. Demostró selección
+por partido, ascenso autorizado, sanciones y guardado con reprogramación
+concurrente, conflicto y conservación de periodos. Chrome demuestra la consulta
+con DTOs sintéticos en ambos temas y tamaños. El recorrido autenticado de captura,
+guardado y reapertura desde una cédula sigue pendiente porque su flujo no existe
+en las fuentes consultadas. El fetch final confirmó d46c2db.
+
+### Alcance del seguimiento · aclaración del 13/11/2026
+
+El código del PR #53 ya está integrado. Este seguimiento actualiza únicamente la
+documentación. PDGLD-16 sigue abierta y la comprobación del recorrido real con
+la cédula arbitral de PDGLD-18 continúa pendiente. Las pruebas registradas arriba
+acreditan los comportamientos existentes en la fecha de su ejecución. Esta
+actualización documental no valida funcionalidad adicional.
