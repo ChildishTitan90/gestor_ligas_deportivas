@@ -62,6 +62,8 @@ model appeals {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model appointments {
+  request_id       String?   @unique @db.Uuid
+  request_hash     String?   @db.Char(64)
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   position_id      String    @db.Uuid
   person_id        String    @db.Uuid

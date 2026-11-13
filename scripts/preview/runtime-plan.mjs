@@ -16,10 +16,11 @@ const read = ['account_email_changes', 'password_resets', 'player_category_level
 read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competition_rule_parameters',
   'competition_stages', 'imports', 'matchdays', 'match_results',
   'match_statuses', 'official_documents', 'publications', 'season_awards', 'season_breaks',
-  'standing_versions', 'venue_loans', 'venues', 'venue_availability', 'venue_reservations');
+  'standing_versions', 'venue_loans', 'venues', 'venue_availability', 'venue_reservations', 'governing_bodies', 'positions', 'appointments');
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
+  appointments: ['id', 'position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
   venue_reservations: ['venue_id', 'match_id', 'time_range'],
   password_resets: ['user_id','used_at'],
   sanctions:['id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
@@ -36,6 +37,9 @@ const readColumns = {
   standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
 };
 const insert = {
+  governing_bodies: ['league_id', 'name'],
+  positions: ['governing_body_id', 'name', 'role_id'],
+  appointments: ['position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
   venues: ['league_id', 'code', 'name', 'address', 'is_league_sports_complex', 'features', 'is_active', 'match_duration_minutes', 'buffer_minutes'],
   venue_availability: ['venue_id', 'starts_at', 'ends_at', 'type', 'reason'],
   account_email_changes: ['id','user_id','actor_id','operation_key','input_hash','old_email','new_email','token_hash','expected_revision','user_version','reason','created_at','expires_at','status','confirmation_delivery','previous_notice_delivery','completion_notice_delivery'],
@@ -72,6 +76,7 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at', 'maintenance_revision'],
 };
 const update = {
+  appointments: ['ends_at'],
   venues: ['code', 'name', 'address', 'is_league_sports_complex', 'features', 'is_active', 'match_duration_minutes', 'buffer_minutes'],
   venue_availability: ['starts_at', 'ends_at', 'type', 'reason'],
   account_email_changes: ['status','used_at','confirmation_delivery','previous_notice_delivery','completion_notice_delivery'],
