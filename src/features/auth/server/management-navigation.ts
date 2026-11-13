@@ -16,6 +16,7 @@ import {canAccessPlayerParticipations} from "@/features/players/server/participa
 import { canReadVenues } from "@/features/venues/server/service";
 import { canReadAccountMaintenance } from "@/features/accounts/server/maintenance-workspace";
 import { canAccessMatchEligibility } from "@/features/matches/server/eligibility";
+import { canAccessRecorderWorkspace } from "@/features/matches/server/recorder-workspace";
 
 /** Solo una denegación esperada oculta el enlace; los fallos de sesión o servicio se propagan. */
 async function allowed(check: () => Promise<boolean>): Promise<boolean> {
@@ -45,7 +46,7 @@ async function navigationCapabilities(checks: (() => Promise<boolean>)[]) {
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
   await requireOperationalUser();
-  const [teams, capture, review, accounts, players, playerReview, seasons, leagues,participations,maintenance,accountMaintenance,matchEligibility,venues] = await navigationCapabilities([
+  const [teams, capture, review, accounts, players, playerReview, seasons, leagues,participations,maintenance,accountMaintenance,matchEligibility,venues,recorder] = await navigationCapabilities([
     async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0,
     canAccessAffiliationCapture,
     async () => (await getAffiliationReviewLeagueOptions()).length > 0,
@@ -59,6 +60,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
     canReadAccountMaintenance,
     canAccessMatchEligibility,
     canReadVenues,
+    canAccessRecorderWorkspace,
   ]);
 
   const groups: ManagementNavigationGroup[] = [
@@ -76,6 +78,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if(participations)playerLinks.items.push({href:"/players/participations",label:"Participaciones superiores",icon:"players"});
   if(playerLinks.items.length) groups.push(playerLinks);
   if(matchEligibility) groups.push({label:"Arbitraje",items:[{href:"/matches",label:"Mis partidos · Alineación",icon:"players"}]});
+  if(recorder) groups.push({label:"Partidos",items:[{href:"/matches/recording",label:"Registro de partidos",icon:"overview"}]});
   const competitions: ManagementNavigationGroup = { label: "Competencias", items: [] };
   if (leagues) competitions.items.push({ href: "/competitions/leagues/new", label: "Crear liga", icon: "overview" });
   if (seasons) competitions.items.push({ href: "/competitions/seasons", label: "Temporadas", icon: "overview" });

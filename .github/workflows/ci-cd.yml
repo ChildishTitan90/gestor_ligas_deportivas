@@ -52,6 +52,12 @@ jobs:
         run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:account-maintenance && npm run test:email-transport && npm run test:account-maintenance-ui && npm run test:email-confirmation && npm run test:affiliation-input && npm run test:affiliation-review && npm run test:club-maintenance-input
       - name: Probar horarios de canchas y zonas horarias (PDGLD-22)
         run: node --import tsx --test src/features/venues/time.test.ts
+      - name: Probar contratos y reglas de transiciones (PDGLD-132)
+        run: npm run test:match-transitions
+      - name: Probar acciones de partidos en Chrome (PDGLD-133)
+        run: npm run test:match-transition-browser
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
       - name: Probar interfaz de inscripción y actividad de sesión sin base
         run: npm run test:team-registration
       - name: Probar inscripción en Chrome con datos sintéticos
@@ -152,6 +158,10 @@ jobs:
         env:
           PDGLD22_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
         run: node --test tests/integration/venue-availability.test.mjs
+      - name: Probar transiciones, permisos, reintentos y rollback (PDGLD-132)
+        env:
+          PDGLD132_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: npm run test:match-transitions-db
 
   checks:
     name: CI listo para integrar

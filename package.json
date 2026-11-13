@@ -16,6 +16,9 @@
     "fsevents": false
   },
   "scripts": {
+    "test:match-transitions": "node --import tsx --test src/features/matches/transition-rules.test.ts src/features/matches/transition-presentation.test.ts",
+    "test:match-transition-browser": "node --test tests/e2e/match-transition-controls.test.mjs",
+    "test:match-transitions-db": "node --conditions=react-server --import tsx --test tests/integration/match-transitions.test.ts",
     "test:player-identity-ui": "node --test tests/e2e/identity-correction-workspace.test.mjs",
     "test:season-identity-history": "node scripts/test-season-identity-history.mjs",
     "test:player-identity-isolated": "node scripts/test-delegate-isolated.mjs --player-identity-correction",
