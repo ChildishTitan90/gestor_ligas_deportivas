@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { getPrisma } from "../../src/server/db/prisma";
 import { changeGovernanceForActor, getGovernanceWorkspaceForActor } from "../../src/features/governance/server/service";
+import { readAppointment, sendAppointment } from "../../src/features/governance/appointment-recovery";
 import { AuthorizationError } from "../../src/server/auth/authorization";
 
 const target = process.env.DATABASE_URL;
@@ -51,13 +52,25 @@ test("registra órganos y periodos con auditoría y alcance de liga, sin concede
     await changeGovernanceForActor(admin.user.id, { ...base, operation: "position", bodyId: body.id, name: "Cargo sintético", roleId: superadmin.id });
     const position = await db.positions.findFirstOrThrow({ where: { governing_body_id: body.id } });
     assert.equal(position.role_id, superadmin.id);
-    const appoint = { ...base, operation: "appoint", requestId: randomUUID(), positionId: position.id, personId: member.person.id,
+    const appoint = { ...base, operation: "appoint" as const, requestId: randomUUID(), positionId: position.id, personId: member.person.id,
       startsAt: "2026-01-01", endsAt: "" };
     await assert.rejects(changeGovernanceForActor(admin.user.id, { ...appoint, personId: outsider.person.id }), AuthorizationError);
     await assert.rejects(changeGovernanceForActor(admin.user.id, { ...appoint, endsAt: "2025-01-01" }), /INVALID/);
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+    };
+    await assert.rejects(sendAppointment(storage, "pending", appoint, async request => {
+      await changeGovernanceForActor(admin.user.id, request);
+      throw new Error("Respuesta perdida después de confirmar en PostgreSQL");
+    }), /Respuesta perdida/);
+    const recovered = readAppointment(storage, "pending");
+    assert.deepEqual(recovered, appoint);
+    assert.ok(recovered);
     const submitted = await Promise.all([
-      changeGovernanceForActor(admin.user.id, appoint),
-      changeGovernanceForActor(admin.user.id, appoint),
+      sendAppointment(storage, "pending", recovered, request => changeGovernanceForActor(admin.user.id, request)),
+      sendAppointment(storage, "pending", recovered, request => changeGovernanceForActor(admin.user.id, request)),
     ]);
     assert.deepEqual(submitted, [body.id, body.id]);
     await assert.rejects(changeGovernanceForActor(admin.user.id, { ...appoint, reason: "Motivo distinto" }), /REQUEST_CONFLICT/);

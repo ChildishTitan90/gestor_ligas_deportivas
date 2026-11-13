@@ -98,7 +98,7 @@ export async function getGovernanceWorkspaceForActor(actorId: string, filters: F
     const roles = canEdit ? await tx.roles.findMany({
       select: { id: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }],
     }) : [];
-    return { leagues, league, bodies, body, period, today, canEdit, positions, people, query, roles };
+    return { actorId, leagues, league, bodies, body, period, today, canEdit, positions, people, query, roles };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 }
 

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { SelectField } from "@/components/ui/select-field";
 import { AuthorizationError } from "@/server/auth/authorization";
 import { AuthAccessError } from "@/server/auth/session";
+import { AppointmentForm } from "@/features/governance/components/appointment-form";
 import { GovernanceForm } from "@/features/governance/components/governance-form";
 import { bodyNames, periodFilters } from "@/features/governance/contract";
 import { getGovernanceWorkspace } from "@/features/governance/server/service";
@@ -71,6 +72,7 @@ export default async function GovernancePage({ searchParams }: { searchParams: P
         <label>Rol asociado (opcional)<SelectField name="roleId" aria-label="Rol asociado (opcional)" defaultValue=""
           options={[{ value: "", label: "Sin rol" }, ...data.roles.map(role => ({ value: role.id, label: role.name }))]} /></label>
       </GovernanceForm>}
+      {!people.length && <AppointmentForm key={league.id} actorId={data.actorId} leagueId={league.id} />}
       {!!positions.length && <>
         <form action="/governance" className="flex flex-wrap items-end gap-3">
           <input type="hidden" name="league" value={league.id} />
@@ -83,8 +85,7 @@ export default async function GovernancePage({ searchParams }: { searchParams: P
         </form>
         {query.length >= 2 && !people.length && <p role="status">No se encontraron personas con vínculo registrado en la liga.</p>}
         {people.length > 30 && <p role="status">Se muestran 30 coincidencias. Agrega un apellido para acotar la búsqueda.</p>}
-        {!!people.length && <GovernanceForm title="Registrar nombramiento" description="Selecciona una persona existente y registra su periodo."
-          submit="Guardar nombramiento" operation="appoint" leagueId={league.id}>
+        {!!people.length && <AppointmentForm key={league.id} actorId={data.actorId} leagueId={league.id}>
           <label>Cargo<SelectField name="positionId" aria-label="Cargo" required options={positions.map(item => ({
             value: item.id, label: `${item.name} · ${data.bodies.find(group => group.id === item.governing_body_id)?.name}`,
           }))} /></label>
@@ -94,7 +95,7 @@ export default async function GovernancePage({ searchParams }: { searchParams: P
             <label>Inicio de vigencia<input name="startsAt" type="date" required className={field} /></label>
             <label>Fin de vigencia (opcional)<input name="endsAt" type="date" className={field} /></label>
           </div>
-        </GovernanceForm>}
+        </AppointmentForm>}
       </>}
     </section>}
 

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { AuthorizationError } from "@/server/auth/authorization";
 import { AuthAccessError } from "@/server/auth/session";
+import { governanceMutation } from "./contract";
 import { changeGovernance, GovernanceError } from "./server/service";
 
 export async function saveGovernance(form: FormData) {
@@ -24,4 +25,19 @@ export async function saveGovernance(form: FormData) {
     params.set("error", code);
   }
   redirect(`/governance?${params}`);
+}
+
+export async function submitAppointment(request: unknown): Promise<
+  { status: "saved"; body: string | null } | { status: "rejected" | "uncertain" }
+> {
+  const input = governanceMutation.safeParse(request);
+  if (!input.success || input.data.operation !== "appoint") return { status: "rejected" };
+  try {
+    return { status: "saved", body: await changeGovernance(input.data) };
+  } catch (error) {
+    if (error instanceof GovernanceError || error instanceof AuthAccessError || error instanceof AuthorizationError) {
+      return { status: "rejected" };
+    }
+    return { status: "uncertain" };
+  }
 }
