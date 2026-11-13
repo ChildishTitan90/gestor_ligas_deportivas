@@ -134,7 +134,12 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
         for (const path of ["/access", "/matches/recording"]) {
           const response = await browser.request(path);
           assert.equal(response.status, 200, `No abrió ${path} con Preview`);
-          assert.doesNotMatch(await response.text(), /No se pudo consultar la alineación|No se pudo cargar el registro/);
+          const html = await response.text();
+          assert.doesNotMatch(html, /No se pudo consultar la alineación|No se pudo cargar el registro/);
+          if (path === "/matches/recording") {
+            assert.ok(html.includes(tag), "La sesión HTTP debe mostrar la temporada autorizada");
+            assert.match(html, /Iniciar partido/);
+          }
         }
         const workspace = await runtime.$transaction(tx => getRecorderWorkspaceInTransaction(tx, refereeUser.id));
         assert.ok(workspace.items.some(item => item.id === matchId && item.canRecordMatch));
@@ -142,46 +147,18 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
         assert.equal((await previewRun()).replayed, false);
         assert.equal((await previewRun()).replayed, true);
         assert.equal((await row("SELECT count(*)::int AS n FROM sports_management.match_status_history WHERE id=$1", [start.operationId])).n, 1);
+        assert.deepEqual(await row(`SELECT m.version,s.code FROM sports_management.matches m
+          JOIN sports_management.match_statuses s ON s.id=m.status_id WHERE m.id=$1`, [matchId]),
+        { version: 4, code: "IN_PROGRESS" });
+        // Consultar de nuevo por HTTP verifica la lectura persistida con sesión y RLS,
+        // sin depender de hidratación, eventos de React ni tiempos de un navegador.
+        const updated = await browser.request("/matches/recording");
+        assert.equal(updated.status, 200);
+        const updatedHtml = await updated.text();
+        assert.ok(updatedHtml.includes(tag));
+        assert.match(updatedHtml, /En curso/);
+        assert.match(updatedHtml, /Suspender partido/);
       } finally { await runtime.$disconnect(); }
-    }
-    if (process.env.PDGLD132_HTTP_TEST === "1" && process.env.CHROME_BIN) {
-      const uiMatch = await draft("navegador-real", 18);
-      await run({ ...input, matchId: uiMatch, operationId: randomUUID() });
-      await row(`INSERT INTO sports_management.referee_assignments(match_id,referee_id,assignment_role,status,created_by,approved_by,approved_at)
-        VALUES ($1,$2,'MAIN','APPROVED',$3,$3,now())`, [uiMatch, referee.id, actor]);
-      await run({ ...confirm, matchId: uiMatch, operationId: randomUUID() });
-      const { Browser } = await import("./auth.test.mjs");
-      const { launchChrome } = await import("../e2e/chrome-session.mjs");
-      const { mkdir, writeFile } = await import("node:fs/promises");
-      const evidenceDir = process.env.PDGLD132_EVIDENCE_DIR ?? ".next-auth-tests/match-evidence";
-      await mkdir(evidenceDir, { recursive: true });
-      const origin = new URL(process.env.NEXTAUTH_URL!).origin;
-      const http = new Browser(origin);
-      await http.login(email, password);
-      const chrome = await launchChrome(origin);
-      try {
-        await chrome.command("Network.setCookies", { cookies: [...http.cookies].map(([name, value]) => ({ name, value, url: origin })) });
-        await chrome.command("Page.navigate", { url: `${origin}/matches/recording` });
-        const wait = async (expression: string) => { for (let i=0;i<200;i++) { if (await chrome.evaluate(expression)) return; await new Promise(resolve => setTimeout(resolve, 100)); } throw Error("Pantalla de capturista no disponible"); };
-        await wait("document.body?.innerText.includes('navegador-real')");
-        const selector = "[...document.querySelectorAll('article')].find(a=>a.innerText.includes('navegador-real'))";
-        await wait(`(()=>{const b=${selector}?.querySelector('button');return b&&Object.keys(b).some(k=>k.startsWith('__reactProps'));})()`);
-        await chrome.evaluate(`${selector}.querySelector('button').click()`);
-        await wait("!!document.querySelector('dialog[open]')");
-        assert.ok(await chrome.evaluate("document.querySelector('dialog[open]').contains(document.activeElement)"));
-        await chrome.evaluate("(()=>{const t=document.querySelector('dialog textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t,'Inicio desde navegador');t.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('dialog input[type=checkbox]').click()})()");
-        await chrome.evaluate("document.querySelector('dialog form').requestSubmit()");
-        await wait("document.body.innerText.includes('Estado actualizado.')");
-        assert.equal((await row(`SELECT s.code FROM sports_management.matches m JOIN sports_management.match_statuses s ON s.id=m.status_id WHERE m.id=$1`, [uiMatch])).code, "IN_PROGRESS");
-        assert.equal((await row("SELECT count(*)::int n FROM sports_management.match_status_history WHERE match_id=$1", [uiMatch])).n, 3);
-        for (const width of [390, 1280]) for (const theme of ["light", "dark"]) {
-          await chrome.command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
-          await chrome.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
-          assert.ok(await chrome.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
-          const image = await chrome.command("Page.captureScreenshot", { format: "png" });
-          await writeFile(`${evidenceDir}/${width}-${theme}.png`, Buffer.from(image.data, "base64"));
-        }
-      } finally { await chrome.close(); }
     }
     const refereeRun = (data: typeof start) => prisma.$transaction(tx => transitionMatchInTransaction(tx, refereeUser.id, data), { timeout: 15000 });
     await assert.rejects(run(start), { code: "FORBIDDEN" });

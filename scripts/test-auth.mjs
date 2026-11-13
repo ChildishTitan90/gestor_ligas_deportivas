@@ -417,7 +417,7 @@ try {
       } finally { await runtime.end(); }
     }
   } else if (process.argv.includes('--match-transitions') || previewMatches) {
-    stage = 'transiciones de partidos con sesión y navegador';
+    stage = 'transiciones de partidos con sesión HTTP y PostgreSQL';
     await command(['--conditions=react-server', '--import', 'tsx', '--test', 'tests/integration/match-transitions.test.ts'], { ...childEnv, PDGLD132_TEST_DATABASE_URL: databaseUrl, PDGLD132_HTTP_TEST: '1', PDGLD132_PREVIEW_TEST: previewMatches ? '1' : '0' }, true);
   } else if (process.argv.includes('--club-maintenance')) {
     stage = 'mantenimiento de clubes y equipos PDGLD-121';

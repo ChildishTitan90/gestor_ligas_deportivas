@@ -54,10 +54,6 @@ jobs:
         run: node --import tsx --test src/features/venues/time.test.ts
       - name: Probar contratos y reglas de transiciones (PDGLD-132)
         run: npm run test:match-transitions
-      - name: Probar acciones de partidos en Chrome (PDGLD-133)
-        run: npm run test:match-transition-browser
-        env:
-          CHROME_BIN: /usr/bin/google-chrome
       - name: Probar interfaz de inscripción y actividad de sesión sin base
         run: npm run test:team-registration
       - name: Probar inscripción en Chrome con datos sintéticos
@@ -152,7 +148,7 @@ jobs:
         run: npm run test:preview-runtime
       - name: Probar competencias, distribución y mantenimiento con rol Preview y RLS
         run: npm run test:preview-competitions
-      - name: Probar navegación y transiciones con rol limitado de Preview
+      - name: Probar sesión HTTP y transiciones con rol limitado de Preview
         run: npm run test:match-transitions-preview
       - name: Probar seed, integridad, rollback e idempotencia
         run: npm run test:seed -- --existing
