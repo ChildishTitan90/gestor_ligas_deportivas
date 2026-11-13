@@ -6,16 +6,20 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { transitionMatchInTransaction } from "../../src/features/matches/server/transition";
 import { getRecorderWorkspaceInTransaction } from "../../src/features/matches/server/recorder-workspace";
+import { hashPassword } from "../../src/server/auth/password";
 
 // Solo bases desechables explícitas. Nunca lee .env ni el DATABASE_URL habitual.
 const target = process.env.PDGLD132_TEST_DATABASE_URL;
 assert.ok(target, "Configura PDGLD132_TEST_DATABASE_URL con la base temporal aislada");
 const url = new URL(target);
 assert.equal(url.protocol, "postgresql:");
-assert.equal(url.hostname, "127.0.0.1");
+assert.ok(process.env.PDGLD132_HTTP_TEST === "1" ? ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) : url.hostname === "127.0.0.1");
 assert.equal(url.search, "");
 assert.equal(url.hash, "");
-assert.equal(`${url.port}${url.pathname}`, process.env.GITHUB_ACTIONS === "true" ? "5432/gestor_ligas_ci" : "55432/pdgld132");
+if (process.env.PDGLD132_HTTP_TEST === "1") {
+  assert.equal(process.env.AUTH_TEST_RUN, "1");
+  assert.match(url.pathname, /^\/pdgld48_test_[a-f0-9]{16}$/);
+} else assert.equal(`${url.port}${url.pathname}`, process.env.GITHUB_ACTIONS === "true" ? "5432/gestor_ligas_ci" : "55432/pdgld132");
 
 test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollback", async () => {
   let pool = new pg.Pool({ connectionString: target, statement_timeout: 10000 });
@@ -59,7 +63,7 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
     const { id: venue } = await row(`INSERT INTO sports_management.venues(league_id,code,name,address,match_duration_minutes,buffer_minutes)
       VALUES ($1,'UNO','Cancha','Sintético',60,15) RETURNING id`, [league]);
     await row(`INSERT INTO sports_management.venue_availability(venue_id,type,starts_at,ends_at)
-      VALUES ($1,'AVAILABLE','2026-11-14T10:00:00Z','2026-11-14T18:00:00Z')`, [venue]);
+      VALUES ($1,'AVAILABLE','2026-11-14T10:00:00Z','2026-11-14T21:00:00Z')`, [venue]);
     const draft = async (number: string, hour = 10) => (await row(`INSERT INTO sports_management.matches
       (season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until)
       VALUES ($1,$2,$3,$4,$5,$6,$7,'2026-11-14'::date+make_interval(hours=>$8),
@@ -99,8 +103,10 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
     await assert.rejects(pool.query("UPDATE sports_management.match_status_history SET reason='cambio' WHERE id=$1", [input.operationId]));
     await assert.rejects(pool.query("DELETE FROM sports_management.match_status_history WHERE id=$1", [input.operationId]));
 
+    const email = `${randomUUID()}@example.test`;
+    const password = `Synthetic-${randomUUID()}!aA`;
     const refereeUser = await row(`INSERT INTO sports_management.users(person_id,username,email,password_hash,must_change_password)
-      VALUES ($1,$2,$3,'no-login',false) RETURNING id`, [refereePerson.id, randomUUID(), `${randomUUID()}@example.test`]);
+      VALUES ($1,$2,$3,$4,false) RETURNING id`, [refereePerson.id, randomUUID(), email, await hashPassword(password)]);
     const refereeRole = await row("SELECT id FROM sports_management.roles WHERE code='DATA_ENTRY'");
     await row("INSERT INTO sports_management.permissions(module,action) VALUES ('match-reports','UPDATE') ON CONFLICT DO NOTHING");
     await row(`INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
@@ -111,6 +117,45 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
     assert.ok(schedulerWorkspace.items.some(item => item.id === matchId && !item.canRecordMatch));
     const initialWorkspace = await prisma.$transaction(tx => getRecorderWorkspaceInTransaction(tx, refereeUser.id));
     assert.ok(initialWorkspace.items.some(item => item.id === matchId && item.canRecordMatch && item.status === "CONFIRMED"));
+    if (process.env.PDGLD132_HTTP_TEST === "1" && process.env.CHROME_BIN) {
+      const uiMatch = await draft("navegador-real", 18);
+      await run({ ...input, matchId: uiMatch, operationId: randomUUID() });
+      await row(`INSERT INTO sports_management.referee_assignments(match_id,referee_id,assignment_role,status,created_by,approved_by,approved_at)
+        VALUES ($1,$2,'MAIN','APPROVED',$3,$3,now())`, [uiMatch, referee.id, actor]);
+      await run({ ...confirm, matchId: uiMatch, operationId: randomUUID() });
+      const { Browser } = await import("./auth.test.mjs");
+      const { launchChrome } = await import("../e2e/chrome-session.mjs");
+      const { mkdir, writeFile } = await import("node:fs/promises");
+      await mkdir(".next-auth-tests/match-evidence", { recursive: true });
+      const origin = new URL(process.env.NEXTAUTH_URL!).origin;
+      const http = new Browser(origin);
+      await http.login(email, password);
+      const chrome = await launchChrome(origin);
+      try {
+        await chrome.command("Network.setCookies", { cookies: [...http.cookies].map(([name, value]) => ({ name, value, url: origin })) });
+        await chrome.command("Page.navigate", { url: `${origin}/matches/recording` });
+        const wait = async (expression: string) => { for (let i=0;i<200;i++) { if (await chrome.evaluate(expression)) return; await new Promise(resolve => setTimeout(resolve, 100)); } throw Error("Pantalla de capturista no disponible"); };
+        await wait("document.body?.innerText.includes('navegador-real')");
+        const selector = "[...document.querySelectorAll('article')].find(a=>a.innerText.includes('navegador-real'))";
+        await wait(`(()=>{const b=${selector}?.querySelector('button');return b&&Object.keys(b).some(k=>k.startsWith('__reactProps'));})()`);
+        await mkdir(".next-auth-tests/match-evidence", { recursive: true });
+        for (const width of [390, 1280]) for (const theme of ["light", "dark"]) {
+          await chrome.command("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
+          await chrome.evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+          assert.ok(await chrome.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"));
+          const image = await chrome.command("Page.captureScreenshot", { format: "png" });
+          await writeFile(`.next-auth-tests/match-evidence/${width}-${theme}.png`, Buffer.from(image.data, "base64"));
+        }
+        await chrome.evaluate(`${selector}.querySelector('button').click()`);
+        await wait("!!document.querySelector('dialog[open]')");
+        assert.ok(await chrome.evaluate("document.querySelector('dialog[open]').contains(document.activeElement)"));
+        await chrome.evaluate("(()=>{const t=document.querySelector('dialog textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t,'Inicio desde navegador');t.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('dialog input[type=checkbox]').click()})()");
+        await chrome.evaluate("document.querySelector('dialog form').requestSubmit()");
+        await wait("document.body.innerText.includes('Estado actualizado.')");
+        assert.equal((await row(`SELECT s.code FROM sports_management.matches m JOIN sports_management.match_statuses s ON s.id=m.status_id WHERE m.id=$1`, [uiMatch])).code, "IN_PROGRESS");
+        assert.equal((await row("SELECT count(*)::int n FROM sports_management.match_status_history WHERE match_id=$1", [uiMatch])).n, 3);
+      } finally { await chrome.close(); }
+    }
     const refereeRun = (data: typeof start) => prisma.$transaction(tx => transitionMatchInTransaction(tx, refereeUser.id, data), { timeout: 15000 });
     await assert.rejects(run(start), { code: "FORBIDDEN" });
     await row("UPDATE sports_management.user_roles SET ends_at=now() WHERE id=$1", [recorderAssignment.id]);

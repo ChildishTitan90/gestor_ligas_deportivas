@@ -204,7 +204,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--player-demo', '--player-participations', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--preview-competitions', '--competitions', '--players', '--documents-real', '--club-maintenance'].includes(arg)))
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--player-demo', '--player-participations', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--preview-competitions', '--competitions', '--players', '--documents-real', '--club-maintenance', '--match-transitions'].includes(arg)))
     throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --preview-competitions | --competitions | --players | --documents-real | --club-maintenance].');
   if (existsSync(fileURLToPath(new URL(playerDemo?'../.next-player-manual/dev/lock':'../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
@@ -415,6 +415,9 @@ try {
         if (identity.actor !== 'gestor_ligas_preview' || identity.login !== identity.actor) throw new Error('Identidad SQL de Preview inesperada.');
       } finally { await runtime.end(); }
     }
+  } else if (process.argv.includes('--match-transitions')) {
+    stage = 'transiciones de partidos con sesión y navegador';
+    await command(['--conditions=react-server', '--import', 'tsx', '--test', 'tests/integration/match-transitions.test.ts'], { ...childEnv, PDGLD132_TEST_DATABASE_URL: databaseUrl, PDGLD132_HTTP_TEST: '1' }, true);
   } else if (process.argv.includes('--club-maintenance')) {
     stage = 'mantenimiento de clubes y equipos PDGLD-121';
     await command(['--conditions=react-server', '--import', 'tsx', '--test', 'tests/integration/authorization-club-maintenance.test.ts'], childEnv, true);
