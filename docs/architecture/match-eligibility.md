@@ -65,12 +65,11 @@ bloquea por un margen inventado. Una coincidencia o intervalo incompleto devuelv
 también otras temporadas de la Persona, sin revelar sus detalles privados en el
 motivo. Se excluyen partidos cancelados/eliminados.
 
-**Decisión requerida:** la Liga debe precisar qué significa «un tiempo y la otra
-mitad»: periodos que pueden combinarse, relación con hora programada/real,
-desfases, tiempos incompletos, prórroga y reingreso. Confirmar además si hay
-descanso o límite diario y su vigencia por temporada/categoría. No se inventaron
-45/90 minutos, distancia, tolerancia ni una prohibición definitiva de compartir
-partidos. La excepción coincidente sigue pendiente funcional y mantiene el PR Draft.
+**Participación por mitades aceptada en principio.** Queda pendiente precisar
+qué periodos cuentan, qué reloj se usa como referencia y cómo se determinan los
+cruces de horario. Esa precisión debe cubrir desfases, tiempos incompletos,
+prórroga y reingreso, y su vigencia por temporada/categoría. La validación
+automatizada de la excepción y el recorrido real con PDGLD-18 siguen pendientes.
 
 ## Contrato transaccional para PDGLD-18
 
@@ -114,14 +113,14 @@ El PR #53 fue fusionado como d46c2db. Esta revisión parte de ese estado de
 `origin/develop`. La publicación de un seguimiento requiere otro PR, porque un
 PR fusionado ya no admite nuevos commits ni puede convertirse de nuevo a Draft.
 
-### Decisión pendiente sobre mitades
+### Criterios temporales pendientes de la participación por mitades
 
 [PDGLD-68](https://victoranhernandez.atlassian.net/browse/PDGLD-68), comentarios
-10026, 10032 y 10036 del 30/10, recoge el reporte de Sergio de que un jugador puede
-jugar un tiempo en una categoría y la otra mitad en otra. Las aclaraciones validan
-participación entre categorías, edades, carta y ascenso por fuerzas. Ninguna
-precisa la correspondencia temporal entre esas mitades. El estado Hecho del ticket
-no aporta las condiciones que faltan para automatizar ese caso.
+10026, 10032 y 10036 del 30/10, recoge la participación entre categorías.
+La aclaración humana del 13/11 confirma que la participación por mitades en
+partidos con horarios coincidentes ya está aceptada en principio. Quedan
+pendientes los periodos que cuentan, el reloj de referencia y la determinación
+de los cruces de horario para automatizar esa regla.
 
 La fuente de ERS accesible sigue siendo
 [ERS_Gestor_Ligas_Deportivas_IEEE830, versión 0.1](https://docs.google.com/document/d/1iJRdP4IOxhM__ft8X_y5gWOeOOflszzZcCvfqr4ckPU/edit),
@@ -213,3 +212,11 @@ concurrente, conflicto y conservación de periodos. Chrome demuestra la consulta
 con DTOs sintéticos en ambos temas y tamaños. El recorrido autenticado de captura,
 guardado y reapertura desde una cédula sigue pendiente porque su flujo no existe
 en las fuentes consultadas. El fetch final confirmó d46c2db.
+
+### Alcance del seguimiento · aclaración del 13/11/2026
+
+El código del PR #53 ya está integrado. Este seguimiento actualiza únicamente la
+documentación. PDGLD-16 sigue abierta y la comprobación del recorrido real con
+la cédula arbitral de PDGLD-18 continúa pendiente. Las pruebas registradas arriba
+acreditan los comportamientos existentes en la fecha de su ejecución. Esta
+actualización documental no valida funcionalidad adicional.
