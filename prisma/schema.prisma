@@ -944,6 +944,7 @@ model match_results {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model match_status_history {
+  expected_version                                                       Int?
   id                                                                     String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   match_id                                                               String          @db.Uuid
   previous_status_id                                                     String?         @db.Uuid
@@ -960,6 +961,7 @@ model match_status_history {
   @@index([new_status_id], map: "fk_match_status_history_new_status_id_fkey")
   @@index([previous_status_id], map: "fk_match_status_history_previous_status_id_fkey")
   @@index([user_id], map: "fk_match_status_history_user_id_fkey")
+  @@unique([match_id, expected_version])
   @@schema("sports_management")
 }
 

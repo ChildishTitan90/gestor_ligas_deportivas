@@ -52,6 +52,8 @@ jobs:
         run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:account-maintenance && npm run test:email-transport && npm run test:account-maintenance-ui && npm run test:email-confirmation && npm run test:affiliation-input && npm run test:affiliation-review && npm run test:club-maintenance-input
       - name: Probar horarios de canchas y zonas horarias (PDGLD-22)
         run: node --import tsx --test src/features/venues/time.test.ts
+      - name: Probar contratos y reglas de transiciones (PDGLD-132)
+        run: npm run test:match-transitions
       - name: Probar interfaz de inscripción y actividad de sesión sin base
         run: npm run test:team-registration
       - name: Probar inscripción en Chrome con datos sintéticos
@@ -146,12 +148,18 @@ jobs:
         run: npm run test:preview-runtime
       - name: Probar competencias, distribución y mantenimiento con rol Preview y RLS
         run: npm run test:preview-competitions
+      - name: Probar sesión HTTP y transiciones con rol limitado de Preview
+        run: npm run test:match-transitions-preview
       - name: Probar seed, integridad, rollback e idempotencia
         run: npm run test:seed -- --existing
       - name: Probar disponibilidad, reservas concurrentes y bloqueos (PDGLD-22)
         env:
           PDGLD22_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
         run: node --test tests/integration/venue-availability.test.mjs
+      - name: Probar transiciones, permisos, reintentos y rollback (PDGLD-132)
+        env:
+          PDGLD132_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: npm run test:match-transitions-db
       - name: Probar órganos, nombramientos, historial y permisos (PDGLD-37)
         run: |
           node --conditions=react-server --import tsx prisma/seed.ts --profile permissions
