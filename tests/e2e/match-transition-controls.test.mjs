@@ -16,7 +16,7 @@ test('PDGLD-133: acción autorizada, confirmación, foco y envío sintético', {
       plugin.onResolve({ filter: /transition-actions$/ }, () => ({ path: 'actions', namespace: 'fixture' }));
       plugin.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ contents: args.path === 'navigation'
         ? 'export function useRouter(){return {refresh(){window.refreshed=true}}}'
-        : 'export async function transitionMatchAction(input){window.sent=input;return {ok:true}}', loader: 'js' }));
+        : 'export async function transitionMatchAction(input){window.sent=input;(window.requests ??= []).push(input);if(window.failOnce){window.failOnce=false;return {ok:false,code:"UNAVAILABLE"}}return {ok:true}}', loader: 'js' }));
     } }] });
   const css = await readFile('src/styles/tokens.css', 'utf8');
   const server = createServer((req, res) => { res.setHeader('Content-Type', req.url === '/bundle.js' ? 'text/javascript' : 'text/html');
@@ -43,4 +43,17 @@ test('PDGLD-133: acción autorizada, confirmación, foco y envío sintético', {
   await ev(`(async()=>{for(let i=0;i<100;i++){if(window.sent)return;await new Promise(r=>setTimeout(r,20));}throw Error('No se envió');})()`);
   assert.equal(await ev('window.sent.toStatus'), 'IN_PROGRESS');
   assert.equal(await ev('window.sent.reason'), 'Inicio observado');
+  await ev("window.failOnce=true; [...document.querySelectorAll('button')].find(b=>b.textContent==='Iniciar partido').click()");
+  await ev(`(async()=>{for(let i=0;i<100;i++){if(document.querySelector('dialog[open]'))return;await new Promise(r=>setTimeout(r,20));}throw Error('No se abrió el diálogo de reintento');})()`);
+  await ev("(()=>{const t=document.querySelector('textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t,'Cambio incierto');t.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('dialog input[type=checkbox]').click()})()");
+  await ev("document.querySelector('dialog form').requestSubmit()");
+  await ev(`(async()=>{for(let i=0;i<100;i++){if(document.body.innerText.includes('Reintentar la misma solicitud'))return;await new Promise(r=>setTimeout(r,20));}throw Error('No se mostró recuperación');})()`);
+  const firstAttempt = await ev('window.requests.at(-1)');
+  await ev("[...document.querySelectorAll('dialog button')].find(b=>b.textContent==='Cerrar y conservar pendiente').click()");
+  await ev(`(async()=>{for(let i=0;i<100;i++){if(document.body.innerText.includes('Continuar solicitud pendiente'))return;await new Promise(r=>setTimeout(r,20));}throw Error('Se perdió la solicitud pendiente');})()`);
+  await ev("[...document.querySelectorAll('button')].find(b=>b.textContent==='Continuar solicitud pendiente').click()");
+  await ev(`(async()=>{for(let i=0;i<100;i++){if(document.querySelector('dialog[open]'))return;await new Promise(r=>setTimeout(r,20));}throw Error('No se recuperó el diálogo');})()`);
+  await ev("[...document.querySelectorAll('dialog button')].find(b=>b.textContent==='Reintentar la misma solicitud').click()");
+  await ev(`(async()=>{for(let i=0;i<100;i++){if(window.requests.length===3)return;await new Promise(r=>setTimeout(r,20));}throw Error('No se reenvió la solicitud');})()`);
+  assert.deepEqual(await ev('window.requests.at(-1)'), firstAttempt);
 });

@@ -1,8 +1,9 @@
 # PDGLD-132 — Primera transición de partido
 
-Entrega parcial de PDGLD-132, dentro de PDGLD-85: servicio de servidor para
-**BORRADOR → PROGRAMADO → CONFIRMADO → EN CURSO → SUSPENDIDO**. No completa la subtarea ni la historia. La interfaz
-se integrará en PDGLD-133; todavía no existe una ruta pública o botón para invocarlo.
+Entrega parcial de PDGLD-132 y PDGLD-133, dentro de PDGLD-85. El servicio cubre
+**BORRADOR → PROGRAMADO → CONFIRMADO → EN CURSO → SUSPENDIDO** y cancelación desde
+los estados indicados en la matriz. La pantalla `/matches/recording` presenta las
+acciones disponibles según los permisos del actor y el estado del partido.
 
 ## Estados del esquema
 
@@ -63,12 +64,39 @@ requiere el contrato de cédula y aplicación única de resultados (PDGLD-18/21)
 No debe habilitarse agregando solamente un par a la matriz. FINALIZADO no se puede
 reabrir por esta entrada; una corrección necesita su autorización y servicio propios.
 
+## Integración pendiente con cédula y programación
+
+- **PDGLD-18, Víctor:** acordar la entrada de confirmación de cédula y cómo
+  registrar no presentación. La confirmación deberá coordinar el partido, el
+  resultado y sus efectos en una transacción, con operación idempotente y
+  revalidación de la autoridad. `transitionMatch` todavía no finaliza partidos.
+- **PDGLD-21, Sergio:** definir la corrección autorizada de una cédula y la
+  conservación de sus versiones y efectos antes de admitir cambios posteriores
+  a `FINISHED`.
+- **PDGLD-24/25, Sergio y Karol:** acordar la reprogramación con el flujo de
+  programación, las reservas y la validación de disponibilidad de PDGLD-22.
+  Confirmar origen y destino, motivo y tratamiento del horario anterior antes
+  de implementar la transición. `transitionMatch` actualmente requiere que el
+  horario inicial ya exista y no mueve reservas a un nuevo horario.
+- **PDGLD-29, Nick:** acordar cómo la confirmación de cédula entrega resultados
+  oficiales para actualizar la clasificación una sola vez.
+- **PDGLD-26/27/28, Sergio:** coordinar el catálogo y la revisión disciplinaria
+  de incidentes; el capturista no aplica sanciones automáticamente.
+
+Para cada integración, compartir el identificador del partido, la versión esperada,
+la clave de operación y el motivo cuando corresponda. Estos campos describen el
+contrato existente de transiciones y son una propuesta para coordinar los nuevos
+servicios, no una autorización para cambiar sus efectos sin acordarlos. Después de
+integrar cada servicio, probar su transacción, reenvío, concurrencia, permisos y
+recorrido en pantalla antes de cerrar PDGLD-85 y sus subtareas.
+
 ## Contrato interno
 
 `transitionMatch(input)` obtiene la identidad mediante `requireOperationalUser`.
 `transitionMatchInTransaction(tx, actorId, input)` es interno, para composición y
-pruebas: no exponer `actorId` en una acción o endpoint. La futura entrada HTTP debe
-aplicar las defensas de sesión/origen y convertir errores a mensajes seguros.
+pruebas: no exponer `actorId` en una acción o endpoint. La Server Action
+`transitionMatchAction` usa la entrada autenticada y convierte errores a códigos
+seguros. El servidor vuelve a validar el ámbito y el permiso en cada envío.
 
 ```ts
 {
@@ -88,6 +116,10 @@ conflictos con reservas de equipos/cancha mediante los controles de PDGLD-22.
 
 El resultado contiene `operationId`, `matchId`, `toStatus`, `appliedVersion`,
 `occurredAt` y `replayed`. **Es un acuse histórico, no una lectura del estado actual**.
+Ante una respuesta incierta, la pantalla conserva la operación, versión, destino y
+motivo mientras permanezca abierta. Permite ocultar y reabrir el diálogo y reintentar
+exactamente la misma solicitud. Advierte al salir porque no persiste tras recargar.
+El servidor vuelve a autorizar y devuelve el acuse si ya aplicó el cambio.
 Para repetir tras una respuesta incierta, conservar exactamente la operación,
 versión, destino y motivo. Un acuse anterior solo se devuelve después de comprobar
 de nuevo los permisos vigentes. Un UUID reutilizado con otro contenido se rechaza.
