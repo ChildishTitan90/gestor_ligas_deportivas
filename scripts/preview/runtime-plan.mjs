@@ -13,17 +13,18 @@ const read = ['account_email_changes', 'password_resets', 'player_category_level
   'teams', 'team_enrollment_operations', 'user_roles', 'users'];
 // Lecturas de reglas, cierre y dependencias: una tabla vacía también exige SELECT
 // y una política RLS para que _count no oculte referencias que impiden retirar filas.
-read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competition_rule_parameters',
+read.push('regulation_articles', 'sanction_types', 'team_withdrawals', 'billing_plans', 'club_team_changes', 'competition_rules', 'competition_rule_parameters',
   'competition_stages', 'imports', 'matchdays', 'match_results',
   'match_statuses', 'official_documents', 'publications', 'season_awards', 'season_breaks',
   'standing_versions', 'venue_loans', 'venues', 'venue_availability', 'venue_reservations', 'governing_bodies', 'positions', 'appointments');
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
+  team_withdrawals: ['id', 'article_id'],
   appointments: ['id', 'position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
   venue_reservations: ['venue_id', 'match_id', 'time_range'],
   password_resets: ['user_id','used_at'],
-  sanctions:['id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
+  sanctions:['id','article_id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
   billing_plans: ['id', 'season_id'], club_team_changes: ['id', 'season_id'],
   // update() de aprobación devuelve todos los escalares, incluido file_id.
   competition_rules: ['id', 'season_id', 'version_number', 'status', 'created_at', 'file_id', 'approved_by', 'approved_at'],
@@ -37,6 +38,7 @@ const readColumns = {
   standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
 };
 const insert = {
+  regulation_articles: ['id','competition_rule_id','number','description','sanction_type_id','parameters','revision'],
   governing_bodies: ['league_id', 'name'],
   positions: ['governing_body_id', 'name', 'role_id'],
   appointments: ['position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
@@ -76,6 +78,7 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at', 'maintenance_revision'],
 };
 const update = {
+  regulation_articles: ['number','description','sanction_type_id','parameters'],
   appointments: ['ends_at'],
   venues: ['code', 'name', 'address', 'is_league_sports_complex', 'features', 'is_active', 'match_duration_minutes', 'buffer_minutes'],
   venue_availability: ['starts_at', 'ends_at', 'type', 'reason'],
