@@ -15,6 +15,8 @@ export type MatchPresentation = {
   home: string; away: string; venue: string; startsAt: string; endsAt: string;
   /** Incluye todos los clubes del grupo, aunque no disputen este encuentro. */
   groupClubs: { clubId: string; team: string }[]; version?: number;
+  /** Proyección del contexto abierto del servidor; no concede autorización. */
+  openForAssignments?: boolean;
 };
 export type AssignmentPresentation = { id: string; matchId: string; refereeId: string; status: AssignmentStatus; version?: number; displayName?:string; historical?:boolean };
 export type AssignmentAssessment = {

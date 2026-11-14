@@ -9,6 +9,7 @@ import { assignmentLabels, assessPreview, intervalLabel, normalizeSearch, viewLa
 import type { AssignmentPresentation, AssignmentStatus, PreviewState, RefereePresentation, RefereePreviewData, RefereeView, LiveRefereeControls } from "../types";
 import { RefereeDialog } from "./referee-dialog";
 import { AssignmentDialog } from "./assignment-dialog";
+import {assignmentMatchesNeedingAttention,historyRefereeOptions} from "../assignment-presentation";
 import { AvailabilityDialog } from "./availability-dialog";
 
 const secondary = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm font-semibold text-primary disabled:opacity-50";
@@ -76,6 +77,7 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
     && (clubId === "all" || linkFor(item.id)?.clubId === clubId) && (activeFilter === "all" || item.active === (activeFilter === "active")));
   const matches = data.matches.filter(item => item.seasonId === season?.id);
   const assignments = data.assignments.filter(item => matches.some(match => match.id === item.matchId));
+  const assignmentChoices=assignmentMatchesNeedingAttention(data,season?.id??"",evaluate);
   const currentReferee = seasonReferees.find(item => item.id === availabilityRef);
 
   function resetFilters() { setSearch(""); setClubId("all"); setActiveFilter("all"); setAvailabilityRef(""); setHistoryRef("all"); setHistoryMatch("all"); setAssignmentFilter("all"); setNotice(""); }
@@ -99,13 +101,13 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
   async function confirmAssignment(value: { matchId: string; refereeId: string; status: AssignmentStatus }) {
     if (live) {
       const match = data.matches.find(m => m.id === value.matchId)!;
-      const command = review?.assignment ? {kind:value.status==="APPROVED"?"approve":"revoke",assignmentId:review.assignment.id,expectedVersion:review.assignment.version,expectedMatchVersion:match.version} : {kind:"propose",matchId:value.matchId,refereeId:value.refereeId,expectedMatchVersion:match.version};
-      if (await live.mutate(command)) {setReview(null);setNotice("Operación confirmada por el servidor. Una propuesta no concede acceso ni publica una designación.");}
+      const command = review?.assignment&&review.assignment.status!=="REVOKED" ? {kind:value.status==="APPROVED"?"approve":"revoke",assignmentId:review.assignment.id,expectedVersion:review.assignment.version,expectedMatchVersion:match.version} : {kind:value.status==="APPROVED"?"assign":"propose",matchId:value.matchId,refereeId:value.refereeId,expectedMatchVersion:match.version};
+      if (await live.mutate(command)) {setReview(null);setNotice(command.kind==="assign"?"Árbitro asignado y designación aprobada. Ya puede consultar el partido desde Mis partidos.":command.kind==="propose"?"Propuesta recibida. Queda pendiente de aprobación y no concede acceso al partido.":"Operación confirmada por el servidor. Consulta el estado actualizado de la designación.");}
       return;
     }
     if (confirming.current) return;
     confirming.current = true;
-    const assignment = { ...value, id: review?.assignment?.id ?? `DEMO-A-${crypto.randomUUID()}` };
+    const assignment = { ...value, id: review?.assignment&&review.assignment.status!=="REVOKED" ? review.assignment.id : `DEMO-A-${crypto.randomUUID()}` };
     setData(previous => ({ ...previous, assignments: [...previous.assignments.filter(item => item.id !== assignment.id), assignment] }));
     setActivity(previous => [...previous, { id: crypto.randomUUID(), assignmentId: assignment.id, matchId: value.matchId, refereeId: value.refereeId, status: value.status, at: new Date().toISOString() }]);
     setReview(null); setNotice(`${assignmentLabels[value.status]} solo en la simulación. No se guardó ni aprobó una designación real.`);
@@ -174,8 +176,9 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
           <dl className="space-y-2 text-sm"><div><dt className="text-muted">Presentado por</dt><dd className="font-medium">{clubFor(referee.id)?.name} · {clubFor(referee.id)?.code}</dd></div><div><dt className="text-muted">Temporada</dt><dd>{season.name}</dd></div></dl>
           {!referee.active && <p className="text-sm text-danger">No puede recibir una aprobación mientras esté inactivo.</p>}
           {live&&<details className="text-sm text-muted"><summary className="cursor-pointer">Referencia de Persona para vincular cuenta</summary><code className="mt-2 block select-all break-all text-xs">{referee.personId}</code><p className="mt-2 text-xs">El acceso debe vincularse a esta misma Persona; incorporarla al padrón no crea una cuenta automáticamente.</p></details>}
-          <div className="mt-auto flex flex-wrap gap-2"><button type="button" className={secondary} disabled={season.closed || !!live && !live.capabilities.update} onClick={() => openEditor(referee)}>Editar {referee.name}</button>
+          <div className="mt-auto flex flex-wrap gap-2">
             {live?.capabilities.provisionAccess && !season.closed && data.links.some(l=>l.refereeId===referee.id&&l.seasonId===season.id) && <ActionLink variant="secondary" href={`/referees/access?referee=${referee.id}&season=${season.id}`} onClick={e=>{if(live.pending||live.uncertain)e.preventDefault();}}>Acceso de árbitro</ActionLink>}
+            <button type="button" className={secondary} disabled={season.closed || !!live && !live.capabilities.update} onClick={() => openEditor(referee)}>Editar {referee.name}</button>
             <Link href={`${basePath}history`} className={secondary} onClick={() => { setHistoryRef(referee.id); setHistoryMatch("all"); }}>Historial de {referee.name}</Link></div>
         </article>)}</div>}
       </>}
@@ -214,7 +217,9 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
         })}</div>}
       </>}
       {view === "assignments" && <>
-        <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-semibold">Propuesta y revisión de designaciones</h2><p className="mt-2 text-sm text-muted">Revisa el grupo completo, la presentación y todos los motivos antes de aprobar.</p></div><button type="button" className={primary} disabled={season.closed || !matches.length || !!live && !live.capabilities.update} onClick={() => openReview()}>{live ? "Proponer designación" : "Proponer designación · Demo"}</button></div>
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-semibold">Propuesta y revisión de designaciones</h2><p className="mt-2 text-sm text-muted">Revisa el grupo completo, la presentación y todos los motivos antes de aprobar.</p></div><button type="button" className={primary} disabled={season.closed || !assignmentChoices.length || !!live && !live.capabilities.update} onClick={() => openReview()}>{live ? live.capabilities.approve ? "Asignar árbitro" : "Proponer designación" : "Proponer designación · Demo"}</button></div>
+        <p className="text-sm text-muted">La lista conserva propuestas, aprobaciones y revocaciones. Para una revocada, usa «Actualizar designación» en su ficha; el partido ya estará seleccionado.</p>
+        {!season.closed&&!assignmentChoices.length&&<p className="text-sm text-muted">No hay partidos abiertos sin árbitro aprobado o con una designación por revisar.</p>}
         <div className={panel}><Field id="assignment-status-filter" label="Estado de designación"><SelectField id="assignment-status-filter" value={assignmentFilter} onValueChange={setAssignmentFilter} searchable={false} options={[all, ...Object.entries(assignmentLabels).map(([value, label]) => ({ value, label }))]} /></Field></div>
         {!assignments.filter(item => assignmentFilter === "all" || item.status === assignmentFilter).length ? <PreviewFeedback state="empty" /> : <div className="grid gap-4 lg:grid-cols-2">{assignments.filter(item => assignmentFilter === "all" || item.status === assignmentFilter).map(item => {
           const match = matches.find(match => match.id === item.matchId)!;
@@ -225,7 +230,7 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
             <p className="font-semibold">{item.displayName ?? data.referees.find(referee => referee.id === item.refereeId)?.name} <span className="font-normal text-muted">· {clubFor(item.refereeId)?.name}</span></p>
             <p className="text-sm">Disponibilidad: {assessment.availability === "COVERED" ? "cubre el horario" : assessment.availability === "UNAVAILABLE" ? "indisponible" : "sin confirmar"}</p>
             {item.status === "REVOKED" ? <p className="text-sm text-muted">Antecedente revocado; no ocupa el horario.</p> : assessment.blockers.length ? <ul className="list-disc space-y-1 pl-5 text-sm text-danger">{assessment.blockers.map((blocker, index) => <li key={`${blocker.code}-${index}`}>{blocker.message}</li>)}</ul> : <p className="text-sm text-positive">{live ? "Sin bloqueos actuales." : "Sin bloqueos en el ejemplo."}</p>}
-            <div className="mt-auto flex flex-wrap gap-2"><button type="button" className={secondary} onClick={() => openReview(item)}>Revisar {match.number} · {item.displayName ?? data.referees.find(referee => referee.id === item.refereeId)?.name}</button>
+            <div className="mt-auto flex flex-wrap gap-2"><button type="button" className={secondary} onClick={() => openReview(item)}>{item.status==="REVOKED"&&!item.historical&&!season.closed&&match.openForAssignments!==false&&(!live||live.capabilities.update)?"Actualizar designación":"Revisar"} {match.number} · {item.displayName ?? data.referees.find(referee => referee.id === item.refereeId)?.name}</button>
               <Link href={`${basePath}history`} className={secondary} onClick={() => { setHistoryRef("all"); setHistoryMatch(match.id); }}>Historial de {match.number}</Link></div>
           </article>;
         })}</div>}
@@ -234,7 +239,7 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
       {view === "history" && <>
         <div><h2 className="text-xl font-semibold">Historial por árbitro y partido</h2><p className="mt-2 text-sm text-muted">Las identidades del cierre se presentan desde su evidencia, sin sustituirlas por nombres actuales.</p></div>
         <div className={`${panel} grid gap-4 sm:grid-cols-2`}>
-          <Field id="history-referee" label="Referencia de árbitro"><SelectField id="history-referee" value={historyRef} onValueChange={setHistoryRef} options={[all, ...Array.from(new Set([...assignments, ...data.history.filter(item => item.seasonId === seasonId)].map(item => item.refereeId))).map(id => ({ value: id, label: id, description: live ? "Referencia; no acredita identidad histórica" : "Referencia técnica sintética; no acredita identidad histórica" }))]} /></Field>
+          <Field id="history-referee" label="Referencia de árbitro"><SelectField id="history-referee" value={historyRef} onValueChange={setHistoryRef} descriptionPosition="below" aria-describedby="history-referee-help" options={[all, ...historyRefereeOptions(data,seasonId)]} /><p id="history-referee-help" className="mt-2 text-xs text-muted">El UUID identifica al árbitro. Los antecedentes cerrados conservan su identidad capturada; los nombres vigentes no completan una identidad histórica faltante.</p></Field>
           <Field id="history-match" label="Partido"><SelectField id="history-match" value={historyMatch} onValueChange={setHistoryMatch} options={[all, ...matches.map(item => ({ value: item.id, label: `${item.number} · ${item.home} – ${item.away}` })), ...data.history.filter(item => item.seasonId === seasonId).map(item => ({ value: item.matchId, label: item.matchLabel }))]} /></Field>
         </div>
         {live && <ol className="space-y-4">{data.events?.filter(e=>(historyRef==="all"||e.refereeId===historyRef)&&(historyMatch==="all"||data.assignments.some(a=>a.id===e.assignmentId&&a.matchId===historyMatch))).map(e=><li key={e.id} className={panel}><h3 className="font-semibold">{({register:"Registro de árbitro",availability:"Disponibilidad",propose:"Propuesta",approve:"Aprobación",revoke:"Revocación"} as Record<string,string>)[e.action]??e.action} · @{e.actor}</h3><p className="mt-2 text-sm">{e.reason}</p><p className="mt-2 text-xs text-muted">{e.refereeId} · Versión {e.version} · {intervalLabel(e.at,e.at,timezone).split(" → ")[0]} · {timezone}</p></li>)}</ol>}
@@ -248,7 +253,7 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
     <footer className="flex flex-wrap items-center justify-between gap-4 border-t border-border pt-5 text-sm text-muted"><p>{live ? "Arbitraje · Operaciones sujetas a permiso, versión y confirmación del servidor." : "PDGLD-86 / PDGLD-142 · Revisión de interfaz. Sin escrituras ni proveedores externos."}</p>
       {!live && <button type="button" className={secondary} onClick={() => { setData(initialData); setActivity([]); setScenario("ready"); resetFilters(); setNotice("Demostración reiniciada con los datos sintéticos iniciales."); }}>Reiniciar demostración</button>}</footer>
     {editor && season && <RefereeDialog data={data} seasonId={season.id} referee={editor.referee} live={live} onClose={() => setEditor(null)} onConfirm={confirmReferee} />}
-    {review && season && <AssignmentDialog data={data} seasonId={season.id} timezone={timezone} assignment={review.assignment} live={live} onClose={() => setReview(null)} onConfirm={confirmAssignment} />}
+    {review && season && <AssignmentDialog key={review.assignment?.id??"new"} data={data} seasonId={season.id} timezone={timezone} assignment={review.assignment} live={live} onReviewExisting={assignment=>{setReview({assignment});}} onClose={() => setReview(null)} onConfirm={confirmAssignment} />}
     {live && currentReferee && availabilityEditor && <AvailabilityDialog referee={currentReferee} interval={data.availability.find(i=>i.id===availabilityEditor.id)} timezone={timezone} live={live} onClose={()=>setAvailabilityEditor(null)} />}
   </section>;
 }

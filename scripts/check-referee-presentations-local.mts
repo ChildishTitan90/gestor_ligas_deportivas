@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import nextEnv from "@next/env";
+import {PDFDocument} from "pdf-lib";
+import {validatePrivateFileContent} from "../src/server/files/private-file-validation";
 import {readDevelopmentSeedDatabaseUrl} from "../prisma/seed-env";
 import {getPrisma} from "../src/server/db/prisma";
-import {lockRefereeing,ensurePresentingClub} from "../src/features/referees/server/service";
+import {lockRefereeing,ensurePresentingClub,mutateRefereeingInTransaction} from "../src/features/referees/server/service";
 import {mutatePresentationInTransaction} from "../src/features/referees/server/presentations";
 import {readRefereeClubQuotas} from "../src/features/referees/server/club-quota";
 import {provisionRefereeAccessInTransaction} from "../src/features/accounts/server/referee-access";
 import {getPermissionGrants} from "../src/server/auth/authorization";
 import {runtimePrivileges} from "./preview/runtime-plan.mjs";
+import {mutateOwnAvailabilityInTransaction,readOwnAvailabilityWorkspace} from "../src/features/referees/server/own-availability";
+import {authorizeRefereeing,throwRefereeFailure} from "../src/features/referees/server/service";
 // Revisión puntual sobre Docker autorizado: todos los fixtures/operaciones se
 // revierten en UNA transacción; no crea otra base, contenedor o cuenta permanente.
 nextEnv.loadEnvConfig(process.cwd(),true,{info(){},error(){}});
@@ -16,6 +20,8 @@ const rollback=new Error("ROLLBACK_VALIDATION_COMPLETE");
 let stage="target";let db:ReturnType<typeof getPrisma>|undefined;
 try{
   readDevelopmentSeedDatabaseUrl();if(new URL(process.env.DATABASE_URL!).port!=="5433")throw Error("LOCAL_ONLY");
+  const pdf=await PDFDocument.create();pdf.addPage([200,200]);const evidence=await validatePrivateFileContent(await pdf.save(),"application/pdf");
+  const credential={mimeType:evidence.mimeType,sizeBytes:evidence.sizeBytes,sha256:evidence.sha256};
   db=getPrisma();const before=await db.referee_presentations.count();
   try{await db.$transaction(async tx=>{
     await lockRefereeing(tx);
@@ -23,7 +29,7 @@ try{
     if(target.name!=="gestor_ligas_dev")throw Error("LOCAL_ONLY");
     const nonce=randomUUID().slice(0,8),actors:Record<string,string>={};
     stage="actors";
-    for(const code of ["delegate","commission"]){const p=await tx.people.create({data:{first_name:`Validación ${nonce}`,paternal_surname:code},select:{id:true}});const u=await tx.users.create({data:{person_id:p.id,username:`validation_${code}_${nonce}`,email:`${code}_${nonce}@example.test`,password_hash:"synthetic-unusable-hash",is_active:true,must_change_password:false},select:{id:true}});actors[code]=u.id;}
+    for(const code of ["delegate","commission","scheduler"]){const p=await tx.people.create({data:{first_name:`Validación ${nonce}`,paternal_surname:code},select:{id:true}});const u=await tx.users.create({data:{person_id:p.id,username:`validation_${code}_${nonce}`,email:`${code}_${nonce}@example.test`,password_hash:"synthetic-unusable-hash",is_active:true,must_change_password:false},select:{id:true}});actors[code]=u.id;}
     await tx.$queryRaw`SELECT set_config('app.user_id',${actors.commission},true),set_config('app.reason','Validación sintética transaccional de prerregistro',true)`;
     const league=await tx.leagues.create({data:{name:`VALIDACIÓN ROLLBACK ${nonce}`},select:{id:true}}),sport=await tx.sports.findFirstOrThrow({select:{id:true}});
     const season=await tx.seasons.create({data:{league_id:league.id,sport_id:sport.id,name:`Periodo ${nonce}`,start_date:new Date("2026-01-01Z"),end_date:new Date("2026-12-31Z")},select:{id:true}});
@@ -38,15 +44,18 @@ try{
     for(let i=0;i<5;i++){const t=await tx.teams.create({data:{club_id:a.id,name:`Equipo ${i}`,reference_number:`T-${nonce}-${i}`},select:{id:true}});await tx.season_teams.create({data:{season_id:season.id,club_id:a.id,team_id:t.id,season_category_id:sc.id,status:"REGISTERED"},select:{id:true}});}
     stage="submission";
     const peopleBefore=await tx.people.count(),usersBefore=await tx.users.count();
-    const submit={kind:"submit",operationKey:randomUUID(),clubId:a.id,seasonId:season.id,reason:"Candidato sintético del club",candidate:{mode:"new",firstName:`Candidato ${nonce}`,paternalSurname:"Prueba",maternalSurname:""}};
-    const request=await mutatePresentationInTransaction(tx,actors.delegate,submit);
+    const submit={kind:"submit",operationKey:randomUUID(),clubId:a.id,seasonId:season.id,reason:"Candidato sintético del club",credential,candidate:{mode:"new",firstName:`Candidato ${nonce}`,paternalSurname:"Prueba",maternalSurname:""}};
+    const stored={...credential,fileId:randomUUID(),objectKey:`referee-credentials/v1/${league.id}/${season.id}/${a.id}/${actors.delegate}/${submit.operationKey}`};
+    await assert.rejects(mutatePresentationInTransaction(tx,actors.delegate,{...submit,operationKey:randomUUID(),credential:undefined}),{code:"CREDENTIAL_REQUIRED"});
+    const request=await mutatePresentationInTransaction(tx,actors.delegate,submit,stored);
     assert.deepEqual(await mutatePresentationInTransaction(tx,actors.delegate,submit),request);
     assert.equal(await tx.people.count(),peopleBefore);
     let quota=(await readRefereeClubQuotas(tx,season.id,[a.id]))[0];assert.equal(quota.registeredTeams,5);assert.equal(Math.ceil(quota.registeredTeams/4),2);assert.equal(quota.presented,0);
     await assert.rejects(mutatePresentationInTransaction(tx,actors.delegate,{...submit,operationKey:randomUUID(),clubId:b.id}));
     await assert.rejects(mutatePresentationInTransaction(tx,actors.delegate,{kind:"accept",presentationId:request.id,expectedVersion:1,operationKey:randomUUID(),reason:"No debe poder aprobar",confirmNewPerson:true}));
     stage="incorporation";
-    const accept={kind:"accept",presentationId:request.id,expectedVersion:1,operationKey:randomUUID(),reason:"Identidad y presentación revisadas",confirmNewPerson:true};
+    const accept={kind:"accept",presentationId:request.id,expectedVersion:1,operationKey:randomUUID(),reason:"Identidad y presentación revisadas",confirmNewPerson:true,reviewedCredentialSha256:credential.sha256};
+    await assert.rejects(mutatePresentationInTransaction(tx,actors.commission,{...accept,reviewedCredentialSha256:undefined}),{code:"CREDENTIAL_REVIEW_REQUIRED"});
     const approved=await mutatePresentationInTransaction(tx,actors.commission,accept);
     assert.deepEqual(await mutatePresentationInTransaction(tx,actors.commission,accept),approved);
     const row=await tx.referee_presentations.findUniqueOrThrow({where:{id:request.id},select:{status:true,referee_id:true,approved_person_id:true}});
@@ -59,8 +68,9 @@ try{
     await assert.rejects(tx.$executeRaw`UPDATE sports_management.club_season_referees SET club_id=${b.id}::uuid WHERE referee_id=${row.referee_id}::uuid AND season_id=${season.id}::uuid`);
     await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT club_origin");
     stage="season-renewal";
-    const renew=await mutatePresentationInTransaction(tx,actors.delegate,{kind:"submit",operationKey:randomUUID(),clubId:a.id,seasonId:next.id,reason:"Renovación sintética de temporada",candidate:{mode:"existing",personId:row.approved_person_id}});
-    await mutatePresentationInTransaction(tx,actors.commission,{kind:"accept",presentationId:renew.id,expectedVersion:1,operationKey:randomUUID(),reason:"Renovación revisada por Comisión",personId:row.approved_person_id,expectedIdentityVersion:1});
+    const renewKey=randomUUID();
+    const renew=await mutatePresentationInTransaction(tx,actors.delegate,{kind:"submit",operationKey:renewKey,clubId:a.id,seasonId:next.id,credential,reason:"Renovación sintética de temporada",candidate:{mode:"existing",personId:row.approved_person_id}},{...credential,fileId:randomUUID(),objectKey:`referee-credentials/v1/${league.id}/${next.id}/${a.id}/${actors.delegate}/${renewKey}`});
+    await mutatePresentationInTransaction(tx,actors.commission,{kind:"accept",presentationId:renew.id,expectedVersion:1,operationKey:randomUUID(),reason:"Renovación revisada por Comisión",personId:row.approved_person_id,expectedIdentityVersion:1,reviewedCredentialSha256:credential.sha256});
     assert.equal(await tx.people.count(),peopleBefore+1);assert.equal(await tx.users.count(),usersBefore);
     assert.equal(await tx.club_season_referees.count({where:{referee_id:row.referee_id!}}),2);
     stage="referee-access-permissions";
@@ -90,6 +100,14 @@ try{
     }
     await tx.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION sports_management.get_entity_season(text,uuid),sports_management.get_role_code(uuid),sports_management.player_participation_now(),sports_management.maintenance_has_references(text,uuid),sports_management.referee_assignment_blockers(uuid,uuid,uuid),sports_management.referee_assignment_effective(uuid),sports_management.closed_identity_reader_block(uuid) TO ${ident(limitedRole)}`);
     await tx.$executeRawUnsafe(`SET LOCAL ROLE ${ident(limitedRole)}`);
+    stage="limited-credential-completion";
+    const [legacy]=await tx.$queryRaw<{id:string;version:number}[]>`INSERT INTO sports_management.referee_presentations(club_id,season_id,requester_id,operation_key,input_hash,first_name,paternal_surname,reason) VALUES(${a.id}::uuid,${season.id}::uuid,${actors.delegate}::uuid,${randomUUID()}::uuid,${"f".repeat(64)},'Legado sintético','Sin cédula','Pendiente anterior al requisito documental') RETURNING id,version`;
+    await assert.rejects(mutatePresentationInTransaction(tx,actors.commission,{kind:"accept",presentationId:legacy.id,expectedVersion:1,operationKey:randomUUID(),reason:"Debe faltar la evidencia",confirmNewPerson:true}),{code:"CREDENTIAL_REQUIRED"});
+    const attach={kind:"credential",presentationId:legacy.id,expectedVersion:legacy.version,credential,operationKey:randomUUID(),reason:"Se completa evidencia del pendiente sintético"};
+    const attached=await mutatePresentationInTransaction(tx,actors.delegate,attach,{...credential,fileId:randomUUID(),objectKey:`referee-credentials/v1/${league.id}/${season.id}/${a.id}/${actors.delegate}/${attach.operationKey}`});
+    assert.deepEqual(await mutatePresentationInTransaction(tx,actors.delegate,attach),attached);
+    await assert.rejects(mutatePresentationInTransaction(tx,actors.delegate,{...attach,operationKey:randomUUID(),expectedVersion:99},stored),{code:"STALE_VERSION"});
+    assert.equal((await tx.referee_presentation_credentials.findUniqueOrThrow({where:{id:legacy.id},select:{file:{select:{sha256:true}}}})).file.sha256,credential.sha256);
     const [privateInstaller]=await tx.$queryRaw<{allowed:boolean}[]>`SELECT has_function_privilege(current_user,'sports_management.install_referee_access_permission()','EXECUTE') AS allowed`;
     assert.equal(privateInstaller.allowed,false);
     stage="limited-role-create-account";
@@ -115,6 +133,98 @@ try{
     assert.deepEqual(await tx.users.findUniqueOrThrow({where:{id:access.id},select:{person_id:true,password_hash:true,username:true,email:true,must_change_password:true,version:true}}),user);
     const [receipt]=await tx.$queryRaw<{input_hash:string;result:unknown}[]>`SELECT input_hash,result FROM sports_management.referee_operations WHERE actor_id=${actors.commission}::uuid AND operation_key=${create.operationKey}::uuid`;
     assert.equal(JSON.stringify(receipt).includes(create.temporaryPassword),false);
+    stage="own-availability-before-assignments";
+    await assert.rejects(readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id),{code:"FORBIDDEN"});
+    await tx.users.update({where:{id:access.id},data:{must_change_password:false},select:{id:true}});
+    let own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id);
+    assert.equal(own.canUpdate,true);assert.equal(own.intervals.length,0);
+    assert.equal(await tx.referee_assignments.count({where:{referee_id:row.referee_id!}}),0);
+    const availability={kind:"availability",refereeId:row.referee_id!,leagueId:league.id,seasonId:season.id,expectedVersion:own.referee!.version,
+      operationKey:randomUUID(),reason:"Disponibilidad sintética declarada por su dueño",startsAt:"2026-12-05T14:00:00Z",endsAt:"2026-12-05T22:00:00Z",available:true};
+    const captured=await mutateOwnAvailabilityInTransaction(tx,access.id,availability);
+    assert.deepEqual(await mutateOwnAvailabilityInTransaction(tx,access.id,availability),captured);
+    await assert.rejects(mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,operationKey:randomUUID(),refereeId:randomUUID()}),{code:"FORBIDDEN"});
+    await assert.rejects(mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,operationKey:randomUUID(),seasonId:randomUUID()}),{code:"FORBIDDEN"});
+    await assert.rejects(mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,operationKey:randomUUID()}),{code:"STALE_VERSION"});
+    await assert.rejects(mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,kind:"approve"}),{code:"INVALID_PAYLOAD"});
+    await assert.rejects(authorizeRefereeing(tx,access.id,"UPDATE",league.id,season.id),{code:"FORBIDDEN"});
+    own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id);
+    assert.equal(own.intervals.length,1);assert.equal(own.intervals[0].refereeId,row.referee_id);
+    const otherPerson=await tx.people.create({data:{first_name:`Otro ${nonce}`,paternal_surname:"Sintético"},select:{id:true}});
+    const otherReferee=await tx.referees.create({data:{person_id:otherPerson.id},select:{id:true}});
+    const otherInterval=await tx.referee_availability.create({data:{referee_id:otherReferee.id,starts_at:new Date(availability.startsAt),ends_at:new Date(availability.endsAt),is_available:true},select:{id:true}});
+    await assert.rejects(mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,operationKey:randomUUID(),expectedVersion:own.referee!.version,intervalId:otherInterval.id}),{code:"FORBIDDEN"});
+    await mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,operationKey:randomUUID(),expectedVersion:own.referee!.version,intervalId:own.intervals[0].id,reason:"Confirmación sintética del intervalo propio"});
+    stage="own-availability-approved-conflict";
+    // El fixture de programación lo prepara el propietario; el árbitro conserva
+    // las ACL limitadas y nunca recibe permisos para crear partidos/canchas.
+    await tx.$executeRawUnsafe("RESET ROLE");
+    await tx.$executeRawUnsafe("SAVEPOINT own_approved_fixture");
+    await tx.$queryRaw`SELECT set_config('app.user_id',${actors.commission},true),set_config('app.reason','Fixture sintético de aprobación y disponibilidad',true)`;
+    stage="own-conflict-rule";
+    await tx.competition_rules.update({where:{id:rule.id},data:{status:"APPROVED",approved_by:actors.commission,approved_at:new Date()},select:{id:true}});
+    const group=await tx.groups.create({data:{season_id:season.id,season_category_id:sc.id,name:`Grupo sin club A ${nonce}`},select:{id:true}});
+    stage="own-conflict-teams";
+    const matchTeams=[];
+    for(let i=0;i<2;i++){const t=await tx.teams.create({data:{club_id:b.id,name:`Contrincante ${i}`,reference_number:`B-${nonce}-${i}`},select:{id:true}});matchTeams.push(await tx.season_teams.create({data:{team_id:t.id,club_id:b.id,season_id:season.id,season_category_id:sc.id,status:"REGISTERED"},select:{id:true}}));}
+    for(const team of matchTeams)await tx.season_teams.update({where:{id:team.id},data:{group_id:group.id},select:{id:true}});
+    const day=await tx.matchdays.create({data:{season_id:season.id,number:1,start_date:new Date("2026-12-05Z"),end_date:new Date("2026-12-05Z")},select:{id:true}});
+    stage="own-conflict-venue";
+    const venue=await tx.venues.create({data:{league_id:league.id,code:`OWN-${nonce}`,name:"Cancha sintética",address:"Sin domicilio real",match_duration_minutes:120},select:{id:true}});
+    await tx.venue_availability.create({data:{venue_id:venue.id,starts_at:new Date(availability.startsAt),ends_at:new Date(availability.endsAt),type:"AVAILABLE"},select:{id:true}});
+    const scheduled=await tx.match_statuses.findUniqueOrThrow({where:{code:"SCHEDULED"},select:{id:true}});
+    stage="own-conflict-match";
+    const match=await tx.matches.create({data:{season_id:season.id,group_id:group.id,matchday_id:day.id,number:`OWN-${nonce}`,home_team_id:matchTeams[0].id,away_team_id:matchTeams[1].id,venue_id:venue.id,starts_at:new Date("2026-12-05T16:00:00Z"),ends_at:new Date("2026-12-05T18:00:00Z"),reserved_until:new Date("2026-12-05T18:00:00Z"),status_id:scheduled.id},select:{id:true}});
+    stage="commission-direct-assignment";
+    const schedulerRole=await tx.roles.findUniqueOrThrow({where:{code:"SCHEDULER"},select:{id:true}});
+    await tx.user_roles.create({data:{user_id:actors.scheduler,role_id:schedulerRole.id,league_id:league.id},select:{id:true}});
+    const matchVersion=await tx.matches.findUniqueOrThrow({where:{id:match.id},select:{version:true}});
+    const assign={kind:"assign",operationKey:randomUUID(),leagueId:league.id,seasonId:season.id,matchId:match.id,refereeId:row.referee_id!,expectedMatchVersion:matchVersion.version,reason:"Asignación y aprobación sintéticas de Comisión"};
+    await tx.$executeRawUnsafe(`SET LOCAL ROLE ${ident(limitedRole)}`);
+    await assert.rejects(mutateRefereeingInTransaction(tx,actors.scheduler,assign),{code:"FORBIDDEN"});
+    assert.equal(await tx.referee_assignments.count({where:{match_id:match.id}}),0);
+    await assert.rejects(mutateRefereeingInTransaction(tx,actors.commission,{...assign,expectedMatchVersion:99}),{code:"STALE_VERSION"});
+    assert.equal(await tx.referee_assignments.count({where:{match_id:match.id}}),0);
+    const assignment=await mutateRefereeingInTransaction(tx,actors.commission,assign);
+    assert.deepEqual(await mutateRefereeingInTransaction(tx,actors.commission,assign),assignment);
+    assert.equal(await tx.referee_assignments.count({where:{match_id:match.id}}),1);
+    assert.equal((await tx.referee_assignments.findUniqueOrThrow({where:{id:assignment.id},select:{status:true,approved_by:true}})).status,"APPROVED");
+    const steps=await tx.referee_operations.findMany({where:{assignment_id:assignment.id},select:{action:true}});
+    assert.deepEqual(steps.map(s=>s.action).sort(),["approve","assign","propose"]);
+    await tx.$executeRawUnsafe("SAVEPOINT direct_assign_conflict");
+    await assert.rejects(mutateRefereeingInTransaction(tx,actors.commission,{...assign,operationKey:randomUUID()}));
+    await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT direct_assign_conflict");
+    assert.equal(await tx.referee_operations.count({where:{assignment_id:assignment.id}}),3);
+
+    stage="own-conflict-attempt";
+    own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id);
+    await tx.$executeRawUnsafe("SAVEPOINT own_conflict_attempt");
+    let conflictError:unknown;
+    await assert.rejects(mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,operationKey:randomUUID(),expectedVersion:own.referee!.version,startsAt:"2026-12-05T16:00:00Z",endsAt:"2026-12-05T17:00:00Z",available:false}),error=>{conflictError=error;return error instanceof Error&&"meta"in error&&JSON.stringify(error.meta).includes("APPROVED_ASSIGNMENT_CONFLICT");});
+    await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT own_conflict_attempt");
+    assert.throws(()=>throwRefereeFailure(conflictError),{code:"UNAVAILABLE"});
+    assert.equal((await tx.referee_assignments.findUniqueOrThrow({where:{id:assignment.id},select:{status:true}})).status,"APPROVED");
+    assert.equal(await tx.referee_availability.count({where:{referee_id:row.referee_id!}}),1);
+    stage="revoked-assignment-renewal";
+    const revoked=await mutateRefereeingInTransaction(tx,actors.commission,{kind:"revoke",assignmentId:assignment.id,expectedVersion:assignment.version,expectedMatchVersion:matchVersion.version,leagueId:league.id,seasonId:season.id,operationKey:randomUUID(),reason:"Revocación sintética antes de actualizar designación"});
+    const renewed=await mutateRefereeingInTransaction(tx,actors.commission,{...assign,operationKey:randomUUID(),reason:"Nueva designación sintética desde el antecedente revocado"});
+    assert.notEqual(renewed.id,assignment.id);
+    assert.equal((await tx.referee_assignments.findUniqueOrThrow({where:{id:assignment.id},select:{status:true,version:true}})).status,"REVOKED");
+    assert.equal((await tx.referee_assignments.findUniqueOrThrow({where:{id:assignment.id},select:{version:true}})).version,revoked.version);
+    assert.equal((await tx.referee_assignments.findUniqueOrThrow({where:{id:renewed.id},select:{status:true}})).status,"APPROVED");
+    assert.equal(await tx.referee_assignments.count({where:{match_id:match.id}}),2);
+    await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT own_approved_fixture");
+    await tx.$executeRawUnsafe(`SET LOCAL ROLE ${ident(limitedRole)}`);
+    stage="own-availability-shared-scope";
+    const foreignLeague=await tx.leagues.create({data:{name:`Liga ajena sintética ${nonce}`},select:{id:true}});
+    const foreignSeason=await tx.seasons.create({data:{league_id:foreignLeague.id,sport_id:sport.id,name:"Periodo ajeno",start_date:new Date("2026-01-01Z"),end_date:new Date("2026-12-31Z")},select:{id:true}});
+    const foreignClub=await tx.clubs.create({data:{league_id:foreignLeague.id,name:"Club ajeno",reference_number:`F-${nonce}`},select:{id:true}});
+    await tx.club_affiliations.create({data:{club_id:foreignClub.id,season_id:foreignSeason.id,league_id:foreignLeague.id,reference_number:`F-${nonce}`,uniform_colors:"Sintético",status:"APPROVED",requested_by:actors.delegate},select:{id:true}});
+    await tx.club_season_referees.create({data:{referee_id:row.referee_id!,club_id:foreignClub.id,season_id:foreignSeason.id},select:{id:true}});
+    own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id);
+    assert.equal(own.canUpdate,false);assert.equal(own.blockedCode,"SHARED_AVAILABILITY_SCOPE");
+    assert.equal(own.contexts.some(c=>c.leagueId===foreignLeague.id),false);
+    await assert.rejects(mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,operationKey:randomUUID(),expectedVersion:own.referee!.version}),{code:"SHARED_AVAILABILITY_SCOPE"});
     const inactive=await tx.referees.update({where:{id:row.referee_id!},data:{is_active:false},select:{version:true}});
     await assert.rejects(provisionRefereeAccessInTransaction(tx,actors.commission,{...enable,operationKey:randomUUID(),expectedRefereeVersion:inactive.version}),{code:"REFEREE_INACTIVE"});
     await tx.$executeRawUnsafe("RESET ROLE");
@@ -123,12 +233,20 @@ try{
     await tx.role_permissions.deleteMany({where:{role_id:commission.id,permission_id:capability.id}});
     await tx.$queryRaw`SELECT sports_management.install_referee_access_permission()::text`;
     assert.equal(await tx.role_permissions.count({where:{role_id:commission.id,permission_id:capability.id}}),0);
+    const ownRole=await tx.roles.findUniqueOrThrow({where:{code:"REFEREE"},select:{id:true}});
+    const ownPermission=await tx.permissions.findUniqueOrThrow({where:{module_action:{module:"refereeing",action:"UPDATE"}},select:{id:true}});
+    await tx.role_permissions.deleteMany({where:{role_id:ownRole.id,permission_id:ownPermission.id}});
+    await tx.$queryRaw`SELECT sports_management.install_own_referee_availability_permission()::text`;
+    assert.equal(await tx.role_permissions.count({where:{role_id:ownRole.id,permission_id:ownPermission.id}}),0);
     throw rollback;
   },{timeout:30000});}catch(e){if(e!==rollback)throw e;}
   assert.equal(await db.referee_presentations.count(),before);
-  console.log("OK: presentación, cuota, origen y renovación; acceso REFEREE por Comisión sin permisos generales de usuarios, misma Persona, cambio inicial obligatorio, cuenta existente intacta, idempotencia y versiones. Fixtures revertidos.");
+  console.log("OK: presentación/cuota/origen; acceso REFEREE acotado; disponibilidad propia sin partidos previos, intervalos ajenos y versiones bloqueados, conflicto aprobado conservado, alcance multiliga e instalación sin restaurar revocaciones. ACL limitadas; fixtures revertidos.");
 }catch(e){
   const detail=JSON.stringify(e instanceof Error&&"meta"in e?e.meta:{}).match(/permission denied for (?:table|schema|function|column) [a-z_][a-z0-9_]*/i)?.[0];
-  console.error(JSON.stringify({code:"PRESENTATION_LOCAL_CHECK_FAILED",stage,errorCode:e instanceof Error&&"code"in e?e.code:"CHECK_FAILED",name:e instanceof Error?e.name:"unknown",detail}));process.exitCode=1;
+  const meta=JSON.stringify(e instanceof Error&&"meta"in e?e.meta:{});
+  const databaseCode=meta.match(/"originalCode":"([A-Z0-9]+)"/)?.[1];
+  const serverCodes=meta.match(/\b[A-Z][A-Z_]{6,}\b/g)?.filter(v=>v!=="SELECT"&&v!=="INSERT").slice(0,5);
+  console.error(JSON.stringify({code:"PRESENTATION_LOCAL_CHECK_FAILED",stage,errorCode:e instanceof Error&&"code"in e?e.code:"CHECK_FAILED",name:e instanceof Error?e.name:"unknown",detail,databaseCode,serverCodes}));process.exitCode=1;
 }
 finally{await db?.$disconnect();}

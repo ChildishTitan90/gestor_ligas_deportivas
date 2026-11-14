@@ -39,6 +39,7 @@ const readColumns = {
   standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
 };
 const insert = {
+  referee_presentation_credentials:['id','file_id','uploaded_by','operation_key','input_hash'],
   referee_presentations:['club_id','season_id','requester_id','operation_key','input_hash','person_id','first_name','paternal_surname','maternal_surname','reason'],
   player_identity_corrections:['registration_id','person_id','requester_id','operation_key','request_hash','expected_identity_version','proposed_identity','reason','identity_doubt','status'],
   player_identity_correction_evidence:['correction_id','kind','mime_type','sha256','bytes'],
@@ -130,6 +131,7 @@ read.push('club_season_referees','referee_availability','referee_operations','se
 lock.push('club_season_referees','referee_availability','club_affiliations');
 lock.push('player_identity_corrections');
 read.push('referee_presentations');
+read.push('referee_presentation_credentials');
 lock.push('referee_presentations');
 export const runtimePrivileges = Object.freeze({ read, readColumns, insert, update, remove, lock });
 const literal = value => `'${value.replaceAll("'", "''")}'`;

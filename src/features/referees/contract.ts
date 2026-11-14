@@ -1,9 +1,11 @@
 import { z } from "zod";
 const base = { operationKey: z.uuid(), leagueId: z.uuid(), seasonId: z.uuid(), reason: z.string().trim().min(5).max(500) };
+export const availabilityMutation = z.strictObject({ ...base, kind: z.literal("availability"), refereeId: z.uuid(), expectedVersion: z.number().int().positive(), intervalId: z.uuid().optional(), startsAt: z.iso.datetime(), endsAt: z.iso.datetime(), available: z.boolean() });
 export const refereeMutation = z.discriminatedUnion("kind", [
   z.strictObject({ ...base, kind: z.literal("register"), personId: z.uuid(), clubId: z.uuid(), active: z.boolean(), expectedVersion: z.number().int().nonnegative() }),
-  z.strictObject({ ...base, kind: z.literal("availability"), refereeId: z.uuid(), expectedVersion: z.number().int().positive(), intervalId: z.uuid().optional(), startsAt: z.iso.datetime(), endsAt: z.iso.datetime(), available: z.boolean() }),
+  availabilityMutation,
   z.strictObject({ ...base, kind: z.literal("propose"), refereeId: z.uuid(), matchId: z.uuid(), expectedMatchVersion: z.number().int().positive() }),
+  z.strictObject({ ...base, kind: z.literal("assign"), refereeId: z.uuid(), matchId: z.uuid(), expectedMatchVersion: z.number().int().positive() }),
   z.strictObject({ ...base, kind: z.enum(["approve", "revoke"]), assignmentId: z.uuid(), expectedVersion: z.number().int().positive(), expectedMatchVersion: z.number().int().positive() }),
 ]);
 export type RefereeMutation = z.infer<typeof refereeMutation>;
@@ -23,4 +25,5 @@ export const blockerMessages: Record<string, string> = {
   OPERATION_KEY_REUSED: "La clave ya corresponde a otro contenido. Consulta el acuse de la solicitud original.",
   PRESENTING_CLUB_FIXED: "El club de origen queda fijo durante la temporada. No se puede trasladar esta presentación a otro club.",
   INVALID_TRANSITION: "La designación ya no admite esa operación. Consulta su estado actual.",
+  SHARED_AVAILABILITY_SCOPE: "La disponibilidad es compartida entre tus ligas. Falta permiso propio en un contexto vigente; solicita a Comisión que revise tu acceso.",
 };

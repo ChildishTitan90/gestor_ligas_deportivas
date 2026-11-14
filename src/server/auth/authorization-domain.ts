@@ -3,6 +3,18 @@ import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { AuthorizationError, lockAuthorization } from "./authorization";
 
+/** Vínculo de identidad propio, sin exigir una designación previa. No concede permisos. */
+export async function readOwnReferee(tx: Prisma.TransactionClient, actorId: string) {
+  if (!z.uuid().safeParse(actorId).success) throw new AuthorizationError();
+  await lockAuthorization(tx);
+  const [referee] = await tx.$queryRaw<{ id: string; version: number; active: boolean }[]>`
+    SELECT r.id,r.version,r.is_active AS active FROM sports_management.referees r
+    JOIN sports_management.users u ON u.person_id=r.person_id
+    WHERE u.id=${actorId}::uuid AND u.is_active AND NOT u.must_change_password
+      AND (u.locked_until IS NULL OR u.locked_until<=clock_timestamp()) FOR SHARE OF r,u`;
+  return referee ?? null;
+}
+
 /** Additional RF22 ownership predicates; they never grant a permission on their own. */
 export async function assertOwnRefereeAssignment(tx: Prisma.TransactionClient, actorId: string, matchId: string) {
   if (!z.uuid().safeParse(actorId).success || !z.uuid().safeParse(matchId).success) throw new AuthorizationError();

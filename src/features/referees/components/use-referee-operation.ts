@@ -2,8 +2,9 @@
 import {useEffect,useMemo,useRef,useState,useSyncExternalStore} from "react";
 import {useRouter} from "next/navigation";
 import type {ZodType} from "zod";
+export class RefereeRequestPreparationError extends Error {}
 function subscribePending(listener:()=>void){window.addEventListener("refereeing-operation",listener);window.addEventListener("storage",listener);return()=>{window.removeEventListener("refereeing-operation",listener);window.removeEventListener("storage",listener);};}
-export function useRefereeOperation({actorId,endpoint,storageNamespace,schema,base={},messages,onRecovered,buildRequest}:{actorId:string;endpoint:string;storageNamespace:string;schema:ZodType<Record<string,unknown>>;base?:Record<string,unknown>;messages:Record<string,string>;onRecovered?:()=>void;buildRequest?:(payload:Record<string,unknown>)=>Record<string,unknown>}){
+export function useRefereeOperation({actorId,endpoint,storageNamespace,schema,base={},messages,onRecovered,buildRequest,prepareRequest}:{actorId:string;endpoint:string;storageNamespace:string;schema:ZodType<Record<string,unknown>>;base?:Record<string,unknown>;messages:Record<string,string>;onRecovered?:()=>void;buildRequest?:(payload:Record<string,unknown>)=>Record<string,unknown>;prepareRequest?:(payload:Record<string,unknown>)=>Promise<{body:BodyInit;headers:Record<string,string>}>}){
   const router = useRouter();
   const [pending, setPending] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState(""), [reason, setReason] = useState("");
   const operation = useRef<Record<string, unknown> | null>(null), busy = useRef(false);
@@ -25,7 +26,8 @@ export function useRefereeOperation({actorId,endpoint,storageNamespace,schema,ba
     operation.current = payload;
     try{sessionStorage.setItem(storageKey,JSON.stringify(payload));window.dispatchEvent(new Event("refereeing-operation"));}catch{}
     try {
-      const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json", "X-Expected-Actor-Id": actorId }, body: JSON.stringify(buildRequest?buildRequest(payload):payload), signal: AbortSignal.timeout(20000) });
+      const request=prepareRequest?await prepareRequest(payload):{headers:{"Content-Type":"application/json"},body:JSON.stringify(buildRequest?buildRequest(payload):payload)};
+      const response = await fetch(endpoint, { method: "POST", headers: { ...request.headers, "X-Expected-Actor-Id": actorId }, body: request.body, signal: AbortSignal.timeout(prepareRequest?60000:20000) });
       const result = await response.json();
       if (!response.ok) {
         if (response.status >= 500 || response.status===401 || response.status===403) throw Error("UNCERTAIN");
@@ -33,7 +35,7 @@ export function useRefereeOperation({actorId,endpoint,storageNamespace,schema,ba
       }
       if (result.operationKey !== payload.operationKey || typeof result.id !== "string" || !Number.isInteger(result.version)) throw Error("UNCERTAIN");
       forget(); setUncertain(false);setRetryReady(false);setReason(""); router.refresh(); return true;
-    } catch { setUncertain(true); setError("No se pudo confirmar el resultado. Conservamos la solicitud y su versión en esta vista. Consulta el resultado antes de volver a enviar; no recargues ni salgas."); return false; }
+    } catch(error) { setUncertain(true); setError(error instanceof RefereeRequestPreparationError?error.message:"No se pudo confirmar el resultado. Conservamos la solicitud y su versión en esta vista. Consulta el resultado antes de volver a enviar; no recargues ni salgas."); return false; }
     finally { busy.current = false; setPending(false); }
   }
   async function recover() {

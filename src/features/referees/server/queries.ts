@@ -52,8 +52,8 @@ export async function getRefereeWorkspaceForActor(actorId: string, leagueId = ""
       const intervals = await tx.referee_availability.findMany({ where: { referee_id: { in: refs.map(r => r.id) } }, orderBy: { starts_at: "asc" } });
       data.availability = intervals.map(i => ({ id: i.id, refereeId: i.referee_id, startsAt: i.starts_at.toISOString(), endsAt: i.ends_at.toISOString(), available: i.is_available }));
     }
-    const matches = await tx.$queryRaw<{id:string;number:string;version:number;category:string;group:string;group_id:string;home:string;away:string;venue:string;starts_at:Date|null;ends_at:Date|null;status:string}[]>`
-      SELECT m.id,m.number,m.version,c.name AS category,g.name AS "group",g.id AS group_id,ht.name AS home,at.name AS away,v.name AS venue,m.starts_at,m.ends_at,ms.code AS status
+    const matches = await tx.$queryRaw<{id:string;number:string;version:number;category:string;group:string;group_id:string;home:string;away:string;venue:string;starts_at:Date|null;ends_at:Date|null;deleted_at:Date|null;status:string}[]>`
+      SELECT m.id,m.number,m.version,c.name AS category,g.name AS "group",g.id AS group_id,ht.name AS home,at.name AS away,v.name AS venue,m.starts_at,m.ends_at,m.deleted_at,ms.code AS status
       FROM sports_management.matches m JOIN sports_management.groups g ON g.id=m.group_id
       JOIN sports_management.season_categories sc ON sc.id=g.season_category_id JOIN sports_management.categories c ON c.id=sc.category_id
       JOIN sports_management.season_teams hs ON hs.id=m.home_team_id JOIN sports_management.teams ht ON ht.id=hs.team_id
@@ -61,7 +61,7 @@ export async function getRefereeWorkspaceForActor(actorId: string, leagueId = ""
       JOIN sports_management.match_statuses ms ON ms.id=m.status_id LEFT JOIN sports_management.venues v ON v.id=m.venue_id
       WHERE m.season_id=${seasonId}::uuid ORDER BY m.starts_at,m.number`;
     const members = await tx.season_teams.findMany({ where: { season_id: seasonId }, select: { group_id: true, club_id: true, teams: { select: { name: true } } } });
-    data.matches = matches.map(m => ({ id: m.id, number: m.number, seasonId, version: m.version, category: m.category, group: m.group, home: m.home, away: m.away, venue: m.venue ?? "Cancha sin asignar", startsAt: m.starts_at?.toISOString() ?? "", endsAt: m.ends_at?.toISOString() ?? "", groupClubs: members.filter(t => t.group_id === m.group_id).map(t => ({ clubId: t.club_id, team: t.teams.name })) }));
+    data.matches = matches.map(m => ({ id: m.id, number: m.number, seasonId, version: m.version, openForAssignments:season.status!=="CLOSED"&&!m.deleted_at&&!["FINISHED","NO_SHOW","ADMINISTRATIVELY_RESOLVED","CANCELED","UNSCHEDULED","DRAFT"].includes(m.status), category: m.category, group: m.group, home: m.home, away: m.away, venue: m.venue ?? "Cancha sin asignar", startsAt: m.starts_at?.toISOString() ?? "", endsAt: m.ends_at?.toISOString() ?? "", groupClubs: members.filter(t => t.group_id === m.group_id).map(t => ({ clubId: t.club_id, team: t.teams.name })) }));
     const assignments = await tx.referee_assignments.findMany({ where: { matches: { season_id: seasonId } }, orderBy: { id: "asc" } });
     for (const a of assignments) {
       data.assignments.push({ id: a.id, matchId: a.match_id, refereeId: a.referee_id, status: a.status as AssignmentStatus, version: a.version });
@@ -83,7 +83,7 @@ export async function getRefereeWorkspaceForActor(actorId: string, leagueId = ""
     }
     // Historial de operaciones, actores y motivos: nunca nombres actuales como
     // identidad del pasado. Los nombres del padrón abierto son solo vigentes.
-    const events = await tx.$queryRaw<{id:string;action:string;actor:string;reason:string;created_at:Date;referee_id:string;assignment_id:string|null;version:number}[]>`SELECT o.id,o.action,u.username AS actor,o.reason,o.created_at,o.referee_id,o.assignment_id,(o.result->>'version')::integer AS version FROM sports_management.referee_operations o JOIN sports_management.users u ON u.id=o.actor_id WHERE o.league_id=${leagueId}::uuid AND o.season_id=${seasonId}::uuid ORDER BY o.created_at DESC,o.id`;
+    const events = await tx.$queryRaw<{id:string;action:string;actor:string;reason:string;created_at:Date;referee_id:string;assignment_id:string|null;version:number}[]>`SELECT o.id,o.action,u.username AS actor,o.reason,o.created_at,o.referee_id,o.assignment_id,(o.result->>'version')::integer AS version FROM sports_management.referee_operations o JOIN sports_management.users u ON u.id=o.actor_id WHERE o.league_id=${leagueId}::uuid AND o.season_id=${seasonId}::uuid AND o.action<>'assign' ORDER BY o.created_at DESC,o.id`;
     result.data.events = events.map(e => ({ id:e.id, refereeId:e.referee_id, assignmentId:e.assignment_id, action:e.action==="referee-account-access"?"Acceso arbitral habilitado":e.action, actor:e.actor, reason:e.reason, at:e.created_at.toISOString(),version:e.version }));
     return result;
   }, { timeout: 20000 });

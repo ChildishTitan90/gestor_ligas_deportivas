@@ -11,6 +11,10 @@ import type { AssignmentAssessment } from "../types";
 type Tx = Prisma.TransactionClient;
 export class RefereeError extends Error { constructor(public code: string, public status = 409) { super(code); } }
 export type Receipt = { id: string; version: number; operationKey: string };
+function assignmentStepKey(actorId:string,key:string,step:"propose"|"approve") {
+  const h=createHash("sha256").update(JSON.stringify(["direct-assignment:v1",actorId,key,step])).digest("hex");
+  return `${h.slice(0,8)}-${h.slice(8,12)}-5${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20,32)}`;
+}
 /** Misma incorporación vigente utilizada para provisionar el acceso a una Persona. */
 export function incorporatedRefereeInLeague(leagueId: string): Prisma.refereesWhereInput {
   return { is_active: true, club_season_referees: { some: { club_affiliations: {
@@ -62,15 +66,20 @@ export async function recoverRefereeOperation(actorId: string, key: string) {
   });
 }
 export async function mutateRefereeing(actorId: string, input: unknown): Promise<Receipt> {
+  try { return await getPrisma().$transaction(tx => mutateRefereeingInTransaction(tx, actorId, input), { timeout: 20000 }); }
+  catch (error) { throwRefereeFailure(error); }
+}
+/** Entrada interna para operaciones atómicas; conserva permisos y reglas completas. */
+export async function mutateRefereeingInTransaction(tx: Tx, actorId: string, input: unknown): Promise<Receipt> {
   const parsed = refereeMutation.safeParse(input);
   if (!parsed.success) throw new RefereeError("INVALID_PAYLOAD", 400);
   const command = parsed.data;
   const hash = createHash("sha256").update(JSON.stringify(command)).digest("hex");
-  try { return await getPrisma().$transaction(async tx => {
     await lockRefereeing(tx);
     const action: PermissionAction = command.kind === "approve" || command.kind === "revoke" ? "APPROVE" : command.kind === "register" && command.expectedVersion === 0 ? "CREATE" : "UPDATE";
     await authorizeRefereeing(tx, actorId, "READ", command.leagueId, command.seasonId);
     await authorizeRefereeing(tx, actorId, action, command.leagueId, command.seasonId);
+    if(command.kind==="assign")await authorizeRefereeing(tx,actorId,"APPROVE",command.leagueId,command.seasonId,undefined,command.matchId);
     const prior = await existingReceipt(tx, actorId, command.operationKey);
     if (prior) {
       if (prior.input_hash !== hash) throw new RefereeError("OPERATION_KEY_REUSED");
@@ -80,6 +89,16 @@ export async function mutateRefereeing(actorId: string, input: unknown): Promise
     if (season.league_id !== command.leagueId) throw new AuthorizationError();
     if (season.status === "CLOSED") throw new RefereeError("CLOSED_CONTEXT");
     await tx.$queryRaw`SELECT set_config('app.user_id',${actorId},true),set_config('app.reason',${command.reason},true)`;
+    if(command.kind==="assign"){
+      // Reutilizar ambos contratos dentro de ESTA transacción. Si aprobar falla,
+      // no queda una propuesta parcial ni se consumen sus claves de operación.
+      const shared={leagueId:command.leagueId,seasonId:command.seasonId,reason:command.reason,expectedMatchVersion:command.expectedMatchVersion};
+      const proposed=await mutateRefereeingInTransaction(tx,actorId,{...shared,kind:"propose",refereeId:command.refereeId,matchId:command.matchId,operationKey:assignmentStepKey(actorId,command.operationKey,"propose")});
+      const approved=await mutateRefereeingInTransaction(tx,actorId,{...shared,kind:"approve",assignmentId:proposed.id,expectedVersion:proposed.version,operationKey:assignmentStepKey(actorId,command.operationKey,"approve")});
+      const receipt={...approved,operationKey:command.operationKey};
+      await tx.$executeRaw`INSERT INTO sports_management.referee_operations(actor_id,operation_key,input_hash,league_id,season_id,action,referee_id,assignment_id,reason,result) VALUES(${actorId}::uuid,${command.operationKey}::uuid,${hash},${command.leagueId}::uuid,${command.seasonId}::uuid,'assign',${command.refereeId}::uuid,${approved.id}::uuid,${command.reason},${JSON.stringify(receipt)}::jsonb)`;
+      return receipt;
+    }
     let result: { id: string; version: number }; let refereeId: string; let assignmentId: string | null = null;
     if (command.kind === "register") {
       await authorizeRefereeing(tx, actorId, action, command.leagueId, command.seasonId, command.clubId);
@@ -96,18 +115,8 @@ export async function mutateRefereeing(actorId: string, input: unknown): Promise
       await ensurePresentingClub(tx,saved.id,command.clubId,command.seasonId,link);
       result = await tx.referees.findUniqueOrThrow({where:{id:saved.id},select:{id:true,version:true}}); refereeId = saved.id;
     } else if (command.kind === "availability") {
-      const referee = await tx.referees.findUniqueOrThrow({ where: { id: command.refereeId }, select: { version: true } });
       await assertRefereeScope(tx, actorId, command.refereeId, "UPDATE");
-      if (!await tx.club_season_referees.findUnique({ where: { referee_id_season_id: { referee_id: command.refereeId, season_id: command.seasonId } } })) throw new AuthorizationError();
-      if (referee.version !== command.expectedVersion) throw new RefereeError("STALE_VERSION");
-      if (Date.parse(command.endsAt) <= Date.parse(command.startsAt)) throw new RefereeError("INVALID_TIME", 400);
-      const interval = { referee_id: command.refereeId, starts_at: new Date(command.startsAt), ends_at: new Date(command.endsAt), is_available: command.available };
-      if (command.intervalId) {
-        const existing = await tx.referee_availability.findUnique({ where: { id: command.intervalId } });
-        if (existing?.referee_id !== command.refereeId) throw new AuthorizationError();
-        await tx.referee_availability.update({ where: { id: existing.id }, data: {starts_at:interval.starts_at,ends_at:interval.ends_at,is_available:interval.is_available} });
-      } else await tx.referee_availability.create({ data: interval });
-      result = await tx.referees.findUniqueOrThrow({ where: { id: command.refereeId }, select: { id: true, version: true } }); refereeId = command.refereeId;
+      result = await saveRefereeAvailability(tx, command); refereeId = command.refereeId;
     } else {
       const existing = command.kind === "propose" ? null : await tx.referee_assignments.findUniqueOrThrow({ where: { id: command.assignmentId } });
       const matchId = command.kind === "propose" ? command.matchId : existing!.match_id;
@@ -129,7 +138,24 @@ export async function mutateRefereeing(actorId: string, input: unknown): Promise
     await tx.$executeRaw`INSERT INTO sports_management.referee_operations(actor_id,operation_key,input_hash,league_id,season_id,action,referee_id,assignment_id,reason,result)
       VALUES(${actorId}::uuid,${command.operationKey}::uuid,${hash},${command.leagueId}::uuid,${command.seasonId}::uuid,${command.kind},${refereeId}::uuid,${assignmentId}::uuid,${command.reason},${JSON.stringify(receipt)}::jsonb)`;
     return receipt;
-  }, { timeout: 20000 }); } catch (error) {
+}
+
+/** Reutilizado por Comisión y captura propia después de su autorización particular. */
+export async function saveRefereeAvailability(tx: Tx, command: Extract<RefereeMutation, {kind:"availability"}>) {
+  const referee = await tx.referees.findUnique({ where: { id: command.refereeId }, select: { version: true } });
+  if (!referee || !await tx.club_season_referees.findUnique({ where: { referee_id_season_id: { referee_id: command.refereeId, season_id: command.seasonId } } })) throw new AuthorizationError();
+  if (referee.version !== command.expectedVersion) throw new RefereeError("STALE_VERSION");
+  if (Date.parse(command.endsAt) <= Date.parse(command.startsAt)) throw new RefereeError("INVALID_TIME", 400);
+  const interval = { referee_id: command.refereeId, starts_at: new Date(command.startsAt), ends_at: new Date(command.endsAt), is_available: command.available };
+  if (command.intervalId) {
+    const existing = await tx.referee_availability.findUnique({ where: { id: command.intervalId } });
+    if (existing?.referee_id !== command.refereeId) throw new AuthorizationError();
+    await tx.referee_availability.update({ where: { id: existing.id }, data: {starts_at:interval.starts_at,ends_at:interval.ends_at,is_available:interval.is_available} });
+  } else await tx.referee_availability.create({ data: interval });
+  return tx.referees.findUniqueOrThrow({ where: { id: command.refereeId }, select: { id: true, version: true } });
+}
+
+export function throwRefereeFailure(error: unknown): never {
     if (error instanceof RefereeError || error instanceof AuthorizationError) throw error;
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       const detail = JSON.stringify(error.meta ?? {});
@@ -138,7 +164,6 @@ export async function mutateRefereeing(actorId: string, input: unknown): Promise
       if (["P2002", "P2004", "P2010", "P2034"].includes(error.code)) throw new RefereeError("CONCURRENT_OR_DEPENDENCY_CONFLICT");
     }
     throw error;
-  }
 }
 /** Compartido por alta directa y aceptación del prerregistro. El llamador ya
  * autenticó/autorizó la operación y mantiene lockRefereeing en su transacción. */

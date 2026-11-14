@@ -3,6 +3,10 @@
 Entrega de backend de PDGLD-86 sobre las vistas aprobadas de PDGLD-142. Misma
 rama `feat/PDGLD-86-arbitros-designaciones`. No implementa PDGLD-18/19 ni la PWA.
 
+Las presentaciones nuevas incluyen acreditación privada y revisión explícita
+de Comisión. Véase [cédula del candidato y Storage](referee-credentials.md),
+con recuperación, conservación de antecedentes y plan de seguridad de producción.
+
 ## Inventario comprobado antes de implementar
 
 - `people`: Persona única, identidad/versionado y trámite privado de PDGLD-117.
@@ -46,7 +50,29 @@ contrato Zod. El servicio vuelve a autorizar liga/temporada/club/partido:
 | register existente | UPDATE + READ | Misma persona; versión del agregado y autorización de todas sus referencias |
 | availability | UPDATE + READ | Intervalo válido, pertenencia a temporada y alcance de todas sus referencias, también en otras ligas |
 | propose | UPDATE + READ | Programación puede proponer con su permiso UPDATE; no se crea aprobación ni publicación |
+| assign | UPDATE + APPROVE + READ | Asigna y aprueba en una transacción; exige permisos efectivos de ambas operaciones, sin resolver por nombre de rol |
 | approve / revoke | APPROVE + READ | Versión de designación y partido, contexto abierto, permiso de Comisión vigente por RF22 |
+
+Por acuerdo del usuario, quien dispone de UPDATE y APPROVE ve **Asignar árbitro**
+y confirma **Asignar y aprobar**. Programación mantiene **Proponer designación**.
+Las propuestas existentes siguen necesitando aprobación; no se aprueban en lote
+ni por cambiar los permisos. No se añade aceptación/rechazo del árbitro en esta
+entrega y se conservan PROPOSED / APPROVED / REVOKED.
+
+`assign` reutiliza propuesta y aprobación dentro de la misma transacción, con
+claves derivadas estables y un acuse raíz. Historial muestra los dos eventos de
+negocio; el acuse raíz no añade un tercer evento visual. Si falla cualquier paso,
+se revierte todo. La recuperación conserva clave, motivo y versión del partido.
+
+Actualizar desde una ficha REVOKED reutiliza `assign` o `propose` con el partido
+preseleccionado. No manda `approve` sobre el antecedente ni intenta cambiar su
+estado: la nueva designación tiene otra identidad y conserva el historial previo.
+El selector usa las evaluaciones autorizadas para omitir aprobaciones sin
+bloqueos; las que requieren revisión ofrecen acceso a su ficha y requieren una
+revocación explícita antes de reasignar, conforme al bloqueo de plaza existente.
+Las propuestas pendientes siguen identificadas como propuestas sin acceso efectivo.
+`openForAssignments` es una proyección de presentación del contexto actual;
+los servicios y restricciones SQL siguen validando cada escritura y versión.
 
 La actividad y disponibilidad son globales: no se permite a un administrador de
 una sola liga alterar silenciosamente un árbitro compartido con ligas ajenas.
@@ -254,6 +280,46 @@ se exige el trámite privado pendiente de otro solicitante y su evento APPLIED e
 la misma transacción, además de las autorizaciones originales de 117. El guardia
 diferido revierte una corrección incompleta. El nuevo contrato de reevaluación
 solo audita las referencias abiertas y reconsulta su efectividad por versión.
+
+## Disponibilidad declarada por el árbitro
+
+Ampliación autorizada el 14/11/2026: `/referees/my-availability` ofrece **Mi
+disponibilidad** antes de tener partidos asignados. Exige READ contextual de
+refereeing y, para captura, UPDATE contextual. La migración aditiva
+`20261114050000_pdgld141_own_referee_availability` instala UPDATE* en REFEREE una
+sola vez. El seed lo recibe después de la matriz inicial y no restaura permisos
+retirados tras el marcador. No concede UPDATE no contextual, APPROVE, cuentas
+ni acceso al padrón.
+
+El contrato compartido `readOwnReferee` vincula sesión → users.person_id →
+referees.person_id. Conocer un UUID no permite leer o modificar otro árbitro.
+La lectura entrega solo intervalos propios y contextos autorizados con
+incorporación aprobada, club/liga activos y temporada abierta. Sin incorporación
+se muestra un vacío; un árbitro inactivo mantiene consulta sin captura.
+
+La disponibilidad es global. Elegir liga/temporada autoriza y determina la zona
+de las fechas; no crea otro calendario. Modificarla exige permisos propios en
+todos sus vínculos vigentes afectados. Si faltan, se bloquea con
+`SHARED_AVAILABILITY_SCOPE`, sin revelar contextos ajenos ni ampliar privilegios.
+
+`POST /api/referee-availability` acepta únicamente availability, comprueba sesión,
+origen/actor esperado y Zod, y revalida propiedad/alcance. Reutiliza
+`saveRefereeAvailability`, versión, bloqueo RF22 → 117 → 86/141, guards SQL y
+auditoría de Comisión. Impide intervalos ajenos y cambios que invaliden
+designaciones aprobadas; no las revoca ni reescribe antecedentes cerrados.
+Comisión mantiene consulta/corrección con su UPDATE no contextual.
+
+El acuse inmutable referee_operations conserva actor, motivo, clave y versión.
+La recuperación GET revalida la identidad y lectura propias; el reintento
+conserva el contenido original. La UI reutiliza AvailabilityDialog, FormDialog,
+SelectField y temas/tokens. El motivo tiene ejemplos distintos para disponible
+e indisponible, sin prellenado. Mis partidos conserva su recorrido.
+
+No crea tablas ni cambia RLS. Utiliza las ACL existentes de lectura,
+INSERT/UPDATE y bloqueo de disponibilidad/operaciones. El instalador privado
+niega EXECUTE a PUBLIC, roles API y Preview. La prueba local usa las ACL
+limitadas para el árbitro; solo el propietario prepara el partido sintético,
+sin conceder programación al árbitro. Todos los fixtures terminan en rollback.
 
 ## Seguridad SQL / producción
 

@@ -630,6 +630,7 @@ model event_types {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model files {
+  referee_credential referee_presentation_credentials?
   id                                                                String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   storage_key                                                       String                      @unique
   original_name                                                     String
@@ -2121,6 +2122,7 @@ model user_roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
+  uploaded_referee_credentials referee_presentation_credentials[]
   submitted_referee_presentations referee_presentations[] @relation("presentation_requester")
   reviewed_referee_presentations referee_presentations[] @relation("presentation_reviewer")
   referee_operations referee_operations[]
@@ -2497,9 +2499,24 @@ model referee_presentations {
  candidate people? @relation("presentation_candidate",fields:[person_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
  approved_person people? @relation("presentation_approved_person",fields:[approved_person_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
  referee referees? @relation(fields:[referee_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ credential referee_presentation_credentials?
  @@unique([requester_id,operation_key])
  @@unique([reviewed_by,review_key])
  @@unique([person_id,season_id],map:"pending_referee_person_season",where:raw("((status = 'PENDING'::text) AND (person_id IS NOT NULL))"))
  @@index([season_id,club_id,status],map:"referee_presentations_inbox")
+ @@schema("sports_management")
+}
+
+model referee_presentation_credentials {
+ id String @id @db.Uuid
+ file_id String @unique @db.Uuid
+ uploaded_by String @db.Uuid
+ operation_key String @db.Uuid
+ input_hash String
+ created_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+ presentation referee_presentations @relation(fields:[id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ file files @relation(fields:[file_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ uploader users @relation(fields:[uploaded_by],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ @@unique([uploaded_by,operation_key])
  @@schema("sports_management")
 }

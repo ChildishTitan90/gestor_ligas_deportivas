@@ -20,6 +20,7 @@ type Props = Pick<AriaAttributes, "aria-label" | "aria-labelledby" | "aria-descr
   className?: string;
   icon?: ReactNode;
   searchable?: boolean;
+  descriptionPosition?: "beside" | "below";
 };
 
 function normalize(value: string) {
@@ -29,7 +30,7 @@ function normalize(value: string) {
 /** Selección cerrada: buscar no envía texto libre ni cambia el valor confirmado. */
 export function SelectField({ id: suppliedId, name, options, value, defaultValue = "", onValueChange,
   disabled = false, required = false, placeholder = "Selecciona una opción", searchPlaceholder = "Buscar opción…",
-  className = "", icon, searchable = true, ...aria }: Props) {
+  className = "", icon, searchable = true, descriptionPosition="beside", ...aria }: Props) {
   const generatedId = useId();
   const id = suppliedId ?? generatedId;
   const listId = `${id}-options`;
@@ -206,8 +207,8 @@ export function SelectField({ id: suppliedId, name, options, value, defaultValue
         className={`select-option relative flex min-h-11 items-center gap-3 rounded-lg border-l-4 px-3 py-3 text-sm ${option.value === submittedValue ? "border-accent" : "border-transparent"} ${option.value === active?.value || option.value === submittedValue ? "bg-soft text-primary" : "text-foreground"} ${option.disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
         onMouseDown={event => event.preventDefault()} onPointerMove={() => { if (!option.disabled) setActiveValue(option.value); }}
         onClick={() => choose(option)}>
-        <span className="select-option-label min-w-0 flex-1 wrap-break-word">{option.label}</span>
-        {option.description && <span className="select-option-description shrink-0 text-xs text-muted">{option.description}</span>}
+        {descriptionPosition==="below"?<span className="min-w-0 flex-1"><span className="select-option-label block wrap-break-word">{option.label}</span>{option.description&&<span className="select-option-description mt-1 block text-xs text-muted" style={{maxWidth:"100%"}}>{option.description}</span>}</span>:<><span className="select-option-label min-w-0 flex-1 wrap-break-word">{option.label}</span>
+        {option.description && <span className="select-option-description shrink-0 text-xs text-muted">{option.description}</span>}</>}
         {option.value === submittedValue && <Check size={17} aria-hidden="true" className="select-option-check shrink-0 text-accent" />}
       </div>)}
       {!filtered.length && <p role="status" className="select-empty">No hay opciones que coincidan con tu búsqueda.</p>}

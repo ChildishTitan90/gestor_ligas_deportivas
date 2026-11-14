@@ -36,6 +36,17 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
       window.networkCalls=0;window.fetch=()=>{window.networkCalls++;throw Error('Sin red en fixture de arbitraje')};
       let root=createRoot(document.getElementById('root'));
       window.renderView=(view='register')=>flushSync(()=>root.render(<ManagementShell account={{username:'demo-ui',initials:'UI',roleNames:['Revisión sintética']}} navigation={[{label:'Arbitraje',items:[{href:'/referees/demo',label:'Árbitros y designaciones · Demo',icon:'players'}]}]}><RefereeWorkspace initialData={refereePreviewData} view={view} matchesHref='/matches'/></ManagementShell>));
+      window.renderLiveRegister=(allowed=true,season='DEMO-S1')=>flushSync(()=>root.render(<ManagementShell account={{username:'demo-ui',initials:'UI',roleNames:['Revisión sintética']}} navigation={[]}><RefereeWorkspace key={'live-'+allowed+season} initialData={refereePreviewData} view='register' matchesHref={null} live={{leagueId:'DEMO-L1',seasonId:season,pending:false,uncertain:false,error:'',reason:'',capabilities:{register:true,update:true,approve:true,provisionAccess:allowed},assessments:{},onReasonChange(){},onScopeChange(){},async mutate(){return false},recover(){},retryReady:false,retry(){}}}/></ManagementShell>));
+      window.assignmentCommands=[];
+      window.renderLiveAssignments=(approve=true)=>{window.fetch=async()=>Response.json({availability:'COVERED',blockers:[]});flushSync(()=>root.render(<RefereeWorkspace key={'assignment-'+approve} initialData={refereePreviewData} view='assignments' matchesHref='/matches' live={{leagueId:'DEMO-L1',seasonId:'DEMO-S1',pending:false,uncertain:false,error:'',reason:'Verificación sintética de reglas',capabilities:{register:true,update:true,approve,provisionAccess:false},assessments:{},onReasonChange(){},onScopeChange(){},async mutate(command){window.assignmentCommands.push(command);return true},recover(){},retryReady:false,retry(){}}}/>));};
+      let flowSerial=0;
+      window.renderAssignmentFlow=(mode='renew',approve=true)=>{
+        const data=structuredClone(refereePreviewData);data.matches=data.matches.map(m=>({...m,version:7,openForAssignments:m.id!=='DEMO-M4'}));
+        data.assignments=mode==='renew'?[{id:'REVOKED-1',matchId:'DEMO-M1',refereeId:'DEMO-R1',status:'REVOKED',version:3}]:[{id:'COVERED-1',matchId:'DEMO-M1',refereeId:'DEMO-R1',status:'APPROVED',version:2},{id:'CONFLICT-2',matchId:'DEMO-M2',refereeId:'DEMO-R4',status:'APPROVED',version:2}];
+        const assessments={'COVERED-1':{availability:'COVERED',blockers:[]},'CONFLICT-2':{availability:'COVERED',blockers:[{code:'IDENTITY_CHANGED',message:'Identidad modificada; revisar designación.'}]}};
+        window.assignmentCommands=[];window.fetch=async()=>Response.json({availability:'COVERED',blockers:[]});
+        flushSync(()=>root.render(<RefereeWorkspace key={'flow-'+(++flowSerial)} initialData={data} view='assignments' matchesHref='/matches' live={{leagueId:'DEMO-L1',seasonId:'DEMO-S1',pending:false,uncertain:false,error:'',reason:'Actualización sintética revisada',capabilities:{register:true,update:true,approve,provisionAccess:false},assessments,onReasonChange(){},onScopeChange(){},async mutate(command){window.assignmentCommands.push(command);return true},recover(){},retryReady:false,retry(){}}}/>));
+      };
       window.renderView();
     ` } });
   const server = createServer((req, res) => {
@@ -126,6 +137,10 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
   assert.match(await ev('document.body.textContent'), /Identidad preservada al cierre/);
   assert.match(await ev('document.body.textContent'), /Identidad histórica no disponible/);
   assert.doesNotMatch(await ev('document.body.textContent'), /Ciro · Identidad/);
+  await ev(`document.getElementById('history-referee').click()`);await wait(`document.querySelector('[role=option]')`);
+  assert.equal(await ev(`document.querySelector('[role=option][data-value="DEMO-R3"] .select-option-label').textContent`),'Identidad histórica no disponible');
+  assert.equal(await ev(`document.querySelector('[role=option][data-value="DEMO-R3"] .select-option-description').textContent`),'DEMO-R3');
+  await key('Escape','Escape',27);
   await pick('history-referee', 'DEMO-R3');
   assert.equal(await ev('document.querySelectorAll("ol>li").length'), 1);
   await pick('referee-season', 'Apertura');
@@ -193,5 +208,65 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
     await key('Escape', 'Escape', 27); await wait(`document.querySelector('dialog').textContent.includes('¿Descartar')`);
     await click('Descartar cambios'); await wait(`!document.querySelector('dialog[open]')`);
   }
-  assert.equal(await ev('window.networkCalls'), 0, 'la demo no envía solicitudes de negocio');
+  // El selector del historial conserva nombres y UUID en líneas separadas.
+  for(const theme of ['light','dark'])for(const width of [390,1440]){
+    await browser.command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<600});
+    await ev(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+    await view('history');await ev(`document.getElementById('history-referee').click()`);await wait(`document.querySelector('[role=option]')`);
+    assert.deepEqual(await ev(`(()=>{const o=document.querySelector('[role=option][data-value="DEMO-R1"]'),l=o.querySelector('.select-option-label'),d=o.querySelector('.select-option-description');return {name:l.textContent,uuid:d.textContent,below:d.getBoundingClientRect().top>=l.getBoundingClientRect().bottom}})()`),{name:'Alba',uuid:'DEMO-R1',below:true});
+    assert.equal(await ev('document.documentElement.scrollWidth<=innerWidth'),true);
+    await key('Escape','Escape',27);
+  }
+  // Modo conectado con DTO/capacidades sintéticos: comprobar orden visual y de
+  // teclado del acceso, sin conceder permisos ni consultar un backend real.
+  for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await browser.command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width < 600 });
+    await ev(`document.documentElement.dataset.theme=${JSON.stringify(theme)};window.renderLiveRegister()`);
+    assert.deepEqual(await ev(`[...document.querySelector('article').querySelectorAll('button,a')].map(el=>el.textContent.trim())`), ['Acceso de árbitro', 'Editar Alba', 'Historial de Alba']);
+    assert.equal(await ev(`(()=>{const [access,edit]=document.querySelector('article').querySelectorAll('a,button');return access.getBoundingClientRect().top<=edit.getBoundingClientRect().top})()`), true);
+    await ev(`document.querySelector('article a').focus()`);
+    await key('Tab', 'Tab', 9);
+    assert.equal(await ev('document.activeElement.textContent.trim()'), 'Editar Alba');
+    assert.equal(await ev('document.documentElement.scrollWidth<=innerWidth'), true);
+  }
+  await ev(`window.renderLiveRegister(false)`);
+  assert.equal(await ev(`!!document.querySelector('a[href^="/referees/access"]')`), false);
+  await ev(`window.renderLiveRegister(true,'DEMO-S0')`);
+  assert.equal(await ev(`!!document.querySelector('a[href^="/referees/access"]')`), false);
+  assert.equal(await ev('window.networkCalls'), 0, 'los fixtures no envían solicitudes de negocio');
+  for (const approve of [true,false]) {
+    await ev(`window.renderLiveAssignments(${approve})`);
+    await click(approve?'Asignar árbitro':'Proponer designación');
+    await pick('assignment-match','D-101');await pick('assignment-referee','Alba');
+    await wait(`document.querySelector('dialog').textContent.includes('Sin bloqueos actuales')`);
+    assert.match(await ev(`document.querySelector('dialog textarea').placeholder`),approve?/Se asigna a este árbitro/:/Se propone a este árbitro/);
+    await click(approve?'Asignar y aprobar':'Enviar propuesta');await wait(`!document.querySelector('dialog[open]')`);
+    assert.equal(await ev('window.assignmentCommands.at(-1).kind'),approve?'assign':'propose');
+    assert.match(await ev('document.body.textContent'),approve?/Árbitro asignado y designación aprobada/:/Queda pendiente de aprobación/);
+  }
+
+  // Una revocada abre una NUEVA operación con el mismo partido, sin mutar el antecedente.
+  for(const theme of ['light','dark'])for(const width of [390,1440])for(const approve of [true,false]){
+    await browser.command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<600});
+    await ev(`document.documentElement.dataset.theme=${JSON.stringify(theme)};window.renderAssignmentFlow('renew',${approve})`);
+    await click('Actualizar designación D-101 · Alba');
+    assert.match(await ev(`document.querySelector('dialog').textContent`),/Actualizar designación/);
+    assert.equal(await ev(`document.getElementById('assignment-match').disabled`),true);
+    assert.equal(await ev(`document.getElementById('assignment-referee').disabled`),false);
+    assert.match(await ev(`document.querySelector('dialog').textContent`),/Designación anterior: Revocada/);
+    await pick('assignment-referee','Dara');await wait(`document.querySelector('dialog').textContent.includes('Sin bloqueos actuales')`);
+    await click(approve?'Actualizar y aprobar':'Enviar nueva propuesta');await wait(`!document.querySelector('dialog[open]')`);
+    assert.deepEqual(await ev(`({kind:window.assignmentCommands[0].kind,matchId:window.assignmentCommands[0].matchId,refereeId:window.assignmentCommands[0].refereeId,version:window.assignmentCommands[0].expectedMatchVersion,hasOldId:'assignmentId' in window.assignmentCommands[0]})`),{kind:approve?'assign':'propose',matchId:'DEMO-M1',refereeId:'DEMO-R4',version:7,hasOldId:false});
+    assert.equal(await ev(`document.querySelector('article').textContent.includes('Revocada')`),true);
+    assert.equal(await ev('document.documentElement.scrollWidth<=innerWidth'),true);
+  }
+  await ev(`window.renderAssignmentFlow('filter')`);await click('Asignar árbitro');
+  await ev(`document.getElementById('assignment-match').click()`);await wait(`document.querySelector('[role=option]')`);
+  assert.deepEqual(await ev(`[...document.querySelectorAll('[role=option]')].map(e=>e.textContent.match(/D-10[1-4]/)?.[0]).sort()`),['D-102','D-103']);
+  await ev(`[...document.querySelectorAll('[role=option]')].find(e=>e.textContent.includes('D-102')).click()`);
+  await wait(`document.querySelector('dialog').textContent.includes('Revisar designación actual')`);
+  assert.equal(await ev(`[...document.querySelectorAll('dialog button')].find(b=>b.textContent==='Asignar y aprobar').disabled`),true);
+  await click('Revisar designación actual');assert.equal(await ev(`document.getElementById('assignment-match').disabled`),true);
+  assert.match(await ev(`document.querySelector('dialog').textContent`),/Estado: Aprobada/);
+
 });
