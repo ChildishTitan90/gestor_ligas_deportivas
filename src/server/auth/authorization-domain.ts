@@ -15,6 +15,7 @@ export async function assertOwnRefereeAssignment(tx: Prisma.TransactionClient, a
     WHERE u.id = ${actorId}::uuid AND u.is_active AND NOT u.must_change_password
       AND (u.locked_until IS NULL OR u.locked_until <= clock_timestamp())
       AND ra.match_id = ${matchId}::uuid AND ra.status = 'APPROVED' AND r.is_active AND m.deleted_at IS NULL
+      AND sports_management.referee_assignment_effective(ra.id)
     FOR SHARE OF ra, r, u, m
   `;
   if (!assignments.length) throw new AuthorizationError();

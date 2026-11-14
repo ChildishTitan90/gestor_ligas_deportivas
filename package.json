@@ -16,6 +16,9 @@
     "fsevents": false
   },
   "scripts": {
+    "seed:referee-accounts": "node --conditions=react-server --import tsx scripts/seed-referee-accounts.mts",
+    "referees:local": "node --conditions=react-server --import tsx scripts/referees-local.mts --serve",
+    "referees:check-local": "node --conditions=react-server --import tsx scripts/referees-local.mts",
     "test:referee-preview": "node --test tests/e2e/referee-preview.test.mjs",
     "test:player-identity-ui": "node --test tests/e2e/identity-correction-workspace.test.mjs",
     "test:season-identity-history": "node scripts/test-season-identity-history.mjs",

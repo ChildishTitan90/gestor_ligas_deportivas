@@ -1,5 +1,10 @@
 # Árbitros y designaciones — primera entrega visual de PDGLD-142
 
+Nota posterior: la revisión visual fue aprobada y su ruta de demostración se
+retiró del menú. `/referees/demo` ahora redirige a `/referees`, conectado al
+backend. El recorrido descrito debajo es el registro de la revisión sintética;
+los fixtures se conservan únicamente para pruebas de componentes.
+
 Trabajo de PDGLD-86 (PDGLD-141/142/143) en una sola rama:
 `feat/PDGLD-86-arbitros-designaciones`. Esta entrega termina en revisión de vistas.
 No implementa el backend de registro/designación ni da por terminadas las historias.

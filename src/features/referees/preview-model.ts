@@ -6,6 +6,7 @@ export function normalizeSearch(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es").trim();
 }
 export function intervalLabel(startsAt: string, endsAt: string, timezone: string) {
+  if(!startsAt || !endsAt) return "Horario o fecha sin evidencia suficiente";
   const formatter = new Intl.DateTimeFormat("es-MX", { timeZone: timezone, dateStyle: "medium", timeStyle: "short", hourCycle: "h23" });
   return `${formatter.format(new Date(startsAt))} → ${formatter.format(new Date(endsAt))}`;
 }

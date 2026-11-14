@@ -17,6 +17,8 @@ import { canReadGovernance } from "@/features/governance/server/service";
 import { canReadVenues } from "@/features/venues/server/service";
 import { canReadAccountMaintenance } from "@/features/accounts/server/maintenance-workspace";
 import { canAccessMatchEligibility } from "@/features/matches/server/eligibility";
+import { canReadRefereeing } from "@/features/referees/server/service";
+import { canAccessRefereePresentations } from "@/features/referees/server/presentations";
 
 /** Solo una denegación esperada oculta el enlace; los fallos de sesión o servicio se propagan. */
 async function allowed(check: () => Promise<boolean>): Promise<boolean> {
@@ -78,10 +80,9 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if(participations)playerLinks.items.push({href:"/players/participations",label:"Participaciones superiores",icon:"players"});
   if(playerLinks.items.length) groups.push(playerLinks);
   const arbitration: ManagementNavigationGroup = { label: "Arbitraje", items: [] };
+  if (await allowed(canReadRefereeing)) arbitration.items.push({ href: "/referees", label: "Árbitros y designaciones", icon: "players" });
+  if (await allowed(canAccessRefereePresentations)) arbitration.items.push({href:"/referees/presentations",label:"Presentación de árbitros por club",icon:"players"});
   if(matchEligibility) arbitration.items.push({href:"/matches",label:"Mis partidos · Alineación",icon:"players"});
-  // Demostración sintética para cualquier cuenta operativa; no concede permisos
-  // de negocio. El destino vuelve a comprobar sesión y entorno en servidor.
-  if (process.env.NODE_ENV === "development") arbitration.items.push({ href: "/referees/demo", label: "Árbitros y designaciones · Demo", icon: "players" });
   if (arbitration.items.length) groups.push(arbitration);
   const competitions: ManagementNavigationGroup = { label: "Competencias", items: [] };
   if (leagues) competitions.items.push({ href: "/competitions/leagues/new", label: "Crear liga", icon: "overview" });
