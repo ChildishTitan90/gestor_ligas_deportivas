@@ -352,8 +352,8 @@ bloqueo por tercer equipo del grupo, captura de final de partido y rechazo de
 edición directa de identidad histórica. HTTP real: login y vista/API 200,
 anónimo 307 a login, otra liga 403 y origen ajeno 403.
 
-No se probó Supabase, producción, proveedores CURP/INE ni el PR #56. La
-aplicación completa de una corrección privada de identidad con documentación y
-contextos abiertos/cerrados, PG17, concurrencia masiva y recorridos ampliados
-quedan para la siguiente etapa de pruebas, después de la revisión humana del
-backend. No se modifican Jira ni se publica o integra trabajo.
+La etapa PDGLD-143 añade corrección privada real de identidad con documentación,
+contextos abiertos/cerrados, PG15/17, carreras entre conexiones y recorrido de
+sesión/backend/Chrome. Véase [comandos y evidencia](../validation/refereeing-automated.md).
+No certifica una prueba de carga masiva, Supabase real, proveedores CURP/INE,
+el PR #56 ni la futura cédula/PWA. No modifica Jira ni publica o integra trabajo.

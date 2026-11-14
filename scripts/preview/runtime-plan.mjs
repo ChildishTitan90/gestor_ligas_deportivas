@@ -20,6 +20,7 @@ read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competitio
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
+  guardian_consents:['registration_id','guardian_person_id'],
   season_person_identity_snapshots:['season_id','person_id','first_name','paternal_surname','maternal_surname','identity_version','season_version','captured_at','source'],
   season_identity_closures:['season_id','season_version','closed_at','captured_at','person_count','format_version'],
   appointments: ['id', 'position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
@@ -131,6 +132,7 @@ read.push('club_season_referees','referee_availability','referee_operations','se
 lock.push('club_season_referees','referee_availability','club_affiliations');
 lock.push('player_identity_corrections');
 read.push('referee_presentations');
+read.push('guardian_consents');
 read.push('referee_presentation_credentials');
 lock.push('referee_presentations');
 export const runtimePrivileges = Object.freeze({ read, readColumns, insert, update, remove, lock });
@@ -255,7 +257,7 @@ BEGIN
   END LOOP;
   GRANT EXECUTE ON FUNCTION sports_management.get_entity_season(text,uuid),sports_management.get_role_code(uuid),sports_management.player_participation_now() TO gestor_ligas_preview;
   GRANT EXECUTE ON FUNCTION sports_management.maintenance_has_references(text,uuid) TO gestor_ligas_preview;
-  GRANT EXECUTE ON FUNCTION sports_management.referee_assignment_blockers(uuid,uuid,uuid),sports_management.referee_assignment_effective(uuid),sports_management.closed_identity_reader_block(uuid) TO gestor_ligas_preview;
+  GRANT EXECUTE ON FUNCTION sports_management.referee_assignment_blockers(uuid,uuid,uuid),sports_management.referee_assignment_effective(uuid),sports_management.closed_identity_reader_block(uuid),sports_management.get_match_status_code(uuid) TO gestor_ligas_preview;
   IF has_table_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     OR has_any_column_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,REFERENCES')
   THEN RAISE EXCEPTION 'Preview tiene acceso al ledger de Prisma'; END IF;

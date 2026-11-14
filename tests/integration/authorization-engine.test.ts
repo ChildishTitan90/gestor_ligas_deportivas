@@ -123,10 +123,10 @@ test("PDGLD-54: autorización dinámica, ámbitos coherentes y delegación limit
       const other = await db.users.create({ data: { person_id: otherPerson.id, username: `other-engine-${suffix}`,
         email: `other-engine-${suffix}@example.test`, password_hash: "fixture-without-login", must_change_password: false } });
       const resources = await write(async (tx) => {
-        const rule = await tx.competition_rules.create({ data: { season_id: seasonA.id, version_number: 1 } });
+        const rule = await tx.competition_rules.create({ data: { season_id: seasonA.id, version_number: 1, status: 'APPROVED', approved_by: other.id, approved_at: new Date() } });
         const category = await tx.categories.create({ data: { league_id: leagueA.id, sport_id: soccer.id, name: "Categoría sintética" } });
         const seasonCategory = await tx.season_categories.create({ data: { season_id: seasonA.id, category_id: category.id,
-          competition_rule_id: rule.id, hierarchy_order: 1, type: "OPEN", age_cutoff_date: new Date("2026-01-01") } });
+          competition_rule_id: rule.id, hierarchy_order: 1, type: "OPEN", age_cutoff_date: new Date("2026-01-01"), competition_format: 'GROUP_STAGE' } });
         const group = await tx.groups.create({ data: { season_id: seasonA.id, season_category_id: seasonCategory.id, name: "Grupo sintético" } });
         const matchday = await tx.matchdays.create({ data: { season_id: seasonA.id, number: 1,
           start_date: new Date("2026-10-01"), end_date: new Date("2026-10-31") } });
@@ -135,15 +135,20 @@ test("PDGLD-54: autorización dinámica, ámbitos coherentes y delegación limit
         const seasonTeams = [];
         for (const entry of [{ club: clubA, team: teamA }, { club: opponent, team: opponentTeam }]) {
           await tx.club_affiliations.create({ data: { season_id: seasonA.id, club_id: entry.club.id, league_id: leagueA.id,
-            reference_number: `affiliation-${entry.club.id}`, uniform_colors: "Azul sintético", requested_by: actor.id } });
-          seasonTeams.push(await tx.season_teams.create({ data: { season_id: seasonA.id, team_id: entry.team.id,
-            club_id: entry.club.id, group_id: group.id } }));
+            reference_number: `affiliation-${entry.club.id}`, uniform_colors: "Azul sintético", requested_by: actor.id, status: 'APPROVED' } });
+          const enrollment=await tx.season_teams.create({ data: { season_id: seasonA.id, team_id: entry.team.id,
+            club_id: entry.club.id, season_category_id: seasonCategory.id } });
+          seasonTeams.push(await tx.season_teams.update({where:{id:enrollment.id},data:{group_id:group.id}}));
         }
         const proposal = await tx.schedule_proposals.create({ data: { season_id: seasonA.id, matchday_id: matchday.id,
           created_by: actor.id, competition_rule_id: rule.id } });
+        const venue=await tx.venues.create({data:{league_id:leagueA.id,code:`engine-${suffix}`,name:'Cancha sintética',address:'Sin domicilio real',match_duration_minutes:120}});
+        await tx.venue_availability.create({data:{venue_id:venue.id,starts_at:new Date('2026-10-20T00:00Z'),ends_at:new Date('2026-10-21T00:00Z'),type:'AVAILABLE'}});
+        const scheduled=await tx.match_statuses.findUniqueOrThrow({where:{code:'SCHEDULED'}});
         const match = await tx.matches.create({ data: { season_id: seasonA.id, group_id: group.id,
           matchday_id: matchday.id, number: "motor-sintético", home_team_id: seasonTeams[0].id,
-          away_team_id: seasonTeams[1].id, schedule_proposal_id: proposal.id } });
+          away_team_id: seasonTeams[1].id, schedule_proposal_id: proposal.id,venue_id:venue.id,status_id:scheduled.id,
+          starts_at:new Date('2026-10-20T16:00Z'),ends_at:new Date('2026-10-20T18:00Z'),reserved_until:new Date('2026-10-20T18:00Z') } });
         const report = await tx.match_reports.create({ data: { match_id: match.id, client_id: randomUUID(), captured_by: actor.id, source: "PAPER" } });
         const incidentType = await tx.event_types.findUniqueOrThrow({ where: { sport_id_code: { sport_id: soccer.id, code: "SERIOUS_INCIDENT" } } });
         const event = await tx.match_events.create({ data: { match_report_id: report.id, event_type_id: incidentType.id } });
@@ -152,8 +157,13 @@ test("PDGLD-54: autorización dinámica, ámbitos coherentes y delegación limit
         const caseWithoutReport = await tx.disciplinary_cases.create({ data: { season_id: seasonA.id,
           reference_number: `case-without-report-${suffix}`, opened_by: other.id, description: "Expediente sin cédula" } });
         const referee = await tx.referees.create({ data: { person_id: person.id } });
-        const assignment = await tx.referee_assignments.create({ data: { match_id: match.id, referee_id: referee.id,
-          created_by: other.id, approved_by: other.id, approved_at: new Date(), status: "APPROVED" } });
+        const presenter=await tx.clubs.create({data:{league_id:leagueA.id,name:'Presentador arbitral sintético',reference_number:`presenter-${suffix}`}});
+        await tx.club_affiliations.create({data:{season_id:seasonA.id,club_id:presenter.id,league_id:leagueA.id,reference_number:`aff-${suffix}`,uniform_colors:'Sintético',requested_by:other.id,status:'APPROVED'}});
+        await tx.club_season_referees.create({data:{referee_id:referee.id,season_id:seasonA.id,club_id:presenter.id}});
+        await tx.referee_availability.create({data:{referee_id:referee.id,starts_at:new Date('2026-10-20T00:00Z'),ends_at:new Date('2026-10-21T00:00Z'),is_available:true}});
+        const pending=await tx.referee_assignments.create({data:{match_id:match.id,referee_id:referee.id,created_by:other.id}});
+        const currentPerson=await tx.people.findUniqueOrThrow({where:{id:person.id},select:{identity_version:true}});
+        const assignment=await tx.referee_assignments.update({where:{id:pending.id},data:{status:'APPROVED',approved_by:other.id,approved_at:new Date(),approved_identity_version:currentPerson.identity_version}});
         const concept = await tx.charge_concepts.findUniqueOrThrow({ where: { code: "REGISTRATION" } });
         const charge = await tx.charges.create({ data: { season_id: seasonA.id, club_id: clubA.id,
           charge_concept_id: concept.id, amount: 100, created_by: other.id,

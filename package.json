@@ -16,6 +16,9 @@
     "fsevents": false
   },
   "scripts": {
+    "test:referees:integration": "node --conditions=react-server --import tsx scripts/referees-local.mts --acceptance --http",
+    "test:referees:regression": "node scripts/test-refereeing-regressions.mjs",
+    "test:referees:components": "node --test --test-concurrency=1 tests/e2e/referee-preview.test.mjs tests/e2e/own-referee-availability.test.mjs tests/e2e/referee-credentials.test.mjs",
     "seed:referee-accounts": "node --conditions=react-server --import tsx scripts/seed-referee-accounts.mts",
     "seed:referee-credential": "node --conditions=react-server --import tsx scripts/seed-referee-credential.mts",
     "test:referee-credentials-ui": "node --test tests/e2e/referee-credentials.test.mjs",
