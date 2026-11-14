@@ -16,6 +16,7 @@
     "fsevents": false
   },
   "scripts": {
+    "test:referee-preview": "node --test tests/e2e/referee-preview.test.mjs",
     "test:player-identity-ui": "node --test tests/e2e/identity-correction-workspace.test.mjs",
     "test:season-identity-history": "node scripts/test-season-identity-history.mjs",
     "test:player-identity-isolated": "node scripts/test-delegate-isolated.mjs --player-identity-correction",
