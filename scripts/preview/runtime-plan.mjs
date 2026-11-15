@@ -13,20 +13,21 @@ const read = ['account_email_changes', 'password_resets', 'player_category_level
   'teams', 'team_enrollment_operations', 'user_roles', 'users'];
 // Lecturas de reglas, cierre y dependencias: una tabla vacía también exige SELECT
 // y una política RLS para que _count no oculte referencias que impiden retirar filas.
-read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competition_rule_parameters',
+read.push('regulation_articles', 'sanction_types', 'team_withdrawals', 'billing_plans', 'club_team_changes', 'competition_rules', 'competition_rule_parameters',
   'competition_stages', 'imports', 'matchdays', 'match_results',
   'match_statuses', 'official_documents', 'publications', 'season_awards', 'season_breaks',
   'standing_versions', 'venue_loans', 'venues', 'venue_availability', 'venue_reservations', 'governing_bodies', 'positions', 'appointments');
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
+  team_withdrawals: ['id', 'article_id'],
   guardian_consents:['registration_id','guardian_person_id'],
   season_person_identity_snapshots:['season_id','person_id','first_name','paternal_surname','maternal_surname','identity_version','season_version','captured_at','source'],
   season_identity_closures:['season_id','season_version','closed_at','captured_at','person_count','format_version'],
   appointments: ['id', 'position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
   venue_reservations: ['venue_id', 'match_id', 'time_range'],
   password_resets: ['user_id','used_at'],
-  sanctions:['id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
+  sanctions:['id','article_id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
   billing_plans: ['id', 'season_id'], club_team_changes: ['id', 'season_id'],
   // update() de aprobación devuelve todos los escalares, incluido file_id.
   competition_rules: ['id', 'season_id', 'version_number', 'status', 'created_at', 'file_id', 'approved_by', 'approved_at'],
@@ -40,6 +41,7 @@ const readColumns = {
   standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
 };
 const insert = {
+  regulation_articles: ['id','competition_rule_id','number','description','sanction_type_id','parameters','revision'],
   referee_presentation_credentials:['id','file_id','uploaded_by','operation_key','input_hash'],
   referee_presentations:['club_id','season_id','requester_id','operation_key','input_hash','person_id','first_name','paternal_surname','maternal_surname','reason'],
   player_identity_corrections:['registration_id','person_id','requester_id','operation_key','request_hash','expected_identity_version','proposed_identity','reason','identity_doubt','status'],
@@ -88,6 +90,7 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at', 'maintenance_revision'],
 };
 const update = {
+  regulation_articles: ['number','description','sanction_type_id','parameters'],
   referee_presentations:['status','reviewed_by','reviewed_at','review_reason','review_key','review_hash','approved_person_id','referee_id','approved_identity'],
   people:['curp','first_name','paternal_surname','maternal_surname','birth_date'],
   player_identity_corrections:['status','reviewed_by','decision_key','decision_hash','observations','reviewed_at','previous_identity'],
@@ -123,7 +126,7 @@ const update = {
     'username', 'email', 'is_active', 'maintenance_revision', 'email_verified_at', 'admin_reset_expires_at', 'admin_reset_consumed_at'],
 };
 const remove = ['venue_availability', 'role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons', 'clubs', 'teams'];
-const lock = ['document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
+const lock = ['competition_rules','document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
   'match_events', 'match_reports', 'matches', 'payments', 'people', 'permissions',
   'referee_assignments', 'referees', 'roles', 'schedule_proposals', 'season_categories', 'season_teams',
   'seasons', 'teams', 'user_roles'];

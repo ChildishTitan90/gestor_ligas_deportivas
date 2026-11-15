@@ -1619,6 +1619,7 @@ model referees {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model regulation_articles {
+  revision            Int                @default(1)
   id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   competition_rule_id String             @db.Uuid
   number              String

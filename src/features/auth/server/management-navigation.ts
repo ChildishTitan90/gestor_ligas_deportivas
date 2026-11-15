@@ -1,4 +1,5 @@
 import "server-only";
+import { canReadCatalog } from "@/features/discipline/server/catalog";
 
 import type { ManagementNavigationGroup } from "@/components/layout/management-navigation";
 import { getAccountCreationOptions } from "@/features/accounts/server/service";
@@ -49,7 +50,7 @@ async function navigationCapabilities(checks: (() => Promise<boolean>)[]) {
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
   await requireOperationalUser();
-  const [teams, capture, review, accounts, players, playerReview, seasons, leagues, participations, maintenance, accountMaintenance, matchEligibility, venues, governance] = await navigationCapabilities([
+  const [teams, capture, review, accounts, players, playerReview, seasons, leagues, participations, maintenance, accountMaintenance, matchEligibility, venues, governance, catalog] = await navigationCapabilities([
     async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0,
     canAccessAffiliationCapture,
     async () => (await getAffiliationReviewLeagueOptions()).length > 0,
@@ -64,6 +65,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
     canAccessMatchEligibility,
     canReadVenues,
     canReadGovernance,
+    canReadCatalog,
   ]);
 
   const groups: ManagementNavigationGroup[] = [
@@ -96,5 +98,6 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if (accounts) administration.items.push({ href: "/accounts/new", label: "Crear cuenta", icon: "accounts" });
   if (governance) administration.items.push({ href: "/governance", label: "Órganos y cargos", icon: "overview" });
   if (administration.items.length) groups.push(administration);
+  if (catalog) groups.push({ label: "Disciplina", items: [{ href: "/discipline/catalog", label: "Catálogo disciplinario", icon: "review" }] });
   return groups;
 }

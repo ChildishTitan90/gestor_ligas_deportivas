@@ -146,6 +146,10 @@ jobs:
         run: npm run test:preview-runtime
       - name: Probar competencias, distribución y mantenimiento con rol Preview y RLS
         run: npm run test:preview-competitions
+      - name: Probar catálogo disciplinario, permisos e historial (PDGLD-26)
+        run: |
+          node --import tsx --test src/features/discipline/contract.test.ts
+          node scripts/test-auth.mjs --preview-catalog
       - name: Probar seed, integridad, rollback e idempotencia
         run: npm run test:seed -- --existing
       - name: Probar disponibilidad, reservas concurrentes y bloqueos (PDGLD-22)
