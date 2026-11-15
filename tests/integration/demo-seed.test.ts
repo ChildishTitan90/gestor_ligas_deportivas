@@ -19,6 +19,15 @@ const catalog = [
   { roleCode: "CLUB_DELEGATE", module: "fixture_seed_demo", action: "READ", contextOnly: true, ersReference: "FIXTURE PDGLD-54, no RF22" },
 ];
 
+// Extensiones autorizadas, independientes de las 127 concesiones RF22.
+// La lista es explícita: no se obtiene del mismo instalador que se verifica.
+const expectedExtensions = [
+  ...["SUPERADMIN", "SECRETARY"].map(roleCode => ({ roleCode, module: "leagues", action: "CREATE", contextOnly: false })),
+  ...["CREATE", "UPDATE"].map(action => ({ roleCode: "SECRETARY", module: "competitions", action, contextOnly: false })),
+  ...["SUPERADMIN", "REFEREE_MANAGER"].map(roleCode => ({ roleCode, module: "referee-accounts", action: "CREATE", contextOnly: false })),
+  { roleCode: "REFEREE", module: "refereeing", action: "UPDATE", contextOnly: true },
+];
+
 function target() {
   assert.equal(process.env.SEED_TEST_DATABASE, "gestor_ligas_ci", "Usar el harness de seed con PostgreSQL desechable.");
   const url = new URL(readSeedDatabaseUrl());
@@ -111,7 +120,9 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
         await client.query(`CREATE FUNCTION public.seed_pdgld54_reject_role() RETURNS trigger LANGUAGE plpgsql AS $$
           BEGIN PERFORM nextval('public.seed_pdgld54_role_attempt'); RAISE EXCEPTION 'Fallo sintético PDGLD-54'; END $$`);
         await client.query("CREATE TRIGGER seed_pdgld54_reject_role BEFORE INSERT ON sports_management.user_roles FOR EACH ROW EXECUTE FUNCTION public.seed_pdgld54_reject_role()");
-        await assert.rejects(seedDemoDatabase(prisma, catalog));
+        // El catálogo RF22 real permite alcanzar la asignación que falla;
+        // el fixture reducido carece de los permisos arbitrales requeridos.
+        await assert.rejects(seedDemoDatabase(prisma, approvedCatalog), /Fallo sintético PDGLD-54/);
         const { rows } = await client.query("SELECT is_called FROM public.seed_pdgld54_role_attempt");
         assert.equal(rows[0].is_called, true);
         assert.deepEqual(await snapshot(client), before);
@@ -122,21 +133,21 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
       }
     });
 
-    await t.test("dos instalaciones concurrentes crean un perfil y las 127 concesiones aprobadas", async () => {
+    await t.test("dos instalaciones concurrentes crean un perfil, RF22 y las extensiones exactas autorizadas", async () => {
       const results = await Promise.all([seedDemoDatabase(prisma, approvedCatalog), seedDemoDatabase(prisma, approvedCatalog)]);
       assert.equal(results.filter(result => result.alreadyInstalled).length, 1);
-      assert.equal(await prisma.role_permissions.count(), 131);
+      assert.equal(await prisma.role_permissions.count(), approvedCatalog.length + expectedExtensions.length);
       const extension = await prisma.role_permissions.findMany({ where: { permissions: { module: "leagues", action: "CREATE" } }, include: { roles: true } });
       assert.deepEqual(extension.map(grant => grant.roles.code).sort(), ["SECRETARY", "SUPERADMIN"]);
       assert.ok(extension.every(grant => !grant.context_only));
-      const installed = await prisma.role_permissions.findMany({ where: { permissions: { module: { not: "leagues" } } }, select: {
+      const installed = await prisma.role_permissions.findMany({ select: {
         roles: { select: { code: true } }, permissions: { select: { module: true, action: true } }, context_only: true,
       } });
       const normalize = (grants: readonly { roleCode: string; module: string; action: string; contextOnly: boolean }[]) =>
         grants.map(grant => JSON.stringify([grant.roleCode, grant.module, grant.action, grant.contextOnly])).sort();
       assert.deepEqual(normalize(installed.map(grant => ({ roleCode: grant.roles.code,
         module: grant.permissions.module, action: grant.permissions.action, contextOnly: grant.context_only }))),
-      normalize([...approvedCatalog, ...["CREATE", "UPDATE"].map(action => ({ roleCode: "SECRETARY", module: "competitions", action, contextOnly: false }))]), "Cada fila instalada conserva rol, módulo, acción y contexto exactos de RF22.");
+      normalize([...approvedCatalog, ...expectedExtensions]), "Cada fila instalada conserva rol, módulo, acción y contexto exactos de RF22 y sus extensiones autorizadas.");
       assert.equal(await prisma.audit_logs.count({ where: { id: DEMO_INSTALLATION.id } }), 1);
       const users = await prisma.users.findMany({ where: { person_id: { in: DEMO_ACCOUNTS.map(account => account.personId) } }, include: { user_roles: true } });
       assert.equal(users.length, 7);
@@ -157,7 +168,7 @@ test("perfil demo con RF22 real: instalación atómica, Argon2id, aislamiento y 
       assert.equal(actor.user_roles.length, 0);
       assert.equal(await prisma.user_roles.count({ where: { roles: { code: "GUEST" } } }), 0);
       assert.equal(await prisma.club_affiliations.count({ where: { season_id: DEMO_CONTEXT.seasonId, league_id: DEMO_CONTEXT.leagueId, club_id: { in: [DEMO_CONTEXT.clubAId, DEMO_CONTEXT.clubBId] }, status: "PENDING" } }), 2);
-      assert.equal(await prisma.audit_logs.count({ where: { table_name: "role_permissions", action: "INSERT" } }), approvedCatalog.length + 4, "El trigger genera un único evento por concesión.");
+      assert.equal(await prisma.audit_logs.count({ where: { table_name: "role_permissions", action: "INSERT" } }), approvedCatalog.length + expectedExtensions.length, "El trigger genera un único evento por concesión.");
       assert.equal(await prisma.audit_logs.count({ where: { table_name: "user_roles", action: "INSERT" } }), 7);
       assert.deepEqual(await prisma.users.findUnique({ where: { id: legacy.id } }), legacy, "Se conserva la cuenta previa de desarrollo sin reactivar ni restablecer credenciales.");
     });

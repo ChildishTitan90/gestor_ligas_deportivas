@@ -142,6 +142,36 @@ Repetición local: Preview Linux PG15/17, 126 aprobadas y cero fallos por versi�
 dos omisiones explícitas del perfil corresponden a controles de SQL original y
 Docker sin RLS, cubiertos por las suites separadas de migración/seguridad.
 
+La revisión posterior del seed de CI detectó otro contrato anterior a PDGLD-141:
+107 tablas en vez de 110. Se exigen por nombre las tres adiciones privadas
+`referee_operations`, `referee_presentations` y `referee_presentation_credentials`.
+El snapshot sigue recorriendo todas las tablas para comprobar conservación,
+rollback e idempotencia, sin excluir las nuevas.
+
+El seed demo conserva las 127 concesiones de RF22 y comprueba exactamente siete
+extensiones: creación de ligas para SUPERADMIN/SECRETARY, CREATE/UPDATE de
+competencias para SECRETARY, creación de acceso arbitral para
+SUPERADMIN/REFEREE_MANAGER y UPDATE contextual de arbitraje para REFEREE.
+Se contrastan rol/módulo/acción/contexto y un evento por cada una de las 134
+concesiones. El caso de rollback usa el catálogo real para alcanzar el fallo
+inyectado en user_roles; exige ese error concreto y que se haya alcanzado el
+trigger, antes de comparar el snapshot completo. No cambia permisos reales,
+instaladores ni migraciones.
+
+```powershell
+npm run test:referees:regression -- --postgres=15 --seed-only
+npm run test:referees:regression -- --postgres=17 --seed-only
+```
+
+Este perfil ejecuta `test:seed -- --existing` completo (base y demo), además de
+los controles de migración/seguridad previos y los pasos posteriores de canchas
+y órganos del CI, sobre el mismo PostgreSQL desechable. La marca de Actions se
+limita a esas pruebas que exigen el destino de CI; no se ejecuta el despliegue.
+Resultado local por versión (PG15 y PG17): 19 pruebas de seed base, 7 de demo,
+1 de canchas y 1 de órganos aprobadas, sin fallos ni omisiones. También pasan
+los 93 controles generales del pipeline, comparación de esquema, integridad,
+seguridad de producción, tipado y lint de los archivos modificados.
+
 Storage de acreditaciones usa transporte explícitamente simulado en integración;
 no acredita carga/vista previa contra Supabase real. CURP/INE auténticos siguen
 reservados a humanos. El ensayo no reproduce infraestructura administrada,
