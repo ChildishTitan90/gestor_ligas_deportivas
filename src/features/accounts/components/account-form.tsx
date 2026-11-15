@@ -41,6 +41,7 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
   const [sessionCode, setSessionCode] = useState("");
   const global = roles.includes("SUPERADMIN");
   const delegate = roles.includes("CLUB_DELEGATE");
+  const referee = roles.includes("REFEREE");
 
   async function loadDelegate(change: Partial<{ enabled: boolean; club: string; clubMode: string;
     periodMode: string; periodStart: string; periodEnd: string }> = {}, preserveMessage = false) {
@@ -175,11 +176,12 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
       </div>
       {field("temporaryPassword", "Contraseña temporal", 128, "password")}
       <p className="text-sm text-muted">De 8 a 128 caracteres, con mayúscula, minúscula, número y símbolo. No se enviará por correo automáticamente.</p>
-      {canReusePerson && select("personMode", "Persona", [{ value: "new", label: "Registrar persona" }, { value: "existing", label: "Usar UUID conocido de una persona sin cuenta" }], personMode, (value) => { setPersonMode(value); setErrors({}); })}
+      {canReusePerson && select("personMode", "Persona", [...(!referee ? [{ value: "new", label: "Registrar persona" }] : []), { value: "existing", label: "Usar UUID conocido de una persona sin cuenta" }], personMode, (value) => { setPersonMode(value); setErrors({}); })}
       {personMode === "existing" ? field("person.id", "UUID de persona", 36) : <div className="grid gap-5 sm:grid-cols-2">
         {field("person.firstName", "Nombre(s)", 100)}{field("person.paternalSurname", "Apellido paterno", 100)}{field("person.maternalSurname", "Apellido materno", 100, "text", false)}
       </div>}
       {feedback("person")}
+      {referee && <p className="text-sm text-muted">Para el rol Árbitro, usa el UUID de la misma Persona ya incorporada al padrón en la liga seleccionada. Si ya tiene cuenta, habilita su acceso desde Arbitraje.</p>}
       <div><label htmlFor={`${id}-leagueId`} className="text-sm font-medium">Liga (excepto SUPERADMIN global) *</label>
         <SelectField id={`${id}-leagueId`} name="leagueId" required className="mt-2" value={league}
           onValueChange={value => { void loadLeague(value); }}
@@ -195,7 +197,7 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
           <input type="checkbox" name="roles" value={role.code} checked={roles.includes(role.code)} aria-invalid={Boolean(errors.roles)}
             onChange={(event) => { setErrors({});
               const next = event.target.checked ? role.code === "SUPERADMIN" ? [role.code] : [...roles.filter((code) => code !== "SUPERADMIN"), role.code] : roles.filter((code) => code !== role.code);
-              setRoles(next); void loadDelegate({ enabled: next.includes("CLUB_DELEGATE") });
+              setRoles(next); if(next.includes("REFEREE"))setPersonMode("existing"); void loadDelegate({ enabled: next.includes("CLUB_DELEGATE") });
             }} className="size-5 accent-primary" />{role.name}
         </label>)}</div>{feedback("roles")}
       </fieldset>

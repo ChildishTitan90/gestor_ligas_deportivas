@@ -6,6 +6,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { readAccountCreationOptions } from "../../src/features/accounts/server/creation-options";
 import { accountRoleCodes } from "../../src/features/accounts/schemas";
 import { INITIAL_PERMISSION_GRANTS } from "../../prisma/permissions-data";
+import {assertAccountAdministrator} from "../../src/server/auth/account-administrator";
 import {
   assertCanGrantRole, assertPermission, AuthorizationError, lockAuthorization,
 } from "../../src/server/auth/authorization";
@@ -70,6 +71,9 @@ test("PDGLD-54: opciones agrupadas equivalentes, revocables y sin consultas por 
       for (const code of accountRoleCodes) {
         const context = code === "SUPERADMIN" ? {} : { leagueId };
         try {
+          // REFEREE solo reutiliza una Persona incorporada: el guard de escritura
+          // exige autoridad global para vincular identidades preexistentes.
+          if(code==='REFEREE')await assertAccountAdministrator(tx,actorId,'CREATE',{});
           await assertPermission(tx, actorId, { module: "users", action: "CREATE", context });
           await assertCanGrantRole(tx, actorId, roleId(code), context);
           allowed.push(code);
@@ -101,7 +105,7 @@ test("PDGLD-54: opciones agrupadas equivalentes, revocables y sin consultas por 
         ? tx.role_permissions.delete({ where: { role_id_permission_id: { role_id: roleId("SUPERADMIN"), permission_id: id } } })
         : tx.role_permissions.create({ data: { role_id: roleId("SUPERADMIN"), permission_id: id, context_only: contextOnly } }));
     };
-    await t.test("administrador global obtiene las mismas opciones y nueve roles con RF22 real", async () => {
+    await t.test("administrador global obtiene las mismas opciones y roles habilitados con RF22 real", async () => {
       const { result } = await options(global.id, leagueA.id);
       assert.deepEqual(codes(result), [...accountRoleCodes].sort());
       assert.deepEqual(codes(result), await oracle(global.id, leagueA.id));

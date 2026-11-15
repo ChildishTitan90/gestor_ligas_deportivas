@@ -71,8 +71,8 @@ async function snapshot(client: pg.Client): Promise<Snapshot> {
     WHERE table_schema = 'sports_management' AND table_type = 'BASE TABLE'
     ORDER BY table_name
   `);
-  assert.equal(tables.length, 107,
-    'La base debe conservar las 96 tablas iniciales y las once adiciones: categorías de afiliación, operaciones de inscripción, comprobaciones CURP, dos tablas de participación, correo pendiente y cinco tablas privadas de corrección/historial.');
+  assert.equal(tables.length, 110,
+    'La base debe conservar las 96 tablas iniciales, las once adiciones anteriores y las tres tablas privadas de arbitraje de PDGLD-141.');
   assert.ok(tables.some(({ table_name }) => table_name === 'club_affiliation_categories'),
     'Debe existir la tabla de categorías de afiliación de PDGLD-57.');
   assert.ok(tables.some(({ table_name }) => table_name === 'team_enrollment_operations'),
@@ -80,7 +80,8 @@ async function snapshot(client: pg.Client): Promise<Snapshot> {
   assert.ok(tables.some(({ table_name }) => table_name === 'account_email_changes'),
     'Debe existir exactamente la tabla de correo pendiente añadida por 20261105020000_pdgld118_pending_email.');
   for (const name of ['player_identity_corrections', 'player_identity_correction_evidence',
-    'season_person_identity_snapshots', 'season_identity_closures', 'season_registration_history']) {
+    'season_person_identity_snapshots', 'season_identity_closures', 'season_registration_history',
+    'referee_operations', 'referee_presentations', 'referee_presentation_credentials']) {
     assert.ok(tables.some(({ table_name }) => table_name === name), `Debe conservarse la tabla privada ${name}.`);
   }
   const result: Snapshot = {};

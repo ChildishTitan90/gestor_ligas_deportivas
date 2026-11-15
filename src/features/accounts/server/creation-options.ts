@@ -78,6 +78,7 @@ export async function readAccountCreationOptions(tx: Prisma.TransactionClient, a
   };
   const roles: { code: string; name: string }[] = [];
   for (const role of catalog) {
+    if (role.code === "REFEREE" && !readGrants("users", "CREATE").some(g=>grantCoversContext(g,resolved()))) continue;
     const candidates = role.code === "SUPERADMIN" ? [resolved()]
       : (leagueId ? leagues.filter((league) => league.id === leagueId) : leagues).map((league) => resolved(league.id));
     if (role.code === "CLUB_DELEGATE") {

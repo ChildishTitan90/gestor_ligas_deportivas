@@ -46,6 +46,17 @@ test("persona existente envía solo referencia y rechaza UUID inválido", () => 
   assert.deepEqual(result.data.person, { id: person });
 });
 
+test("alta arbitral exige Persona existente y liga, sin crear una identidad nueva", () => {
+  const data = capture(), person = randomUUID(), league = randomUUID();
+  assert.equal(parseAccountForm(data, ["REFEREE"], league, "new", "existing").success, false);
+  data.set("person.id", person);
+  assert.equal(parseAccountForm(data, ["REFEREE"], "", "existing", "existing").success, false);
+  const parsed = parseAccountForm(data, ["REFEREE"], league, "existing", "existing");
+  assert.ok(parsed.success);
+  assert.deepEqual(parsed.data.person, { id: person });
+  assert.deepEqual(parsed.data.roles, ["REFEREE"]);
+});
+
 test("rechaza correo, contraseña, rol excluido y combinación global inválidos", () => {
   const data = capture();
   for (const roles of [["PLAYER"], ["GUEST"], ["SUPERADMIN", "SECRETARY"], ["SECRETARY", "SECRETARY"]]) {
