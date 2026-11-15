@@ -6,6 +6,7 @@ import { X509Certificate } from 'node:crypto';
 import pg from 'pg';
 import { assertAppliedHistory, productionConnection, readMigrations, redact } from './migration-helpers.mjs';
 import { readProductionPlan, assertProductionCreationAccess, assertAppliedProductionSecurity } from './production-plans.mjs';
+import { assertNoLegacyRefereeSlotConflicts } from './refereeing-preflight.mjs';
 
 const { Client } = pg;
 let client, directory, certificatePath, connection;
@@ -53,6 +54,7 @@ try {
   await client.connect();
   const migrations = readMigrations(migrationsPath);
   const applied = assertAppliedHistory(await history(), migrations);
+  await assertNoLegacyRefereeSlotConflicts(client, migrations, applied);
   await securityState();
   const plan = readProductionPlan(migrationsPath, migrations, applied);
   if (plan.pendingCreation || plan.pendingEnrollmentCreation || plan.pendingCurpCreation || plan.pendingPrivateCreations?.length) await assertProductionCreationAccess(client);

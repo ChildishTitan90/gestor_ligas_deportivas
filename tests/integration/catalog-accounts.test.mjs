@@ -20,6 +20,11 @@ export async function runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl, 
   const { PERMISSION_ROLE_CODES } = await tsImport('../../prisma/permissions-data.ts', import.meta.url);
   const { seedPermissionDatabase, MATRIX_INSTALLATION } = await tsImport('../../prisma/seed-permissions.ts', import.meta.url);
   const catalog = await loadPermissionCatalog();
+  // Extensiones aprobadas de PDGLD-86; RF22 conserva sus 127 entradas originales.
+  const refereeExtensions = [
+    { roleCode: 'REFEREE', module: 'refereeing', action: 'UPDATE', contextOnly: true },
+    ...['REFEREE_MANAGER', 'SUPERADMIN'].map(roleCode => ({ roleCode, module: 'referee-accounts', action: 'CREATE', contextOnly: false })),
+  ];
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
   const db = new pg.Client({ connectionString: databaseUrl });
   await db.connect();
@@ -110,7 +115,7 @@ export async function runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl, 
           JOIN sports_management.permissions p ON p.id=rp.permission_id`)).rows;
         const comparable = (grants) => grants.map(({ roleCode, module, action, contextOnly }) =>
           JSON.stringify({ roleCode, module, action, contextOnly })).sort();
-        assert.deepEqual(comparable(actual.filter((grant) => grant.module !== 'leagues')), comparable([...catalog, ...['CREATE', 'UPDATE'].map(action => ({ roleCode: 'SECRETARY', module: 'competitions', action, contextOnly: false }))]));
+        assert.deepEqual(comparable(actual.filter((grant) => grant.module !== 'leagues')), comparable([...catalog, ...refereeExtensions, ...['CREATE', 'UPDATE'].map(action => ({ roleCode: 'SECRETARY', module: 'competitions', action, contextOnly: false }))]));
         assert.deepEqual(actual.filter((grant) => grant.module === 'leagues').map((grant) => grant.roleCode).sort(), ['SECRETARY', 'SUPERADMIN']);
         assert.equal(actual.some((grant) => ['accounts', 'user_roles', 'role_permissions'].includes(grant.module)), false);
         const marker = (await db.query('SELECT new_data FROM sports_management.audit_logs WHERE id=$1', [MATRIX_INSTALLATION.id])).rows[0];
@@ -260,7 +265,7 @@ export async function runCatalogAccountIntegrationSuite({ databaseUrl, baseUrl, 
           USING sports_management.roles r,sports_management.permissions p
           WHERE rp.role_id=r.id AND rp.permission_id=p.id AND (r.code,p.module,p.action) IN (
             SELECT x."roleCode",x.module,x.action FROM jsonb_to_recordset($1::jsonb)
-              AS x("roleCode" text,module text,action text))`, [JSON.stringify(catalog)]);
+              AS x("roleCode" text,module text,action text))`, [JSON.stringify([...catalog, ...refereeExtensions])]);
         await db.query('UPDATE sports_management.user_roles SET ends_at=clock_timestamp() WHERE user_id=ANY($1::uuid[]) AND ends_at IS NULL', [fixtureUsers]);
       });
     } finally {

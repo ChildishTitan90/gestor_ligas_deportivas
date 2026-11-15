@@ -7,6 +7,8 @@ import { assertAccountAdministrator } from "@/server/auth/account-administrator"
 import { requireOperationalUser } from "@/server/auth/session";
 import { readAccountCreationOptions } from "./creation-options";
 import { hashPassword } from "@/server/auth/password";
+import { insertAccountForPerson } from "./account-creation";
+import { incorporatedRefereeInLeague, lockRefereeing } from "@/features/referees/server/service";
 import { AccountInputError, accountDatabaseError } from "../account-errors";
 export { AccountInputError } from "../account-errors";
 import {
@@ -30,6 +32,12 @@ export async function getAccountCreationOptions(leagueId?: string) {
 
 /** Se ejecuta antes del KDF y de nuevo dentro de la transacción de escritura. */
 async function authorizeAccountCreation(tx: Prisma.TransactionClient, actorId: string, data: CreateAccountInput) {
+  if (data.roles.includes("REFEREE")) {
+    await lockRefereeing(tx);
+    if (!data.leagueId || !("id" in data.person) || !await tx.referees.findFirst({
+      where: { person_id: "id" in data.person ? data.person.id : "", ...incorporatedRefereeInLeague(data.leagueId) }, select: { id: true },
+    })) throw new AccountInputError("INVALID_CONTEXT");
+  }
   const catalog = await tx.roles.findMany({
     where: { code: { in: data.roles } }, select: { id: true, code: true },
   });
@@ -118,17 +126,9 @@ export async function createAccount(input: unknown) {
         });
         personId = person.id;
       }
-      const user = await tx.users.create({
-        data: { person_id: personId, username: data.username, email: data.email,
-          password_hash: passwordHash, is_active: true, must_change_password: true },
-        select: { id: true, must_change_password: true },
-      });
-      // users no tiene trigger de auditoría. Registrar un DTO sin PII ni secretos.
-      await tx.audit_logs.create({ data: {
-        user_id: actor.id, action: "INSERT", table_name: "users", entity_id: user.id,
-        new_data: { person_id: personId, is_active: true, must_change_password: true },
-        reason: "PDGLD-34: creación de cuenta con cambio obligatorio",
-      } });
+      const user = await insertAccountForPerson(tx, { actorId: actor.id, personId,
+        username: data.username, email: data.email, passwordHash,
+        reason: "PDGLD-34: creación de cuenta con cambio obligatorio" });
       const assignments = [];
       for (const role of catalog) {
         const assignment = await tx.user_roles.create({
