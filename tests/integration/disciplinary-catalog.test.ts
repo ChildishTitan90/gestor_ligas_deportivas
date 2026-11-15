@@ -105,8 +105,12 @@ test("catálogo: escrituras reales con rol limitado y RLS", async t => {
       const corrected = { ...request, operationId: randomUUID(), article: { ...request.article, number: "DEMO-CORREGIDO" } };
       assert.equal((await mutateCatalogForActor(actor, corrected)).replayed, false);
       assert.equal((await mutateCatalogForActor(actor, corrected)).replayed, true);
-      const saved = await one("SELECT description FROM sports_management.regulation_articles WHERE competition_rule_id=$1 AND number=$2", [rule, corrected.article.number]);
+      const saved = await one("SELECT id,description FROM sports_management.regulation_articles WHERE competition_rule_id=$1 AND number=$2", [rule, corrected.article.number]);
       assert.equal(saved.description, request.article.description);
+      await assert.rejects(mutateCatalogForActor(actor, {
+        ...request, operation: "edit", operationId: randomUUID(), articleId: saved.id, expectedRevision: 1,
+      }), { message: "DUPLICATE_ARTICLE_NUMBER" });
+      assert.equal((await one("SELECT number FROM sports_management.regulation_articles WHERE id=$1", [saved.id])).number, corrected.article.number);
     });
   } finally { await getPrisma().$disconnect(); await db.end(); }
 });
