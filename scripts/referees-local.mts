@@ -8,6 +8,7 @@ import {installPermissionCatalog,installLeagueCreationPermission} from "../prism
 import { INITIAL_PERMISSION_GRANTS } from "../prisma/permissions-data";
 import { provisionPreviewRuntime, PREVIEW_MARKER } from "./preview/runtime-plan.mjs";
 import assert from "node:assert/strict";
+import {childEnvironment} from "./ci/delegate-isolated-runtime.mjs";
 
 // Herramienta manual de revisión, sin conexión heredada ni volúmenes. --serve
 // deja la aplicación disponible hasta Ctrl+C; el contenedor pertenece al proceso.
@@ -23,7 +24,7 @@ try {
   const adminUrl=`postgresql://postgres:synthetic-local-only@127.0.0.1:${port}/${database}`;
   const runtimePassword=randomBytes(24).toString("hex");
   const runtimeUrl=`postgresql://gestor_ligas_preview:${runtimePassword}@127.0.0.1:${port}/${database}`;
-  const env={NODE_ENV:"development" as const,PATH:process.env.PATH,SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP,
+  const env={...childEnvironment(process.env),NODE_ENV:"development" as const,
     DATABASE_URL:adminUrl,DIRECT_URL:adminUrl,NEXTAUTH_URL:"http://127.0.0.1:3193",NEXTAUTH_SECRET:randomBytes(48).toString("hex"),AUTH_TEST_RUN:"1",
     VMX_API_KEY:"",ACCOUNT_EMAIL_ENABLED:"false",RESEND_API_KEY:"",SUPABASE_URL:"https://storage.example.test",SUPABASE_STORAGE_SERVER_KEY:"synthetic-only"};
   for(let n=0;;n++){try{docker(["exec",container,"pg_isready","-U","postgres"]);break;}catch{if(n===60)throw Error("LOCAL_DATABASE_NOT_READY");await new Promise(r=>setTimeout(r,250));}}

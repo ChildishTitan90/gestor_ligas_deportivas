@@ -22,7 +22,7 @@ try{
     'npx --no-install prisma migrate deploy',
     'npx --no-install prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code',
     'node scripts/ci/verify-database.mjs','node scripts/ci/verify-production-security.mjs',
-    'node scripts/test-auth.mjs --authorization',
+    process.argv.includes('--preview-only') ? 'node scripts/test-auth.mjs --preview' : 'node scripts/test-auth.mjs --authorization',
   ].join(' && ');
   docker(['create','--name',runner,'--label',`pdgld143.owner=${nonce}`,'--network',`container:${container}`,
     '--mount',`type=bind,source=${resolve('.')},target=/source,readonly`,

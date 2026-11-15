@@ -125,6 +125,23 @@ con checks obligatorios, revisión de historial/RLS/ACL y exclusión mutua.
 
 ## Límites y decisiones externas
 
+Corrección de CI del PR #58: el runner reutiliza `childEnvironment` para omitir
+TEMP/TMP/SystemRoot ausentes y conservar TMPDIR cuando existe. Se comprobó en
+Linux la creación del temporal sin TEMP/TMP. El caso de Preview conserva las
+28 concesiones originales de SUPERADMIN y exige explícitamente las extensiones
+`leagues:CREATE` y `referee-accounts:CREATE` (migración de delegación PDGLD-141),
+sin conceder `refereeing:APPROVE`. La comparación de conjuntos permanece exacta.
+Para repetir el recorrido afectado con Linux/RLS y cada versión de PostgreSQL:
+
+```powershell
+npm run test:referees:regression -- --postgres=15 --preview-only
+npm run test:referees:regression -- --postgres=17 --preview-only
+```
+
+Repetición local: Preview Linux PG15/17, 126 aprobadas y cero fallos por versión;
+dos omisiones explícitas del perfil corresponden a controles de SQL original y
+Docker sin RLS, cubiertos por las suites separadas de migración/seguridad.
+
 Storage de acreditaciones usa transporte explícitamente simulado en integración;
 no acredita carga/vista previa contra Supabase real. CURP/INE auténticos siguen
 reservados a humanos. El ensayo no reproduce infraestructura administrada,
