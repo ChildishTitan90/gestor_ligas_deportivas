@@ -106,9 +106,9 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
   await t.test("PDGLD-16: sanción se evalúa a la fecha del partido, con inicio inclusivo y fin exclusivo", async () => {
     const type = await db.sanction_types.findUniqueOrThrow({where:{code:"TIME"}});
     const rule = await db.competition_rules.findFirstOrThrow({where:{season_id:season.id}});
-    const article = await db.regulation_articles.create({data:{competition_rule_id:rule.id,number:`16-${nonce}`,description:"Sintético",sanction_type_id:type.id}});
     await db.$transaction(async tx => {
       await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Sanción sintética PDGLD-16',true)`;
+      const article = await tx.regulation_articles.create({data:{competition_rule_id:rule.id,number:`16-${nonce}`,description:"Sintético",sanction_type_id:type.id}});
       const c = await tx.disciplinary_cases.create({data:{season_id:season.id,reference_number:nonce,opened_by:actors.admin,description:"Sintético"}});
       const ruling = await tx.disciplinary_rulings.create({data:{case_id:c.id,version_number:1,decided_by:actors.admin,decision:"Sintética",reason:"Prueba aislada"}});
       await tx.sanctions.create({data:{ruling_id:ruling.id,article_id:article.id,sanction_type_id:type.id,registration_id:reg.id,
