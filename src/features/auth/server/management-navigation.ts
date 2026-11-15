@@ -77,7 +77,11 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if(playerReview) playerLinks.items.push({href:"/players/review",label:"Revisión de identidad",icon:"review"});
   if(participations)playerLinks.items.push({href:"/players/participations",label:"Participaciones superiores",icon:"players"});
   if(playerLinks.items.length) groups.push(playerLinks);
-  if(matchEligibility) groups.push({label:"Arbitraje",items:[{href:"/matches",label:"Mis partidos · Alineación",icon:"players"}]});
+  const refereeing: ManagementNavigationGroup = { label: "Arbitraje", items: [] };
+  if (matchEligibility) refereeing.items.push({ href: "/matches", label: "Mis partidos · Alineación", icon: "players" });
+  // Solo ejemplos sintéticos con sesión operativa. No concede acceso a partidos reales.
+  if (process.env.NODE_ENV === "development") refereeing.items.push({ href: "/matches/report-demo", label: "Demo · Cédula arbitral", icon: "players" });
+  if (refereeing.items.length) groups.push(refereeing);
   const competitions: ManagementNavigationGroup = { label: "Competencias", items: [] };
   if (leagues) competitions.items.push({ href: "/competitions/leagues/new", label: "Crear liga", icon: "overview" });
   if (seasons) competitions.items.push({ href: "/competitions/seasons", label: "Temporadas", icon: "overview" });
