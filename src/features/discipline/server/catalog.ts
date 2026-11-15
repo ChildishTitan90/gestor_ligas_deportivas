@@ -92,16 +92,25 @@ export async function mutateCatalogForActor(actorId: string, input: unknown) {
       const article = articleSchema.parse(data.article);
       const types = await tx.sanction_types.findUnique({ where: { code: article.configuration.consequence.type }, select: { id: true } });
       if (!types) throw new CatalogError("INVALID");
-      if (data.operation === "edit") {
-        const locked = await tx.$queryRaw<{ revision: number }[]>`SELECT revision FROM sports_management.regulation_articles WHERE id=${data.articleId}::uuid AND competition_rule_id=${data.ruleId}::uuid FOR UPDATE`;
-        if (!locked.length) throw new AuthorizationError();
-        if (locked[0].revision !== data.expectedRevision) throw new CatalogError("STALE");
-        if ((await articles(tx, data.ruleId)).find(a => a.id === data.articleId)?.referenced) throw new CatalogError("READ_ONLY");
-        await tx.$executeRaw`UPDATE sports_management.regulation_articles SET number=${article.number},description=${article.description},
-          sanction_type_id=${types.id}::uuid,parameters=${JSON.stringify(article.configuration)}::jsonb WHERE id=${data.articleId}::uuid`;
-      } else {
-        await tx.$executeRaw`INSERT INTO sports_management.regulation_articles(id,competition_rule_id,number,description,sanction_type_id,parameters)
-          VALUES (${randomUUID()}::uuid,${data.ruleId}::uuid,${article.number},${article.description},${types.id}::uuid,${JSON.stringify(article.configuration)}::jsonb)`;
+      try {
+        if (data.operation === "edit") {
+          const locked = await tx.$queryRaw<{ revision: number }[]>`SELECT revision FROM sports_management.regulation_articles WHERE id=${data.articleId}::uuid AND competition_rule_id=${data.ruleId}::uuid FOR UPDATE`;
+          if (!locked.length) throw new AuthorizationError();
+          if (locked[0].revision !== data.expectedRevision) throw new CatalogError("STALE");
+          if ((await articles(tx, data.ruleId)).find(a => a.id === data.articleId)?.referenced) throw new CatalogError("READ_ONLY");
+          await tx.$executeRaw`UPDATE sports_management.regulation_articles SET number=${article.number},description=${article.description},
+            sanction_type_id=${types.id}::uuid,parameters=${JSON.stringify(article.configuration)}::jsonb WHERE id=${data.articleId}::uuid`;
+        } else {
+          await tx.$executeRaw`INSERT INTO sports_management.regulation_articles(id,competition_rule_id,number,description,sanction_type_id,parameters)
+            VALUES (${randomUUID()}::uuid,${data.ruleId}::uuid,${article.number},${article.description},${types.id}::uuid,${JSON.stringify(article.configuration)}::jsonb)`;
+        }
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2010" && error.meta?.code === "23505" &&
+          String(error.meta?.message).includes('"regulation_articles_competition_rule_id_number_key"')) {
+          throw new CatalogError("DUPLICATE_ARTICLE_NUMBER");
+        }
+        throw error;
       }
     }
     await tx.seasons.update({ where: { id: season.id }, data: { version: { increment: 1 } }, select: { id: true } });

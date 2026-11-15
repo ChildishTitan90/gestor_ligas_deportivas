@@ -33,6 +33,10 @@ export function CatalogWorkspace({ workspace }: { workspace: Workspace }) {
       const result = await saveCatalog(request);
       if (result.ok) { setPending(null); setOpen(false); setCloneOpen(false); setMessage("Cambio guardado."); router.push(`/discipline/catalog?season=${result.seasonId}&rule=${result.ruleId}`); router.refresh(); }
       else if (result.code === "UNCERTAIN") { setPending(request); setMessage("No se confirmó el resultado. Puedes reintentar la misma solicitud."); }
+      else if (result.code === "DUPLICATE_ARTICLE_NUMBER") {
+        setPending(null);
+        setMessage("Ya existe un artículo con ese código en esta versión. Escribe otro código.");
+      }
       else { setPending(null); setMessage(result.code === "STALE" ? "El artículo cambió. Actualiza la consulta antes de editar." : "No se pudo guardar. Verifica los datos, permisos y versión."); }
     } catch { setPending(request); setMessage("No se confirmó el resultado. Puedes reintentar la misma solicitud."); }
     finally { setSending(false); }
