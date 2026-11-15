@@ -38,7 +38,11 @@ export type CatalogMutation = z.infer<typeof catalogMutation>;
 export type ArticleInput = z.infer<typeof articleSchema>;
 export function consequenceLabel(c: ArticleInput["configuration"]["consequence"]) {
   if (c.type === "FINE") return `${c.amount} ${c.currency}`;
-  if (c.type === "TIME") return `${c.quantity} ${{ DAYS: "días", MONTHS: "meses", YEARS: "años" }[c.unit]}`;
-  if ("quantity" in c) return `${c.quantity} ${{ MATCHES: "partidos", MATCHDAYS: "jornadas", POINTS_DEDUCTION: "puntos" }[c.type]}`;
+  if ("quantity" in c) {
+    const units = c.type === "TIME"
+      ? { DAYS: ["día", "días"], MONTHS: ["mes", "meses"], YEARS: ["año", "años"] }[c.unit]
+      : { MATCHES: ["partido", "partidos"], MATCHDAYS: ["jornada", "jornadas"], POINTS_DEDUCTION: ["punto", "puntos"] }[c.type];
+    return `${c.quantity} ${units[c.quantity === 1 ? 0 : 1]}`;
+  }
   return consequences[c.type];
 }
