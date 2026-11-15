@@ -108,6 +108,16 @@ Comprueba además el reintento sin pendientes. Las pruebas originales cubren
 marcadores parciales y defaults globales/heredados inseguros. No desactiva guardas
 del CD para aprobar el ensayo.
 
+El ensayo incluye ahora datos válidos **antes** de PDGLD-141: dos árbitros
+APPROVED para el mismo partido/rol, en contexto abierto y cerrado. Ejecuta la
+comprobación previa usada por el despliegue y verifica UUID identificados,
+ausencia de mutaciones y ocultación de texto libre. La migración original falla
+con 23505 y revierte sus ALTER; resolver solo el caso abierto deja bloqueado el
+cerrado. Sin duplicados, roles diferentes y propuestas/revocaciones sobreviven
+a la migración con índice válido, sin backfill histórico. El
+[procedimiento de revisión](../architecture/refereeing.md#comprobación-de-conflictos-legados-antes-del-despliegue)
+mantiene bloqueados los casos cerrados sin una resolución histórica autorizada.
+
 La revisión pública encontró fallos en el paso «Verificar y aplicar las migraciones
 de producción» de las ejecuciones [42759493546](https://github.com/ChildishTitan90/gestor_ligas_deportivas/actions/runs/42759493546),
 [40467049495](https://github.com/ChildishTitan90/gestor_ligas_deportivas/actions/runs/40467049495)

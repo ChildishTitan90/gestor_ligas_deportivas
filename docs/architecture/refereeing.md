@@ -341,6 +341,64 @@ de 117: solicitudes/evidencias privadas, decisión/versionado y columnas de
 identidad de Persona. No concede borrado de evidencias ni acceso API público;
 los guards transaccionales del trámite y su autorización siguen siendo obligatorios.
 
+## Comprobación de conflictos legados antes del despliegue
+
+Antes de ejecutar **cualquier** migración pendiente, `deploy-supabase.mjs` llama
+a `assertNoLegacyRefereeSlotConflicts` si PDGLD-141 aún no está aplicada. El
+esquema anterior permitía varios árbitros APPROVED para un mismo partido/rol;
+el índice `approved_referee_slot` exige uno. No se modifica la migración original
+ni su checksum para corregir instalaciones existentes.
+
+El control usa solamente SELECT y bloquea con `LEGACY_REFEREE_SLOT_CONFLICT`.
+Informa el total de grupos conflictivos y una muestra acotada de UUID de partido,
+temporada y designaciones, con indicación de contexto cerrado. Solo muestra
+MAIN o «rol legado», sin divulgar valores libres, nombres o documentos. Incluye
+partidos cancelados o retirados: el índice tampoco los excluye. PROPOSED y
+REVOKED no cuentan; dos roles distintos son compatibles.
+
+Para inventariar todas las referencias, un operador autorizado puede ejecutar
+esta lectura en el entorno correspondiente; no resuelve ni concede acceso:
+
+```sql
+SELECT match_id, assignment_role, count(*) AS approved_count,
+       array_agg(id ORDER BY id) AS assignment_ids
+FROM sports_management.referee_assignments
+WHERE status = 'APPROVED'
+GROUP BY match_id, assignment_role
+HAVING count(*) > 1
+ORDER BY match_id, assignment_role;
+```
+
+La resolución se realiza fuera del despliegue, con autorización explícita:
+
+1. Conservar respaldo y cotejar las designaciones, aprobaciones y evidencia
+   oficial. No elegir automáticamente por antigüedad, UUID ni estado actual del
+   árbitro. Registrar la decisión con actor, motivo y referencias originales.
+2. En contexto abierto, quien tenga RF22 `refereeing:APPROVE` en ese ámbito
+   decide cuál debe permanecer aprobada y qué designaciones excedentes revocar.
+   Ejecutar el cambio autorizado en transacción, con bloqueo y nueva lectura
+   del conjunto, conservando las filas y su auditoría. Si la versión anterior
+   requiere mantenimiento SQL, necesita un procedimiento revisado para ese caso
+   y evidencia before/after en `audit_logs`; no se incluye un script masivo.
+3. Un partido o temporada cerrado requiere una decisión histórica específica.
+   No revocar ni reescribir antecedentes cerrados solo para permitir el índice.
+   Si falta evidencia o no hay un procedimiento aprobado de conservación, el
+   despliegue permanece bloqueado. No reconstruir identidades con Persona actual
+   ni retirar `HISTORICAL_REFEREE_UNPROTECTED` para superar esta comprobación.
+4. Repetir la lectura después de la resolución autorizada y antes del despliegue.
+   Mantener detenidos los escritores antiguos durante esa ventana. El SELECT
+   previo no elimina carreras; el índice único transaccional sigue siendo la
+   garantía final y rechazará duplicados que aparezcan después del diagnóstico.
+   No ejecutar `resolve`, borrar historial ni relajar RLS automáticamente.
+
+La prueba `refereeing-legacy-slots.mjs` reconstruye el esquema justo anterior,
+crea duplicados válidos en contextos abiertos y cerrados y verifica el bloqueo
+sin mutación. Ejecuta además el SQL original para comprobar el fallo 23505 y su
+rollback; resolver únicamente el conflicto abierto mantiene el bloqueo cerrado.
+Otro escenario admite roles diferentes y antecedentes PROPOSED/REVOKED, aplica
+la migración y conserva todas las filas sin backfill de identidad. Se ejecuta
+en el ensayo de producción obligatorio del CI para PG15/17.
+
 ## Validación de esta entrega
 
 Base local PostgreSQL 15 desechable, sin volúmenes y con credenciales sintéticas.

@@ -4,6 +4,8 @@ import {resolve,join} from 'node:path';
 import pg from 'pg';
 import {readMigrations} from '../../scripts/ci/migration-helpers.mjs';
 import {readProductionPlan,assertProductionCreationAccess,assertAppliedProductionSecurity} from '../../scripts/ci/production-plans.mjs';
+import {REFEREE_SLOT_MIGRATION} from '../../scripts/ci/refereeing-preflight.mjs';
+import {verifyLegacyRefereeSlots} from './refereeing-legacy-slots.mjs';
 
 /** Solo recibe la conexión del contenedor que creó el runner, nunca un .env. */
 export async function verifyRefereeingProductionPlan(owner,adminUrl,database){
@@ -24,7 +26,9 @@ export async function verifyRefereeingProductionPlan(owner,adminUrl,database){
     readProductionPlan(directory,migrations,applied);
     for(const migration of migrations.keys()){
       if(applied.has(migration))continue;
-      await db.query(readFileSync(join(directory,migration,'migration.sql'),'utf8'));
+      const sql=readFileSync(join(directory,migration,'migration.sql'),'utf8');
+      if(migration===REFEREE_SLOT_MIGRATION)await verifyLegacyRefereeSlots(db,sql,migrations,applied);
+      else await db.query(sql);
       applied.add(migration);
     }
     readProductionPlan(directory,migrations,applied); // Reintento sin pendientes.
