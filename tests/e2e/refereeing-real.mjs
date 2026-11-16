@@ -6,6 +6,9 @@ import {launchChrome} from './chrome-session.mjs';
 export async function verifyRealRefereeingBrowser({base,league,season,commission,referee,match}){
   const browser=await launchChrome(`${base}/login`,{commandTimeoutMs:45000});
   const ev=s=>browser.evaluate(s);
+  const visible="element=>element.getClientRects().length>0&&getComputedStyle(element).visibility!=='hidden'";
+  const heading=text=>`[...document.querySelectorAll('h1')].some(h=>(${visible})(h)&&h.textContent===${JSON.stringify(text)})`;
+  const assignmentButton=`[...document.querySelectorAll('button')].find(b=>(${visible})(b)&&!b.disabled&&!b.closest('[inert]')&&b.textContent.trim()==='Asignar árbitro')`;
   async function wait(condition){const end=Date.now()+45000;while(Date.now()<end){try{if(await ev(`Boolean(${condition})`))return;}catch(e){if(!/navigated|context.*destroyed|Cannot find context/i.test(String(e)))throw e;}await new Promise(r=>setTimeout(r,100));}throw Error('REAL_BROWSER_EXPECTATION_FAILED '+JSON.stringify(await ev(`({heading:document.querySelector('h1')?.textContent,dialogs:document.querySelectorAll('dialog').length,buttons:[...document.querySelectorAll('button')].slice(-8).map(b=>b.textContent.trim()),overlay:!!document.querySelector('nextjs-portal')})`)));}
   async function session(client){await browser.command('Network.clearBrowserCookies');for(const [name,value]of client.cookies)await browser.command('Network.setCookie',{name,value,url:base});}
   async function navigate(path,condition){
@@ -21,11 +24,10 @@ export async function verifyRealRefereeingBrowser({base,league,season,commission
     await session(commission);
     for(const theme of ['light','dark'])for(const width of [390,1440]){
       await browser.command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<600});
-      await navigate(`/referees?league=${league}&season=${season}&view=assignments`,`document.querySelector('h1')?.textContent==='Árbitros y designaciones'`);
+      await navigate(`/referees?league=${league}&season=${season}&view=assignments`,heading('Árbitros y designaciones'));
       await ev(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
       assert.equal(await ev('document.documentElement.scrollWidth<=innerWidth'),true);
-      await ev(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='Asignar árbitro');if(!b||b.disabled)throw Error('ASSIGNMENT_CAPABILITY_MISSING');b.focus();b.click();})()`);
-      await wait(`document.querySelector('dialog[open]')||(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='Asignar árbitro');b?.focus();b?.click();return false})()`);
+      await wait(`document.querySelector('dialog[open]')||(()=>{const b=${assignmentButton};b?.focus();b?.click();return false})()`);
       assert.match(await ev(`document.querySelector('dialog').textContent`),/Asignar árbitro/);
       await browser.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
       await browser.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
@@ -33,7 +35,7 @@ export async function verifyRealRefereeingBrowser({base,league,season,commission
     }
     await session(referee);await navigate(`/matches/${match}/lineup`,`document.body.textContent.includes('Acceso denegado')`);
     assert.equal(await ev(`document.body.textContent.includes('Preparar alineación · Partido')`),false);
-    await navigate('/matches',`document.querySelector('h1')?.textContent==='Cédula arbitral'`);
+    await navigate('/matches',heading('Cédula arbitral'));
     assert.equal(await ev(`!!document.querySelector('a[href="/matches/${match}/lineup"]')`),false);
     assert.equal(await ev(`!!document.querySelector('a[href="/matches/${match}/report"]')`),false);
     console.log(JSON.stringify({suite:'PDGLD-143 Chrome real',sessions:'NextAuth',backend:'Next.js + PostgreSQL + Preview RLS',themes:2,widths:[390,1440],keyboardFocus:true,revokedMatchDenied:true,fetchMocked:false}));

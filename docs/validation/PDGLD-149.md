@@ -256,3 +256,31 @@ También pasaron tipado y lint de los archivos afectados. Los `checks.json` y lo
 de `pg15`/`pg17` conservan la ejecución final; no se ejecutó CI remoto ni se
 modificaron datos del Docker habitual o Supabase. Los bloqueos del cierre oficial
 descritos anteriormente siguen pendientes.
+
+## Corrección del ejecutor tras el fallo de CI en designaciones
+
+El log aportado del run `43802400526` falló en la espera de apertura del diálogo
+en PG17: mostraba el encabezado de carga junto con botones del contenido anterior.
+El ejecutor elegía el primer botón por texto, sin comprobar su visibilidad. Durante
+las transiciones, un control conservado en un árbol oculto podía coincidir con ese
+selector. La espera del documento nuevo por sí sola no cubría esa situación.
+
+Ahora las esperas de encabezado buscan uno visible y la apertura usa únicamente
+un botón visible, habilitado y fuera de un ancestro `inert`. Se conserva la espera
+de hidratación mediante la apertura observada del diálogo, su título, Escape,
+retorno del foco y la denegación del partido revocado. No se amplían plazos, no se
+omiten recorridos y no se sustituyen respuestas del backend.
+
+Validación local de esta corrección:
+
+```powershell
+npm run test:pdgld149 -- --regression --postgres=17
+npm run test:referees:integration -- --postgres=15
+npx eslint tests/e2e/refereeing-real.mjs
+```
+
+Los tres comandos terminaron con código 0. El primero completó los cuatro pasos
+sin omisiones; ambos recorridos de designaciones usaron NextAuth, PostgreSQL,
+Preview/RLS y Chrome reales, en dos temas y tamaños 390/1440. Falta volver a
+ejecutar GitHub Actions con el cambio publicado; el éxito local no acredita el
+resultado remoto. No se modificó la aplicación ni sus reglas de autorización.
