@@ -146,6 +146,10 @@ jobs:
         run: npm run test:preview-runtime
       - name: Probar competencias, distribución y mantenimiento con rol Preview y RLS
         run: npm run test:preview-competitions
+      - name: Probar catálogo disciplinario, permisos e historial (PDGLD-26)
+        run: |
+          node --import tsx --test src/features/discipline/contract.test.ts
+          node scripts/test-auth.mjs --preview-catalog
       - name: Probar seed, integridad, rollback e idempotencia
         run: npm run test:seed -- --existing
       - name: Probar disponibilidad, reservas concurrentes y bloqueos (PDGLD-22)
@@ -157,20 +161,57 @@ jobs:
           node --conditions=react-server --import tsx prisma/seed.ts --profile permissions
           node --conditions=react-server --import tsx --test tests/integration/league-governance.test.ts
 
+  refereeing:
+    name: Arbitraje real PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://postgres:ci_ephemeral_password@127.0.0.1:5432/gestor_ligas_ci
+      DIRECT_URL: postgresql://postgres:ci_ephemeral_password@127.0.0.1:5432/gestor_ligas_ci
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [15, 17]
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preparar Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Instalar las dependencias del lockfile
+        run: npm ci
+      - name: Probar componentes con datos sintéticos
+        run: npm run test:referees:components
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - name: Probar sesión, PostgreSQL, RLS Preview, HTTP y Chrome reales
+        run: npm run test:referees:integration -- --postgres=${{ matrix.postgres }}
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - name: Probar carreras entre cierre e identidad histórica
+        run: npm run test:season-identity-history
+
   checks:
     name: CI listo para integrar
     if: ${{ always() }}
-    needs: [app, database]
+    needs: [app, database, refereeing]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       APP_RESULT: ${{ needs.app.result }}
       DATABASE_RESULT: ${{ needs.database.result }}
+      REFEREEING_RESULT: ${{ needs.refereeing.result }}
     steps:
       - name: Exigir que todas las comprobaciones pasen
         run: |
           test "$APP_RESULT" = "success"
           test "$DATABASE_RESULT" = "success"
+          test "$REFEREEING_RESULT" = "success"
 
   deploy:
     name: Migraciones Supabase producción

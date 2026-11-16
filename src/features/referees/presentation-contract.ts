@@ -1,0 +1,32 @@
+import { z } from "zod";
+const name=z.string().trim().min(1).max(80);
+const base={operationKey:z.uuid(),reason:z.string().trim().min(5).max(500)};
+export const REFEREE_CREDENTIAL_MAX_BYTES=10*1024*1024;
+export const credentialMetadata=z.strictObject({mimeType:z.enum(["application/pdf","image/jpeg","image/png"]),sizeBytes:z.number().int().positive().max(REFEREE_CREDENTIAL_MAX_BYTES),sha256:z.string().regex(/^[a-f0-9]{64}$/)});
+export type CredentialMetadata=z.infer<typeof credentialMetadata>;
+export const presentationMutation=z.discriminatedUnion("kind",[
+  z.strictObject({...base,kind:z.literal("submit"),clubId:z.uuid(),seasonId:z.uuid(),credential:credentialMetadata.optional(),candidate:z.discriminatedUnion("mode",[
+    z.strictObject({mode:z.literal("existing"),personId:z.uuid()}),
+    z.strictObject({mode:z.literal("new"),firstName:name,paternalSurname:name,maternalSurname:z.string().trim().max(80)}),
+  ])}),
+  z.strictObject({...base,kind:z.literal("credential"),presentationId:z.uuid(),expectedVersion:z.number().int().positive(),credential:credentialMetadata}),
+  z.strictObject({...base,kind:z.enum(["accept","reject"]),presentationId:z.uuid(),expectedVersion:z.number().int().positive(),personId:z.uuid().optional(),expectedIdentityVersion:z.number().int().positive().optional(),confirmNewPerson:z.boolean().default(false),reviewedCredentialSha256:z.string().regex(/^[a-f0-9]{64}$/).optional()}),
+]);
+export type PresentationMutation=z.infer<typeof presentationMutation>;
+export type PresentationRow={id:string;clubId:string;club:string;seasonId:string;season:string;status:"PENDING"|"APPROVED"|"REJECTED";version:number;name:string;reason:string;requester:string;createdAt:string;reviewer:string|null;reviewReason:string|null;personId:string|null;approvedPersonId:string|null;approvedName:string|null;refereeId:string|null;credential?:CredentialMetadata|null};
+export type PresentationWorkspace={actorId:string;clubs:{id:string;name:string;seasonId:string;season:string;leagueId:string;league:string;timezone:string;canSubmit:boolean;canReview:boolean;canProvisionAccess:boolean;closed:boolean;teams:number;presented:number;pending:number}[];rows:PresentationRow[];people:{id:string;label:string;clubContexts:string[];leagueIds:string[];identityVersion:number}[]};
+export const presentationMessages:Record<string,string>={
+  CREDENTIAL_REQUIRED:"Adjunta la cédula o acreditación arbitral antes de enviar o incorporar al candidato.",
+  CREDENTIAL_REVIEW_REQUIRED:"Consulta la cédula y confirma que la revisaste antes de incorporar al candidato.",
+  CREDENTIAL_CONFLICT:"La cédula no coincide con esta solicitud o ya existe otra adjunta. Consulta el estado actual.",
+  INVALID_FILE:"Selecciona un PDF, JPG o PNG válido.",FILE_TOO_LARGE:"El archivo debe pesar como máximo 10 MB.",
+  STORAGE_UNAVAILABLE:"No se pudo confirmar la carga privada. Consulta el acuse antes de reintentar.",
+  INVALID_PAYLOAD:"Revisa los datos y el motivo.",FORBIDDEN:"No tienes permiso para ese club o temporada.",
+  CLOSED_CONTEXT:"La temporada está cerrada.",STALE_VERSION:"La solicitud cambió. Cierra y vuelve a abrir para consultar su estado.",
+  PRESENTING_CLUB_FIXED:"El árbitro ya está vinculado a otro club en esa temporada. No se sustituye el club de origen.",
+  PERSON_MATCH_REQUIRES_REVIEW:"Hay una coincidencia de identidad que debe revisarse. Selecciona la persona existente si está autorizada; no se creó otra persona.",
+  PERSON_CONFIRMATION_REQUIRED:"Selecciona una persona existente o confirma expresamente que se trata de una persona nueva.",
+  IDENTITY_CHANGED:"La identidad seleccionada cambió. Consulta la información actual antes de incorporarla.",
+  ALREADY_PRESENTED:"Esta persona ya está presentada o tiene una solicitud pendiente en la temporada.",
+  OPERATION_KEY_REUSED:"La clave ya corresponde a otra solicitud. Consulta su acuse original.",
+};

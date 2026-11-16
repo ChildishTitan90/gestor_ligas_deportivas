@@ -9,7 +9,7 @@ export const permissionActions = ["CREATE", "READ", "UPDATE", "APPROVE", "PUBLIS
 export type PermissionAction = typeof permissionActions[number];
 
 /** RF22 has one authority boundary for accounts, roles and permission policy. */
-export const authorityPermissionModules = ["users", "leagues"] as const;
+export const authorityPermissionModules = ["users", "leagues", "referee-accounts"] as const;
 export function isAuthorityPermissionModule(module: string): boolean {
   return (authorityPermissionModules as readonly string[]).includes(module);
 }

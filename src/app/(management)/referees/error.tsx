@@ -1,0 +1,2 @@
+"use client";
+export default function Error({retry}:{retry:()=>void}) { return <section role="alert" className="rounded-2xl border border-border bg-surface p-6"><h1 className="text-xl font-semibold">No se pudo consultar arbitraje</h1><p className="mt-2 text-sm text-muted">Comprueba tu sesión y conexión. Si hay una operación incierta, consulta su acuse antes de repetirla.</p><button type="button" className="primary-action mt-4 min-h-12 rounded-xl px-5 py-3 font-semibold" onClick={retry}>Volver a consultar</button></section>; }

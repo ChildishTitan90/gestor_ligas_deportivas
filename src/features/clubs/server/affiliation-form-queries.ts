@@ -299,7 +299,7 @@ export async function getAffiliationCorrectionFormPageData(id: string): Promise<
     // Una captura anterior puede carecer de categorías/directivos. Es un formulario
     // incompleto para corregir; la validación obligatoria sigue al enviar, también en servidor.
     const initialValues: AffiliationFormValues = { clubName: detail.clubName,
-      uniformColors: detail.uniformColors ?? "", categoryIds: detail.categoryIds,
+      uniformColors: detail.uniformColors ?? "", ...(detail.uniformKits ? { uniformKits: detail.uniformKits } : {}), categoryIds: detail.categoryIds,
       officers: officers as AffiliationFormValues["officers"] };
     const signatureFileIds = Object.fromEntries(detail.officers.filter(person => person.signatureFileId)
       .map(person => [person.office, person.signatureFileId!])) as NonNullable<AffiliationFormProps["correction"]>["signatureFileIds"];

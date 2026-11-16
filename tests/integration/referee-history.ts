@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import {randomUUID} from "node:crypto";
+import type pg from "pg";
+import {PDFDocument} from "pdf-lib";
+import {getPrisma} from "../../src/server/db/prisma";
+import {mutateRefereeing} from "../../src/features/referees/server/service";
+import {getRefereeWorkspaceForActor} from "../../src/features/referees/server/queries";
+import {requestIdentityCorrectionForActor,decideIdentityCorrectionForActor,correctionWorkspaceForActor} from "../../src/features/players/server/identity-correction";
+import {syntheticPlayerPolicy} from "../fixtures/player-document-policy";
+
+export async function verifyRefereeHistory(c:{db:pg.Client;actors:Record<string,string>;league:string;season:string;sc:string;newMatch:(start?:string,end?:string)=>Promise<string>;newRef:()=>Promise<string>}){
+  const {db}=c,prisma=getPrisma(),ref=await c.newRef();
+  const person=(await db.query("SELECT person_id FROM sports_management.referees WHERE id=$1",[ref])).rows[0].person_id;
+  const prefix="SIAA900101HMNLRR0",alphabet="0123456789ABCDEFGHIJKLMNÑOPQRSTUVWXYZ";
+  const curp=prefix+((10-[...prefix].reduce((n,l,i)=>n+alphabet.indexOf(l)*(18-i),0)%10)%10);
+  await db.query("UPDATE sports_management.people SET curp=$2,birth_date='1990-01-01' WHERE id=$1",[person,curp]);
+  await db.query("UPDATE sports_management.season_categories SET eligibility_pending=false,player_policy=$2::jsonb WHERE id=$1",[c.sc,JSON.stringify({...syntheticPlayerPolicy(),registrationDays:[1,2,3,4,5,6,7]})]);
+  const st=(await db.query("SELECT id,club_id FROM sports_management.season_teams WHERE season_category_id=$1 AND group_id IS NOT NULL LIMIT 1",[c.sc])).rows[0];
+  const registration=(await db.query("INSERT INTO sports_management.player_registrations(person_id,season_id,season_team_id,reference_number,status) VALUES($1,$2,$3,$4,'INELIGIBLE') RETURNING id",[person,c.season,st.id,randomUUID()])).rows[0].id;
+  const adminPerson=(await db.query("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES('Revisor histórico','Sintético') RETURNING id")).rows[0].id;
+  const admin=(await db.query("INSERT INTO sports_management.users(person_id,username,email,password_hash,is_active,must_change_password) SELECT $1,$2,$3,password_hash,true,false FROM sports_management.users WHERE id=$4 RETURNING id",[adminPerson,`history_${randomUUID()}`,`${randomUUID()}@example.test`,c.actors.comision])).rows[0].id;
+  await db.query("INSERT INTO sports_management.user_roles(user_id,role_id) SELECT $1,id FROM sports_management.roles WHERE code='SUPERADMIN'",[admin]);
+  const command=(kind:string,more:Record<string,unknown>)=>({kind,leagueId:c.league,seasonId:c.season,operationKey:randomUUID(),reason:"Historia arbitral sintética",...more});
+  const closed=await c.newMatch("2026-12-07T10:00Z","2026-12-07T12:00Z"),open=await c.newMatch("2026-12-07T14:00Z","2026-12-07T16:00Z");
+  const historical=await mutateRefereeing(c.actors.comision,command("assign",{matchId:closed,refereeId:ref,expectedMatchVersion:1}));
+  const current=await mutateRefereeing(c.actors.comision,command("assign",{matchId:open,refereeId:ref,expectedMatchVersion:1}));
+  await db.query("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by,reason) VALUES($1,2,1,'ADMINISTRATIVE',$2,'Resultado sintético anterior al cierre')",[closed,c.actors.comision]);
+  await db.query("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('FINISHED') WHERE id=$1",[closed]);
+  const before=(await db.query("SELECT identity_snapshot FROM sports_management.referee_assignments WHERE id=$1",[historical.id])).rows[0].identity_snapshot;
+  assert.equal(before.source,"MATCH_CLOSURE_V1");
+  const resultsBefore=(await db.query("SELECT to_jsonb(r) AS value FROM sports_management.match_results r ORDER BY id")).rows;
+  assert.ok(resultsBefore.length>0);
+  const personBefore=(await db.query("SELECT * FROM sports_management.people WHERE id=$1",[person])).rows[0];
+  const pdf=await PDFDocument.create();pdf.addPage();const bytes=await pdf.save();
+  const request=await requestIdentityCorrectionForActor(admin,registration,{operationKey:randomUUID(),expectedIdentityVersion:personBefore.identity_version,identity:{firstName:"Nombre arbitral corregido",paternalSurname:personBefore.paternal_surname,maternalSurname:null,birthDate:"1990-01-01",curp},reason:"Corrección sintética documentada de nombre arbitral",identityDoubt:false},[{kind:"CIVIL_RECORD",mimeType:"application/pdf",bytes}]);
+  const reviewerPerson=(await db.query("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES('Segundo revisor','Sintético') RETURNING id")).rows[0].id;
+  const reviewer=(await db.query("INSERT INTO sports_management.users(person_id,username,email,password_hash,is_active,must_change_password) SELECT $1,$2,$3,password_hash,true,false FROM sports_management.users WHERE id=$4 RETURNING id",[reviewerPerson,`review_${randomUUID()}`,`${randomUUID()}@example.test`,c.actors.comision])).rows[0].id;
+  await db.query("INSERT INTO sports_management.user_roles(user_id,role_id) SELECT $1,id FROM sports_management.roles WHERE code='SUPERADMIN'",[reviewer]);
+  await decideIdentityCorrectionForActor(reviewer,registration,request.id,{operationKey:randomUUID(),decision:"APPLY",observations:"Identidad y evidencia sintéticas cotejadas",evidenceChecked:true,samePersonChecked:true,curpDiscrepancy:false});
+  assert.deepEqual((await db.query("SELECT identity_snapshot FROM sports_management.referee_assignments WHERE id=$1",[historical.id])).rows[0].identity_snapshot,before);
+  assert.deepEqual((await db.query("SELECT to_jsonb(r) AS value FROM sports_management.match_results r ORDER BY id")).rows,resultsBefore);
+  assert.equal((await db.query("SELECT sports_management.referee_assignment_effective($1) AS effective",[current.id])).rows[0].effective,false);
+  const workspace=await getRefereeWorkspaceForActor(c.actors.comision,c.league,c.season);
+  assert.equal(workspace.data.history.find(h=>h.id===historical.id)?.identity.source,"MATCH_CLOSURE_V1");
+  const legacy=await c.newMatch("2026-12-07T18:00Z","2026-12-07T20:00Z");
+  await mutateRefereeing(c.actors.comision,command("assign",{matchId:legacy,refereeId:ref,expectedMatchVersion:1}));
+  await db.query("ALTER TABLE sports_management.matches DISABLE TRIGGER capture_match_referee_identity");
+  try{await db.query("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('FINISHED') WHERE id=$1",[legacy]);}finally{await db.query("ALTER TABLE sports_management.matches ENABLE TRIGGER capture_match_referee_identity");}
+  assert.equal((await db.query("SELECT sports_management.closed_identity_reader_block($1) AS code",[person])).rows[0].code,"HISTORICAL_REFEREE_UNPROTECTED");
+  assert.equal((await correctionWorkspaceForActor(reviewer,registration)).applyBlockedCode,"HISTORICAL_REFEREE_UNPROTECTED");
+  const unavailable=(await getRefereeWorkspaceForActor(c.actors.comision,c.league,c.season)).data.history.find(h=>h.matchId===legacy);assert.equal(unavailable?.identity.source,"UNAVAILABLE");
+  assert.equal(await prisma.people.count({where:{id:person}}),1);
+  console.log(JSON.stringify({suite:"PDGLD-143 historia arbitral",checks:["correccion-real-PDGLD117","misma-persona","captura-cerrada-preservada","resultados-inmutables","aprobacion-abierta-reevaluada","legado-sin-evidencia-bloqueado-selectivamente"]}));
+}

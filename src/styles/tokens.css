@@ -21,6 +21,11 @@
   --overlay: #123b4a;
   --positive: #24634b;
   --positive-surface: #e7f4ed;
+  --pitch: #175445;
+  --pitch-line: #b4d4c5;
+  --pitch-foreground: #ffffff;
+  --card-yellow: #e6b323;
+  --card-red: #c73542;
 }
 
 :root[data-theme="dark"] {
@@ -46,4 +51,9 @@
   --overlay: #071114;
   --positive: #a9e9cc;
   --positive-surface: #203b33;
+  --pitch: #173e37;
+  --pitch-line: #86b5a3;
+  --pitch-foreground: #ffffff;
+  --card-yellow: #e6b323;
+  --card-red: #e25863;
 }

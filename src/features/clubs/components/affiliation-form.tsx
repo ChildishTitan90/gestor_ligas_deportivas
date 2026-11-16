@@ -1,5 +1,7 @@
 "use client";
 import { DirectSignatureField } from "./direct-signature-field";
+import { UniformKitFields } from "./uniform-kit-fields";
+import { describeKits, uniformKitsSchema } from "../uniform-kits";
 import { useId, useRef, useState, type FormEvent } from "react";
 import {
   affiliationFormSchema,
@@ -276,9 +278,14 @@ function invalidateSignatureForOfficer(name: string) {
 
     try {
       if (!pendingSubmission.current) {
+        const kitInput = String(data.get("uniformKits") ?? "");
+        let uniformKits: unknown;
+        try { uniformKits = kitInput ? JSON.parse(kitInput) : undefined; } catch { uniformKits = null; }
+        const validKits = uniformKitsSchema.safeParse(uniformKits);
         const capture = affiliationFormSchema.safeParse({
           clubName: data.get("clubName"),
-          uniformColors: data.get("uniformColors"),
+          uniformColors: validKits.success ? describeKits(validKits.data) : data.get("uniformColors"),
+          ...(kitInput ? { uniformKits } : {}),
           categoryIds: data.getAll("categoryIds"),
           officers: Object.fromEntries(
             affiliationOfficeCodes.map((office) => [
@@ -470,9 +477,12 @@ function invalidateSignatureForOfficer(name: string) {
           {field("clubName", "Nombre del club", initialValues?.clubName)}
           {field(
             "uniformColors",
-            "Colores del uniforme",
+            "Descripción anterior del uniforme (si no defines colores)",
             initialValues?.uniformColors,
+            false,
           )}
+          <UniformKitFields initialValue={initialValues?.uniformKits} legacy={Boolean(initialValues?.uniformColors)} />
+          {errorFor("uniformKits")}
         </fieldset>
 
         <fieldset

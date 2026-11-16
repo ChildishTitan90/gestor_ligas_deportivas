@@ -116,9 +116,9 @@ export async function runCategoryParticipationTests(t:TestContext,db:PrismaClien
     try{await assert.rejects(createCategoryParticipationForActor(actors.delegate,second.registrationId,request(top.id)),isCode("REGISTRATION_WINDOW_CLOSED"));}
     finally{await db.$executeRaw`CREATE OR REPLACE FUNCTION sports_management.player_participation_now() RETURNS timestamptz LANGUAGE sql STABLE AS 'SELECT ''2026-10-26T12:00:00-06:00''::timestamptz'`;}
     const type=await db.sanction_types.findUniqueOrThrow({where:{code:"TIME"}});
-    const article=await db.regulation_articles.create({data:{competition_rule_id:fixture.rule.id,number:"P13",description:reason,sanction_type_id:type.id}});
     await db.$transaction(async tx=>{
       await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason',${reason},true)`;
+      const article=await tx.regulation_articles.create({data:{competition_rule_id:fixture.rule.id,number:"P13",description:reason,sanction_type_id:type.id}});
       const disciplinaryCase=await tx.disciplinary_cases.create({data:{season_id:fixture.season.id,reference_number:`CASE-${nonce}`,opened_by:actors.admin,description:reason}});
       const ruling=await tx.disciplinary_rulings.create({data:{case_id:disciplinaryCase.id,version_number:1,decided_by:actors.admin,decision:"Sanción sintética",reason}});
       await tx.sanctions.create({data:{ruling_id:ruling.id,article_id:article.id,sanction_type_id:type.id,registration_id:second.registrationId,starts_at:new Date('2026-01-01'),ends_at:new Date('2027-01-01'),blocks_participation:true}});

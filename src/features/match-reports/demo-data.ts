@@ -1,3 +1,4 @@
+import { formationSlots } from "./tactics";
 import type { ReportDemoCase, ReportDemoData, ReportEventType, ReportPlayer } from "./types";
 
 export const REPORT_DEMO_PATH = "/matches/report-demo";
@@ -17,6 +18,7 @@ export const reportDemoCases: { value: ReportDemoCase; label: string; descriptio
 /** Códigos del baseline; exigencias de selección solo ilustrativas hasta integrar PDGLD-26. */
 const eventTypes: ReportEventType[] = [
   { code: "GOAL", label: "Gol", player: "required", team: "required", opensCase: false },
+  { code: "INJURY", label: "Lesión", player: "required", team: "required", opensCase: false },
   { code: "CAUTION", label: "Amonestación", player: "required", team: "required", opensCase: false },
   { code: "SENDING_OFF", label: "Expulsión", player: "required", team: "required", opensCase: true },
   { code: "SERIOUS_INCIDENT", label: "Incidente grave", player: "optional", team: "optional", opensCase: true },
@@ -55,6 +57,9 @@ export function createReportDemo(scenario: ReportDemoCase = "draft"): ReportDemo
       away: { id: "away", name: "Atlético Cantera", shortName: "Cantera", initials: "AC" },
     },
     report: {
+      tactics: Object.fromEntries(["home", "away"].map(team => [team, {formation:"4-4-2" as const, slots:formationSlots("4-4-2").map((slot,i)=>({...slot,playerId:!empty?`${team}-${i+1}`:null})),kitSource:null,kit:null}])),
+      lineupsLock: scenario === "setup" ? null : {operationId:"54000000-0000-4000-8000-000000000099",lockedAt:"2026-11-15T16:00:00Z"},
+      ...(scenario === "clock-due" ? { clock: {phase:"FIRST_HALF" as const,phaseStartedAt:new Date(Date.now()-45*60000-1000).toISOString(),endedAt:null,halfMinutes:45,breakMinutes:15,extraMinutes:0,extraDeclared:false}} : {}),
       id: "report-demo-018", matchId: REPORT_DEMO_MATCH_ID, version: 2, status: confirmed ? "CONFIRMED" : "DRAFT",
       lineups: players.map((player, index) => ({
         playerId: player.id, selected: !empty && player.eligible, starter: index % 15 < 11,

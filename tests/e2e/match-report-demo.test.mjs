@@ -21,19 +21,20 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
       import {ManagementShell} from './src/components/layout/management-shell';
       import {ReportWorkspace} from './src/features/match-reports/components/report-workspace';
       import {ReportDemoList} from './src/features/match-reports/components/report-demo-list';
+      import {MatchReportList} from './src/features/match-reports/components/match-report-list';
       import {createReportDemo} from './src/features/match-reports/demo-data';
       let revision=0; const root=createRoot(document.getElementById('root'));
-      window.networkCalls=[]; window.fetch=(...args)=>{window.networkCalls.push(String(args[0]));throw Error('Red prohibida en demo de componentes');};
-      window.fixture={render(scenario='draft') {flushSync(()=>root.render(<ManagementShell key={++revision}
+      window.networkCalls=[]; window.fetch=(...args)=>{window.networkCalls.push(String(args[0]));if(window.fixtureConfirmationStatus)return Promise.resolve(Response.json({code:'CONFIRMATION_DEPENDENCIES_PENDING'},{status:window.fixtureConfirmationStatus}));throw Error('Red prohibida en demo de componentes');};
+      window.fixture={render(scenario='draft') {window.fixtureConfirmationStatus=0;const online=scenario.startsWith('online-');const data=createReportDemo(online?'confirmed':scenario);if(online){data.scenario='draft';data.report.status='DRAFT';data.report.confirmedAt=null;data.match.status={code:'IN_PROGRESS',label:'En curso',captureAllowed:true};data.confirmation={available:scenario==='online-rejected',message:'La confirmación final todavía no está disponible. Guarda el borrador para conservar esta captura y continuar después.'};}window.fixturePath=scenario.startsWith('real-')?'/matches':'/matches/report-demo/demo-018';flushSync(()=>root.render(<ManagementShell key={++revision}
         account={{username:'demo.sintetica',initials:'DS',roleNames:['Cuenta de ejemplo']}}
-        navigation={[{label:'Arbitraje · Demo',items:[{href:'/matches/report-demo',label:'Demo · Cédula arbitral',icon:'players'}]}]}>
-        {scenario==='list'?<ReportDemoList/>:<ReportWorkspace data={createReportDemo(scenario)}/>}
+        navigation={[{label:scenario.startsWith('real-')?'Arbitraje':'Arbitraje · Demo',items:[{href:scenario.startsWith('real-')?'/matches':'/matches/report-demo',label:scenario.startsWith('real-')?'Cédula arbitral':'Demo · Cédula arbitral',icon:'players'}]}]}>
+        {scenario==='real-empty'?<MatchReportList matches={[]}/>:scenario==='real-list'?<MatchReportList matches={[{id:'synthetic',number:'PARTIDO-7',status:'En curso',statusCode:'IN_PROGRESS',startsAt:'2026-12-05T16:00:00Z',season:'Apertura 2026',category:'Libre',group:'A',matchday:7,venue:'Cancha de prueba',home:'Deportivo Encinos',away:'Atlético Cantera'}]}/>:scenario==='list'?<ReportDemoList/>:<ReportWorkspace data={data} live={online?{actorId:'synthetic-actor'}:undefined}/>}
       </ManagementShell>));}}; window.fixture.render();
     ` },
     plugins: [{ name: "next-fixture", setup(plugin) {
       plugin.onResolve({ filter: /^next\/(link|image|navigation)$/ }, args => ({ path: args.path, namespace: "fixture" }));
       plugin.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ contents: args.path === "next/navigation"
-        ? "export const usePathname=()=>'/matches/report-demo/demo-018';"
+        ? "export const usePathname=()=>window.fixturePath??'/matches/report-demo/demo-018';"
         : args.path === "next/link" ? "import React from 'react';export default function Link({children,...props}){return <a {...props}>{children}</a>}"
           : "import React from 'react';export default function Image({unoptimized,...props}){return <img {...props}/>}" , loader: "jsx", resolveDir: process.cwd() }));
     } }],
@@ -51,6 +52,8 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
   const key = async name => { for (const type of ["keyDown", "keyUp"]) await browser.command("Input.dispatchKeyEvent", { type, key: name, code: name, windowsVirtualKeyCode: name === "Enter" ? 13 : name === "Escape" ? 27 : name === "Tab" ? 9 : 40 }); };
   const render = async scenario => { await ev(`window.fixture.render(${JSON.stringify(scenario)})`); await ev("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))"); };
   const select = async (id, label) => {
+    // Esperar al pintado y al foco inicial del diálogo antes de abrir su selector.
+    await ev("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");
     await ev(`document.getElementById(${JSON.stringify(id)}).focus();document.getElementById(${JSON.stringify(id)}).click()`);
     await wait("document.querySelector('[role=listbox]')");
     await ev(`(()=>{const o=[...document.querySelectorAll('[role=option]')].find(o=>o.textContent.includes(${JSON.stringify(label)}));if(!o)throw Error('Opción no encontrada');o.click();})()`);
@@ -65,12 +68,18 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
   assert.equal(await ev(`document.querySelector('nav[aria-label="Gestión de la liga"] a[aria-current="page"]')?.getAttribute('href')`), "/matches/report-demo");
 
   await t.test("partido, estados separados, alineación y dorsal independiente", async () => {
+    await render("setup");
     assert.match(await visibleText(), /Partido: En curso/); assert.match(await visibleText(), /Cédula: Borrador/);
     await click("Capturar cédula");
+    await ev("[...document.querySelectorAll('summary')].filter(n=>n.textContent==='Convocados y dorsales'&&n.getClientRects().length).forEach(n=>n.click())");
     assert.equal(await ev("document.getElementById('jersey-home-7').value"), "17");
     assert.match(await visibleText(), /Sanción vigente/);
-    assert.equal(await ev("[...document.querySelectorAll('input[type=checkbox]')].filter(i=>i.getClientRects().length && i.disabled).length"), 4);
+    assert.equal(await ev("[...document.querySelectorAll('input[type=checkbox]')].filter(i=>i.getClientRects().length && i.disabled).length"), await ev("innerWidth>=1280?4:2"));
     await ev(`(()=>{const i=document.getElementById('jersey-home-7');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'27');i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await click("Resumen");
+    await wait("document.querySelector('dialog[open]')");
+    await ev("document.querySelector('dialog input[type=checkbox]').click()");await click("Confirmar y guardar alineaciones");
+    await wait("!document.querySelector('dialog[open]')");
     await click("Resumen"); assert.match(await visibleText(), /#27/);
     assert.match(await visibleText(), /falta capturar y confirmar la firma/);
     assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Confirmar · Simulación').disabled"), true);
@@ -112,7 +121,7 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
     await click("Guardar · Simulación");
     assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Guardar · Simulación').disabled"), true);
     await wait("document.body.innerText.includes('Guardado simulado recibido')");
-    assert.match(version, /Cédula v2/); assert.match(await visibleText(), /Cédula v3/);
+    const before=Number(version.match(/Cédula v(\d+)/)[1]); assert.match(await visibleText(), new RegExp(`Cédula v${before+1}`));
     assert.match(await visibleText(), /se pierde al salir o recargar/);
   });
 
@@ -185,6 +194,163 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
     await render("empty"); await click("Capturar cédula"); await click("Eventos"); assert.match(await visibleText(), /Todavía no hay eventos/);
   });
 
+  await t.test("campo táctil, formación personalizada, uniforme, lesión y cambio desde un jugador", async () => {
+    await browser.command("Emulation.setDeviceMetricsOverride",{width:390,height:1000,deviceScaleFactor:1,mobile:true});
+    await ev("document.documentElement.dataset.theme='dark'");
+    await render("setup");await click("Capturar cédula");
+    assert.equal(await ev("document.querySelectorAll('[data-pitch]').length"),2);
+    await click("VisitanteCantera");
+    assert.equal(await ev("document.querySelector('[data-pitch=away]').getClientRects().length>0"),true);
+    await click("LocalEncinos");
+    await click("Once inicial");
+    await select("formation-home","4-2-3-1");
+    await ev("document.querySelector('[data-pitch=home] button').click()");
+    await select("pitch-player","Mateo Reyes");
+    await click("Aplicar posición");await wait("!document.querySelector('dialog[open]')");
+    assert.match(await ev("document.querySelector('[data-pitch=home]').innerText"),/Mateo Reyes/);
+    await select("formation-home","Personalizada");
+    await ev("document.querySelector('[data-pitch=home] button').click()");
+    await ev("(()=>{const i=document.querySelector('dialog input[type=range]');i.focus();Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'60');i.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await click("Aplicar posición");await wait("!document.querySelector('dialog[open]')");
+    assert.equal(await ev("document.querySelector('[data-pitch=home] button').style.left"),"60%");
+    await click("Elegir uniforme de Encinos");
+    await ev("(()=>{const i=document.getElementById('match-kit-home-primary');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'#e3a17d');i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}));})()");
+    await click("Aplicar uniforme");await wait("!document.querySelector('dialog[open]')");
+    assert.equal(await ev("document.querySelectorAll('[data-pitch=home] button')[1].querySelector('svg path').getAttribute('fill')"),"#e3a17d");
+    await click("Continuar");await wait("document.querySelector('dialog[open]')");await ev("document.querySelector('dialog input[type=checkbox]').click()");await click("Confirmar y guardar alineaciones");await wait("!document.querySelector('dialog[open]')");
+    await click("En cancha");
+    await ev("[...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Iván Robles')).click()");
+    await wait("document.querySelector('dialog[open]')");
+    assert.equal(await ev("[...document.querySelectorAll('dialog button')].filter(b=>['Gol','Amarilla','Roja','Cambio','Lesión','Incidente'].includes(b.textContent.trim())).length"),6);
+    await screenshot("dark-390-acciones-jugador");
+    await click("Lesión");await wait("document.getElementById('report-event-form')");
+    assert.equal(await ev("new FormData(document.getElementById('report-event-form')).get('player')"),"home-9");
+    await click("Aplicar evento");await wait("!document.getElementById('report-event-form')");
+    assert.equal(await ev("[...document.querySelectorAll('[data-pitch=home] button')].some(b=>b.getAttribute('aria-label').startsWith('Iván Robles'))"),true);
+    await ev("[...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Iván Robles')).click()");
+    await click("Cambio");await wait("document.getElementById('report-event-form')");
+    assert.equal(await ev("new FormData(document.getElementById('report-event-form')).get('outgoing')"),"home-9");
+    await select("event-player","Adrián Solís");
+    await click("Aplicar cambio");await wait("!document.getElementById('report-event-form')");
+    assert.equal(await ev("[...document.querySelectorAll('[data-pitch=home] button')].some(b=>b.getAttribute('aria-label').startsWith('Adrián Solís'))"),true);
+    assert.equal(await ev("[...document.querySelectorAll('[data-pitch=home] button')].some(b=>b.getAttribute('aria-label').startsWith('Iván Robles'))"),false);
+    assert.doesNotMatch(await visibleText(),/Hay cambios que no se pueden representar/);
+    await ev("document.querySelector('[data-pitch=home]').scrollIntoView({block:'center'})");await screenshot("dark-390-campo-interactivo");
+    assert.equal(await ev("Boolean([...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Adrián Solís'))?.querySelector('[title=\"Entró de cambio\"]'))"),true);
+    await click("Once inicial");
+    assert.match(await ev("document.querySelector('[data-pitch=home]').innerText"),/Iván Robles/);
+    assert.equal(await ev("document.documentElement.scrollWidth<=innerWidth"),true);
+  });
+
+  await t.test("dorsal duplicado visible, arrastre desde banca y movimiento táctil directo", async () => {
+    await browser.command("Emulation.setDeviceMetricsOverride",{width:654,height:900,deviceScaleFactor:1,mobile:true});
+    await render("setup");await click("Capturar cédula");
+    assert.equal(await ev("[...document.querySelectorAll('button')].filter(b=>b.textContent==='En cancha').length"),0);
+    await ev("[...document.querySelectorAll('summary')].find(s=>s.textContent==='Convocados y dorsales').click()");
+    await ev("(()=>{const i=document.getElementById('jersey-home-7');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'8');i.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    assert.equal(await ev("document.getElementById('jersey-home-7').getAttribute('aria-invalid')"),"true");
+    assert.match(await visibleText(),/dorsal 8 también lo usa/);
+    await ev("(()=>{const i=document.getElementById('jersey-home-7');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'17');i.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await ev("document.querySelector('[aria-label=\"Arrastrar Mateo Reyes al campo\"]').scrollIntoView({block:'center'})");
+    const positions=await ev("(()=>{const a=document.querySelector('[aria-label=\"Arrastrar Mateo Reyes al campo\"]').getBoundingClientRect();const b=document.querySelectorAll('[data-pitch=home] button')[0].getBoundingClientRect();return {ax:a.x+a.width/2,ay:a.y+a.height/2,bx:b.x+b.width/2,by:b.y+b.height/2};})()");
+    await browser.command("Input.dispatchMouseEvent",{type:"mousePressed",x:positions.ax,y:positions.ay,button:"left",clickCount:1});
+    for(let n=1;n<=8;n++)await browser.command("Input.dispatchMouseEvent",{type:"mouseMoved",x:positions.ax+(positions.bx-positions.ax)*n/8,y:positions.ay+(positions.by-positions.ay)*n/8,button:"left",buttons:1});
+    await browser.command("Input.dispatchMouseEvent",{type:"mouseReleased",x:positions.bx,y:positions.by,button:"left",clickCount:1});
+    await wait("document.querySelectorAll('[data-pitch=home] button')[0].innerText.includes('Mateo')");
+    await ev("document.querySelectorAll('[data-pitch=home] button')[0].scrollIntoView({block:'center'})");
+    const touch=await ev("(()=>{const b=document.querySelectorAll('[data-pitch=home] button')[0].getBoundingClientRect(),r=document.querySelector('[data-pitch=home]').getBoundingClientRect();return {x:b.x+b.width/2,y:b.y+b.height/2,tx:r.x+r.width*.6,ty:r.y+r.height*.85};})()");
+    await browser.command("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{x:touch.x,y:touch.y,id:1}]});
+    for(let n=1;n<=8;n++)await browser.command("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{x:touch.x+(touch.tx-touch.x)*n/8,y:touch.y+(touch.ty-touch.y)*n/8,id:1}]});
+    await browser.command("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});
+    await wait("document.querySelectorAll('[data-pitch=home] button')[0].style.left==='60%' && document.querySelectorAll('[data-pitch=home] button')[0].style.top==='85%'");
+    assert.equal(await ev("document.getElementById('custom-formation-home').value"),"4-4-2");
+  });
+
+  await t.test("arrastrar entre posiciones intercambia titulares con ratón y pantalla táctil", async () => {
+    await browser.command("Emulation.setDeviceMetricsOverride",{width:654,height:900,deviceScaleFactor:1,mobile:true});
+    await render("setup");await click("Capturar cédula");
+    const snapshot=()=>ev("[...document.querySelectorAll('[data-pitch=home] button')].map(b=>({label:b.getAttribute('aria-label'),left:b.style.left,top:b.style.top}))");
+    const before=await snapshot();
+    async function dragSlot(from,to,touch=false){
+      await ev(`document.querySelectorAll('[data-pitch=home] button')[${from}].scrollIntoView({block:'center'})`);
+      const p=await ev(`(()=>{const a=document.querySelectorAll('[data-pitch=home] button')[${from}].getBoundingClientRect(),b=document.querySelectorAll('[data-pitch=home] button')[${to}].getBoundingClientRect();return {x:a.x+a.width/2,y:a.y+a.height/2,tx:b.x+b.width/2,ty:b.y+b.height/2};})()`);
+      if(touch){
+        await browser.command("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{x:p.x,y:p.y,id:1}]});
+        for(let n=1;n<=8;n++)await browser.command("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{x:p.x+(p.tx-p.x)*n/8,y:p.y+(p.ty-p.y)*n/8,id:1}]});
+        await browser.command("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});
+      }else{
+        await browser.command("Input.dispatchMouseEvent",{type:"mousePressed",x:p.x,y:p.y,button:"left",clickCount:1});
+        for(let n=1;n<=8;n++)await browser.command("Input.dispatchMouseEvent",{type:"mouseMoved",x:p.x+(p.tx-p.x)*n/8,y:p.y+(p.ty-p.y)*n/8,button:"left",buttons:1});
+        await browser.command("Input.dispatchMouseEvent",{type:"mouseReleased",x:p.tx,y:p.ty,button:"left",clickCount:1});
+      }
+    }
+    await dragSlot(1,2);
+    const swapped=await snapshot();
+    assert.match(swapped[1].label,/Camilo Ríos/);assert.match(swapped[2].label,/Bruno Valle/);
+    assert.deepEqual(swapped.map(({left,top})=>({left,top})),before.map(({left,top})=>({left,top})));
+    assert.equal(await ev("document.getElementById('formation-home').value"),"4-4-2");
+    assert.equal(await ev("Boolean(document.querySelector('dialog[open]'))"),false);
+    await dragSlot(2,1,true);assert.deepEqual(await snapshot(),before);
+    await ev("document.querySelectorAll('[data-pitch=home] button')[2].click()");await select("pitch-player","Posición sin asignar");await click("Aplicar posición");
+    await dragSlot(1,2);
+    const moved=await snapshot();assert.doesNotMatch(moved[1].label,/Bruno Valle/);assert.match(moved[2].label,/Bruno Valle/);
+    assert.deepEqual(moved.map(({left,top})=>({left,top})),before.map(({left,top})=>({left,top})));
+  });
+
+  await t.test("reloj: aviso al minuto 45, compensación, descanso ajustable y segundo tiempo", async () => {
+    await render("clock-due");await click("Capturar cédula");await click("Captura en vivo");
+    await wait("document.querySelector('[aria-label=\"Aviso de tiempo\"]')");
+    await click("Registrar compensación");await wait("document.getElementById('report-clock-action')");
+    await ev("(()=>{const i=document.querySelector('#report-clock-action input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'3');i.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await click("Confirmar compensación");await wait("document.body.innerText.includes('Compensación 3 min')");
+    await click("Terminar tiempo");await click("Confirmar fin del tiempo");await wait("document.body.innerText.includes('Ajustar descanso')");
+    await click("Ajustar descanso");await ev("(()=>{const i=document.querySelector('#report-clock-action input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'20');i.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await click("Confirmar descanso");await wait("document.body.innerText.includes('Descanso 20 min')");
+    await ev("[...document.querySelectorAll('[data-pitch=away] button')].find(b=>b.getAttribute('aria-label').startsWith('Yahir Peña')).click()");
+    assert.deepEqual(await ev("[...document.querySelectorAll('dialog[open] button')].filter(b=>['Gol','Amarilla','Roja','Cambio','Lesión','Incidente'].includes(b.textContent.trim())).map(b=>[b.textContent.trim(),b.disabled])"),[["Gol",true],["Amarilla",true],["Roja",true],["Cambio",false],["Lesión",true],["Incidente",true]]);
+    await click("Cambio");
+    assert.deepEqual(await ev("[...document.querySelectorAll('#report-event-form input[type=number]')].map(i=>[i.value,i.disabled])"),[["2",true],["45",true],["0",true]]);
+    await select("event-player","Benjamín Olmo");await click("Aplicar cambio");await wait("!document.querySelector('dialog[open]')");
+    await click("Eventos");assert.match(await visibleText(),/45:00/);await click("Alineaciones");
+    await click("Iniciar segundo tiempo");await click("Confirmar segundo tiempo");await wait("document.body.innerText.includes('Segundo tiempo') && !document.querySelector('dialog[open]')");
+    assert.match(await ev("document.querySelector('[role=timer]').textContent"),/^45:0/);
+    await ev("[...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Iván Robles')).click()");await click("Gol");
+    assert.equal(await ev("document.querySelectorAll('#report-event-form input[type=number]')[0].value"),"2");
+    assert.equal(await ev("document.querySelectorAll('#report-event-form input[type=number]')[1].value"),"45");
+    await click("Aplicar evento");await wait("!document.querySelector('dialog[open]')");
+    await ev("[...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Iván Robles')).click()");await click("Cambio");
+    await ev("document.getElementById('event-player').click()");await wait("document.querySelector('[role=listbox]')");
+    assert.deepEqual(await ev("[...document.querySelectorAll('[role=option]')].map(o=>o.textContent)"),["Sin jugador indicado","Mateo ReyesDorsal 13"]);
+    await ev("[...document.querySelectorAll('[role=option]')].find(o=>o.textContent.includes('Mateo Reyes')).click()");await click("Aplicar cambio");await wait("!document.querySelector('dialog[open]')");
+    await ev("[...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Hugo Montes')).click()");await click("Cambio");
+    await ev("document.getElementById('event-player').click()");await wait("document.querySelector('[role=listbox]')");
+    assert.equal(await ev("document.querySelectorAll('[role=option]').length"),1);
+    await key("Escape");if(await ev("Boolean(document.querySelector('dialog[open]'))"))await click("Cancelar");
+  });
+
+  await t.test("relevo de capitán y segunda amarilla dejan antecedentes y vacante", async () => {
+    await render("draft");await click("Capturar cédula");
+    await ev("[...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Iván Robles')).click()");await click("Gol");
+    await ev("(()=>{for(const [i,v] of [[document.querySelectorAll('#report-event-form input[type=number]')[1],'22'],[document.querySelector('#report-event-form input[name=second]'),'34']]){Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,v);i.dispatchEvent(new Event('input',{bubbles:true}));}})()");
+    await click("Aplicar evento");await wait("!document.getElementById('report-event-form')");
+    assert.deepEqual(await ev("[...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Iván Robles')).querySelectorAll('[data-player-goal]').length"),2);
+    assert.deepEqual(await ev("[...[...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Iván Robles')).querySelectorAll('[data-player-goal]')].map(n=>n.parentElement.style.bottom)"),["0px","8px"]);
+    await click("Eventos");assert.match(await visibleText(),/22:34/);await click("Alineaciones");
+
+    await ev("[...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Darío Luna')).click()");await click("Cambio");
+    await select("event-player","Mateo Reyes");await click("Aplicar cambio");
+    assert.match(await visibleText(),/selecciona al nuevo capitán/);
+    await select("event-replacement-captain","Bruno Valle");await click("Aplicar cambio");await wait("!document.getElementById('report-event-form')");
+    assert.equal(await ev("Boolean([...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Bruno Valle')).querySelector('[aria-label=Capitán]'))"),true);
+    assert.equal(await ev("document.querySelector('#captain-home input[type=hidden]')?.value ?? document.querySelector('input[name=\"captain-home\"]').value"),"home-4");
+    for(let n=0;n<2;n++) {await ev("[...document.querySelectorAll('[data-pitch=home] button')].find(b=>b.getAttribute('aria-label').startsWith('Hugo Montes')).click()");await click("Amarilla");await click("Aplicar evento");await wait("!document.getElementById('report-event-form')");}
+    assert.equal(await ev("[...document.querySelectorAll('[data-pitch=home] button')].some(b=>b.getAttribute('aria-label').startsWith('Hugo Montes'))"),false);
+    await ev("[...document.querySelectorAll('summary')].find(s=>s.textContent==='Jugadores que salieron o fueron expulsados').click()");
+    assert.match(await visibleText(),/Hugo Montes · Roja por segunda amarilla/);
+    assert.deepEqual(await ev("(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.startsWith('Hugo Montes · Roja'));return [b.querySelectorAll('[data-player-yellow]').length,b.querySelectorAll('[data-player-red]').length,...[...b.querySelectorAll('[data-player-yellow],[data-player-red]')].map(n=>n.parentElement.style.bottom)];})()"),[2,1,"0px","8px","16px"]);
+
+  });
+
   await t.test("claro/oscuro, 360/390/1440, teclado y revisión visual", async () => {
     for (const theme of ["light", "dark"]) for (const width of [360, 390, 1440]) {
       await browser.command("Emulation.setDeviceMetricsOverride", { width, height: 1000, deviceScaleFactor: 1, mobile: width < 600 });
@@ -208,4 +374,37 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
     assert.deepEqual(await ev("window.networkCalls"), []);
     assert.equal(await ev("navigator.serviceWorker ? navigator.serviceWorker.getRegistrations().then(r=>r.length) : 0"), 0);
   });
+  await t.test("listado real conserva tarjetas y estado vacío, sin controles de demo", async () => {
+    for(const theme of ["light","dark"]) for(const width of [390,1440]) {
+      await browser.command("Emulation.setDeviceMetricsOverride",{width,height:1000,deviceScaleFactor:1,mobile:width<600});
+      await ev(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+      await render("real-list");await ev("window.scrollTo(0,0)");
+      assert.match(await visibleText(),/PARTIDO-7/);assert.match(await visibleText(),/Abrir cédula/);
+      assert.doesNotMatch(await ev("document.querySelector('main').innerText"),/Demostración|Datos sintéticos|Simulación/);
+      assert.equal(await ev("document.documentElement.scrollWidth<=innerWidth"),true);
+      await screenshot(`${theme}-${width}-listado-real`);
+      await render("real-empty");assert.match(await visibleText(),/Aún no tienes partidos disponibles/);
+      await screenshot(`${theme}-${width}-sin-partidos`);
+    }
+  });
+
+  await t.test("confirmación no disponible: evita POST y se recupera del rechazo conocido", async () => {
+    await render("online-blocked");await click("Capturar cédula");await click("Resumen");
+    assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Solicitar confirmación').disabled"),true);
+    assert.match(await ev("document.getElementById('report-confirmation-availability').textContent"),/Guarda el borrador/);
+    assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Guardar borrador').disabled"),false);
+    assert.deepEqual(await ev("window.networkCalls"),[]);
+    for(const status of [409,503]) {
+      await render("online-rejected");await ev(`window.networkCalls=[];window.fixtureConfirmationStatus=${status}`);
+      await click("Capturar cédula");await click("Resumen");await click("Solicitar confirmación");
+      await ev("document.querySelector('dialog[open] input[type=checkbox]').click()");await click("Confirmar cédula");
+      await wait("!document.querySelector('dialog[open]') && document.getElementById('report-confirmation-availability')");
+      assert.equal(await ev("window.networkCalls.length"),1);
+      assert.doesNotMatch(await visibleText(),/Esperando acuse|Resultado incierto|No conocemos el resultado|Reintentar misma operación/);
+      assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Solicitar confirmación').disabled"),true);
+      assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Guardar borrador').disabled"),false);
+    }
+    await ev("window.networkCalls=[];window.fixtureConfirmationStatus=0");
+  });
+
 });

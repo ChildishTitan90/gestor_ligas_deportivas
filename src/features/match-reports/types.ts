@@ -1,5 +1,8 @@
 /** Contratos de presentación serializables. No son entradas confiables de persistencia. */
-export type ReportTeam = { id: string; name: string; shortName: string; initials: string };
+import type { UniformKits } from "@/features/clubs/uniform-kits";
+import type { TeamTactics } from "./tactics";
+import type { MatchClock } from "./match-clock";
+export type ReportTeam = { id: string; name: string; shortName: string; initials: string; uniformKits?: UniformKits | null };
 export type ReportPlayer = {
   id: string;
   teamId: string;
@@ -7,6 +10,7 @@ export type ReportPlayer = {
   usualJersey: number | null;
   eligible: boolean;
   blockers: { code: string; message: string }[];
+  photoUrl?: string | null;
 };
 export type ParticipationPeriod = { periodNumber: number; entryMinute: number | null; exitMinute: number | null };
 export type ReportLineup = {
@@ -31,7 +35,11 @@ export type ReportEvent = {
   outgoingPlayerId: string | null;
   periodNumber: number | null;
   minute: number | null;
+  second?: number | null;
+  /** Captura con reloj: minuto relativo al periodo para participación y orden. */
+  periodMinute?: number;
   description: string;
+  replacementCaptainId?: string | null;
 };
 export type CaptainSignature = {
   captainId: string;
@@ -51,6 +59,9 @@ export type MatchReportPresentation = {
   incidents: string;
   signatures: Record<string, CaptainSignature | null>;
   confirmedAt: string | null;
+  tactics?: Record<string, TeamTactics>;
+  lineupsLock?: { operationId: string; lockedAt: string } | null;
+  clock?: MatchClock | null;
 };
 export type ReportMatchPresentation = {
   id: string;
@@ -66,8 +77,9 @@ export type ReportMatchPresentation = {
   home: ReportTeam;
   away: ReportTeam;
 };
-export type ReportDemoCase = "draft" | "empty" | "confirmed" | "denied" | "loading" | "error" | "stale" | "uncertain" | "scheduled";
+export type ReportDemoCase = "setup" | "clock-due" | "draft" | "empty" | "confirmed" | "denied" | "loading" | "error" | "stale" | "uncertain" | "scheduled";
 export type ReportDemoData = {
+  confirmation?: { available: boolean; message: string };
   match: ReportMatchPresentation;
   players: ReportPlayer[];
   eventTypes: ReportEventType[];

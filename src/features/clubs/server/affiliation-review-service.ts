@@ -1,5 +1,6 @@
 import { readSeasonIdentityHistory } from "@/features/players/server/season-identity-history";
 import "server-only";
+import { uniformKitsSchema } from "../uniform-kits";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { affiliationListSchema, affiliationReviewPhase, affiliationReviewSchema } from "../affiliation-review";
@@ -80,7 +81,7 @@ export async function getAffiliation(id: string) {
   return getPrisma().$transaction(async (tx) => {
     await lockAuthorization(tx);
     const row = await tx.club_affiliations.findUnique({ where: { id }, select: {
-      ...summarySelect, uniform_colors: true, signed_affiliation_file_id: true, submission_key: true, requested_by: true,
+      ...summarySelect, uniform_colors: true, uniform_kits: true, signed_affiliation_file_id: true, submission_key: true, requested_by: true,
       club_affiliation_categories: { select: { category_id: true, authorized_by: true, authorized_at: true,
         season_categories: { select: { categories: { select: { name: true } } } } }, orderBy: { category_id: "asc" } },
       club_officers: { where: { ends_at: null }, select: { person_id: true, office: true, signature_file_id: true, support_file_id: true,
@@ -112,7 +113,8 @@ export async function getAffiliation(id: string) {
         paternalSurname: names.paternalSurname, maternalSurname: names.maternalSurname ?? "",
         signatureFileId: officer.signature_file_id, supportFileId: officer.support_file_id });
     }
-    return { ...summary(row), uniformColors: row.uniform_colors, allowedActions,
+    return { ...summary(row), uniformColors: row.uniform_colors,
+      uniformKits: uniformKitsSchema.safeParse(row.uniform_kits).data, allowedActions,
       ...(row.requested_by === actor.id ? { submissionKey: row.submission_key } : {}),
       signedAffiliationFileId: row.signed_affiliation_file_id,
       categoryIds: row.club_affiliation_categories.map((c) => c.category_id),
