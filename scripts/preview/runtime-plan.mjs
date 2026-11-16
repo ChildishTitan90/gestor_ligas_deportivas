@@ -26,7 +26,7 @@ const readColumns = {
   season_identity_closures:['season_id','season_version','closed_at','captured_at','person_count','format_version'],
   appointments: ['id', 'position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
   venue_reservations: ['venue_id', 'match_id', 'time_range'],
-  password_resets: ['user_id','used_at'],
+  password_resets: ['id','user_id','token_hash','created_at','expires_at','used_at'],
   sanctions:['id','article_id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
   billing_plans: ['id', 'season_id'], club_team_changes: ['id', 'season_id'],
   // update() de aprobación devuelve todos los escalares, incluido file_id.
@@ -41,6 +41,7 @@ const readColumns = {
   standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
 };
 const insert = {
+  password_resets: ['id','user_id','token_hash','created_at','expires_at'],
   regulation_articles: ['id','competition_rule_id','number','description','sanction_type_id','parameters','revision'],
   referee_presentation_credentials:['id','file_id','uploaded_by','operation_key','input_hash'],
   referee_presentations:['club_id','season_id','requester_id','operation_key','input_hash','person_id','first_name','paternal_surname','maternal_surname','reason'],
