@@ -1,10 +1,46 @@
 import "server-only";
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
-import { assertPermission, AuthorizationError, lockAuthorization, type PermissionAction } from "@/server/auth/authorization";
+import { Prisma } from "@prisma/client";
+import { assertPermission, AuthorizationError, getPermissionGrants, lockAuthorization, type PermissionAction } from "@/server/auth/authorization";
 import { assertOwnRefereeAssignment } from "@/server/auth/authorization-domain";
 import { lockSeasonIdentityHistory } from "@/features/players/server/season-identity-history";
 import { ReportError } from "../contract";
+
+/** El límite pertenece al conjunto autorizado, nunca a los partidos globales.
+ * Usa las concesiones vigentes de RF22 y la misma función de designación efectiva
+ * que assertOwnRefereeAssignment. El consumidor revalida cada acceso al leerlo. */
+export async function readCaptureMatchIds(tx: Prisma.TransactionClient, actorId: string) {
+  const grants = await getPermissionGrants(tx, actorId, "match-reports", "CREATE");
+  await lockSeasonIdentityHistory(tx);
+  const roles = await tx.roles.findMany({ where: { id: { in: grants.map(grant => grant.roleId) } }, select: { id: true, code: true } });
+  const scopes = grants.flatMap(grant => {
+    const role = roles.find(role => role.id === grant.roleId)?.code;
+    if (!["DATA_ENTRY", "REFEREE"].includes(role ?? "") || (grant.contextOnly && !grant.leagueId && !grant.clubId)) return [];
+    const league = grant.leagueId ? Prisma.sql`s.league_id = ${grant.leagueId}::uuid` : Prisma.sql`TRUE`;
+    const club = grant.clubId ? Prisma.sql`${grant.clubId}::uuid IN (hc.id, ac.id)` : Prisma.sql`TRUE`;
+    const ownership = role === "DATA_ENTRY" ? Prisma.sql`TRUE` : Prisma.sql`EXISTS (
+      SELECT 1 FROM sports_management.referee_assignments ra
+      JOIN sports_management.referees r ON r.id = ra.referee_id
+      JOIN sports_management.users u ON u.person_id = r.person_id
+      WHERE ra.match_id = m.id AND u.id = ${actorId}::uuid
+        AND ra.status = 'APPROVED' AND r.is_active
+        AND sports_management.referee_assignment_effective(ra.id)
+    )`;
+    return [Prisma.sql`(${league} AND ${club} AND ${ownership})`];
+  });
+  if (!scopes.length) return [];
+  return tx.$queryRaw<{ id: string }[]>`
+    SELECT m.id FROM sports_management.matches m
+    JOIN sports_management.seasons s ON s.id = m.season_id
+    JOIN sports_management.leagues l ON l.id = s.league_id AND l.is_active
+    JOIN sports_management.season_teams ht ON ht.id = m.home_team_id AND ht.season_id = m.season_id
+    JOIN sports_management.season_teams at ON at.id = m.away_team_id AND at.season_id = m.season_id
+    JOIN sports_management.clubs hc ON hc.id = ht.club_id AND hc.league_id = l.id AND hc.status = 'ACTIVE'
+    JOIN sports_management.clubs ac ON ac.id = at.club_id AND ac.league_id = l.id AND ac.status = 'ACTIVE'
+    WHERE m.deleted_at IS NULL AND (${Prisma.join(scopes, " OR ")})
+    ORDER BY m.starts_at DESC NULLS FIRST, m.id DESC
+    LIMIT 100`;
+}
 
 export async function reportAccess(tx: Prisma.TransactionClient, actorId: string, matchId: string, action: PermissionAction = "CREATE") {
   if (!z.uuid().safeParse(matchId).success) throw new AuthorizationError();

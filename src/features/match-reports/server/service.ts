@@ -6,7 +6,7 @@ import { getPrisma } from "@/server/db/prisma";
 import { AuthorizationError, getPermissionGrants } from "@/server/auth/authorization";
 import { evaluateAuthorizedMatchInTransaction } from "@/features/matches/server/eligibility";
 import { draftSchema, reportCommandSchema, ReportError, unsignedDraft, type ReportCommand, type ReportDraft, type ReportReceipt } from "../contract";
-import { assertCaptureState, reportAccess, reportReadAccess } from "./access";
+import { assertCaptureState, readCaptureMatchIds, reportAccess, reportReadAccess } from "./access";
 import { applyConfirmationEffects, getConfirmationAvailability, getConfirmationEffects } from "./confirmation-effects";
 import { validateSignatureReferences } from "./signatures";
 import { buildPresentation, readMatchLabels } from "./queries";
@@ -197,7 +197,7 @@ export async function getReportPage(actorId: string, matchId: string) {
 
 export async function getCaptureMatches(actorId: string) {
   return getPrisma().$transaction(async tx => {
-    const candidates = await tx.matches.findMany({ where: { deleted_at: null }, orderBy: { starts_at: "desc" }, take: 100, select: { id: true } });
+    const candidates = await readCaptureMatchIds(tx, actorId);
     const matches = [];
     for (const candidate of candidates) {
       try { const match = await reportAccess(tx, actorId, candidate.id); matches.push({ id: match.id, number: match.number, status: match.match_statuses.name, statusCode: match.match_statuses.code, startsAt: match.starts_at?.toISOString() ?? null, ...(await readMatchLabels(tx, match)) }); }

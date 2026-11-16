@@ -211,3 +211,48 @@ El PR debe declarar pendientes el cierre oficial con historial, el receptor de
 clasificación PDGLD-29 y el receptor mínimo de expedientes. El éxito de estas
 pruebas no acredita sus efectos transaccionales ni la aceptación completa de
 PDGLD-18/147/149.
+
+## Regresión del listado autorizado detectada en el PR
+
+La revisión detectó que `getCaptureMatches` limitaba primero los partidos globales
+a 100 y luego autorizaba cada resultado. Un partido accesible más antiguo podía
+desaparecer y provocar un vacío incorrecto. La prueba anterior no cubría ese caso.
+
+Ahora `readCaptureMatchIds` consulta las concesiones CREATE vigentes de RF22,
+conserva unidos permiso/rol/ámbito y filtra liga, clubes activos y, para REFEREE,
+la designación propia mediante `referee_assignment_effective`. DATA_ENTRY accede
+por su ámbito sin suplantar al árbitro. El orden y `LIMIT 100` se aplican después
+de esos filtros. Se mantiene además la revalidación con `reportAccess` por cada
+partido antes de devolver sus datos. No se añaden permisos ni migraciones.
+
+`tests/integration/match-report-list.ts` se ejecuta desde la suite de cédulas ya
+conectada al CI. Con PostgreSQL real y el rol limitado Preview/RLS comprueba:
+
+- 105 partidos posteriores de otra liga no ocultan el partido accesible antiguo
+  del capturista ni del árbitro designado.
+- 105 partidos posteriores de su misma liga sin designación no desplazan el
+  partido propio del árbitro; otro árbitro sin designación recibe una lista vacía.
+- Un ámbito de club permite los participantes y excluye clubes ajenos de su liga.
+- Con más de 100 partidos autorizados se devuelven los 100 más recientes en orden
+  estable; los eliminados no consumen el límite.
+- Retirar el rol elimina el acceso; revocar la designación retira el partido del
+  árbitro sin quitar el acceso del DATA_ENTRY autorizado.
+
+Los partidos ajenos permanecen durante la prueba HTTP: `/matches` devuelve el
+partido accesible antiguo con una sesión NextAuth real y no incluye los ajenos.
+Los datos sintéticos respetan inscripción/distribución, disponibilidad de canchas
+y reservas SQL; no se desactivan restricciones para prepararlos.
+
+Se verificó primero que la prueba fallara con la consulta original por la aserción
+del partido antiguo del DATA_ENTRY. Después pasaron, con la corrección, ambos
+comandos completos (incluidos SQL, HTTP y Chrome reales):
+
+```powershell
+npm run test:pdgld149 -- --postgres=15
+npm run test:pdgld149 -- --postgres=17
+```
+
+También pasaron tipado y lint de los archivos afectados. Los `checks.json` y logs
+de `pg15`/`pg17` conservan la ejecución final; no se ejecutó CI remoto ni se
+modificaron datos del Docker habitual o Supabase. Los bloqueos del cierre oficial
+descritos anteriormente siguen pendientes.

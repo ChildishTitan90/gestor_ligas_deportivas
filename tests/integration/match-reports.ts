@@ -11,7 +11,8 @@ import { defaultUniformKits } from "../../src/features/clubs/uniform-kits";
 import { readMatchPlayerPhoto } from "../../src/features/match-reports/server/player-photos";
 import { syntheticPlayerPolicy } from "../fixtures/player-document-policy";
 import { provisionPreviewRuntime, PREVIEW_MARKER } from "../../scripts/preview/runtime-plan.mjs";
-import { mutateReport, getReportPage, readReportOperation } from "../../src/features/match-reports/server/service";
+import { mutateReport, getCaptureMatches, getReportPage, readReportOperation } from "../../src/features/match-reports/server/service";
+import { verifyCaptureMatchList } from "./match-report-list";
 import { uploadReportSignature, readReportSignature } from "../../src/features/match-reports/server/signatures";
 import { localSignatureStorage } from "../../src/features/match-reports/server/local-signature-storage";
 import { getPrisma } from "../../src/server/db/prisma";
@@ -19,7 +20,7 @@ import type { ReportCommand, ReportDraft } from "../../src/features/match-report
 
 type Fixture = { db: Client; actors: Record<string,string>; people: Record<string,string>; league: string; otherLeague: string; season: string; sc: string; category: string; rule: string; group: string; clubs: string[]; teams: string[]; match: string; presenting: string; scalar: (sql: string, values?: unknown[]) => Promise<string>; runtimeUrl: string; env: Record<string,string|undefined>; runtimePassword: string; serve: boolean };
 export async function runReportAcceptance(f: Fixture) {
-  const { db, actors, people, league, otherLeague, season, sc, category, clubs, teams, match, presenting, scalar } = f;
+  const { db, actors, people, league, otherLeague, season, sc, category, group, clubs, teams, match, presenting, scalar } = f;
   Object.assign(process.env,f.env,{DATABASE_URL:f.runtimeUrl});
   const directory = await mkdtemp(join(tmpdir(), "pdgld147-"));
   let app: ReturnType<typeof spawn> | undefined;
@@ -66,8 +67,9 @@ export async function runReportAcceptance(f: Fixture) {
     await assert.rejects(getReportPage(actors.arbitro,randomUUID()),{code:"FORBIDDEN"});
     await db.query("INSERT INTO sports_management.user_roles(user_id,role_id,league_id) SELECT $1,id,$2 FROM sports_management.roles WHERE code='REFEREE'",[actors.programador,league]);
     await assert.rejects(getReportPage(actors.programador,match),{code:"FORBIDDEN"});
+    await verifyCaptureMatchList({ db, scalar, actorId: actors.capturista, refereeId: actors.arbitro, unassignedRefereeId: actors.programador, otherLeague, season, group, teams, match, nonParticipantClub: presenting });
     const removedRoles=(await db.query("DELETE FROM sports_management.user_roles WHERE user_id=$1 RETURNING *",[actors.capturista])).rows;
-    try{await assert.rejects(getReportPage(actors.capturista,match),{code:"FORBIDDEN"});}
+    try{await assert.rejects(getReportPage(actors.capturista,match),{code:"FORBIDDEN"});assert.deepEqual(await getCaptureMatches(actors.capturista),[]);}
     finally{for(const role of removedRoles)await db.query("INSERT INTO sports_management.user_roles SELECT * FROM json_populate_record(NULL::sports_management.user_roles,$1::json)",[JSON.stringify(role)]);}
     const draft: ReportDraft={lineups:[registrations[0],registrations[1],registrations[3]].map((id,index)=>({playerId:id,teamId:teams[index === 1 ? 1 : 0],selected:true,starter:index<2,matchJersey:index+17,periods:[{periodNumber:1,entryMinute:0,exitMinute:null}]})),captains:{[teams[0]]:registrations[0],[teams[1]]:registrations[1]},events:[{id:randomUUID(),typeCode:"GOAL",teamId:teams[0],playerId:registrations[0],outgoingPlayerId:null,periodNumber:null,minute:null,description:"Gol sintético sin minuto"},{id:randomUUID(),typeCode:"SUBSTITUTION",teamId:teams[0],playerId:registrations[3],outgoingPlayerId:registrations[0],periodNumber:1,minute:12,replacementCaptainId:registrations[3],description:"Cambio sintético"}],score:{home:1,away:0},remarks:"Prueba sintética de cédula",incidents:"",signatures:{}};
     draft.tactics=Object.fromEntries(teams.slice(0,2).map((teamId,index)=>[teamId,{formation:"4-2-3-1" as const,slots:formationSlots("4-2-3-1").map((slot,n)=>({...slot,playerId:n===0?registrations[index]:null})),kitSource:"custom" as const,kit:structuredClone(defaultUniformKits.home)}]));
@@ -218,6 +220,8 @@ export async function runReportAcceptance(f: Fixture) {
     }
     if(!f.serve){
       await db.query("UPDATE sports_management.referee_assignments SET status='REVOKED' WHERE id=$1",[assignment]);
+      assert.deepEqual(await getCaptureMatches(actors.arbitro),[]);
+      assert.ok((await getCaptureMatches(actors.capturista)).some(row=>row.id===match));
       await assert.rejects(getReportPage(actors.arbitro,match));
       assert.ok(await getReportPage(actors.capturista,match),"DATA_ENTRY no utiliza la designación del árbitro");
     }
