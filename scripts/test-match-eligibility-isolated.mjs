@@ -2,15 +2,18 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import pg from 'pg';
 import { createAuthFixtures } from '../tests/integration/auth-fixtures.mjs';
+import {childEnvironment} from './ci/delegate-isolated-runtime.mjs';
 
 // Un contenedor propio, sin volumen ni conexión heredada del entorno.
 const nonce = randomBytes(8).toString('hex');
 const container = `pdgld16-${nonce}`;
 const database = `pdgld48_test_${nonce}`;
+const major=process.argv.find(a=>a.startsWith('--postgres='))?.split('=')[1]??'15';
+if(!['15','17'].includes(major))throw Error('INVALID_POSTGRES_VERSION');
 const docker = args => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 let created = false;
 try {
-  docker(['run', '-d', '--name', container, '--label', 'pdgld.ticket=PDGLD-16', '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', '-e', `POSTGRES_DB=${database}`, '-p', '127.0.0.1::5432', 'postgres:15']);
+  docker(['run', '-d', '--name', container, '--label', 'pdgld.ticket=PDGLD-16', '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', '-e', `POSTGRES_DB=${database}`, '-p', '127.0.0.1::5432', `postgres:${major}`]);
   created = true;
   const port = docker(['port', container, '5432/tcp']).split(':').at(-1);
   const url = `postgresql://postgres:synthetic-local-only@127.0.0.1:${port}/${database}`;
@@ -20,7 +23,7 @@ try {
     catch { await new Promise(resolve => setTimeout(resolve, 250)); }
   }
   if (!ready) throw Error('PostgreSQL aislado no inició.');
-  const env = { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR,
+  const env = { ...childEnvironment(process.env),
     DATABASE_URL: url, DIRECT_URL: url, NEXTAUTH_URL: 'http://127.0.0.1:3099',
     NEXTAUTH_SECRET: randomBytes(48).toString('hex'), AUTH_TEST_RUN: '1', VMX_API_KEY: '',
     PLAYER_PARTICIPATIONS_ONLY: '1', MATCH_ELIGIBILITY_TEST_PORT: port,

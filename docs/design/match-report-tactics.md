@@ -163,8 +163,9 @@ más precisos ni totales jugados. Con precisión completa, los eventos se ordena
 por periodo, minuto y segundo; si faltan segundos, se conserva el orden dentro del
 minuto en vez de asumir 00.
 
-Se muestra un balón por cada GOAL y una tarjeta por cada CAUTION, con roja tras la
-segunda amarilla. Los iconos se apilan verticalmente con desplazamiento del 50%:
+Se muestra un balón por cada GOAL. Una amonestación muestra una amarilla; dos
+amonestaciones se representan con una amarilla y una roja, conservando ambos
+eventos originales en el historial. Los iconos se apilan verticalmente con desplazamiento del 50%:
 cada uno cubre la mitad del anterior. Las tarjetas llevan borde oscuro opaco de
 2 px para distinguir sus contornos al solaparse. Se conservan nombres accesibles por icono y
 las marcas aparecen en campo, modal e historial del retirado. La segunda amarilla
@@ -172,16 +173,44 @@ sigue retirando al jugador; la pila no lo mantiene indebidamente en cancha.
 
 Prueba: registrar dos goles del mismo jugador, uno en 22:34; comprobar dos balones
 solapados y la hora del evento al consultar/recargar. Registrar dos amarillas a otro
-jugador: en el historial deben verse dos amarillas y una roja apiladas; el jugador
+jugador: deben verse una amarilla y una roja apiladas, y las dos amonestaciones
+originales al abrir su historial; el jugador
 ya no debe estar en cancha ni disponible para entrar de cambio.
 
 ### Intercambio de posiciones
+
+Al convocar antes del sello, un jugador elegible con dorsal válido y único ocupa
+la primera posición libre. Al llenarse las once, los siguientes permanecen en
+banca. Si el dorsal está pendiente o repetido, no se asigna automáticamente hasta
+corregirlo. Desconvocar libera su posición y retira su capitanía inicial si aplica;
+no promueve por su cuenta a un suplente. No se altera una alineación ya sellada.
+
+Arrastrar desde banca a un lugar ocupado pone al entrante en ese lugar y conserva
+al desplazado convocado en banca, con su mismo dorsal. Durante el juego los cambios
+siguen requiriendo evento, tiempo y relevo de capitán cuando corresponda.
 
 Antes de guardar el once, arrastrar un titular sobre otra posición intercambia
 ambos jugadores, manteniendo las coordenadas del esquema, sus dorsales y su
 convocatoria. Si el destino está vacío, el origen queda vacante. Soltar en campo
 libre conserva el ajuste de ubicación personalizada. El intercambio funciona con
 ratón y pantalla táctil y conserva el bloqueo del once ya guardado.
+
+### Símbolos y asistencias
+
+Los símbolos SVG propios siguen la referencia: balón para gol, balón rojo para
+gol en contra, tarjetas con borde oscuro, flecha verde de entrada, flecha roja de
+salida, cruz para lesión, prohibición para suspensión y botín para asistencia.
+Se reutilizan en el campo, historial, catálogo de acciones y lista de eventos,
+con textos accesibles y los tokens actuales. Las marcas acumuladas conservan el
+solapamiento del 50%. Una leyenda explica los símbolos.
+
+La migración aditiva `20261115050000_pdgld18_assists_and_own_goals` incorpora ASSIST
+y OWN_GOAL al catálogo de fútbol, sin modificar eventos históricos. Ambos exigen
+equipo y jugador elegible seleccionado en servidor; el tiempo es opcional. ASSIST
+no suma un gol. OWN_GOAL se atribuye al jugador/equipo que lo comete y suma al
+marcador contrario. El cálculo compartido se usa en UI y servidor. La suspensión
+sigue siendo un bloqueo derivado de elegibilidad, no una sanción impuesta por el
+capturista. La confirmación oficial conserva sus dependencias pendientes.
 
 ### Cambios durante el descanso
 
@@ -202,3 +231,22 @@ Prueba manual: terminar el primer tiempo, abrir un titular y comprobar que solo
 Cambio está habilitado. Elegir banca, guardar y comprobar P2 45:00 en Eventos.
 Recargar y comprobar el suplente en cancha. Iniciar el segundo tiempo: reloj y
 nuevos eventos parten de 45:00. Confirmar que quien salió no puede reingresar.
+
+### Ajustes de iconos en la cédula
+
+Asistencia reutiliza `SportShoe` de Lucide, el mismo calzado de la selección de
+deporte. Gol y gol en contra utilizan `IconBallFootball` de
+[Tabler Icons](https://tabler.io/icons?icon=ball-football), con base blanca y trazo
+oscuro o rojo respectivamente. La importación es estática desde
+`@tabler/icons-react`; los iconos se incluyen en la aplicación, sin cargar imágenes
+externas. El marcador de lesión es blanco sobre el campo en ambos temas; conserva
+el color de peligro del tema dentro del modal y la leyenda.
+
+La pila de expulsión por segunda amonestación muestra solamente una amarilla y
+una roja con borde oscuro. No se elimina ninguna amonestación ni se agrega una
+roja ficticia al registro: la expulsión se sigue derivando de ambos eventos.
+
+El once inicial conserva al jugador sustituido con flecha hacia abajo de color
+rojo; En cancha muestra al sustituto con flecha verde hacia arriba. La marca de
+salida prevalece si alguien entró y luego salió. El listado de retirados conserva
+la salida y permite consultar el historial, sin habilitar su reingreso.

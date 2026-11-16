@@ -16,6 +16,7 @@
     "fsevents": false
   },
   "scripts": {
+    "test:pdgld149": "node scripts/test-pdgld149.mjs",
     "test:match-report-tactics": "node --import tsx --test src/features/match-reports/tactics.test.ts src/features/match-reports/lineup-clock.test.ts",
     "test:match-report-storage": "node --conditions=react-server --import tsx --test src/features/match-reports/server/signature-storage-profile.test.ts",
     "test:match-report-client": "node --import tsx --test src/features/match-reports/report-client.test.ts",
@@ -37,7 +38,6 @@
     "test:season-identity-history": "node scripts/test-season-identity-history.mjs",
     "test:player-identity-isolated": "node scripts/test-delegate-isolated.mjs --player-identity-correction",
     "test:player-identity-age-isolated": "node scripts/test-delegate-isolated.mjs --player-identity-age",
-
     "test:email-transport": "node --conditions=react-server --import tsx --test src/server/email/resend.test.ts",
     "test:email-confirmation": "node --import tsx --test src/features/accounts/email-confirmation.test.ts",
     "test:account-maintenance-ui": "node --import tsx --test src/features/accounts/maintenance-ui.test.tsx",
@@ -120,6 +120,7 @@
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "@supabase/supabase-js": "2.118.0",
+    "@tabler/icons-react": "3.52.0",
     "argon2": "0.45.1",
     "lucide-react": "1.56.0",
     "next": "16.4.3",

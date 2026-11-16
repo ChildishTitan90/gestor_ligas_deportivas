@@ -1,3 +1,4 @@
+import { capturedScore } from "../score";
 import "server-only";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -100,7 +101,7 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
   for (const event of draft.events) {
     const type = catalogue.find(type => type.code === event.typeCode);
     if (!type || (event.teamId && ![match.home_team_id, match.away_team_id].includes(event.teamId))) throw new ReportError("INVALID_EVENT", 400);
-    const playerRequired = ["GOAL", "CAUTION", "SENDING_OFF", "SUBSTITUTION", "INJURY"].includes(type.code);
+    const playerRequired = ["GOAL", "OWN_GOAL", "ASSIST", "CAUTION", "SENDING_OFF", "SUBSTITUTION", "INJURY"].includes(type.code);
     if (playerRequired && (!event.teamId || !event.playerId)) throw new ReportError("EVENT_PLAYER_REQUIRED", 400);
     if (type.requires_disciplinary_case && !event.description.trim()) throw new ReportError("INCIDENT_DESCRIPTION_REQUIRED", 400);
     for (const id of [event.playerId, event.outgoingPlayerId, event.replacementCaptainId].filter(Boolean)) {
@@ -110,8 +111,8 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
     if (event.replacementCaptainId && !["SUBSTITUTION", "CAUTION", "SENDING_OFF"].includes(type.code)) throw new ReportError("INVALID_CAPTAIN", 400);
     if (type.code !== "SUBSTITUTION" && event.outgoingPlayerId) throw new ReportError("INVALID_EVENT", 400);
   }
-  for (const [side, teamId] of [["home", match.home_team_id], ["away", match.away_team_id]] as const) {
-    const goals = draft.events.filter(e => e.typeCode === "GOAL" && e.teamId === teamId).length;
+  for (const side of ["home","away"] as const) {
+    const goals = capturedScore(draft.events,match.home_team_id,match.away_team_id)[side];
     if (draft.score[side] !== null && draft.score[side] !== goals) throw new ReportError("SCORE_EVENTS_MISMATCH", 400);
   }
   if (!sealed && command.kind !== "lock-lineups" && (draft.events.length || command.kind === "confirm")) throw new ReportError("LINEUPS_NOT_LOCKED");

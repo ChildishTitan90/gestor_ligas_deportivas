@@ -6,6 +6,26 @@ import { formationLines, formationSlots, keeperKit } from "./tactics";
 import { jerseyErrors, lineupSnapshot } from "./lineup-rules";
 import { createReportDemo } from "./demo-data";
 import type { ReportDraft } from "./contract";
+import {updateDraftLineup} from './lineup-draft';
+import {capturedScore} from './score';
+
+test('convocar con dorsal llena once y después banca; sin dorsal o bloqueado no ocupa campo',()=>{
+ const data=createReportDemo('empty');let report=data.report;
+ for(const player of data.players.filter(p=>p.teamId==='home'&&p.eligible))report=updateDraftLineup(data,report,player.id,{selected:true});
+ assert.equal(report.tactics!.home.slots.filter(s=>s.playerId).length,11);
+ assert.equal(report.lineups.filter(r=>r.selected&&r.starter).length,11);
+ assert.equal(report.lineups.filter(r=>r.selected&&!r.starter).length,2);
+ assert.equal(report.tactics!.away.slots.filter(s=>s.playerId).length,0);
+ assert.equal(updateDraftLineup(data,report,'home-14',{selected:true}),report);
+ const empty=createReportDemo('empty');empty.report.lineups[0].matchJersey=null;
+ let pending=updateDraftLineup(empty,empty.report,'home-1',{selected:true});assert.equal(pending.lineups[0].starter,false);
+ pending=updateDraftLineup(empty,pending,'home-1',{matchJersey:5});assert.equal(pending.tactics!.home.slots[0].playerId,'home-1');
+ const sealed={...pending,lineupsLock:{operationId:'test',lockedAt:'test'}};assert.equal(updateDraftLineup(empty,sealed,'home-2',{selected:true}),sealed);
+});
+test('asistencias no suman goles; gol en contra suma al rival',()=>{
+ const base={id:'a',playerId:'player',outgoingPlayerId:null,minute:null,periodNumber:null,description:''};
+ assert.deepEqual(capturedScore([{...base,typeCode:'ASSIST',teamId:'home'},{...base,typeCode:'OWN_GOAL',teamId:'home'},{...base,typeCode:'GOAL',teamId:'home'}],'home','away'),{home:1,away:1});
+});
 
 test("dorsales se validan por equipo, también para banca; no se confunden con el habitual", () => {
   const data = createReportDemo("setup");

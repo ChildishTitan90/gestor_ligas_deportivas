@@ -6,6 +6,8 @@ import { ActionLink } from "@/components/ui/action-link";
 import { FormDialog } from "@/components/ui/form-dialog";
 import { SelectField } from "@/components/ui/select-field";
 import { createReportClient, ReportClientError } from "../report-client";
+import { updateDraftLineup } from "../lineup-draft";
+import { capturedScore } from "../score";
 import { jerseyErrors, lineupSealIssues } from "../lineup-rules";
 import { advanceMatchClock, clockReading, type ClockAction } from "../match-clock";
 import { ReportClock, type ClockDialog } from "./report-clock";
@@ -103,14 +105,10 @@ export function ReportWorkspace({ data, live }: { data: ReportDemoData; live?: {
   }
   function lineup(playerId: string, changes: Partial<ReportLineup>) {
     if (sealed && Object.keys(changes).some(key => key !== "periods")) return;
-    edit(current => {
-      const captains = { ...current.captains };
-      if (changes.selected === false) for (const team of [match.home, match.away]) if (captains[team.id] === playerId) delete captains[team.id];
-      const teamId = data.players.find(p => p.id === playerId)!.teamId;
-      const tactics = changes.selected === false && current.tactics?.[teamId] ? { ...current.tactics, [teamId]: { ...current.tactics[teamId], slots: current.tactics[teamId].slots.map(s => s.playerId === playerId ? { ...s, playerId: null } : s) } } : current.tactics;
-      return { ...current, captains, ...(tactics ? { tactics } : {}), lineups: current.lineups.map(row => row.playerId === playerId ? { ...row, ...changes, ...(changes.selected === true && !row.selected ? { starter: false } : {}) } : row) };
-    });
+    if (sealed) { edit(current => ({...current,lineups:current.lineups.map(row=>row.playerId===playerId?{...row,...changes}:row)})); return; }
+    edit(current => updateDraftLineup(data,current,playerId,changes));
   }
+
   function tactics(teamId: string, value: TeamTactics, assignment?: SlotAssignment) {
     if (sealed) return;
     edit(current => ({ ...current, tactics: { ...current.tactics, [teamId]: value }, lineups: current.lineups.map(row => {
@@ -121,14 +119,14 @@ export function ReportWorkspace({ data, live }: { data: ReportDemoData; live?: {
   }
   function saveEvent(event: ReportEvent) {
     const events = report.events.some(item => item.id === event.id) ? report.events.map(item => item.id === event.id ? event : item) : [...report.events, event];
-    const next = { ...report, events, score: { home: events.filter(e => e.typeCode === "GOAL" && e.teamId === match.home.id).length, away: events.filter(e => e.typeCode === "GOAL" && e.teamId === match.away.id).length }, signatures: Object.fromEntries([match.home.id, match.away.id].map(id => [id, null])) };
+    const next = { ...report, events, score: capturedScore(events,match.home.id,match.away.id), signatures: Object.fromEntries([match.home.id, match.away.id].map(id => [id, null])) };
     edit(() => next); setEventEditor(null);
     if (live && stage === 0 && captureMode === "live") runOperation("save", undefined, next);
   }
   function removeEvent(id: string) {
     edit(current => {
       const events = current.events.filter(event => event.id !== id);
-      return { ...current, events, ...(current.events.find(event => event.id === id)?.typeCode === "GOAL" ? { score: { home: events.filter(e => e.typeCode === "GOAL" && e.teamId === match.home.id).length, away: events.filter(e => e.typeCode === "GOAL" && e.teamId === match.away.id).length } } : {}) };
+      return { ...current, events, ...(current.events.find(event => event.id === id)?.typeCode && ["GOAL","OWN_GOAL"].includes(current.events.find(event=>event.id===id)!.typeCode) ? { score: capturedScore(events,match.home.id,match.away.id) } : {}) };
     });
   }
   function moveEvent(id: string, direction: -1 | 1) {
