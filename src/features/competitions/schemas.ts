@@ -32,6 +32,7 @@ export const ruleDraftSchema = z.strictObject({
   calendar: z.strictObject({
     rounds: z.number().int().positive(),
     matchDurationMinutes: z.number().int().positive(),
+    complexOnlyFinalRounds: z.number().int().nonnegative().optional(),
   }),
 });
 

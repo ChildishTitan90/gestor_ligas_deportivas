@@ -22,7 +22,7 @@ const decisionSchema = z.object({
 const receipt = { id: true, status: true } as const;
 const sha256 = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex");
 
-class LoanError extends Error {}
+export class LoanError extends Error {}
 
 async function authorize(tx: Tx, actor: string, action: "CREATE" | "APPROVE", context: {
   clubId: string; seasonId: string;
@@ -55,6 +55,10 @@ async function auditContext(tx: Tx, actor: string, reason: string) {
 
 export async function submitVenueLoan(input: unknown, attachment: { bytes: Uint8Array; mimeType: string }, storage?: PrivateDocumentTransport) {
   const { id: actor } = await requireOperationalUser();
+  return submitVenueLoanForActor(actor, input, attachment, storage);
+}
+
+export async function submitVenueLoanForActor(actor: string, input: unknown, attachment: { bytes: Uint8Array; mimeType: string }, storage?: PrivateDocumentTransport) {
   const data = requestSchema.parse(input);
   const windows = data.windows.map(w => ({
     startsAt: new Date(w.startsAt).toISOString(), endsAt: new Date(w.endsAt).toISOString(),
@@ -108,6 +112,10 @@ export async function submitVenueLoan(input: unknown, attachment: { bytes: Uint8
 
 export async function decideVenueLoan(input: unknown) {
   const { id: actor } = await requireOperationalUser();
+  return decideVenueLoanForActor(actor, input);
+}
+
+export async function decideVenueLoanForActor(actor: string, input: unknown) {
   const data = decisionSchema.parse(input);
   return getPrisma().$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${data.requestId}, 2301))`;
@@ -136,6 +144,10 @@ export async function decideVenueLoan(input: unknown) {
 
 export async function previewVenueLoanLetter(value: unknown, storage?: PrivateDocumentTransport) {
   const { id: actor } = await requireOperationalUser();
+  return previewVenueLoanLetterForActor(actor, value, storage);
+}
+
+export async function previewVenueLoanLetterForActor(actor: string, value: unknown, storage?: PrivateDocumentTransport) {
   const id = z.uuid().parse(value);
   const load = () => getPrisma().$transaction(async tx => {
     const row = await tx.venue_loans.findUnique({ where: { id }, select: {

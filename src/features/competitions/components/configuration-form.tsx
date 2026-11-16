@@ -69,7 +69,13 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
     }
     if ("announcement" in payload) {
       payload.points = { win: Number(fields.win), draw: Number(fields.draw), loss: Number(fields.loss) };
-      payload.calendar = { rounds: Number(fields.rounds), matchDurationMinutes: Number(fields.matchDurationMinutes) };
+      const finalRounds = fields.complexOnlyFinalRounds;
+      payload.calendar = {
+        rounds: Number(fields.rounds),
+        matchDurationMinutes: Number(fields.matchDurationMinutes),
+        ...(typeof finalRounds === "string" && finalRounds.trim() !== "" && { complexOnlyFinalRounds: Number(finalRounds) }),
+      };
+      delete payload.complexOnlyFinalRounds;
       payload.tieBreakers = formData.getAll("tieBreakers").flatMap(value => String(value).split(",")).map(value => value.trim()).filter(Boolean);
       for (const key of ["win", "draw", "loss", "rounds", "matchDurationMinutes", "tieBreakers"]) if (key !== "tieBreakers") delete payload[key];
     }
