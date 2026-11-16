@@ -2200,7 +2200,9 @@ model users {
   team_withdrawals                                                         team_withdrawals[]
   user_roles                                                               user_roles[]
   people                                                                   people                           @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  venue_loans                                                              venue_loans[]
+  venue_loans                                                              venue_loans[] @relation("VenueLoanApprover")
+  venue_loan_requests venue_loans[] @relation("VenueLoanRequester")
+  venue_loan_reviews venue_loans[] @relation("VenueLoanReviewer")
   withdrawal_decisions                                                     withdrawal_decisions[]
 
   @@schema("sports_management")
@@ -2233,8 +2235,16 @@ model venue_loans {
   status                 String                   @default("PENDING")
   approved_by            String?                  @db.Uuid
   approved_at            DateTime?                @db.Timestamptz(6)
+  requested_by           String?                   @db.Uuid
+  request_hash           String?
+  requested_windows      Json?
+  reviewed_by            String?                   @db.Uuid
+  reviewed_at            DateTime?                 @db.Timestamptz(6)
+  review_reason          String?
+  requester              users?                    @relation("VenueLoanRequester", fields: [requested_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviewer               users?                    @relation("VenueLoanReviewer", fields: [reviewed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   home_venue_assignments home_venue_assignments[]
-  users                  users?                   @relation(fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                  users?                   @relation("VenueLoanApprover", fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   clubs                  clubs                    @relation(fields: [club_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   files                  files                    @relation(fields: [letter_file_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   seasons                seasons                  @relation(fields: [season_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
