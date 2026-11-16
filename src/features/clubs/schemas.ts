@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { uniformKitsSchema } from "./uniform-kits";
 
 export const affiliationOfficeCodes = ["PRESIDENT", "SECRETARY", "TREASURER"] as const;
 
@@ -15,6 +16,7 @@ const officerSchema = z.strictObject({
 export const affiliationFormSchema = z.strictObject({
   clubName: requiredText,
   uniformColors: requiredText,
+  uniformKits: uniformKitsSchema.optional(),
   categoryIds: z.array(requiredText).min(1, "Selecciona al menos una categoría.")
     .refine((ids) => new Set(ids).size === ids.length, "No repitas categorías."),
   officers: z.strictObject({

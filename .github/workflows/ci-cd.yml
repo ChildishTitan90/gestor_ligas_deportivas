@@ -196,22 +196,58 @@ jobs:
       - name: Probar carreras entre cierre e identidad histórica
         run: npm run test:season-identity-history
 
+  match-reports:
+    name: Cédula implementada PG${{ matrix.postgres }} (aceptación bloqueada)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [15, 17]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Pruebas de cédula, Chrome real y bloqueo de efectos pendientes
+        run: npm run test:pdgld149 -- --postgres=${{ matrix.postgres }}
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - name: Regresiones de elegibilidad, designaciones, historial y firmas
+        run: npm run test:pdgld149 -- --regression --postgres=${{ matrix.postgres }}
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - name: Conservar evidencia y bloqueos incluso ante fallo
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pdgld149-pg${{ matrix.postgres }}
+          path: .codex-attachments/pdgld149/
+          include-hidden-files: true
+          if-no-files-found: error
+
   checks:
     name: CI listo para integrar
     if: ${{ always() }}
-    needs: [app, database, refereeing]
+    needs: [app, database, refereeing, match-reports]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       APP_RESULT: ${{ needs.app.result }}
       DATABASE_RESULT: ${{ needs.database.result }}
       REFEREEING_RESULT: ${{ needs.refereeing.result }}
+      MATCH_REPORTS_RESULT: ${{ needs.match-reports.result }}
     steps:
       - name: Exigir que todas las comprobaciones pasen
         run: |
           test "$APP_RESULT" = "success"
           test "$DATABASE_RESULT" = "success"
           test "$REFEREEING_RESULT" = "success"
+          test "$MATCH_REPORTS_RESULT" = "success"
 
   deploy:
     name: Migraciones Supabase producción

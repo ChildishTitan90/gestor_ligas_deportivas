@@ -68,7 +68,7 @@ const insert = {
   competition_rules: ['season_id', 'version_number', 'status', 'created_at'],
   competition_rule_parameters: ['competition_rule_id', 'parameter_key', 'parameter_value', 'requires_validation'],
   club_affiliations: ['season_id', 'club_id', 'league_id', 'reference_number', 'status', 'requested_by',
-    'club_name', 'uniform_colors', 'submission_key', 'submission_hash', 'review_version'],
+    'club_name', 'uniform_colors', 'uniform_kits', 'submission_key', 'submission_hash', 'review_version'],
   club_affiliation_categories: ['affiliation_id', 'season_id', 'category_id'],
   club_officers: ['affiliation_id', 'person_id', 'office', 'starts_at', 'signature_file_id'],
   clubs: ['name', 'league_id', 'reference_number', 'status', 'version', 'created_at'],
@@ -111,7 +111,7 @@ const update = {
   teams: ['name', 'status', 'version'],
   competition_rules: ['status', 'approved_by', 'approved_at'],
   competition_rule_parameters: ['requires_validation', 'validated_by'],
-  club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version','submission_key','submission_hash'],
+  club_affiliations: ['club_name', 'uniform_colors', 'uniform_kits', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version','submission_key','submission_hash'],
   club_affiliation_categories: ['authorized_by', 'authorized_at'],
   club_officers: ['person_id', 'signature_file_id'],
   groups: ['name'],
@@ -138,6 +138,22 @@ read.push('referee_presentations');
 read.push('guardian_consents');
 read.push('referee_presentation_credentials');
 lock.push('referee_presentations');
+// PDGLD-147: solamente captura privada; sin escritura en resultados, clasificación o estados.
+read.push('lineups','player_period_participations','match_report_syncs','event_types');
+// PDGLD-18: inicio coordinado con reloj y acuse. No se habilita cierre oficial.
+read.push('match_status_history');
+update.matches = ['status_id','version'];
+insert.match_status_history = ['id','match_id','previous_status_id','new_status_id','user_id','reason','created_at'];
+readColumns.match_statuses.push('name');
+readColumns.matchdays.push('number');
+insert.match_reports = ['id','match_id','client_id','captured_by','source','status','version','remarks','home_captain_signature_file_id','away_captain_signature_file_id','draft_data','created_at'];
+update.match_reports = ['version','remarks','home_captain_signature_file_id','away_captain_signature_file_id','draft_data'];
+insert.lineups = ['id','match_report_id','registration_id','season_team_id','jersey_number','is_captain','is_starter','validated_by'];
+insert.player_period_participations = ['id','lineup_id','period_number','entry_minute','exit_minute'];
+insert.match_events = ['id','match_report_id','event_type_id','season_team_id','lineup_id','outgoing_lineup_id','period_number','minute','second','description'];
+insert.match_report_syncs = ['id','client_id','match_report_id','user_id','base_version','status','private_payload','received_at'];
+remove.push('lineups','player_period_participations','match_events');
+lock.push('lineups','player_period_participations','match_report_syncs');
 export const runtimePrivileges = Object.freeze({ read, readColumns, insert, update, remove, lock });
 const literal = value => `'${value.replaceAll("'", "''")}'`;
 const array = values => `ARRAY[${values.map(literal).join(',')}]::text[]`;

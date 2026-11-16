@@ -163,6 +163,7 @@ export async function submitAffiliation(input: unknown, correctionId?: string) {
     }) : [];
     const affiliation = corrected ? await tx.club_affiliations.update({ where: { id: corrected.id },
       data: { club_name: data.clubName, uniform_colors: data.uniformColors,
+        ...(data.uniformKits ? { uniform_kits: data.uniformKits } : {}),
         ...(!corrected.submission_key ? { submission_key: data.submissionKey, submission_hash: fingerprint } : {}),
         reviewed_by: null, reviewed_at: null, review_reason: null, review_version: { increment: 1 } },
       select: { id: true, reference_number: true, status: true },
@@ -170,6 +171,7 @@ export async function submitAffiliation(input: unknown, correctionId?: string) {
       data: { season_id: data.seasonId, club_id: data.clubId, league_id: club.league_id,
         reference_number: `AFL-${randomUUID()}`, status: "PENDING", requested_by: actor.id,
         club_name: data.clubName, uniform_colors: data.uniformColors,
+        ...(data.uniformKits ? { uniform_kits: data.uniformKits } : {}),
         submission_key: data.submissionKey, submission_hash: fingerprint },
       select: { id: true, reference_number: true, status: true },
     });

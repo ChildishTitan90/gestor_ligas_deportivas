@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { uniformKitsSchema } from "./uniform-kits";
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const uuid = z.uuid().transform((id) => id.toLowerCase());
@@ -17,6 +18,7 @@ export const affiliationSubmissionSchema = z.strictObject({
   seasonId: uuid,
   clubName: text(200),
   uniformColors: text(200),
+  uniformKits: uniformKitsSchema.optional(),
   // categories.id, verificadas contra season_categories en servidor.
   categoryIds: z.array(uuid).min(1).max(100)
     .refine((ids) => new Set(ids).size === ids.length),
@@ -30,6 +32,7 @@ export function canonicalAffiliationSubmission(data: AffiliationSubmission): str
   return JSON.stringify({
     clubId: data.clubId, seasonId: data.seasonId,
     clubName: data.clubName, uniformColors: data.uniformColors,
+    ...(data.uniformKits ? { uniformKits: data.uniformKits } : {}),
     categoryIds: [...data.categoryIds].sort(),
     officers: ["PRESIDENT", "SECRETARY", "TREASURER"].map((office) => {
       const person = data.officers[office as keyof typeof data.officers];

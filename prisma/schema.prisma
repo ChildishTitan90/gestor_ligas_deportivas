@@ -276,6 +276,7 @@ model club_affiliations {
   league_id                                   String                 @db.Uuid
   reference_number                            String                 @unique
   uniform_colors                              String
+  uniform_kits                                Json?                         @db.JsonB
   status                                      String                 @default("PENDING")
   requested_by                                String                 @db.Uuid
   reviewed_by                                 String?                @db.Uuid
@@ -799,6 +800,7 @@ model leagues {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model lineups {
+  is_starter Boolean @default(true)
   id                                                    String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   match_report_id                                       String                         @db.Uuid
   registration_id                                       String                         @db.Uuid
@@ -833,6 +835,7 @@ model match_events {
   outgoing_lineup_id                               String?              @db.Uuid
   period_number                                    Int?
   minute                                           Int?
+  second                                           Int?                 @db.SmallInt
   description                                      String?
   disciplinary_cases                               disciplinary_cases[]
   event_types                                      event_types          @relation(fields: [event_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -890,6 +893,7 @@ model match_report_syncs {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model match_reports {
+  draft_data Json @default("{}")
   id                                                        String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   match_id                                                  String                     @unique @db.Uuid
   client_id                                                 String                     @unique @db.Uuid

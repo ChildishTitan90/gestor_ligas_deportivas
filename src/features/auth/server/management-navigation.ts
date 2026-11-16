@@ -17,7 +17,8 @@ import {canAccessPlayerParticipations} from "@/features/players/server/participa
 import { canReadGovernance } from "@/features/governance/server/service";
 import { canReadVenues } from "@/features/venues/server/service";
 import { canReadAccountMaintenance } from "@/features/accounts/server/maintenance-workspace";
-import { canAccessMatchEligibility } from "@/features/matches/server/eligibility";
+import { canUseReportWorkspace } from "@/features/match-reports/server/service";
+const canAccessMatchEligibility = async () => canUseReportWorkspace((await requireOperationalUser()).id);
 import { canReadRefereeing } from "@/features/referees/server/service";
 import { canAccessRefereePresentations } from "@/features/referees/server/presentations";
 import { canReadOwnRefereeAvailability } from "@/features/referees/server/own-availability";
@@ -82,11 +83,11 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if(playerReview) playerLinks.items.push({href:"/players/review",label:"Revisión de identidad",icon:"review"});
   if(participations)playerLinks.items.push({href:"/players/participations",label:"Participaciones superiores",icon:"players"});
   if(playerLinks.items.length) groups.push(playerLinks);
-  const arbitration: ManagementNavigationGroup = { label: "Arbitraje", items: [] };
+const arbitration: ManagementNavigationGroup = { label: "Arbitraje", items: [] };
   if (await allowed(canReadRefereeing)) arbitration.items.push({ href: "/referees", label: "Árbitros y designaciones", icon: "players" });
   if (await allowed(canAccessRefereePresentations)) arbitration.items.push({href:"/referees/presentations",label:"Presentación de árbitros por club",icon:"players"});
   if (await allowed(canReadOwnRefereeAvailability)) arbitration.items.push({href:"/referees/my-availability",label:"Mi disponibilidad",icon:"players"});
-  if(matchEligibility) arbitration.items.push({href:"/matches",label:"Mis partidos · Alineación",icon:"players"});
+  if(matchEligibility) arbitration.items.push({href:"/matches",label:"Cédula arbitral",icon:"players"});
   if (arbitration.items.length) groups.push(arbitration);
   const competitions: ManagementNavigationGroup = { label: "Competencias", items: [] };
   if (leagues) competitions.items.push({ href: "/competitions/leagues/new", label: "Crear liga", icon: "overview" });
