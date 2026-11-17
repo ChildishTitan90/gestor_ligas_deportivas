@@ -7,6 +7,7 @@ import { AuthorizationError } from "../../src/server/auth/authorization";
 import type { PrivateDocumentTransport } from "../../src/server/files/private-document-storage";
 import { decideVenueLoanForActor, previewVenueLoanLetterForActor, submitVenueLoanForActor } from "../../src/features/venues/server/loans";
 import { loadHomeVenueOptions } from "../../src/features/venues/server/scheduling-options";
+import { sendVenueLoan, type VenueLoanCapture, type VenueLoanRecoveryStore } from "../../src/features/venues/venue-loan-recovery.client";
 
 assert.ok(process.env.DATABASE_URL, "Configura una base PostgreSQL temporal para PDGLD-23");
 const target = new URL(process.env.DATABASE_URL);
@@ -128,9 +129,45 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
       windows: [{ startsAt: at("11:00").toISOString(), endsAt: at("13:00").toISOString() }],
     };
     await assert.rejects(submitVenueLoanForActor(away.delegate, request, file, storage), AuthorizationError);
-    const submitted = await submitVenueLoanForActor(home.delegate, request, file, storage);
-    assert.equal(submitted.status, "PENDING");
-    assert.deepEqual(await submitVenueLoanForActor(home.delegate, request, file, storage), submitted);
+    const capture: VenueLoanCapture = {
+      requestId: request.requestId, contextId: randomUUID(), venueId: privateVenue,
+      windows: [{ id: randomUUID(), start: "2026-11-14T11:00", end: "2026-11-14T13:00" }],
+      letter: new File([new Uint8Array(file.bytes)], "carta.pdf", { type: file.mimeType }),
+    };
+    let saved: VenueLoanCapture | undefined;
+    const recovery: VenueLoanRecoveryStore = {
+      async read() { return saved && structuredClone(saved); },
+      async add(value) {
+        assert.equal(saved, undefined);
+        saved = structuredClone(value);
+      },
+      async remove(id) {
+        assert.equal(id, saved?.requestId);
+        saved = undefined;
+      },
+    };
+    async function saveOnServer(body: FormData) {
+      assert.deepEqual(JSON.parse(String(body.get("payload"))), {
+        requestId: request.requestId, contextId: capture.contextId, venueId: privateVenue,
+        windows: [{ start: "2026-11-14T11:00", end: "2026-11-14T13:00" }],
+      });
+      const letter = body.get("letter");
+      assert.ok(letter instanceof File);
+      assert.equal(letter.name, capture.letter.name);
+      const bytes = new Uint8Array(await letter.arrayBuffer());
+      assert.deepEqual(bytes, file.bytes);
+      return submitVenueLoanForActor(home.delegate, request, { bytes, mimeType: letter.type }, storage);
+    }
+    assert.equal(await sendVenueLoan(recovery, capture, false, async body => {
+      assert.equal((await saveOnServer(body)).status, "PENDING");
+      throw new Error("Respuesta perdida después de guardar en PostgreSQL");
+    }), "uncertain");
+    assert.equal(await db.venue_loans.count({ where: { id: request.requestId } }), 1);
+    const recovered = await recovery.read();
+    assert.ok(recovered);
+    assert.equal(await sendVenueLoan(recovery, recovered, true, async body => Response.json(await saveOnServer(body))), "confirmed");
+    assert.equal(await recovery.read(), undefined);
+    assert.equal(await db.venue_loans.count({ where: { requested_by: home.delegate, venue_id: privateVenue } }), 1);
     assert.equal(files.size, 1);
     assert.deepEqual(await options(), [complex]);
     await assert.rejects(previewVenueLoanLetterForActor(away.delegate, request.requestId, storage), AuthorizationError);

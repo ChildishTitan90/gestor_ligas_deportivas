@@ -19,7 +19,11 @@ type SchedulingContext = {
   priorHomeVenueId?: string;
 };
 
-/** For trusted scheduling services. Pass the same transaction used to validate the proposal. */
+/**
+ * PDGLD-24 (Sergio): llamar desde el generador y volver a consultar dentro de la
+ * transacción que guarda la reserva. Leer N del reglamento aprobado y resolver
+ * el antecedente RF04 antes de ofrecer la cancha rival.
+ */
 export async function loadHomeVenueOptions(tx: Prisma.TransactionClient, actorId: string, ctx: SchedulingContext) {
   await assertPermission(tx, actorId, {
     module: "scheduling", action: "READ", context: { seasonId: ctx.seasonId },
