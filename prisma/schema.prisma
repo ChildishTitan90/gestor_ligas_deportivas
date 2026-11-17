@@ -269,12 +269,14 @@ model charges {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model club_affiliations {
+  referee_presentations referee_presentations[]
   id                                          String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   season_id                                   String                 @db.Uuid
   club_id                                     String                 @db.Uuid
   league_id                                   String                 @db.Uuid
   reference_number                            String                 @unique
   uniform_colors                              String
+  uniform_kits                                Json?                         @db.JsonB
   status                                      String                 @default("PENDING")
   requested_by                                String                 @db.Uuid
   reviewed_by                                 String?                @db.Uuid
@@ -629,6 +631,7 @@ model event_types {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model files {
+  referee_credential referee_presentation_credentials?
   id                                                                String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   storage_key                                                       String                      @unique
   original_name                                                     String
@@ -775,6 +778,7 @@ model imports {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model leagues {
+  referee_operations referee_operations[]
   id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                   String                   @unique
   timezone               String                   @default("America/Mexico_City")
@@ -796,6 +800,7 @@ model leagues {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model lineups {
+  is_starter Boolean @default(true)
   id                                                    String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   match_report_id                                       String                         @db.Uuid
   registration_id                                       String                         @db.Uuid
@@ -830,6 +835,7 @@ model match_events {
   outgoing_lineup_id                               String?              @db.Uuid
   period_number                                    Int?
   minute                                           Int?
+  second                                           Int?                 @db.SmallInt
   description                                      String?
   disciplinary_cases                               disciplinary_cases[]
   event_types                                      event_types          @relation(fields: [event_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -887,6 +893,7 @@ model match_report_syncs {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model match_reports {
+  draft_data Json @default("{}")
   id                                                        String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   match_id                                                  String                     @unique @db.Uuid
   client_id                                                 String                     @unique @db.Uuid
@@ -1265,6 +1272,8 @@ model payments {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model people {
+  referee_presentations referee_presentations[] @relation("presentation_candidate")
+  approved_referee_presentations referee_presentations[] @relation("presentation_approved_person")
   registration_history season_registration_history[]
   season_identity_snapshots season_person_identity_snapshots[]
   identity_corrections player_identity_corrections[]
@@ -1558,6 +1567,10 @@ model publications {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model referee_assignments {
+  referee_operations referee_operations[]
+  version Int @default(1)
+  approved_identity_version Int?
+  identity_snapshot Json?
   id                                           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   match_id                                     String    @db.Uuid
   referee_id                                   String    @db.Uuid
@@ -1572,6 +1585,7 @@ model referee_assignments {
   referees                                     referees  @relation(fields: [referee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([match_id, referee_id], map: "active_referee_assignment", where: raw("(status <> 'REVOKED'::text)"))
+  @@unique([match_id, assignment_role], map: "approved_referee_slot", where: raw("(status = 'APPROVED'::text)"))
   @@index([approved_by], map: "fk_referee_assignments_approved_by_fkey")
   @@index([created_by], map: "fk_referee_assignments_created_by_fkey")
   @@index([match_id], map: "fk_referee_assignments_match_id_fkey")
@@ -1595,6 +1609,9 @@ model referee_availability {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model referees {
+  presentations referee_presentations[]
+  referee_operations referee_operations[]
+  version Int @default(1)
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   person_id            String                 @unique @db.Uuid
   is_active            Boolean                @default(true)
@@ -1608,6 +1625,7 @@ model referees {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model regulation_articles {
+  revision            Int                @default(1)
   id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   competition_rule_id String             @db.Uuid
   number              String
@@ -1860,6 +1878,7 @@ model season_teams {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model seasons {
+  referee_operations referee_operations[]
   registration_history season_registration_history[]
   identity_closure season_identity_closures?
   person_identity_snapshots season_person_identity_snapshots[]
@@ -2110,6 +2129,10 @@ model user_roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
+  uploaded_referee_credentials referee_presentation_credentials[]
+  submitted_referee_presentations referee_presentations[] @relation("presentation_requester")
+  reviewed_referee_presentations referee_presentations[] @relation("presentation_reviewer")
+  referee_operations referee_operations[]
   captured_identity_closures season_identity_closures[]
   requested_identity_corrections player_identity_corrections[] @relation("correction_requester")
   reviewed_identity_corrections player_identity_corrections[] @relation("correction_reviewer")
@@ -2429,5 +2452,78 @@ model season_registration_history {
  seasons seasons @relation(fields:[season_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
  people people @relation(fields:[person_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
  competition_rules competition_rules @relation(fields:[rule_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ @@schema("sports_management")
+}
+
+model referee_operations {
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ actor_id String @db.Uuid
+ operation_key String @db.Uuid
+ input_hash String
+ league_id String @db.Uuid
+ season_id String @db.Uuid
+ action String
+ referee_id String @db.Uuid
+ assignment_id String? @db.Uuid
+ reason String
+ result Json
+ created_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+ actor users @relation(fields:[actor_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ league leagues @relation(fields:[league_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ season seasons @relation(fields:[season_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ referee referees @relation(fields:[referee_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ assignment referee_assignments? @relation(fields:[assignment_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ @@unique([actor_id,operation_key])
+ @@schema("sports_management")
+}
+
+model referee_presentations {
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ season_id String @db.Uuid
+ club_id String @db.Uuid
+ requester_id String @db.Uuid
+ operation_key String @db.Uuid
+ input_hash String
+ person_id String? @db.Uuid
+ first_name String
+ paternal_surname String
+ maternal_surname String?
+ reason String
+ status String @default("PENDING")
+ version Int @default(1)
+ created_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+ reviewed_by String? @db.Uuid
+ reviewed_at DateTime? @db.Timestamptz(6)
+ review_reason String?
+ review_key String? @db.Uuid
+ review_hash String?
+ approved_person_id String? @db.Uuid
+ referee_id String? @db.Uuid
+ approved_identity Json?
+ affiliation club_affiliations @relation(fields:[club_id,season_id],references:[club_id,season_id],onDelete:NoAction,onUpdate:NoAction)
+ requester users @relation("presentation_requester",fields:[requester_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ reviewer users? @relation("presentation_reviewer",fields:[reviewed_by],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ candidate people? @relation("presentation_candidate",fields:[person_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ approved_person people? @relation("presentation_approved_person",fields:[approved_person_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ referee referees? @relation(fields:[referee_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ credential referee_presentation_credentials?
+ @@unique([requester_id,operation_key])
+ @@unique([reviewed_by,review_key])
+ @@unique([person_id,season_id],map:"pending_referee_person_season",where:raw("((status = 'PENDING'::text) AND (person_id IS NOT NULL))"))
+ @@index([season_id,club_id,status],map:"referee_presentations_inbox")
+ @@schema("sports_management")
+}
+
+model referee_presentation_credentials {
+ id String @id @db.Uuid
+ file_id String @unique @db.Uuid
+ uploaded_by String @db.Uuid
+ operation_key String @db.Uuid
+ input_hash String
+ created_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+ presentation referee_presentations @relation(fields:[id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ file files @relation(fields:[file_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ uploader users @relation(fields:[uploaded_by],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ @@unique([uploaded_by,operation_key])
  @@schema("sports_management")
 }

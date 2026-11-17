@@ -13,17 +13,21 @@ const read = ['account_email_changes', 'password_resets', 'player_category_level
   'teams', 'team_enrollment_operations', 'user_roles', 'users'];
 // Lecturas de reglas, cierre y dependencias: una tabla vacía también exige SELECT
 // y una política RLS para que _count no oculte referencias que impiden retirar filas.
-read.push('billing_plans', 'club_team_changes', 'competition_rules', 'competition_rule_parameters',
+read.push('regulation_articles', 'sanction_types', 'team_withdrawals', 'billing_plans', 'club_team_changes', 'competition_rules', 'competition_rule_parameters',
   'competition_stages', 'imports', 'matchdays', 'match_results',
   'match_statuses', 'match_status_transitions', 'match_status_history', 'official_documents', 'publications', 'season_awards', 'season_breaks',
   'standing_versions', 'venue_loans', 'venues', 'venue_availability', 'venue_reservations', 'governing_bodies', 'positions', 'appointments');
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
+  team_withdrawals: ['id', 'article_id'],
+  guardian_consents:['registration_id','guardian_person_id'],
+  season_person_identity_snapshots:['season_id','person_id','first_name','paternal_surname','maternal_surname','identity_version','season_version','captured_at','source'],
+  season_identity_closures:['season_id','season_version','closed_at','captured_at','person_count','format_version'],
   appointments: ['id', 'position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
   venue_reservations: ['venue_id', 'match_id', 'time_range'],
   password_resets: ['user_id','used_at'],
-  sanctions:['id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
+  sanctions:['id','article_id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
   billing_plans: ['id', 'season_id'], club_team_changes: ['id', 'season_id'],
   // update() de aprobación devuelve todos los escalares, incluido file_id.
   competition_rules: ['id', 'season_id', 'version_number', 'status', 'created_at', 'file_id', 'approved_by', 'approved_at'],
@@ -40,6 +44,16 @@ const readColumns = {
 };
 const insert = {
   match_status_history: ['id', 'match_id', 'previous_status_id', 'new_status_id', 'user_id', 'reason', 'expected_version'],
+  regulation_articles: ['id','competition_rule_id','number','description','sanction_type_id','parameters','revision'],
+  referee_presentation_credentials:['id','file_id','uploaded_by','operation_key','input_hash'],
+  referee_presentations:['club_id','season_id','requester_id','operation_key','input_hash','person_id','first_name','paternal_surname','maternal_surname','reason'],
+  player_identity_corrections:['registration_id','person_id','requester_id','operation_key','request_hash','expected_identity_version','proposed_identity','reason','identity_doubt','status'],
+  player_identity_correction_evidence:['correction_id','kind','mime_type','sha256','bytes'],
+  referees:['person_id','is_active','version'],
+  club_season_referees:['referee_id','season_id','club_id'],
+  referee_availability:['referee_id','starts_at','ends_at','is_available'],
+  referee_assignments:['match_id','referee_id','assignment_role','status','created_by','approved_by','approved_at','approved_identity_version','version'],
+  referee_operations:['actor_id','operation_key','input_hash','league_id','season_id','action','referee_id','assignment_id','reason','result'],
   governing_bodies: ['league_id', 'name'],
   positions: ['governing_body_id', 'name', 'role_id'],
   appointments: ['position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
@@ -57,7 +71,7 @@ const insert = {
   competition_rules: ['season_id', 'version_number', 'status', 'created_at'],
   competition_rule_parameters: ['competition_rule_id', 'parameter_key', 'parameter_value', 'requires_validation'],
   club_affiliations: ['season_id', 'club_id', 'league_id', 'reference_number', 'status', 'requested_by',
-    'club_name', 'uniform_colors', 'submission_key', 'submission_hash', 'review_version'],
+    'club_name', 'uniform_colors', 'uniform_kits', 'submission_key', 'submission_hash', 'review_version'],
   club_affiliation_categories: ['affiliation_id', 'season_id', 'category_id'],
   club_officers: ['affiliation_id', 'person_id', 'office', 'starts_at', 'signature_file_id'],
   clubs: ['name', 'league_id', 'reference_number', 'status', 'version', 'created_at'],
@@ -80,6 +94,14 @@ const insert = {
 };
 const update = {
   matches: ['status_id', 'version'],
+  regulation_articles: ['number','description','sanction_type_id','parameters'],
+  referee_presentations:['status','reviewed_by','reviewed_at','review_reason','review_key','review_hash','approved_person_id','referee_id','approved_identity'],
+  people:['curp','first_name','paternal_surname','maternal_surname','birth_date'],
+  player_identity_corrections:['status','reviewed_by','decision_key','decision_hash','observations','reviewed_at','previous_identity'],
+  referees:['is_active','version'],
+  club_season_referees:['club_id'],
+  referee_availability:['starts_at','ends_at','is_available'],
+  referee_assignments:['status','approved_by','approved_at','approved_identity_version','version'],
   appointments: ['ends_at'],
   venues: ['code', 'name', 'address', 'is_league_sports_complex', 'features', 'is_active', 'match_duration_minutes', 'buffer_minutes'],
   venue_availability: ['starts_at', 'ends_at', 'type', 'reason'],
@@ -93,7 +115,7 @@ const update = {
   teams: ['name', 'status', 'version'],
   competition_rules: ['status', 'approved_by', 'approved_at'],
   competition_rule_parameters: ['requires_validation', 'validated_by'],
-  club_affiliations: ['club_name', 'uniform_colors', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version','submission_key','submission_hash'],
+  club_affiliations: ['club_name', 'uniform_colors', 'uniform_kits', 'status', 'reviewed_by', 'reviewed_at', 'review_reason', 'review_version','submission_key','submission_hash'],
   club_affiliation_categories: ['authorized_by', 'authorized_at'],
   club_officers: ['person_id', 'signature_file_id'],
   groups: ['name'],
@@ -108,11 +130,32 @@ const update = {
     'username', 'email', 'is_active', 'maintenance_revision', 'email_verified_at', 'admin_reset_expires_at', 'admin_reset_consumed_at'],
 };
 const remove = ['venue_availability', 'role_permissions', 'club_affiliation_categories', 'groups', 'season_categories', 'seasons', 'clubs', 'teams'];
-const lock = ['document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
+const lock = ['competition_rules','document_requirements','document_types','categories', 'charges', 'clubs', 'disciplinary_cases', 'files', 'groups', 'leagues',
   'match_events', 'match_reports', 'matches', 'match_statuses', 'match_status_transitions', 'payments', 'people', 'permissions',
   'referee_assignments', 'referees', 'roles', 'schedule_proposals', 'season_categories', 'season_teams',
   'seasons', 'teams', 'user_roles'];
 
+read.push('club_season_referees','referee_availability','referee_operations','season_person_identity_snapshots','season_identity_closures','player_identity_corrections','player_identity_correction_evidence');
+lock.push('club_season_referees','referee_availability','club_affiliations');
+lock.push('player_identity_corrections');
+read.push('referee_presentations');
+read.push('guardian_consents');
+read.push('referee_presentation_credentials');
+lock.push('referee_presentations');
+// PDGLD-147: solamente captura privada; sin escritura en resultados, clasificación o estados.
+read.push('lineups','player_period_participations','match_report_syncs','event_types');
+// PDGLD-18: inicio coordinado con reloj y acuse. No se habilita cierre oficial.
+insert.match_status_history.push('created_at');
+readColumns.match_statuses.push('name');
+readColumns.matchdays.push('number');
+insert.match_reports = ['id','match_id','client_id','captured_by','source','status','version','remarks','home_captain_signature_file_id','away_captain_signature_file_id','draft_data','created_at'];
+update.match_reports = ['version','remarks','home_captain_signature_file_id','away_captain_signature_file_id','draft_data'];
+insert.lineups = ['id','match_report_id','registration_id','season_team_id','jersey_number','is_captain','is_starter','validated_by'];
+insert.player_period_participations = ['id','lineup_id','period_number','entry_minute','exit_minute'];
+insert.match_events = ['id','match_report_id','event_type_id','season_team_id','lineup_id','outgoing_lineup_id','period_number','minute','second','description'];
+insert.match_report_syncs = ['id','client_id','match_report_id','user_id','base_version','status','private_payload','received_at'];
+remove.push('lineups','player_period_participations','match_events');
+lock.push('lineups','player_period_participations','match_report_syncs');
 export const runtimePrivileges = Object.freeze({ read, readColumns, insert, update, remove, lock });
 const literal = value => `'${value.replaceAll("'", "''")}'`;
 const array = values => `ARRAY[${values.map(literal).join(',')}]::text[]`;
@@ -234,8 +277,8 @@ BEGIN
     THEN RAISE EXCEPTION 'Otra política permite modificar una tabla de solo bloqueo: %',spec.name; END IF;
   END LOOP;
   GRANT EXECUTE ON FUNCTION sports_management.get_entity_season(text,uuid),sports_management.get_role_code(uuid),sports_management.player_participation_now() TO gestor_ligas_preview;
-  GRANT EXECUTE ON FUNCTION sports_management.get_match_status_code(uuid) TO gestor_ligas_preview;
   GRANT EXECUTE ON FUNCTION sports_management.maintenance_has_references(text,uuid) TO gestor_ligas_preview;
+  GRANT EXECUTE ON FUNCTION sports_management.referee_assignment_blockers(uuid,uuid,uuid),sports_management.referee_assignment_effective(uuid),sports_management.closed_identity_reader_block(uuid),sports_management.get_match_status_code(uuid) TO gestor_ligas_preview;
   IF has_table_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     OR has_any_column_privilege(runtime_oid,'public._prisma_migrations','SELECT,INSERT,UPDATE,REFERENCES')
   THEN RAISE EXCEPTION 'Preview tiene acceso al ledger de Prisma'; END IF;

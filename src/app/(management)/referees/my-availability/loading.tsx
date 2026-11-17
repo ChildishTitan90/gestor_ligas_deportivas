@@ -1,0 +1,1 @@
+export default function Loading() { return <section role="status" aria-busy="true" className="rounded-2xl border border-border bg-surface p-6"><h1 className="text-xl font-semibold">Consultando mi disponibilidad…</h1><p className="mt-2 text-sm text-muted">Comprobando tu identidad y los contextos autorizados.</p></section>; }

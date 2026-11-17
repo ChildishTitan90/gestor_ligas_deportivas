@@ -13,7 +13,7 @@ const selectiveMigration = '20261109010000_pdgld117_selective_history';
 const env = childEnvironment(process.env);
 const actor = `SELECT set_config('app.user_id','11700000-0000-4000-8000-000000000002',false),set_config('app.reason','Prueba sintetica aislada',false);`;
 function command(args, input = '', { interactive = false } = {}) {
-  const child = spawn('docker', ['--host', 'unix:///var/run/docker.sock', ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn('docker', ['--host', process.platform==='win32'?'npipe:////./pipe/docker_engine':'unix:///var/run/docker.sock', ...args], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   let stdout = '', stderr = '';
   let signalReady;
   const ready = new Promise(resolve => { signalReady = resolve; });
@@ -37,7 +37,7 @@ for (const major of [15, 17]) {
   try {
     container = await docker(['run', '-d', '--pull=missing', '--name', `pdgld117-history-${runId}-pg${major}`,
       '--label', `pdgld117.history=${runId}`, '--network', 'none', '--tmpfs', '/var/lib/postgresql/data:rw,nosuid,nodev',
-      '--memory', '805306368', '--cpus', '2', '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', `postgres:${major}-bookworm`]);
+      '--memory', '805306368', '--cpus', '2', '-e', 'POSTGRES_HOST_AUTH_METHOD=trust', `postgres:${major}`]);
     assert.match(container, /^[a-f0-9]{64}$/);
     let available = false;
     for (let attempt = 0; attempt < 120; attempt++) {

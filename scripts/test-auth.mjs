@@ -15,7 +15,8 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet: true });
 const previewCompetitions = process.argv.includes('--preview-competitions');
 const previewMatches = process.argv.includes('--preview-match-transitions');
-const previewRuntime = process.argv.includes('--preview') || previewCompetitions || previewMatches;
+const previewCatalog = process.argv.includes('--preview-catalog');
+const previewRuntime = process.argv.includes('--preview') || previewCompetitions || previewMatches || previewCatalog;
 const playerDemo = process.argv.includes('--player-demo');
 const playerParticipations = process.argv.includes('--player-participations');
 
@@ -205,7 +206,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--player-demo', '--player-participations', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--preview-competitions', '--competitions', '--players', '--documents-real', '--club-maintenance', '--match-transitions', '--preview-match-transitions'].includes(arg)))
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--player-demo', '--player-participations', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--preview-competitions', '--preview-catalog', '--competitions', '--players', '--documents-real', '--club-maintenance', '--match-transitions', '--preview-match-transitions'].includes(arg)))
     throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --preview-competitions | --competitions | --players | --documents-real | --club-maintenance].');
   if (existsSync(fileURLToPath(new URL(playerDemo?'../.next-player-manual/dev/lock':'../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
@@ -371,6 +372,10 @@ try {
       process.stdin.once('end', finish);
       process.stdin.resume();
     });
+  } else if (previewCatalog) {
+    stage = 'escrituras del catálogo disciplinario con RLS';
+    await command(['--conditions=react-server', '--import', 'tsx', '--test', 'tests/integration/disciplinary-catalog.test.ts'],
+      { ...childEnv, CATALOG_TEST_ADMIN_URL: databaseUrl }, true);
   } else if (process.argv.includes('--preview')) {
     stage = 'HTTP de afiliaciones, correcciones e inscripciones con rol limitado y RLS';
     const { verifyPreviewPrismaAccountCreation } = await import('../tests/integration/preview-prisma-account.mjs');

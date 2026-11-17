@@ -22,7 +22,10 @@ test('Preview: el autorizador real recupera RF22 y creación de ligas con FOR SH
     });
     const baseline = INITIAL_PERMISSION_GRANTS.filter(g => g.roleCode === 'SUPERADMIN');
     assert.equal(baseline.length, 28);
-    const expected = [...baseline, { module: 'leagues', action: 'CREATE' }];
+    // PDGLD-141 instala explícitamente esta capacidad para delegar únicamente
+    // acceso REFEREE sobre personas incorporadas; no concede refereeing APPROVE.
+    const expected = [...baseline, { module: 'leagues', action: 'CREATE' },
+      { module: 'referee-accounts', action: 'CREATE' }];
     assert.equal(result.grants.length, expected.length);
     assert.deepEqual(result.grants.map(g => `${g.module}:${g.action}`).sort(), expected.map(g => `${g.module}:${g.action}`).sort());
     assert.equal(result.scopes.flatMap(s => s.modules).flatMap(m => m.actions).length, expected.length);

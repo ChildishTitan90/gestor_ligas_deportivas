@@ -11,6 +11,7 @@ import { assertPlayerRegistrationRead, lockPlayerTeamContext } from "./access";
 import { assessPlayerEligibility } from "./eligibility-assessment";
 import { findPossibleIdentityMatches } from "./identity-matches";
 import { lockSeasonIdentityHistory } from "./season-identity-history";
+import { recordRefereeIdentityReassessment } from "@/features/referees/server/identity-history";
 export class IdentityCorrectionError extends Error {
     constructor(public code: string, public status = 409) { super(code); }
 }
@@ -252,6 +253,7 @@ export async function decideIdentityCorrectionForActor(actorId: string, registra
                 const assessment = await assessPlayerEligibility(tx, r.id, [context]);
                 await tx.audit_logs.create({ data: { user_id: actorId, action: "PLAYER_CORRECTION_REASSESSED", table_name: "player_registrations", entity_id: r.id, reason: "Reevaluación local tras corregir identidad; sin consulta externa", new_data: { correctionId: row.id, identityVersion: updated.identity_version, ready: assessment.ready, blockers: assessment.blockers.map(b => b.code) } } });
             }
+            await recordRefereeIdentityReassessment(tx,reg.person_id,actorId,row.id);
             await tx.player_identity_corrections.update({ where: { id: row.id }, data: { status: "APPLIED", reviewed_by: actorId, decision_key: data.operationKey, decision_hash: decisionHash, observations: data.observations, reviewed_at: new Date(), previous_identity: before } });
             await tx.audit_logs.create({ data: { user_id: actorId, action: "PLAYER_CORRECTION_APPLIED", table_name: "player_identity_corrections", entity_id: row.id, reason: "Corrección de la misma persona con evidencia privada", new_data: { personId: reg.person_id, identityVersion: updated.identity_version, registrations: regs.length } } });
             return { id: row.id, status: "APPLIED", replayed: false };

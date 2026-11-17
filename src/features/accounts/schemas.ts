@@ -1,10 +1,10 @@
 import { z } from "zod";
-import { changePasswordSchema, emailSchema } from "@/features/auth/schemas";
+import { accountCredentialsSchema } from "./credentials";
 
-// Alcance de HU22-01: cuentas administrativas y delegados, sin cuentas GUEST.
+// Alta general; REFEREE reutiliza únicamente una Persona incorporada al padrón.
 export const accountRoleCodes = [
   "SUPERADMIN", "EXECUTIVE_PRESIDENT", "SECRETARY", "TREASURER",
-  "DISCIPLINARY_BOARD", "REFEREE_MANAGER", "SCHEDULER", "DATA_ENTRY", "CLUB_DELEGATE",
+  "DISCIPLINARY_BOARD", "REFEREE_MANAGER", "SCHEDULER", "DATA_ENTRY", "CLUB_DELEGATE", "REFEREE",
 ] as const;
 
 const name = z.string().trim().min(1, "Este campo es obligatorio.").max(100);
@@ -39,11 +39,7 @@ export const delegateOptionsSchema = z.strictObject({
 });
 
 export const createAccountSchema = z.strictObject({
-  username: z.string().trim().min(1).max(64)
-    .regex(/^[A-Za-z0-9._-]+$/, "Usa letras, números, punto, guion o guion bajo.")
-    .transform((value) => value.toLowerCase()),
-  email: emailSchema,
-  temporaryPassword: changePasswordSchema.shape.newPassword,
+  ...accountCredentialsSchema.shape,
   person: personSchema,
   roles: z.array(z.enum(accountRoleCodes)).min(1).max(accountRoleCodes.length),
   leagueId: z.uuid().optional(),
@@ -51,6 +47,8 @@ export const createAccountSchema = z.strictObject({
   delegatePosition: z.enum(["PRIMARY", "DEPUTY"]).optional(),
   delegatePeriod: delegatePeriodSchema.optional(),
 }).superRefine((data, context) => {
+  if (data.roles.includes("REFEREE") && !("id" in data.person))
+    context.addIssue({ code: "custom", path: ["person"], message: "Usa la Persona ya incorporada al padrón arbitral de la liga." });
   if (data.delegatePeriod && !data.roles.includes("CLUB_DELEGATE"))
     context.addIssue({ code: "custom", path: ["delegatePeriod"], message: "La vigencia corresponde al delegado." });
   if (data.roles.includes("CLUB_DELEGATE") !== (data.delegatePosition !== undefined))

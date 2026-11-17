@@ -24,19 +24,30 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
     await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Fixture sintético PDGLD-16',true)`;
     return tx.season_teams.create({ data: { season_id: reg.season_id, club_id: team.club_id, group_id: groupId, team_id: otherTeam.id } });
   });
-  const venue = await db.venues.create({data:{league_id:season.league_id,code:nonce,name:"Cancha sintética",address:"Domicilio sintético"}});
+  const venue = await db.venues.create({data:{league_id:season.league_id,code:nonce,name:"Cancha sintética",address:"Domicilio sintético",match_duration_minutes:120}});
+  await db.venue_availability.create({data:{venue_id:venue.id,starts_at:new Date('2026-11-10T00:00Z'),ends_at:new Date('2026-11-16T00:00Z'),type:'AVAILABLE'}});
+  const scheduled=await db.match_statuses.findUniqueOrThrow({where:{code:'SCHEDULED'}});
   const match = await audit(tx=>tx.matches.create({ data: { season_id: reg.season_id, group_id: groupId, matchday_id: day.id, number: nonce,
-    home_team_id: team.id, away_team_id: other.id, venue_id:venue.id, reserved_until:new Date("2026-11-11T20:00:00Z"), starts_at: new Date("2026-11-11T18:00:00Z"), ends_at: new Date("2026-11-11T20:00:00Z") } }));
+    home_team_id: team.id, away_team_id: other.id, venue_id:venue.id,status_id:scheduled.id, reserved_until:new Date("2026-11-11T20:00:00Z"), starts_at: new Date("2026-11-11T18:00:00Z"), ends_at: new Date("2026-11-11T20:00:00Z") } }));
   const user = await db.users.findUniqueOrThrow({ where: { id: actors.delegate } });
   assert.ok(user.person_id);
-  const referee = await db.referees.create({ data: { person_id: user.person_id } });
+  const referee = await audit(tx=>tx.referees.create({ data: { person_id: user.person_id } }));
+  const presenter=await db.clubs.create({data:{league_id:season.league_id,reference_number:`presenter-${nonce}`,name:'Presentador arbitral sintético'}});
+  await audit(tx=>tx.club_affiliations.create({data:{season_id:season.id,club_id:presenter.id,league_id:season.league_id,reference_number:nonce,uniform_colors:'Sintético',status:'APPROVED',requested_by:actors.admin}}));
+  await audit(tx=>tx.club_season_referees.create({data:{referee_id:referee.id,season_id:season.id,club_id:presenter.id}}));
+  await audit(tx=>tx.referee_availability.create({data:{referee_id:referee.id,starts_at:new Date('2026-11-10T00:00Z'),ends_at:new Date('2026-11-16T00:00Z'),is_available:true}}));
   const role = await db.roles.findUniqueOrThrow({ where: { code: "REFEREE" } });
   const permission = await db.permissions.upsert({ where: { module_action: { module: "match-reports", action: "CREATE" } }, update: {}, create: { module: "match-reports", action: "CREATE" } });
   await audit(tx=>tx.role_permissions.upsert({ where: { role_id_permission_id: { role_id: role.id, permission_id: permission.id } }, update: { context_only: false }, create: { role_id: role.id, permission_id: permission.id, context_only: false } }));
   const updatePermission = await db.permissions.upsert({where:{module_action:{module:"match-reports",action:"UPDATE"}},update:{},create:{module:"match-reports",action:"UPDATE"}});
   await audit(tx=>tx.role_permissions.upsert({where:{role_id_permission_id:{role_id:role.id,permission_id:updatePermission.id}},update:{context_only:true},create:{role_id:role.id,permission_id:updatePermission.id,context_only:true}}));
   await audit(tx=>tx.user_roles.create({ data: { user_id: user.id, role_id: role.id, league_id: season.league_id } }));
-  const assignment = await audit(tx=>tx.referee_assignments.create({ data: { match_id: match.id, referee_id: referee.id, status: "APPROVED", created_by: actors.admin, approved_by: actors.admin, approved_at: new Date() } }));
+  const identity=await db.people.findUniqueOrThrow({where:{id:user.person_id},select:{identity_version:true}});
+  const assign=()=>audit(async tx=>{
+    const proposed=await tx.referee_assignments.create({data:{match_id:match.id,referee_id:referee.id,created_by:actors.admin}});
+    return tx.referee_assignments.update({where:{id:proposed.id},data:{status:'APPROVED',approved_by:actors.admin,approved_at:new Date(),approved_identity_version:identity.identity_version}});
+  });
+  let assignment=await assign();
   const evaluate = () => evaluateMatchForActor(user.id, match.id);
   const player = async () => (await evaluate()).players.find(p => p.registrationId === originId && p.seasonTeamId === team.id)!;
   await t.test("PDGLD-16: árbitro designado evalúa superior autorizado y origen no cambia", async () => {
@@ -71,7 +82,7 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
     await assert.rejects(evaluateMatchForActor(actors.other, match.id), e => e instanceof AuthorizationError);
     await audit(tx=>tx.referee_assignments.update({ where: { id: assignment.id }, data: { status: "REVOKED" } }));
     await assert.rejects(evaluate(), e => e instanceof AuthorizationError);
-    await audit(tx=>tx.referee_assignments.update({ where: { id: assignment.id }, data: { status: "APPROVED" } }));
+    assignment=await assign(); // El antecedente revocado permanece inmutable.
   });
   await t.test("PDGLD-16: pertenencia inmutable y cambio de equipo tras inicio se rechazan en PostgreSQL", async () => {
     await assert.rejects(audit(tx=>tx.player_registrations.update({where:{id:reg.id},data:{season_team_id:other.id}})),/pertenencia|TEAM_CHANGE|inmutable/i);
@@ -82,22 +93,22 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
       await audit(tx=>tx.seasons.update({where:{id:season.id},data:{competition_starts_at:season.competition_starts_at}}));
     }
   });
-  await t.test("PDGLD-16: dorsal no invalida identidad/documentos y horario ausente impide certificar", async () => {
+  await t.test("PDGLD-16/86: dorsal no invalida identidad y retirar horario con designación aprobada se revierte", async () => {
     const before = await db.player_curp_checks.count({ where: { person_id: reg.person_id } });
     await audit(tx=>tx.player_registrations.update({ where: { id: originId }, data: { jersey_number: 88 } }));
     assert.equal((await player()).eligible, true);
     assert.equal((await player()).jerseyNumber, 88);
     assert.equal(await db.player_curp_checks.count({ where: { person_id: reg.person_id } }), before);
-    await audit(tx=>tx.matches.update({ where: { id: match.id }, data: { starts_at: null, ends_at: null, reserved_until:null } }));
-    assert.ok((await player()).blockers.some(b => b.code === "MATCH_TIME_REQUIRED"));
-    await audit(tx=>tx.matches.update({ where: { id: match.id }, data: { starts_at: match.starts_at, ends_at: match.ends_at, reserved_until:match.reserved_until } }));
+    await assert.rejects(audit(async tx=>tx.matches.update({ where: { id: match.id }, data: { starts_at: null, ends_at: null, reserved_until:null,status_id:(await tx.match_statuses.findUniqueOrThrow({where:{code:'UNSCHEDULED'}})).id } })),/APPROVED_ASSIGNMENT_CONFLICT:(?:MATCH_NOT_SCHEDULED|INVALID_TIME)/);
+    assert.equal((await db.matches.findUniqueOrThrow({where:{id:match.id}})).starts_at?.toISOString(),match.starts_at?.toISOString());
+    assert.equal((await player()).eligible,true);
   });
   await t.test("PDGLD-16: sanción se evalúa a la fecha del partido, con inicio inclusivo y fin exclusivo", async () => {
     const type = await db.sanction_types.findUniqueOrThrow({where:{code:"TIME"}});
     const rule = await db.competition_rules.findFirstOrThrow({where:{season_id:season.id}});
-    const article = await db.regulation_articles.create({data:{competition_rule_id:rule.id,number:`16-${nonce}`,description:"Sintético",sanction_type_id:type.id}});
     await db.$transaction(async tx => {
       await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Sanción sintética PDGLD-16',true)`;
+      const article = await tx.regulation_articles.create({data:{competition_rule_id:rule.id,number:`16-${nonce}`,description:"Sintético",sanction_type_id:type.id}});
       const c = await tx.disciplinary_cases.create({data:{season_id:season.id,reference_number:nonce,opened_by:actors.admin,description:"Sintético"}});
       const ruling = await tx.disciplinary_rulings.create({data:{case_id:c.id,version_number:1,decided_by:actors.admin,decision:"Sintética",reason:"Prueba aislada"}});
       await tx.sanctions.create({data:{ruling_id:ruling.id,article_id:article.id,sanction_type_id:type.id,registration_id:reg.id,
@@ -196,7 +207,10 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
     assert.equal((await db.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,report.version+1);
   });
   await t.test("PDGLD-16: partidos separados no inventan descanso; cruce horario queda pendiente explícito", async () => {
-    const second = await audit(tx=>tx.matches.create({data:{...match,id:randomUUID(),number:randomUUID(),
+    // Antecedente sin programación publicada: no reserva cancha/equipos ni
+    // concede acceso arbitral. Su cédula sintética conserva el cruce pendiente.
+    const unscheduled=await db.match_statuses.findUniqueOrThrow({where:{code:'UNSCHEDULED'}});
+    const second = await audit(tx=>tx.matches.create({data:{...match,id:randomUUID(),number:randomUUID(),status_id:unscheduled.id,
       starts_at:new Date("2026-11-14T18:00:00Z"),ends_at:new Date("2026-11-14T20:00:00Z"),reserved_until:new Date("2026-11-14T20:00:00Z")}}));
     const report = await audit(tx=>tx.match_reports.create({data:{match_id:second.id,client_id:randomUUID(),captured_by:user.id,source:"MOBILE"}}));
     await audit(tx=>tx.lineups.create({data:{match_report_id:report.id,registration_id:reg.id,season_team_id:team.id,validated_by:user.id}}));
@@ -204,17 +218,19 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
     await audit(tx=>tx.matches.update({where:{id:second.id},data:{starts_at:match.starts_at,ends_at:match.ends_at,reserved_until:match.reserved_until}}));
     assert.ok((await player()).blockers.some(b=>b.code==="PARTICIPATION_RULE_PENDING"));
   });
-  await t.test("PDGLD-16: CLOSED no lee ni reevalúa Persona vigente", async () => {
+  await t.test("PDGLD-16/86: CLOSED sin evidencia arbitral no permite reconstruir el pasado", async () => {
     // El cierre real tiene su propio proceso y triggers. Rollback de fixture,
     // exclusivamente en esta base desechable, para probar la rama de lectura.
     await db.$transaction(async tx => {
       await tx.$executeRawUnsafe('ALTER TABLE sports_management.seasons DISABLE TRIGGER USER');
       await tx.seasons.update({ where: { id: season.id }, data: { status: "CLOSED", closed_at: new Date() } });
       const { evaluateMatchInTransaction } = await import("../../src/features/matches/server/eligibility");
-      const result = await evaluateMatchInTransaction(tx, user.id, match.id);
-      assert.equal(result.historical, true); assert.deepEqual(result.players, []);
+      await assert.rejects(evaluateMatchInTransaction(tx,user.id,match.id),e=>e instanceof AuthorizationError);
       await tx.seasons.update({ where: { id: season.id }, data: { status: season.status, closed_at: season.closed_at } });
       await tx.$executeRawUnsafe('ALTER TABLE sports_management.seasons ENABLE TRIGGER USER');
     });
   });
+  // Las siguientes pruebas de jugadores modifican equipos/identidad. Retirar
+  // nuestra designación conserva el antecedente sin bloquear fixtures ajenos.
+  await audit(tx=>tx.referee_assignments.update({where:{id:assignment.id},data:{status:'REVOKED'}}));
 }

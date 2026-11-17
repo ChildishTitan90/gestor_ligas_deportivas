@@ -30,8 +30,33 @@ export async function authorizeMatch(tx: Prisma.TransactionClient, actorId: stri
 /** Contrato para PDGLD-18: consumir en su transacción y reevaluar antes de escribir.
  * No concede permisos de players ni modifica habilitación o historial. */
 export async function evaluateMatchInTransaction(tx: Prisma.TransactionClient, actorId: string, matchId: string): Promise<LineupEvaluation> {
+  await lockAuthorization(tx);
   await lockSeasonIdentityHistory(tx);
   const match = await authorizeMatch(tx, actorId, matchId);
+  return evaluateAuthorizedMatchInTransaction(tx, match);
+}
+
+/** Evaluación compartida: el servicio llamador ya autorizó al actor real y bloqueó el contexto.
+ * No sustituye al actor ni concede permisos. No es una entrada invocable desde cliente. */
+function matchRosterWhere(seasonId: string, teamId: string, target: { clubId: string; seasonCategoryId: string }): Prisma.player_registrationsWhereInput {
+  return { season_id: seasonId, OR: [{ season_team_id: teamId }, { category_participations: { some: {
+    season_id: seasonId, club_id: target.clubId, target_season_team_id: teamId,
+    target_season_category_id: target.seasonCategoryId, status: "AUTHORIZED",
+  } } }] };
+}
+/** Solo pertenencia al plantel visible; no concede elegibilidad ni permisos.
+ * El consumidor ya autorizó al actor para el partido. Reutiliza los destinos
+ * autorizados de PDGLD-16, incluidas participaciones en categoría superior. */
+export async function isRegistrationInAuthorizedMatchRoster(tx: Prisma.TransactionClient, match: Awaited<ReturnType<typeof authorizeMatch>>, registrationId: string) {
+  for (const teamId of [match.home_team_id, match.away_team_id]) {
+    const target = await readLockedPlayerTeamContext(tx, teamId);
+    if (await tx.player_registrations.findFirst({ where: { ...matchRosterWhere(match.season_id, teamId, target), id: registrationId }, select: { id: true } })) return true;
+  }
+  return false;
+}
+
+export async function evaluateAuthorizedMatchInTransaction(tx: Prisma.TransactionClient, match: Awaited<ReturnType<typeof authorizeMatch>>): Promise<LineupEvaluation> {
+  const matchId = match.id;
   const historical = match.season.status === "CLOSED";
   const result: LineupEvaluation = { matchId, number: match.number, version: match.version,
     startsAt: match.starts_at?.toISOString() ?? null, historical, players: [], notices: [
@@ -44,11 +69,7 @@ export async function evaluateMatchInTransaction(tx: Prisma.TransactionClient, a
   for (const teamId of targets) {
     const target = await readLockedPlayerTeamContext(tx, teamId);
     const targetLabel = await tx.teams.findUniqueOrThrow({where:{id:target.teamId},select:{name:true}});
-    const registrations = await tx.player_registrations.findMany({ where: { season_id: match.season_id,
-      OR: [{ season_team_id: teamId }, { category_participations: { some: {
-        season_id: match.season_id, club_id: target.clubId, target_season_team_id: teamId,
-        target_season_category_id: target.seasonCategoryId, status: "AUTHORIZED",
-      } } }] },
+    const registrations = await tx.player_registrations.findMany({ where: matchRosterWhere(match.season_id, teamId, target),
       select: { id: true, person_id: true, season_team_id: true, jersey_number: true }, orderBy: { id: "asc" } });
     for (const reg of registrations) {
       const origin = await readLockedPlayerTeamContext(tx, reg.season_team_id);
@@ -125,6 +146,7 @@ export async function recordParticipationInTransaction(tx: Prisma.TransactionCli
   // Mismo orden que la evaluación: historia antes del partido. FOR SHARE bloquea
   // también UPDATE de horario/version sin cambios de clave (FOR KEY SHARE no).
   // Se conserva hasta COMMIT/ROLLBACK de la transacción del consumidor.
+  await lockAuthorization(tx);
   await lockSeasonIdentityHistory(tx);
   const locked = await tx.$queryRaw<{ version: number; status_code: string }[]>`
     SELECT m.version, s.code AS status_code FROM sports_management.matches m

@@ -1,4 +1,5 @@
 import "server-only";
+import { canReadCatalog } from "@/features/discipline/server/catalog";
 
 import type { ManagementNavigationGroup } from "@/components/layout/management-navigation";
 import { getAccountCreationOptions } from "@/features/accounts/server/service";
@@ -16,8 +17,12 @@ import {canAccessPlayerParticipations} from "@/features/players/server/participa
 import { canReadGovernance } from "@/features/governance/server/service";
 import { canReadVenues } from "@/features/venues/server/service";
 import { canReadAccountMaintenance } from "@/features/accounts/server/maintenance-workspace";
-import { canAccessMatchEligibility } from "@/features/matches/server/eligibility";
 import { canAccessRecorderWorkspace } from "@/features/matches/server/recorder-workspace";
+import { canUseReportWorkspace } from "@/features/match-reports/server/service";
+import { canReadRefereeing } from "@/features/referees/server/service";
+import { canAccessRefereePresentations } from "@/features/referees/server/presentations";
+import { canReadOwnRefereeAvailability } from "@/features/referees/server/own-availability";
+const canAccessMatchEligibility = async () => canUseReportWorkspace((await requireOperationalUser()).id);
 
 /** Solo una denegación esperada oculta el enlace; los fallos de sesión o servicio se propagan. */
 async function allowed(check: () => Promise<boolean>): Promise<boolean> {
@@ -47,7 +52,7 @@ async function navigationCapabilities(checks: (() => Promise<boolean>)[]) {
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
   await requireOperationalUser();
-  const [teams, capture, review, accounts, players, playerReview, seasons, leagues, participations, maintenance, accountMaintenance, matchEligibility, venues, recorder, governance] = await navigationCapabilities([
+  const [teams, capture, review, accounts, players, playerReview, seasons, leagues, participations, maintenance, accountMaintenance, matchEligibility, venues, recorder, governance, catalog] = await navigationCapabilities([
     async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0,
     canAccessAffiliationCapture,
     async () => (await getAffiliationReviewLeagueOptions()).length > 0,
@@ -63,6 +68,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
     canReadVenues,
     canAccessRecorderWorkspace,
     canReadGovernance,
+    canReadCatalog,
   ]);
 
   const groups: ManagementNavigationGroup[] = [
@@ -79,7 +85,12 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if(playerReview) playerLinks.items.push({href:"/players/review",label:"Revisión de identidad",icon:"review"});
   if(participations)playerLinks.items.push({href:"/players/participations",label:"Participaciones superiores",icon:"players"});
   if(playerLinks.items.length) groups.push(playerLinks);
-  if(matchEligibility) groups.push({label:"Arbitraje",items:[{href:"/matches",label:"Mis partidos · Alineación",icon:"players"}]});
+  const arbitration: ManagementNavigationGroup = { label: "Arbitraje", items: [] };
+  if (await allowed(canReadRefereeing)) arbitration.items.push({ href: "/referees", label: "Árbitros y designaciones", icon: "players" });
+  if (await allowed(canAccessRefereePresentations)) arbitration.items.push({href:"/referees/presentations",label:"Presentación de árbitros por club",icon:"players"});
+  if (await allowed(canReadOwnRefereeAvailability)) arbitration.items.push({href:"/referees/my-availability",label:"Mi disponibilidad",icon:"players"});
+  if(matchEligibility) arbitration.items.push({href:"/matches",label:"Cédula arbitral",icon:"players"});
+  if (arbitration.items.length) groups.push(arbitration);
   if(recorder) groups.push({label:"Partidos",items:[{href:"/matches/recording",label:"Registro de partidos",icon:"overview"}]});
   const competitions: ManagementNavigationGroup = { label: "Competencias", items: [] };
   if (leagues) competitions.items.push({ href: "/competitions/leagues/new", label: "Crear liga", icon: "overview" });
@@ -91,5 +102,6 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if (accounts) administration.items.push({ href: "/accounts/new", label: "Crear cuenta", icon: "accounts" });
   if (governance) administration.items.push({ href: "/governance", label: "Órganos y cargos", icon: "overview" });
   if (administration.items.length) groups.push(administration);
+  if (catalog) groups.push({ label: "Disciplina", items: [{ href: "/discipline/catalog", label: "Catálogo disciplinario", icon: "review" }] });
   return groups;
 }

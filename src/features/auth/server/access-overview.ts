@@ -14,6 +14,7 @@ const moduleLabels: Record<string, string> = {
   venues: "Canchas", scheduling: "Programación y partidos", "match-reports": "Cédulas",
   discipline: "Disciplina, recursos y bajas", billing: "Cobranza", refereeing: "Arbitraje",
   portal: "Publicación en el portal", users: "Usuarios y roles", leagues: "Creación de ligas", audit: "Auditoría",
+  "referee-accounts": "Acceso de árbitros incorporados",
 };
 const actionLabels: Record<PermissionAction, string> = {
   CREATE: "Crear", READ: "Consultar", UPDATE: "Actualizar", APPROVE: "Aprobar", PUBLISH: "Publicar", IMPORT: "Importar",
