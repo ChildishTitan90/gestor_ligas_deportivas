@@ -59,17 +59,21 @@ designación, cédula y efectos deportivos aún requieren integración. El catá
 actual no concede al árbitro `scheduling:UPDATE`; no se debe interpretar el acuerdo
 como una concesión global ni permitir transiciones sin validar la designación.
 Quedan por integrar no presentación,
-reprogramación, revisión y resolución administrativa. La finalización
-requiere el contrato de cédula y aplicación única de resultados (PDGLD-18/21).
-No debe habilitarse agregando solamente un par a la matriz. FINALIZADO no se puede
-reabrir por esta entrada; una corrección necesita su autorización y servicio propios.
+reprogramación, revisión y resolución administrativa. La finalización cuenta con
+`finishConfirmedReportMatch(tx, context)` como adaptador interno: revalida permiso
+y ámbito, exige cédula en borrador, resultado procedente de ella, partido en curso
+y versión vigente, e inserta historial con la misma clave de operación. El servicio
+genérico sigue denegando `FINISHED`. `getConfirmationEffects()` permanece bloqueado
+hasta integrar clasificación y expedientes disciplinarios en la misma transacción.
+FINALIZADO no se puede reabrir por esta entrada ni editar directamente en PostgreSQL;
+una corrección necesita su autorización y servicio propios.
 
 ## Integración pendiente con cédula y programación
 
-- **PDGLD-18, Víctor:** acordar la entrada de confirmación de cédula y cómo
-  registrar no presentación. La confirmación deberá coordinar el partido, el
-  resultado y sus efectos en una transacción, con operación idempotente y
-  revalidación de la autoridad. `transitionMatch` todavía no finaliza partidos.
+- **PDGLD-18, Víctor:** la entrada de confirmación ya tiene la interfaz de efectos;
+  conectar el adaptador interno de cierre cuando también estén listos clasificación
+  y expedientes. Acordar cómo registrar no presentación. La confirmación debe
+  coordinar todos los efectos en una transacción; `transitionMatch` no finaliza partidos.
 - **PDGLD-21, Sergio:** definir la corrección autorizada de una cédula y la
   conservación de sus versiones y efectos antes de admitir cambios posteriores
   a `FINISHED`.

@@ -5,6 +5,7 @@ import pg from "pg";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { transitionMatchInTransaction } from "../../src/features/matches/server/transition";
+import { finishConfirmedReportMatch } from "../../src/features/matches/server/report-finish";
 import { getRecorderWorkspaceInTransaction } from "../../src/features/matches/server/recorder-workspace";
 import { hashPassword } from "../../src/server/auth/password";
 
@@ -56,9 +57,9 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
       const reference = `${tag}-${i}`;
       const { id: club } = await row("INSERT INTO sports_management.clubs(league_id,name,reference_number,status) VALUES ($1,$2,$2,'ACTIVE') RETURNING id", [league, reference]);
       const { id: team } = await row("INSERT INTO sports_management.teams(club_id,name,reference_number) VALUES ($1,$2,$2) RETURNING id", [club, reference]);
-      await row(`INSERT INTO sports_management.club_affiliations(season_id,club_id,league_id,reference_number,uniform_colors,requested_by)
-        VALUES ($1,$2,$3,$4,'Azul',$5)`, [season, club, league, reference, actor]);
-      teams.push((await row("INSERT INTO sports_management.season_teams(season_id,team_id,club_id,group_id) VALUES ($1,$2,$3,$4) RETURNING id", [season, team, club, group])).id);
+      await row(`INSERT INTO sports_management.club_affiliations(season_id,club_id,league_id,reference_number,uniform_colors,requested_by,status)
+        VALUES ($1,$2,$3,$4,'Azul',$5,'APPROVED')`, [season, club, league, reference, actor]);
+      teams.push((await row("INSERT INTO sports_management.season_teams(season_id,team_id,club_id,group_id,season_category_id) VALUES ($1,$2,$3,$4,$5) RETURNING id", [season, team, club, group, category])).id);
     }
     const { id: venue } = await row(`INSERT INTO sports_management.venues(league_id,code,name,address,match_duration_minutes,buffer_minutes)
       VALUES ($1,'UNO','Cancha','Sintético',60,15) RETURNING id`, [league]);
@@ -92,8 +93,15 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
     await assert.rejects(run(confirm), { code: "MAIN_REFEREE_REQUIRED" });
     const refereePerson = await row("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES ('Árbitro','Sintético') RETURNING id");
     const referee = await row("INSERT INTO sports_management.referees(person_id) VALUES ($1) RETURNING id", [refereePerson.id]);
-    await row(`INSERT INTO sports_management.referee_assignments(match_id,referee_id,assignment_role,status,created_by,approved_by,approved_at)
-      VALUES ($1,$2,'MAIN','APPROVED',$3,$3,now())`, [matchId, referee.id, actor]);
+    const presenting = `${tag}-arbitraje`;
+    const { id: presentingClub } = await row("INSERT INTO sports_management.clubs(league_id,name,reference_number,status) VALUES ($1,$2,$2,'ACTIVE') RETURNING id", [league, presenting]);
+    await row(`INSERT INTO sports_management.club_affiliations(season_id,club_id,league_id,reference_number,uniform_colors,requested_by,status)
+      VALUES ($1,$2,$3,$4,'Negro',$5,'APPROVED')`, [season, presentingClub, league, presenting, actor]);
+    await row("INSERT INTO sports_management.club_season_referees(referee_id,season_id,club_id) VALUES ($1,$2,$3)", [referee.id, season, presentingClub]);
+    await row(`INSERT INTO sports_management.referee_availability(referee_id,starts_at,ends_at,is_available)
+      VALUES ($1,'2026-11-14T10:00:00Z','2026-11-14T11:00:00Z',true)`, [referee.id]);
+    await row(`INSERT INTO sports_management.referee_assignments(match_id,referee_id,assignment_role,status,created_by,approved_by,approved_at,approved_identity_version)
+      VALUES ($1,$2,'MAIN','APPROVED',$3,$3,now(),$4)`, [matchId, referee.id, actor, refereePerson.identity_version ?? 1]);
     const confirmation = await run(confirm);
     assert.equal(confirmation.appliedVersion, 3);
     assert.equal((await run(confirm)).replayed, true);
@@ -191,6 +199,41 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
       VALUES ($1,$2,$3,'PAPER')`, [reportedMatch, randomUUID(), actor]);
     await assert.rejects(run({ ...cancel, matchId: reportedMatch, operationId: randomUUID(), expectedVersion: 2 }), { code: "MATCH_REPORT_EXISTS" });
     assert.equal((await row("SELECT version FROM sports_management.matches WHERE id=$1", [reportedMatch])).version, 2);
+
+    // PDGLD-132 aporta únicamente el cierre interno de cédula. La operación
+    // genérica continúa sin poder finalizar un partido directamente.
+    const reportMatch = await draft("cierre-cedula", 18);
+    await row(`UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('IN_PROGRESS'),
+      version=2 WHERE id=$1`, [reportMatch]);
+    const { id: reportId } = await row(`INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source)
+      VALUES ($1,$2,$3,'MOBILE') RETURNING id`, [reportMatch, randomUUID(), refereeUser.id]);
+    const finishOperation = randomUUID();
+    const finishContext = { actorId: refereeUser.id, matchId: reportMatch, reportId,
+      operationId: finishOperation, expectedMatchVersion: 2, homeScore: 1, awayScore: 0,
+      eventIds: [], dismissals: [] };
+    const finish = () => prisma.$transaction(tx => finishConfirmedReportMatch(tx, finishContext));
+    await assert.rejects(finish(), { code: "REPORT_RESULT_REQUIRED" });
+    assert.equal((await row("SELECT version FROM sports_management.matches WHERE id=$1", [reportMatch])).version, 2);
+    await row(`INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by)
+      VALUES ($1,1,0,'MATCH_REPORT',$2)`, [reportMatch, refereeUser.id]);
+    await assert.rejects(prisma.$transaction(tx => finishConfirmedReportMatch(tx,
+      { ...finishContext, reportId: randomUUID(), operationId: randomUUID() })),
+    { code: "REPORT_RESULT_REQUIRED" });
+    await assert.rejects(prisma.$transaction(tx => finishConfirmedReportMatch(tx,
+      { ...finishContext, homeScore: 2, operationId: randomUUID() })),
+    { code: "REPORT_RESULT_REQUIRED" });
+    await assert.rejects(run({ ...input, matchId: reportMatch, operationId: randomUUID(), expectedVersion: 2,
+      toStatus: "FINISHED" }), { code: "FORBIDDEN" });
+    assert.equal(await finish(), 3);
+    assert.deepEqual(await row(`SELECT m.version,s.code FROM sports_management.matches m
+      JOIN sports_management.match_statuses s ON s.id=m.status_id WHERE m.id=$1`, [reportMatch]),
+    { version: 3, code: "FINISHED" });
+    assert.deepEqual(await row(`SELECT h.expected_version,h.reason,s.code FROM sports_management.match_status_history h
+      JOIN sports_management.match_statuses s ON s.id=h.new_status_id WHERE h.id=$1`, [finishOperation]),
+    { expected_version: 2, reason: "Confirmación de cédula arbitral", code: "FINISHED" });
+    await assert.rejects(finish(), { code: "TRANSITION_NOT_IMPLEMENTED" });
+    await assert.rejects(pool.query("UPDATE sports_management.matches SET notes='edición directa' WHERE id=$1", [reportMatch]),
+      /FINISHED_MATCH_LOCKED/);
 
     // Un partido finalizado no se reabre ni cancela desde este servicio, aunque
     // quien lo solicita tenga permisos de programación y aprobación.
