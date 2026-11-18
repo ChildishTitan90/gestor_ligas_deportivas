@@ -16,6 +16,8 @@
     "fsevents": false
   },
   "scripts": {
+    "test:scheduling:integration": "node scripts/test-scheduling.mjs",
+    "test:scheduling": "node --import tsx --test src/features/scheduling/generator.test.ts src/features/scheduling/constraints.test.ts src/features/scheduling/loan-windows.test.ts",
     "test:pdgld149": "node scripts/test-pdgld149.mjs",
     "test:match-report-tactics": "node --import tsx --test src/features/match-reports/tactics.test.ts src/features/match-reports/lineup-clock.test.ts",
     "test:match-report-storage": "node --conditions=react-server --import tsx --test src/features/match-reports/server/signature-storage-profile.test.ts",

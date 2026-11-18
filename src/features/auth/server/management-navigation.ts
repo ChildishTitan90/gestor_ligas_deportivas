@@ -17,6 +17,7 @@ import {canAccessPlayerParticipations} from "@/features/players/server/participa
 import { canReadGovernance } from "@/features/governance/server/service";
 import { canAccessVenueLoans } from "@/features/venues/server/loan-workspace";
 import { canReadVenues } from "@/features/venues/server/service";
+import { canGenerateSchedule } from "@/features/scheduling/server/workspace";
 import { canReadAccountMaintenance } from "@/features/accounts/server/maintenance-workspace";
 import { canUseReportWorkspace } from "@/features/match-reports/server/service";
 const canAccessMatchEligibility = async () => canUseReportWorkspace((await requireOperationalUser()).id);
@@ -96,6 +97,7 @@ const arbitration: ManagementNavigationGroup = { label: "Arbitraje", items: [] }
   if (seasons) competitions.items.push({ href: "/competitions/seasons", label: "Temporadas", icon: "overview" });
   if (venueLoans) competitions.items.push({ href: "/venues/loans", label: "Préstamos de canchas", icon: "overview" });
   if (venues) competitions.items.push({ href: "/venues", label: "Canchas y disponibilidad", icon: "overview" });
+  if (await allowed(canGenerateSchedule)) competitions.items.push({ href: "/competitions/scheduling", label: "Generar calendario", icon: "overview" });
   if (competitions.items.length) groups.push(competitions);
   const administration: ManagementNavigationGroup = { label: "Administración", items: [] };
   if (accountMaintenance) administration.items.push({ href: "/accounts", label: "Administrar cuentas", icon: "accounts" });

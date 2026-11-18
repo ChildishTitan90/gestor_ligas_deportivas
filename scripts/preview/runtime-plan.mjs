@@ -156,6 +156,13 @@ insert.match_events = ['id','match_report_id','event_type_id','season_team_id','
 insert.match_report_syncs = ['id','client_id','match_report_id','user_id','base_version','status','private_payload','received_at'];
 remove.push('lineups','player_period_participations','match_events');
 lock.push('lineups','player_period_participations','match_report_syncs');
+// PDGLD-135: lecturas y escritura de propuestas; nunca publicación ni reservas.
+read.push('home_venue_assignments');
+readColumns.matchdays.push('start_date','end_date');
+readColumns.season_breaks.push('starts_at','ends_at','reason');
+readColumns.venue_loans.push('venue_id','club_id','status','approved_by','approved_at');
+export const schedulingLoanWindowColumns = Object.freeze(['requested_by','requested_windows']);
+insert.schedule_proposals = ['id','season_id','matchday_id','created_by','competition_rule_id','parameters','conflicts','created_at'];
 export const runtimePrivileges = Object.freeze({ read, readColumns, insert, update, remove, lock });
 const literal = value => `'${value.replaceAll("'", "''")}'`;
 const array = values => `ARRAY[${values.map(literal).join(',')}]::text[]`;
@@ -206,6 +213,12 @@ BEGIN
   -- No se cambia LOGIN, contraseña, atributos ni valores de conexión existentes.
   FOR spec IN SELECT * FROM (VALUES ${tables}) AS t(name,sel,ins,upd,del,locking) LOOP
     table_oid := format('sports_management.%I',spec.name)::regclass;
+    -- PDGLD-23 puede incorporarse después: conceder estas lecturas solo cuando
+    -- existan ambas columnas. La ausencia no habilita préstamos legados.
+    IF spec.name='venue_loans' AND (SELECT count(*) FROM pg_attribute
+      WHERE attrelid=table_oid AND attname=ANY(${array(schedulingLoanWindowColumns)}) AND NOT attisdropped)=2 THEN
+      spec.sel := spec.sel || ${array(schedulingLoanWindowColumns)};
+    END IF;
     -- Una operación autorizada al backend nunca autoriza la misma ACL a PUBLIC.
     IF EXISTS(SELECT 1 FROM pg_class c, LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
       WHERE c.oid=table_oid AND acl.grantee=0)

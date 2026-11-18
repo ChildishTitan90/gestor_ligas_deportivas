@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { schedulingPolicySchema } from "@/features/scheduling/schemas";
 import { categoryDocumentPolicySchema } from "./document-policy";
 
 /** Datos iniciales de una liga; la autoridad se comprueba en servidor. */
@@ -33,6 +34,7 @@ export const ruleDraftSchema = z.strictObject({
     rounds: z.number().int().positive(),
     matchDurationMinutes: z.number().int().positive(),
     complexOnlyFinalRounds: z.number().int().nonnegative().optional(),
+    scheduling: schedulingPolicySchema.optional(),
   }),
 });
 
