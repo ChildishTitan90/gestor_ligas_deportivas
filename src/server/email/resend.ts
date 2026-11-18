@@ -21,6 +21,9 @@ function content(message: AccountEmail, origin: string) {
     case "ADMINISTRATIVE_RESET":
       return { subject: "Restablecimiento de acceso — Liga Municipal", text:
         `Se verificó tu identidad para restablecer el acceso.\nCredencial temporal: ${message.temporaryPassword}\nVence: ${message.expiresAt.toISOString()}\nEntra en ${origin}/login y cambia la contraseña. La credencial admite un solo uso.\nSi no reconoces esta solicitud, contacta a la administración.` };
+    case "PASSWORD_RECOVERY":
+      return { subject: "Recupera tu contraseña — Liga Municipal", text:
+        `Abre ${origin}/recover-password/reset#token=${encodeURIComponent(message.token)} para elegir una nueva contraseña.\nVence: ${message.expiresAt.toISOString()}\nSi no solicitaste este cambio, ignora este correo.` };
     case "EMAIL_CHANGE_CONFIRMATION":
       return { subject: "Confirma tu nuevo correo — Liga Municipal", text:
         `Confirma el cambio solicitado en ${origin}/email-change/confirm#token=${encodeURIComponent(message.token)}\nVence: ${message.expiresAt.toISOString()}\nAbrir el enlace no cambia la cuenta; requiere confirmación. Si no lo solicitaste, no lo confirmes.` };
