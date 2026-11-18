@@ -1,122 +1,87 @@
-# PDGLD-16 · Evidencia y aceptación pendiente
+# PDGLD-16 · Evidencia de cierre técnico
 
-Primera prioridad Sprint 3. Rama `feat/PDGLD-16-elegibilidad-partido`, worktree
-`/private/tmp/pdgld16-20261110`, basado en develop 0a2fc44. Árbol original,
-stashes y compose conservados. El fetch inicial actualizó develop a 0a2fc44;
-dos reintentos finales fallaron por conexión HTTPS. El endpoint GitHub
-`branches/develop` confirmó el mismo SHA completo y un último fetch exitoso
-volvió a comprobarlo antes de abrir el PR, el 10/11/2026. No se inició PDGLD-32 ni PDGLD-29.
+Seguimiento del PR #53, 18/11/2026. Base `develop` 129d1f8; rama
+`feat/PDGLD-16-mitades-cedula`. El árbol original, `compose.yml` y stashes no
+forman parte de esta entrega. No hay migraciones ni llamadas a proveedores reales.
+La evidencia técnica no sustituye revisión y aceptación humana ni cierra Jira.
+
+## Matriz de criterios
+
+| Criterio de Jira/ERS | Implementación y prueba |
+| --- | --- |
+| Origen o superior inmediata autorizada | Evaluador común; fixtures de familia, nivel y autorización, sin cambiar la inscripción original |
+| Plantilla del encuentro | Ambas plantillas visibles; otra categoría sin autorización excluida completamente del DTO |
+| Pertenencia y sanciones | Triggers de cambio de equipo; sanción en fecha del partido con inicio inclusivo y fin exclusivo |
+| Horarios coincidentes, RF02.7 | Reserva por mitad en cédula; combinación complementaria del mismo club/temporada y categoría distinta; marcas reales del reloj |
+| Retrasos, compensación y evidencia incompleta | Pruebas sin duración supuesta, frontera contigua válida, cruce real rechazado y ausencia de marcas rechazada |
+| Captura y persistencia con PDGLD-18 | Servicio real guarda reserva, periodos y reloj; lectura del almacenamiento confirma los valores; acuse idempotente |
+| Guardado concurrente | Versiones y locks del partido; carrera de reprogramación; serialización por Persona y comprobación de espera con `pg_blocking_pids` |
+| Bloqueo conserva captura | Rechazo por cruce/marcas ausentes no incrementa versión ni borra periodos anteriores |
+| Autoridad y privacidad | Árbitro designado / DATA_ENTRY según recorrido, rol ajeno denegado, sanciones no eludidas por elegir mitad |
+| Interfaz real | Prueba de NextAuth + HTTP + Chrome sobre PostgreSQL con rol Preview/RLS; reserva y tiempos al guardar/reabrir |
+
+La prueba de dos categorías emplea fixtures de reloj y partido dentro de una
+transacción que revierte al finalizar; escribe mediante `mutateReportInTransaction`.
+La prueba Chrome usa reloj/controles reales en una cédula y comprueba persistencia.
+No se presenta como dos partidos disputados físicamente ni como aceptación de Liga.
 
 ## Reproducir
 
-1. `npm ci` y `npx next typegen`.
-2. `npm run typecheck`, `npm run lint`, `npm run test:ci`.
-3. `npm run test:match-eligibility-integration`: Docker local, contenedor PostgreSQL
-   15 propio sin volumen, puerto dinámico y base `pdgld48_test_<nonce>`. No hereda
-   conexiones/credenciales del entorno ni llama CURP/INE/Storage. Limpia su propio
-   contenedor al terminar. Reutiliza fixtures y pruebas de PDGLD-13/14.
-4. `npm run test:match-eligibility-browser`: Chrome headless local, DTOs sintéticos.
-   Configurar `CHROME_BIN` si Chrome no está en la ruta habitual. Opcionalmente
-   `MATCH_ELIGIBILITY_SCREENSHOTS=/private/tmp/pdgld16-screenshots` genera capturas.
-5. `npm run build`, con NEXTAUTH_URL local y NEXTAUTH_SECRET efímero de al menos
-   32 caracteres; no usar secretos del árbol original para esta compilación.
+1. `npm ci`.
+2. `npm run typecheck && npm run lint && npm run test:ci`.
+3. `npm run test:match-report-tactics`.
+4. `node scripts/test-match-eligibility-isolated.mjs --postgres=15` y repetir con
+   `--postgres=17`. Docker debe estar disponible; runners crean y eliminan
+   únicamente contenedores sintéticos propios, sin volúmenes heredados.
+5. `CHROME_BIN=/ruta/a/chrome node --conditions=react-server --import tsx
+   scripts/match-reports-local.mts --http --browser --postgres=17`.
+   No permite conexiones de base heredadas; crea fixtures, rol limitado y app local.
+6. `npm run build` con URL local y secreto sintético efímero.
 
-CI ejecuta las dos suites nuevas en el job Aplicación, sin desactivar controles.
+En este entorno no hay daemon Docker. Para ejecutar los runners se adaptó
+externamente su ciclo de contenedor a PostgreSQL embebido 15.19 / 17.11,
+loopback y bases desechables. No se modificaron los runners ni las guardas de
+conexión del repositorio. Los resultados de servicios y SQL son reales; no
+acreditan ejecución nativa de Docker. La diferencia inicial de zona horaria del
+runtime embebido se corrigió configurándolo en UTC, sin alterar autorización.
 
-Resultados locales del 10/11/2026: tipado y lint aprobados; controles del pipeline
-93/93; integración PostgreSQL 17/17 (incluye ocho casos específicos de PDGLD-16 y
-regresiones reutilizadas); Chrome 1/1 con sus cuatro combinaciones tema/tamaño;
-compilación de producción aprobada con secreto efímero sintético. La primera
-compilación sin ese secreto se detuvo por configuración; no se cambió el control.
+## Recorrido de revisión
 
-## Evidencia por criterio
+1. Con árbitro designado o capturista autorizado, abrir la cédula real.
+2. En convocados elegir primera mitad en el origen y segunda en el destino
+   autorizado; revisar que el segundo inicia en banca. Sellar cada alineación.
+3. Iniciar/terminar primera mitad con los controles del reloj. Registrar la
+   sustitución del descanso, segundo periodo, minuto relativo y segundo cero.
+4. Iniciar segunda mitad del destino después del cierre real del primero. Un
+   comienzo previo o marcas ausentes deben impedir la captura.
+5. Guardar, reabrir y comprobar la misma reserva, periodos y tiempos. Revisar que
+   el bloqueo posterior conserva la captura guardada y no duplica acuses.
+6. Revisar el mismo flujo con actor ajeno y jugador sancionado: deben rechazarse.
 
-| Criterio | Evidencia automatizada / límite |
-| --- | --- |
-| Ascenso consecutivo autorizado y mismo club | Fixture real con origen habilitado y destino AUTHORIZED; evalúa elegible por partido sin cambiar origen |
-| Descenso, salto, familia incompatible | Regresiones existentes reutilizadas de `player-category-participations.ts`; el evaluador común vuelve a exigir familia y nivel |
-| Equipo no inscrito / destino no autorizado | FK/contexto de season_team existentes; prueba rival inscrito sin autorización queda fuera de la respuesta. No se crea un partido con FK inválida |
-| Equipo tras inicio | Prueba PDGLD-16 de pertenencia inmutable y nuevo registro en otro equipo tras competencia iniciada |
-| Sanción aplicable / no aplicable | Fecha futura no bloquea partido anterior; inicio bloquea; fin exclusivo permite; otro jugador sancionado no bloquea al evaluado |
-| Árbitro ajeno o revocado | Deniega incluso administrador sin designación; revocar designación invalida consulta |
-| Tiempos | Inserción de dos periodos reales; versión obsoleta y minutos inválidos no borran captura anterior |
-| Cruces | Partidos separados permiten evaluación; coincidencia devuelve pendiente explícito. Excepción de mitades pendiente de precisión de Liga |
-| Dorsal | Cambia dorsal sintético, mantiene identidad/documentos y elegibilidad sin consultas al proveedor |
-| Historial cerrado | Rama CLOSED devuelve aviso y colección sin recalcular; fixture local temporal, no cierre funcional real |
-| Interfaz | Chrome con DTO sintético: elegible, bloqueado, motivo de sanción, Enter, claro/oscuro, 390/1440 y CSS real |
+## Condición de cierre en Jira
 
-La suite integra servicios reales y PostgreSQL local, con proveedores simulados.
-El navegador usa DTOs sintéticos y no acredita una sesión/backend integrado ni la
-cédula real. No se ejecutaron API reales CURP/INE, Supabase o bases compartidas.
+Solicitar revisión de este seguimiento como PR normal hacia `develop`, verificar
+su CI e integrarlo según las reglas del equipo. Añadir el PR y resultados de
+validación a PDGLD-16 y obtener aceptación del recorrido por el responsable
+funcional. La confirmación oficial de la cédula, clasificación y disciplina
+conservan sus bloqueos de otras historias; no se implementan como parte de PDGLD-16.
 
-## Demostración breve
+## Resultados de esta ejecución
 
-Con un árbitro operativo y designación aprobada en el entorno de revisión:
+- Tipado y lint aprobados; controles de pipeline 93/93; pruebas puras de cédula,
+  reloj y mitades 18/18; `npm run build` aprobado.
+- Elegibilidad e integración PostgreSQL: 21/21 en 15 y 17 (incluye regresiones
+  reutilizadas de jugadores). Los casos nuevos comprueban persistencia entre
+  categorías, rechazo de cruce/marcas ausentes y espera real por Persona.
+- Cédula con rol limitado/RLS y sesión NextAuth/HTTP reales: aprobada en PostgreSQL
+  15; en 17 alcanzó el recorrido HTTP antes del arranque de Chrome.
+- **Chrome integrado pendiente de ejecutar en un equipo compatible**: este runtime
+  aborta el navegador al crear su socket local (`Operation not permitted`), antes
+  de publicar CDP. No se presenta como prueba aprobada ni se debilitan las guardas
+  del runner. El caso actualizado comprueba reserva por mitad y tiempos al reabrir.
+- CI remoto y revisión humana deben verificarse después de publicar la rama.
 
-1. Abrir Arbitraje → Mis partidos · Alineación → Consultar alineación.
-2. Revisar un jugador del origen o superior autorizado: «Elegible para este
-   partido», origen, destino y dorsal habitual. Abrir «Tiempos registrados» con Enter.
-3. Revisar un sancionado: «No habilitado para alinear» y «Hay una sanción vigente
-   que impide la participación». La prueba Chrome reproduce ambos estados con
-   nombres sintéticos; las pruebas de servicio verifican la decisión real.
-4. Probar URL con otro actor/revocar designación: acceso denegado en servidor.
-
-## Antes de aceptar
-
-- Revisar código/contrato por otra persona (Víctor/Sergio), y flujo por Nickte/Karol.
-- Liga: precisar excepción de horarios coincidentes descrita en PDGLD-68, periodos,
-  reloj y vigencia. El sistema no certifica estos casos mientras falte la decisión.
-- Contrastar el PDF completo del ERS: solo se encontró una versión preliminar en
-  Drive con numeración distinta de Jira; ver documento de arquitectura.
-- Integrar y demostrar PDGLD-18 con cédula, estados y guardado real. Hoy solo se
-  valida su contrato sobre fixtures sintéticos de base y DTOs de interfaz.
-- Aceptación funcional humana y evidencia en entorno de pruebas. PR y CI verde
-  no cierran historia ni subtareas. Mantener Draft mientras existan esos pendientes.
-
-## Corrección de revisión sobre 4b3e48d · 11/11/2026
-
-- Candidatos: prueba PostgreSQL de plantillas local/visitante, inscripción de otra
-  categoría del mismo club/temporada excluida y participación superior autorizada
-  incluida solo en su destino. La regresión de sanciones conserva el candidato
-  autorizado y muestra `PARTICIPATION_BLOCKED`.
-- Carrera: dos transacciones PostgreSQL coordinadas con barreras y comprobación
-  de `pg_blocking_pids`, sin presumir intercalación por una pausa. Reprogramación
-  actualiza horario y versión sin confirmar; el guardado con la versión entonces
-  visible espera, recibe `STALE_MATCH` tras el commit y conserva periodos completos
-  y versión de cédula. En orden inverso, se termina la función de guardado pero
-  se mantiene abierta su transacción; el UPDATE de reprogramación espera hasta
-  el commit. Se ejercitan los triggers reales de reservas y auditoría.
-- Se mantienen pendientes la regla de cruces por mitades, el contraste con el ERS
-  completo y la integración real con PDGLD-18; el PR permanece Draft.
-
-Validación final de la corrección (11/11/2026): `npm run typecheck` y
-`npm run lint` aprobados; `npm run test:ci` 93/93;
-`npm run test:match-eligibility-integration` 19/19 y
-`npm run test:match-eligibility-browser` 1/1 (cuatro combinaciones claro/oscuro,
-390/1440 y teclado). El fixture adicional falló inicialmente por omitir CURP y
-fecha de nacimiento obligatorias; se completó con valores sintéticos y la suite
-final pasó. Sin llamadas reales CURP/INE ni bases compartidas. Fetch final de
-`origin/develop`: 0a2fc44, sin avances que integrar ni regresiones ajenas en el diff.
-
-## Integración de develop · 12/11/2026
-
-Merge de `origin/develop` 8313e5c sobre 4ed7905. El único archivo en conflicto fue
-`src/features/auth/server/management-navigation.ts`, con dos fragmentos en la
-lista de capacidades y sus comprobaciones. Se conservaron `matchEligibility`
-con `canAccessMatchEligibility` y `venues` con `canReadVenues`, en el mismo orden
-entre resultados y funciones. Permanecen los enlaces autorizados de Arbitraje y
-Canchas. El workflow combinó las suites de ambos tickets automáticamente.
-
-El servicio de elegibilidad y sus pruebas conservan exactamente el contenido de
-4ed7905. La consulta limita las dos plantillas y ascensos autorizados al destino.
-El guardado conserva `FOR SHARE` y la comprobación de versión hasta el final de
-su transacción. PostgreSQL aislado pasó 19/19, incluida la exclusión de otra
-categoría, la inclusión del ascenso autorizado y la carrera coordinada en ambos
-órdenes con `pg_blocking_pids`, `STALE_MATCH` y conservación de la captura.
-
-Pasaron tipado, lint, Chrome sintético 1/1, controles de pipeline 93/93, zonas
-horarias de canchas 2/2, cierre compartido 3/3 y panel 6/6. Fue necesario iniciar
-Docker Desktop y generar el cliente Prisma en el worktree restaurado antes de
-repetir los controles que dependían de esos recursos. El fetch final confirmó
-8313e5c. Continúan declarados los pendientes de cruces por mitades, contraste con
-el ERS completo e integración real con PDGLD-18.
+El build emitió un aviso de seguridad de la versión instalada de Next.js en una
+repetición; la siguiente ejecución del mismo comando terminó correctamente.
+No se cambió la dependencia ni se desactivó ese control. Ese aviso debe revisarse
+por separado del alcance funcional de PDGLD-16.

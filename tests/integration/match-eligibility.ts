@@ -198,7 +198,78 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
     assert.equal((await db.matches.findUniqueOrThrow({where:{id:match.id}})).version,current.version+2);
     assert.equal((await db.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,report.version+1);
   });
-  await t.test("PDGLD-16: partidos separados no inventan descanso; cruce horario queda pendiente explícito", async () => {
+  await t.test("PDGLD-16: capturas de la misma persona esperan y releen el commit", async () => {
+    const {lockParticipationPeople}=await import("../../src/features/matches/server/participation-lock");
+    const report=await db.match_reports.findUniqueOrThrow({where:{match_id:match.id}});
+    let release!:()=>void, ready!:()=>void, waiting!:()=>void;
+    const gate=new Promise<void>(r=>{release=r}), locked=new Promise<void>(r=>{ready=r}), entered=new Promise<void>(r=>{waiting=r});
+    let pid=0;
+    const first=audit(async tx=>{await lockParticipationPeople(tx,[reg.id]);await tx.match_reports.update({where:{id:report.id},data:{version:{increment:1}}});ready();await gate;});
+    await locked;
+    const second=db.$transaction(async tx=>{pid=(await tx.$queryRaw<{pid:number}[]>`SELECT pg_backend_pid() AS pid`)[0].pid;waiting();await lockParticipationPeople(tx,[reg.id]);return (await tx.match_reports.findUniqueOrThrow({where:{id:report.id}})).version;},{timeout:20000});
+    try {
+      await entered;
+      let blocked=false;
+      for(let n=0;n<100;n++) {const rows=await db.$queryRaw<{blocked:boolean}[]>`SELECT cardinality(pg_blocking_pids(${pid}))>0 AS blocked`;if(rows[0].blocked){blocked=true;break;}await new Promise(r=>setTimeout(r,10));}
+      assert.equal(blocked,true,"Espera comprobada en PostgreSQL, no presumida por sleep");
+    } finally {release();}
+    await first;assert.equal(await second,report.version+1,"READ COMMITTED observa la captura confirmada después de esperar");
+  });
+  await t.test("PDGLD-16/18: cédula real conserva mitad y tiempos; rechaza cruce real y marcas ausentes", async () => {
+    const {mutateReportInTransaction}=await import("../../src/features/match-reports/server/service");
+    const {advanceMatchClock}=await import("../../src/features/match-reports/match-clock");
+    const {draftSchema}=await import("../../src/features/match-reports/contract");
+    await assert.rejects(db.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Fixture integrado RF02.7, rollback íntegro',true)`;
+      const role=await tx.roles.findUniqueOrThrow({where:{code:"DATA_ENTRY"}});
+      for(const action of ["CREATE","UPDATE"] as const){
+        const permission=await tx.permissions.upsert({where:{module_action:{module:"match-reports",action}},update:{},create:{module:"match-reports",action}});
+        await tx.role_permissions.upsert({where:{role_id_permission_id:{role_id:role.id,permission_id:permission.id}},update:{context_only:false},create:{role_id:role.id,permission_id:permission.id,context_only:false}});
+      }
+      await tx.user_roles.create({data:{user_id:actors.admin,role_id:role.id,league_id:season.league_id}});
+      const source=await tx.season_teams.findUniqueOrThrow({where:{id:reg.season_team_id}});
+      assert.ok(source.group_id);
+      const rivalTeam=await tx.teams.create({data:{club_id:team.club_id,name:"Rival origen sintético",reference_number:randomUUID()}});
+      const rival=await tx.season_teams.create({data:{season_id:season.id,club_id:team.club_id,group_id:source.group_id,team_id:rivalTeam.id}});
+      const active=await tx.match_statuses.findUniqueOrThrow({where:{code:"IN_PROGRESS"}});
+      const firstVenue=await tx.venues.create({data:{league_id:season.league_id,code:randomUUID(),name:"Cancha origen sintética",address:"Fixture",match_duration_minutes:120}});
+      await tx.venue_availability.create({data:{venue_id:firstVenue.id,starts_at:new Date("2026-11-10T00:00Z"),ends_at:new Date("2026-11-16T00:00Z"),type:"AVAILABLE"}});
+      const firstMatch=await tx.matches.create({data:{season_id:season.id,group_id:source.group_id,matchday_id:day.id,number:randomUUID(),home_team_id:source.id,away_team_id:rival.id,status_id:active.id,venue_id:firstVenue.id,starts_at:match.starts_at,ends_at:match.ends_at,reserved_until:match.ends_at}});
+      let firstClock=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},"2026-11-11T18:00:00Z");
+      firstClock=advanceMatchClock(firstClock,{type:"end-half"},"2026-11-11T18:43:00Z");
+      const firstDraft=draftSchema.parse({lineups:[{playerId:reg.id,teamId:source.id,selected:true,starter:true,matchJersey:88,participationHalf:1,periods:[{periodNumber:1,entryMinute:0,exitMinute:43}]}],captains:{},events:[],score:{home:null,away:null},remarks:"",incidents:"",signatures:{}});
+      const firstReport=await tx.match_reports.create({data:{match_id:firstMatch.id,client_id:randomUUID(),captured_by:actors.admin,source:"MOBILE",draft_data:{draft:firstDraft,clock:firstClock}}});
+      await tx.lineups.create({data:{match_report_id:firstReport.id,registration_id:reg.id,season_team_id:source.id,is_starter:true,validated_by:actors.admin,player_period_participations:{create:{period_number:1,entry_minute:0,exit_minute:43}}}});
+      await tx.matches.update({where:{id:match.id},data:{status_id:(await tx.match_statuses.findUniqueOrThrow({where:{code:"IN_PROGRESS"}})).id}});
+      const current=await tx.matches.findUniqueOrThrow({where:{id:match.id}});
+      const report=await tx.match_reports.findUniqueOrThrow({where:{match_id:match.id}});
+      let clock=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},"2026-11-11T18:00:00Z");
+      clock=advanceMatchClock(clock,{type:"end-half"},"2026-11-11T18:43:00Z");
+      clock=advanceMatchClock(clock,{type:"start-second"},"2026-11-11T18:55:00Z");
+      const draft=draftSchema.parse({...firstDraft,lineups:[{...firstDraft.lineups[0],teamId:team.id,starter:false,participationHalf:2,periods:[{periodNumber:2,entryMinute:0,exitMinute:null}]}]});
+      await tx.match_reports.update({where:{id:report.id},data:{draft_data:{draft,clock}}});
+      const command={formatVersion:1 as const,operationId:randomUUID(),kind:"save" as const,matchId:match.id,expectedMatchVersion:current.version,expectedReportVersion:report.version,draft};
+      const saved=await mutateReportInTransaction(tx,actors.admin,command);
+      assert.equal(saved.reportVersion,report.version+1);
+      assert.deepEqual(await mutateReportInTransaction(tx,actors.admin,command),saved,"Reintento idempotente");
+      const reopened=await tx.match_reports.findUniqueOrThrow({where:{id:report.id}});
+      assert.equal(draftSchema.parse((reopened.draft_data as {draft:unknown}).draft).lineups[0].participationHalf,2);
+      const times=await tx.player_period_participations.findMany({where:{lineups:{match_report_id:report.id}},select:{period_number:true,entry_minute:true,exit_minute:true}});
+      assert.deepEqual(times,[{period_number:2,entry_minute:0,exit_minute:null}]);
+      const next={...command,operationId:randomUUID(),expectedReportVersion:saved.reportVersion};
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,{...next,draft:{...draft,lineups:draft.lineups.map(r=>({...r,starter:true}))}}),/SECOND_HALF_STARTER/);
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,{...next,draft:{...draft,lineups:draft.lineups.map(r=>({...r,periods:[{periodNumber:2,entryMinute:1,exitMinute:null}]}))}}),/HALFTIME_ENTRY_REQUIRED/);
+      const delayed={...firstClock,boundaries:{...firstClock.boundaries,firstEndedAt:"2026-11-11T18:56:00Z"}};
+      await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft,clock:delayed}}});
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_REAL_TIME_CONFLICT/);
+      await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft}}});
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_CLOCK_REQUIRED/);
+      assert.deepEqual(await tx.player_period_participations.findMany({where:{lineups:{match_report_id:report.id}},select:{period_number:true,entry_minute:true,exit_minute:true}}),times,"Un bloqueo no borra tiempos guardados");
+      assert.equal((await tx.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,saved.reportVersion);
+      throw Error("HALVES_FIXTURE_ROLLBACK");
+    },{timeout:30000}),/HALVES_FIXTURE_ROLLBACK/);
+  });
+  await t.test("PDGLD-16: partidos separados no inventan descanso; misma categoría no admite excepción por mitades", async () => {
     // Antecedente sin programación publicada: no reserva cancha/equipos ni
     // concede acceso arbitral. Su cédula sintética conserva el cruce pendiente.
     const unscheduled=await db.match_statuses.findUniqueOrThrow({where:{code:'UNSCHEDULED'}});
@@ -208,7 +279,7 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
     await audit(tx=>tx.lineups.create({data:{match_report_id:report.id,registration_id:reg.id,season_team_id:team.id,validated_by:user.id}}));
     assert.equal((await player()).eligible,true,"No se impone un margen de descanso sin confirmar");
     await audit(tx=>tx.matches.update({where:{id:second.id},data:{starts_at:match.starts_at,ends_at:match.ends_at,reserved_until:match.reserved_until}}));
-    assert.ok((await player()).blockers.some(b=>b.code==="PARTICIPATION_RULE_PENDING"));
+    assert.ok((await player()).blockers.some(b=>b.code==="PARTICIPATION_CONTEXT_CONFLICT"));
   });
   await t.test("PDGLD-16/86: CLOSED sin evidencia arbitral no permite reconstruir el pasado", async () => {
     // El cierre real tiene su propio proceso y triggers. Rollback de fixture,

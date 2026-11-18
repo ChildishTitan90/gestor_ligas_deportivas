@@ -1,3 +1,4 @@
+import type { MatchClock } from "./match-clock";
 import { z } from "zod";
 import { uniformKitSchema } from "@/features/clubs/uniform-kits";
 import type { MatchReportPresentation, ReportDemoData, ReportEvent, ReportLineup } from "./types";
@@ -101,7 +102,7 @@ export function pitchBeforeChange(slots: PitchSlot[], events: ReportEvent[], tea
 /** Proyección reversible: conserva los tiempos manuales del borrador separados
  * de los derivados de cambios/expulsiones. Editar o quitar un evento recalcula
  * la proyección; solo se rellenan tiempos expresamente capturados. */
-export function participationPeriods(row: ReportLineup, events: ReportEvent[]) {
+export function participationPeriods(row: ReportLineup, events: ReportEvent[], clock?: MatchClock | null) {
   const periods = row.periods.map(p => ({ ...p }));
   const dismissals = new Set(dismissalEvents(events).map(e => e.id));
   for (const event of orderedEvents(events.filter(e => e.typeCode === "SUBSTITUTION" || dismissals.has(e.id)))) {
@@ -114,5 +115,14 @@ export function participationPeriods(row: ReportLineup, events: ReportEvent[]) {
     if (enters) period.entryMinute = event.periodMinute ?? event.minute;
     if (leaves) period.exitMinute = event.periodMinute ?? event.minute;
   }
-  return periods.sort((a, b) => a.periodNumber - b.periodNumber);
+  if (row.participationHalf === 1 && row.starter && clock?.boundaries?.firstStartedAt) {
+    let first = periods.find(p => p.periodNumber === 1);
+    if (!first) { first = { periodNumber: 1, entryMinute: 0, exitMinute: null }; periods.push(first); }
+    if (first.entryMinute === null) first.entryMinute = 0;
+    if (first.exitMinute === null && clock.boundaries.firstEndedAt)
+      first.exitMinute = Math.floor((Date.parse(clock.boundaries.firstEndedAt) - Date.parse(clock.boundaries.firstStartedAt)) / 60_000);
+  }
+  // Salir en el descanso no equivale a jugar el segundo periodo.
+  return periods.filter(p => !(row.participationHalf === 1 && p.periodNumber === 2 && p.entryMinute === null && p.exitMinute === 0))
+    .sort((a, b) => a.periodNumber - b.periodNumber);
 }

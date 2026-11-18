@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {participationPeriods} from '../../src/features/match-reports/tactics.ts';
 
 import {mkdir,writeFile} from 'node:fs/promises';
 
@@ -61,6 +62,8 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
     // explícitamente al suplente en banca para probar la sustitución posterior.
     await ev(`document.querySelector('[data-pitch="${home}"] [data-pitch-slot="1"]').click()`);
     await choose('pitch-player','Posición sin asignar');await click('Aplicar posición');await wait("!document.querySelector('dialog[open]')");
+    const firstHalf=initial.players.find(p=>p.name==='Alonso Sintético').id;
+    await choose(`half-${firstHalf}`,'Solo primer tiempo');
     await choose(`captain-${home}`,'Alonso Sintético');await choose(`captain-${away}`,'Brenda Sintético');
     await click('Continuar');await wait("document.querySelector('dialog[open] input[type=checkbox]')");
     await ev("document.querySelector('dialog[open] input[type=checkbox]').click()");await click('Confirmar y guardar alineaciones');
@@ -113,6 +116,11 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
 
     await click('Aplicar evento');await wait("!document.querySelector('dialog[open]')");
 
+    await click('Guardar borrador');await wait("document.body.innerText.includes('Acuse recibido del servidor')");
+    const persisted=await(await client.request(`/api/match-reports/${match}`)).json();
+    const halfRow=persisted.report.lineups.find(r=>r.playerId===firstHalf);
+    assert.equal(halfRow.participationHalf,1);
+    assert.deepEqual(participationPeriods(halfRow,persisted.report.events,persisted.report.clock),[{periodNumber:1,entryMinute:0,exitMinute:12}]);
     await click('Cierre y firmas');
 
     // Modificar observaciones invalida las firmas anteriores de esta captura.
@@ -158,7 +166,11 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
     const recovered=await client.request(`/api/match-reports/${match}?operationId=${operation}`);
     assert.equal(recovered.status,200);assert.equal((await recovered.json()).status,'APPLIED');
 
-    await open();await click('Cierre y firmas');
+    await open();
+    const reopened=await(await client.request(`/api/match-reports/${match}`)).json();
+    assert.equal(reopened.report.lineups.find(r=>r.playerId===firstHalf).participationHalf,1);
+    assert.deepEqual(participationPeriods(reopened.report.lineups.find(r=>r.playerId===firstHalf),reopened.report.events,reopened.report.clock),[{periodNumber:1,entryMinute:0,exitMinute:12}]);
+    await click('Cierre y firmas');
 
     assert.equal(await ev("[...document.querySelectorAll('img[src*="+JSON.stringify('/signatures/')+"]')].filter(i=>i.getClientRects().length).length"),2);
 
@@ -174,7 +186,7 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
     assert.match(await ev("document.querySelector('section[aria-label=\"Resumen previo a confirmar\"]').textContent"),/Alonso Sintético · Capitán inicial/);
     await shot('resumen-guardado-confirmacion-bloqueada');
 
-    const result={suite:'PDGLD-149 Chrome real',postgres,session:'NextAuth',databaseRole:'Preview con RLS',fetchMocked:false,savedAndReopened:true,networkLossRecovery:true,deviceSignatures:2,privateImagesLoaded:true,themes:['light','dark'],widths:[390,1440],keyboardFocus:true,acceptance:'BLOCKED',blockers:['Cierre oficial e historial','Clasificación PDGLD-29','Expedientes disciplinarios']};
+    const result={suite:'PDGLD-149 Chrome real',postgres,session:'NextAuth',databaseRole:'Preview con RLS',fetchMocked:false,savedAndReopened:true,halfReservationAndTimesReopened:true,networkLossRecovery:true,deviceSignatures:2,privateImagesLoaded:true,themes:['light','dark'],widths:[390,1440],keyboardFocus:true,acceptance:'BLOCKED',blockers:['Cierre oficial e historial','Clasificación PDGLD-29','Expedientes disciplinarios']};
 
     await writeFile(`${directory}/browser.json`,JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 
