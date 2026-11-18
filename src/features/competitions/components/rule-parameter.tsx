@@ -1,6 +1,7 @@
 const labels: Record<string, string> = {
   announcement: "Convocatoria", calendar: "Calendario", points: "Puntuación",
   tieBreakers: "Criterios de desempate (en orden)", rounds: "Vueltas",
+  complexOnlyFinalRounds: "Últimas jornadas solo en unidad deportiva",
   matchDurationMinutes: "Duración del partido", win: "Victoria", draw: "Empate", loss: "Derrota",
   POINTS: "Puntos", GOAL_DIFFERENCE: "Diferencia de goles", GOALS_FOR: "Goles a favor",
   GOALS_AGAINST: "Goles en contra", HEAD_TO_HEAD: "Enfrentamiento directo", FAIR_PLAY: "Juego limpio",
