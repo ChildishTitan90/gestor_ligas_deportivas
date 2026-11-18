@@ -36,7 +36,7 @@ export function clashes(a: Scheduled, b: Scheduled) {
 }
 
 /** Búsqueda acotada sobre candidatos ya autorizados. Nunca devuelve una solución parcial.
- * Ordena preferencias blandas, sin sacrificar las restricciones duras ni prometer óptimo global. */
+ * Busca minimizar el costo de preferencias dentro de los límites operativos. */
 export function assignSlots(jobs: { pairing: Pairing; slots: Slot[] }[], occupied: Scheduled[],
   limits = { milliseconds: 5000, nodes: 100000 }) {
   if (jobs.length > 1024 || jobs.reduce((total, job) => total + job.slots.length, 0) > 200000)
@@ -51,25 +51,33 @@ export function assignSlots(jobs: { pairing: Pairing; slots: Slot[] }[], occupie
   const missing = candidates.filter(j => !j.slots.length).map(j => j.pairing);
   if (missing.length) return { ok: false as const, code: "NO_AVAILABLE_SLOT", conflicts: missing };
   let exhausted = false;
-  function search(pending: typeof candidates): boolean {
-    if (++nodes > limits.nodes || performance.now() > deadline) { exhausted = true; return false; }
-    if (!pending.length) return true;
+  let best: Scheduled[] | undefined;
+  let bestCost = Infinity;
+  function search(pending: typeof candidates, cost: number): void {
+    if (++nodes > limits.nodes || performance.now() > deadline) { exhausted = true; return; }
+    if (!pending.length) {
+      if (cost < bestCost) { bestCost = cost; best = [...chosen]; }
+      return;
+    }
+    const lowerBound = pending.reduce((total, job) => total + job.slots[0].preference, cost);
+    if (lowerBound >= bestCost) return;
     // Los candidatos ya excluyen todas las decisiones anteriores. Filtrar solo
     // contra la nueva elección evita volver a recorrer el calendario completo.
     const remaining = [...pending].sort((a,b) => a.slots.length - b.slots.length);
     const [job, ...rest] = remaining;
     for (const slot of job.slots) {
-      if (++nodes > limits.nodes || performance.now() > deadline) { exhausted = true; return false; }
+      if (++nodes > limits.nodes || performance.now() > deadline) { exhausted = true; return; }
       const match = { ...job.pairing, ...slot };
       const next = rest.map(j => ({ ...j, slots: j.slots.filter(s => !clashes({ ...j.pairing, ...s }, match)) }));
       if (next.some(j => !j.slots.length)) continue;
       chosen.push(match);
-      if (search(next)) return true;
+      search(next, cost + slot.preference);
       chosen.pop();
-      if (exhausted) return false;
+      if (exhausted) return;
     }
-    return false;
   }
-  if (!search(candidates)) return { ok: false as const, code: exhausted ? "SEARCH_LIMIT" : "NO_SOLUTION", conflicts: jobs.map(j => j.pairing) };
-  return { ok: true as const, matches: chosen.sort((a,b) => a.round-b.round || a.start-b.start), nodes };
+  search(candidates, 0);
+  if (!best) return { ok: false as const, code: exhausted ? "SEARCH_LIMIT" : "NO_SOLUTION", conflicts: jobs.map(j => j.pairing) };
+  return { ok: true as const, matches: (best as Scheduled[]).sort((a,b) => a.round-b.round || a.start-b.start),
+    nodes, preferenceOptimal: !exhausted };
 }

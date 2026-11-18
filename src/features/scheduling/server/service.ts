@@ -16,7 +16,7 @@ export class SchedulingError extends Error {
   constructor(public code: string, public status = 409) { super(code); }
 }
 const dateOnly=(d:Date)=>d.toISOString().slice(0,10);
-const calendarSchema=z.object({rounds:z.number().int().min(1).max(4),matchDurationMinutes:z.number().int().positive(),scheduling:schedulingPolicySchema});
+const calendarSchema=z.object({rounds:z.number().int().min(1).max(4),matchDurationMinutes:z.number().int().positive(),complexOnlyFinalRounds:z.number().int().nonnegative().optional(),scheduling:schedulingPolicySchema});
 
 export async function generateSchedule(input:unknown) {
   const actor=await requireOperationalUser();
@@ -93,10 +93,13 @@ export async function generateScheduleInTransaction(tx:Prisma.TransactionClient,
   let candidates=0;
   const jobs=calendar.pairings.map(pairing=>{
     const day=days[pairing.round-1], stage=config.data.scheduling.venueStages.find(s=>day.number>=s.fromRound&&day.number<=s.toRound);
+    const roundsAfterThis=seasonDays.filter(candidate=>candidate.number>day.number).length;
+    const complexOnly=roundsAfterThis<(config.data.complexOnlyFinalRounds ?? 0);
     const slots:Slot[]=[];
     const home=teams.find(t=>t.id===pairing.home)!;
     for(const venue of venues) {
       if(stage&&!stage.venueIds.includes(venue.id)) continue;
+      if(complexOnly&&!venue.is_league_sports_complex) continue;
       if(venue.match_duration_minutes!==config.data.matchDurationMinutes) continue;
       const homeLoans=loans.filter(loan=>loan.venueId===venue.id&&loan.clubId===home.club_id);
       const fixedStarts:number[]=homeLoans.flatMap(loan=>loan.windows.map(w=>w.start));
@@ -144,6 +147,7 @@ export async function generateScheduleInTransaction(tx:Prisma.TransactionClient,
     ruleId:rule.id,ruleVersion:rule.version_number,reason:input.reason,state:"DRAFT_PROPOSAL",reservesResources:false,
     matches:result.matches.map(m=>({...m,matchdayId:days[m.round-1].id,round:days[m.round-1].number,
       start:new Date(m.start).toISOString(),end:new Date(m.end).toISOString(),reservedUntil:new Date(m.reservedUntil).toISOString()})),
+    preferenceOptimal:result.preferenceOptimal,
     byes:calendar.byes.map(b=>({...b,matchdayId:days[b.round-1].id,round:days[b.round-1].number}))};
   await tx.$queryRaw`SELECT set_config('app.user_id',${actorId},true),set_config('app.reason',${input.reason},true)`;
   await tx.schedule_proposals.create({data:{id:input.operationId,season_id:season.id,matchday_id:days[0].id,competition_rule_id:rule.id,created_by:actorId,parameters:proposal,conflicts:[]}});

@@ -7,6 +7,7 @@ export interface PrivateDocumentTransport {
   read(key:string,maxBytes:number,expectedMimeType?:string):Promise<Uint8Array>;
   put(key:string,object:{bytes:Uint8Array;mimeType:string}):Promise<{replayed:boolean}>;
   createDownloadUrl(key:string):Promise<{downloadUrl:string;expiresInSeconds:number}>;
+  remove?(key:string):Promise<void>;
 }
 export class PrivateDocumentStorageError extends Error {
   readonly code="STORAGE_UNAVAILABLE";readonly status=503;
@@ -43,6 +44,7 @@ export function createSupabasePrivateDocumentStorage(config:Configuration,enviro
       if(!error)return {replayed:false};
       const previous=await read(path,PRIVATE_FILE_MAX_BYTES,object.mimeType);if(!Buffer.from(previous).equals(Buffer.from(object.bytes)))throw new PrivateDocumentStorageError();return {replayed:true};
     }catch{throw new PrivateDocumentStorageError();}},
+    async remove(path){try{checkKey(path);await checkBucket();const {error}=await bucket.remove([path]);if(error)throw error;}catch{throw new PrivateDocumentStorageError();}},
     async createDownloadUrl(path){try{checkKey(path);await checkBucket();const {data,error}=await bucket.createSignedUrl(path,60,{download:true});if(error || !data?.signedUrl || new URL(data.signedUrl).origin!==origin)throw new PrivateDocumentStorageError();return {downloadUrl:data.signedUrl,expiresInSeconds:60};}catch{throw new PrivateDocumentStorageError();}},
   };
 }

@@ -4,7 +4,7 @@ El motor genera vueltas completas por grupo, invierte localía entre vueltas y
 conserva descansos para equipos impares. Compartir cancha nunca invierte local y
 visitante. La búsqueda elige horarios completos sin traslapes de cancha/holgura o
 equipos; ante falta de solución o límite de búsqueda no devuelve partidos parciales.
-Las preferencias ordenan candidatos; no se acredita un óptimo global.
+La búsqueda compara preferencias y registra si terminó de encontrar el mínimo entre los candidatos.
 
 La configuración propuesta `calendar.scheduling` forma parte del reglamento
 versionado y aprobado: `slotStepMinutes` y `venueStages` con `fromRound`, `toRound`
@@ -142,3 +142,41 @@ fuera de las restricciones iniciales; no se declara el pipeline completo en verd
 El plan de Preview añade las columnas de ventanas únicamente si ambas existen,
 para poder mantener el entorno anterior a PDGLD-23. Al incorporarse esa migración,
 se debe volver a aplicar el plan antes de usar la generación con su rol limitado.
+
+## Verificación integrada con PDGLD-23 (17 de noviembre de 2026)
+
+La migración definitiva de préstamos ya forma parte de esta rama y está aplicada
+en la base local. El selector y la solicitud permiten canchas de otro club de la
+misma liga. El runner aplica las migraciones completas y se retiró la creación
+provisional de columnas.
+
+Pasó `npm run test:scheduling:integration` en PostgreSQL 15. Además de permisos,
+persistencia, reintentos, concurrencia, rollback y ACL limitadas, ejecuta los
+servicios reales de solicitud y decisión con cartas PDF sintéticas y almacenamiento
+privado simulado. Comprueba que 80 solicitudes pendientes y después rechazadas
+impiden generar; nuevas solicitudes aprobadas permiten guardar 190 encuentros
+para 20 equipos, 19 jornadas y cuatro canchas privadas compartidas. Cada encuentro
+y su holgura caben en una ventana autorizada. Quitar las aperturas impide guardar
+otra propuesta. La base y el rol temporales se eliminan al finalizar.
+
+Esta ejecución verifica servicios y PostgreSQL. Quedan pendientes el recorrido
+de navegador, RLS de Preview y revisión externa. Los apartados anteriores sobre
+la espera de la migración describen el estado previo a esta comprobación.
+
+
+## Jornadas finales y preferencias
+
+El generador aplica `complexOnlyFinalRounds` cuando está definido en el reglamento
+aprobado. Para cada jornada cuenta las jornadas posteriores de la temporada, igual
+que el contrato de localías. Si la jornada está entre las últimas N, admite solo
+canchas de la unidad deportiva. Un tramo de `venueStages` también debe permitir
+la cancha. Si ambas condiciones no dejan opciones, se informa la falta de horarios.
+La ausencia de N conserva la regla desactivada.
+
+La búsqueda minimiza la suma de costos de preferencias entre las soluciones que
+alcanza a explorar. Una asignación habitual autorizada tiene costo 0 y las demás
+costo 1. Usa cotas para descartar combinaciones que no mejoran la mejor solución.
+Si alcanza el límite después de encontrar una solución completa, la conserva con
+`preferenceOptimal: false` y la pantalla indica que puede existir una mejor.
+Si termina la búsqueda, `preferenceOptimal: true` acredita el mínimo bajo los
+candidatos y costos implementados. Las restricciones duras siguen vigentes.

@@ -4,6 +4,7 @@ export type VenueLoanCapture = {
   venueId: string;
   windows: { id: string; start: string; end: string }[];
   letter: File;
+  signature?: File;
 };
 
 export type VenueLoanRecoveryStore = {
@@ -63,9 +64,10 @@ export async function sendVenueLoan(
   retry: boolean,
   send: (body: FormData) => Promise<Response>,
 ): Promise<"confirmed" | "invalid" | "denied" | "uncertain"> {
-  const { letter, windows, ...payload } = capture;
+  const { letter, signature, windows, ...payload } = capture;
   const body = new FormData();
   body.set("letter", letter);
+  if (signature) body.set("signature", signature);
   body.set("payload", JSON.stringify({ ...payload, windows: windows.map(({ start, end }) => ({ start, end })) }));
   if (!retry) await store.add(capture);
 

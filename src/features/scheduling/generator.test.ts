@@ -69,3 +69,28 @@ test("retroceso real encuentra solución cuando la primera preferencia bloquea u
   assert.equal(result.ok, true);
   if (result.ok) assert.equal(result.matches.find(m => m.home === "a")?.venueId, "v2");
 });
+
+test("compara soluciones y encuentra la combinación con menor costo de preferencias", () => {
+  const slot = (venueId: string, preference: number) => ({ venueId, start: 0, end: 60, reservedUntil: 60, preference });
+  const jobs = [
+    { pairing: { round: 1, home: "a", away: "b" }, slots: [slot("shared", 0), slot("alternative-a", 1)] },
+    { pairing: { round: 1, home: "c", away: "d" }, slots: [slot("shared", 0), slot("alternative-b", 10)] },
+  ];
+  const result = assignSlots(jobs, []);
+  assert.ok(result.ok);
+  assert.equal(result.matches.reduce((total, match) => total + match.preference, 0), 1);
+  assert.equal(result.preferenceOptimal, true);
+});
+
+test("si se agota el límite conserva una solución completa sin afirmar que es óptima", () => {
+  const jobs = [
+    { pairing: { round: 1, home: "a", away: "b" }, slots: [
+      { venueId: "v1", start: 0, end: 60, reservedUntil: 60, preference: 0 },
+      { venueId: "v2", start: 0, end: 60, reservedUntil: 60, preference: 1 },
+    ] },
+  ];
+  const result = assignSlots(jobs, [], { nodes: 3, milliseconds: 5000 });
+  assert.ok(result.ok);
+  assert.equal(result.matches.length, 1);
+  assert.equal(result.preferenceOptimal, false);
+});

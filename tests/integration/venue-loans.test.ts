@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
@@ -80,17 +81,17 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
       const away = await createClubTeam();
       const president = await createActor("EXECUTIVE_PRESIDENT");
       const scheduler = await createActor("SCHEDULER");
-      async function createVenue(code: string, isComplex: boolean) {
+      async function createVenue(code: string, isComplex: boolean, ownerClubId?: string) {
         const venue = await tx.venues.create({ data: {
           league_id: league.id, code, name: code, address: "Domicilio sintético",
-          is_league_sports_complex: isComplex, match_duration_minutes: 60, buffer_minutes: 15,
+          owner_club_id: ownerClubId, is_league_sports_complex: isComplex, match_duration_minutes: 60, buffer_minutes: 15,
         } });
         await tx.venue_availability.create({ data: {
           venue_id: venue.id, type: "AVAILABLE", starts_at: at("10:00"), ends_at: at("15:00"),
         } });
         return venue.id;
       }
-      const privateVenue = await createVenue("PARTICULAR", false);
+      const privateVenue = await createVenue("PARTICULAR", false, away.club.id);
       const complex = await createVenue("UNIDAD", true);
       const rival = await createVenue("RIVAL", false);
       return { season, day, home, away, president, scheduler, privateVenue, complex, rival };
@@ -116,14 +117,15 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
         assert.ok(bytes);
         return bytes;
       },
-      async createDownloadUrl() {
+      async remove(key) { files.delete(key); },
+    async createDownloadUrl() {
         signed++;
         return { downloadUrl: "https://example.test/carta", expiresInSeconds: 60 };
       },
     };
     const pdf = await PDFDocument.create();
     pdf.addPage().drawText("Carta sintetica de prueba PDGLD-23");
-    const file = { bytes: await pdf.save(), mimeType: "application/pdf" };
+    const file = { bytes: await pdf.save(), mimeType: "application/pdf", signature: await sharp({ create: { width: 20, height: 20, channels: 3, background: "#000000" } }).png().toBuffer() };
     const request = {
       requestId: randomUUID(), seasonId: season.id, clubId: home.club.id, venueId: privateVenue,
       windows: [{ startsAt: at("11:00").toISOString(), endsAt: at("13:00").toISOString() }],
@@ -133,6 +135,7 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
       requestId: request.requestId, contextId: randomUUID(), venueId: privateVenue,
       windows: [{ id: randomUUID(), start: "2026-11-14T11:00", end: "2026-11-14T13:00" }],
       letter: new File([new Uint8Array(file.bytes)], "carta.pdf", { type: file.mimeType }),
+      signature: new File([new Uint8Array(file.signature)], "firma.png", { type: "image/png" }),
     };
     let saved: VenueLoanCapture | undefined;
     const recovery: VenueLoanRecoveryStore = {
@@ -156,7 +159,9 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
       assert.equal(letter.name, capture.letter.name);
       const bytes = new Uint8Array(await letter.arrayBuffer());
       assert.deepEqual(bytes, file.bytes);
-      return submitVenueLoanForActor(home.delegate, request, { bytes, mimeType: letter.type }, storage);
+      const signature = body.get("signature");
+      assert.ok(signature instanceof File);
+      return submitVenueLoanForActor(home.delegate, request, { bytes, mimeType: letter.type, signature: new Uint8Array(await signature.arrayBuffer()) }, storage);
     }
     assert.equal(await sendVenueLoan(recovery, capture, false, async body => {
       assert.equal((await saveOnServer(body)).status, "PENDING");

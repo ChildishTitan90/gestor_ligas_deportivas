@@ -1,3 +1,4 @@
+import { verifySchedulingLoans } from "./scheduling-loans";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -48,10 +49,12 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
   },{timeout:30000});
   assert.equal(await db.schedule_proposals.count(),3);
   await assert.rejects(run(f.actor,{...input,operationId:randomUUID(),expectedSeasonVersion:999}),{message:"STALE_CONFIGURATION"});
+  await verifySchedulingLoans(f);
+  t.diagnostic('Prestamos reales pendientes/rechazados excluidos; aprobados generan 190 partidos en canchas compartidas.');
   await db.venue_availability.deleteMany();
   const impossible=await run(f.actor,{...input,operationId:randomUUID()});
   assert.equal(impossible.ok,false);
   if(!impossible.ok) assert.equal(impossible.code,"NO_AVAILABLE_SLOT");
-  assert.equal(await db.schedule_proposals.count(),3);
+  assert.equal(await db.schedule_proposals.count(),4);
  } finally { await db.$disconnect(); }
 });

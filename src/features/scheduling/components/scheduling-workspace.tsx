@@ -10,6 +10,7 @@ type Proposal = {
   teamNames?: Record<string, string>;
   timezone?: string;
   venueNames?: Record<string, string>;
+  preferenceOptimal?: boolean;
   matches: (Pairing & { venueId: string; start: string; end: string })[];
   byes: { round: number; teamId: string }[];
 };
@@ -54,6 +55,7 @@ export function SchedulingWorkspace({ workspace }: { workspace: Workspace }) {
     {result?.ok && proposal && <section className="space-y-3 rounded-3xl border border-border bg-surface p-6">
       <h2 className="text-xl font-bold">Propuesta generada</h2>
       <p>{proposal.matches.length} partidos · {proposal.byes.length} descansos</p>
+      {proposal.preferenceOptimal === false && <p role="status">La búsqueda alcanzó su límite. La propuesta respeta las restricciones y puede haber otra que cumpla más preferencias.</p>}
       <p className="text-muted">Pendiente de revisión y publicación. Horarios de la liga ({timezone}).</p>
       {rounds.map(round => <details key={round} className="rounded-xl border border-border p-4">
         <summary className="cursor-pointer font-semibold">Jornada {round}</summary>

@@ -23,6 +23,21 @@ try {
   await db.query("SELECT set_config('app.user_id',actor::text,false),set_config('app.reason','Recorrido sintético de calendario',false) FROM public.scheduling_fixture");
   await db.query("UPDATE sports_management.users SET password_hash=$1 WHERE username IN ('scheduler','outsider')",[await argon2.hash(password)]);
   await db.query("UPDATE sports_management.season_teams SET status='WITHDRAWN' WHERE id=(SELECT id FROM sports_management.season_teams ORDER BY id LIMIT 1)");
+  // Las canchas pertenecen a otro club y cada equipo cuenta con préstamos sintéticos aprobados.
+  await db.query(`
+    UPDATE sports_management.venues SET is_league_sports_complex=false,
+      owner_club_id=(SELECT id FROM sports_management.clubs ORDER BY id LIMIT 1);
+    INSERT INTO sports_management.files(storage_key,original_name,mime_type,size_bytes,uploaded_by)
+      SELECT 'synthetic-browser-letter','Carta sintética','application/pdf',0,actor FROM public.scheduling_fixture;
+    INSERT INTO sports_management.venue_loans(season_id,venue_id,club_id,letter_file_id,status,approved_by,approved_at,requested_by,request_hash,requested_windows)
+      SELECT f.season,v.id,c.id,fi.id,'APPROVED',f.actor,now(),f.outsider,repeat('a',64),
+        (SELECT jsonb_agg(jsonb_build_object('startsAt',to_char(a.starts_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+          'endsAt',to_char(a.ends_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ORDER BY a.starts_at)
+         FROM sports_management.venue_availability a WHERE a.venue_id=v.id)
+      FROM public.scheduling_fixture f CROSS JOIN sports_management.venues v
+      CROSS JOIN sports_management.clubs c CROSS JOIN sports_management.files fi
+      WHERE fi.storage_key='synthetic-browser-letter';
+  `);
   const launchApp = () => spawn(process.execPath,['node_modules/next/dist/bin/next','dev','--hostname','127.0.0.1','--port',String(port)],{
     env:{...process.env, AUTH_TEST_RUN:'1',NEXTAUTH_URL:origin,NEXTAUTH_SECRET:randomBytes(32).toString('hex'),NEXT_TELEMETRY_DISABLED:'1'},
     stdio:['ignore','pipe','pipe'],windowsHide:true,detached:process.platform!=='win32'});
@@ -110,7 +125,7 @@ try {
   await browser.evaluate("document.querySelector('summary').click()");
   assert.match(await browser.evaluate("document.querySelector('details[open] li').innerText"),/Jornada 1.*Local: Equipo.*Visitante: Equipo/);
   assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'1');
-  console.log('Chrome: recuperación tras cierre sin duplicado y conflictos de horarios sin persistencia parcial verificados.');
+  console.log('Chrome: propuesta con canchas compartidas aprobadas, recuperación sin duplicado y conflictos verificados.');
 } finally {
   try {await browser?.close();} finally {
     if(app?.pid && app.exitCode===null) {

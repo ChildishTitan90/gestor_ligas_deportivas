@@ -23,9 +23,6 @@ try {
     if (migration === 'migration_lock.toml') continue;
     await db.query(await readFile(`prisma/migrations/${migration}/migration.sql`, 'utf8'));
   }
-  // Contrato sintético mínimo. No aplica ni acredita la migración pendiente de Karol.
-  await db.query(`ALTER TABLE sports_management.venue_loans ADD COLUMN IF NOT EXISTS requested_by uuid;
-    ALTER TABLE sports_management.venue_loans ADD COLUMN IF NOT EXISTS requested_windows jsonb;`);
   await db.query(await readFile('tests/integration/scheduling-fixtures.sql','utf8'));
   await admin.query(`CREATE ROLE "${role}" NOLOGIN NOSUPERUSER NOBYPASSRLS`); roleCreated=true;
   await db.query(`GRANT USAGE ON SCHEMA sports_management TO "${role}"`);
@@ -41,7 +38,7 @@ try {
     if(runtimePrivileges.lock.includes(table)) await db.query(`GRANT UPDATE (id) ON sports_management.${quote(table)} TO "${role}"`);
   }
   const code = await new Promise((resolve, reject) => {
-    const args = process.argv.includes('--browser') ? ['tests/e2e/scheduling-navigation.mjs'] : ['--conditions=react-server','--import','tsx','--test','tests/integration/scheduling.test.ts'];
+    const args = process.argv.includes('--venue-real-storage') ? ['tests/e2e/venue-loans-real-storage.mjs'] : process.argv.includes('--browser') ? ['tests/e2e/scheduling-navigation.mjs'] : ['--conditions=react-server','--import','tsx','--test','tests/integration/scheduling.test.ts'];
     const child = spawn(process.execPath, args, {
       env: { ...process.env, DATABASE_URL: target.href, DIRECT_URL: target.href, SCHEDULING_TEST_ROLE:role }, windowsHide: true,
       stdio: ['ignore','pipe','pipe'],
