@@ -180,3 +180,18 @@ Si alcanza el límite después de encontrar una solución completa, la conserva 
 `preferenceOptimal: false` y la pantalla indica que puede existir una mejor.
 Si termina la búsqueda, `preferenceOptimal: true` acredita el mínimo bajo los
 candidatos y costos implementados. Las restricciones duras siguen vigentes.
+
+
+## Consulta de propuestas guardadas
+
+Al seleccionar temporada y grupo, la pantalla consulta las propuestas guardadas
+de ese contexto. El servidor vuelve a comprobar el permiso de programación y el
+grupo de la temporada, y entrega los campos necesarios para revisar jornadas,
+equipos, canchas y horarios. Las propuestas formato 1 conservan sus nombres y
+zona horaria registrados. Se muestran las que cumplen el contrato de lectura;
+otros formatos o registros incompletos requieren su propio adaptador.
+
+La consulta se comprobó tras recargar en Chrome, con rechazo de una cuenta sin
+permiso y con el rol limitado y RLS activos en PostgreSQL local. La solicitud pendiente se conserva por usuario en IndexedDB antes de enviarse.
+Al recargar, se recupera la misma clave y contenido para reintentar sin duplicar
+la propuesta. La captura se elimina después de recibir un resultado confirmado.

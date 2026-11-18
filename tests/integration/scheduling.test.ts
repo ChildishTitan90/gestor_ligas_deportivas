@@ -1,3 +1,4 @@
+import { listSavedScheduleProposals } from "../../src/features/scheduling/server/saved-proposals";
 import { verifySchedulingLoans } from "./scheduling-loans";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -22,6 +23,12 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
   const stored=await db.schedule_proposals.findUniqueOrThrow({where:{id:input.operationId}});
   assert.equal((stored.parameters as {matches:unknown[]}).matches.length,190);
   assert.equal(await db.schedule_proposals.count(),1);
+  const listed = await listSavedScheduleProposals(f.actor, f.season, f.group_id);
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].id, input.operationId);
+  assert.equal(listed[0].proposal.matches.length, 190);
+  await assert.rejects(listSavedScheduleProposals(f.outsider, f.season, f.group_id), { message: "FORBIDDEN" });
+  await assert.rejects(listSavedScheduleProposals(f.actor, f.season, randomUUID()), { message: "FORBIDDEN" });
   const replay=await run();
   assert.equal(replay.ok,true);
   if(replay.ok) assert.equal(replay.replayed,true);
