@@ -41,10 +41,23 @@ export async function requestPasswordRecovery(email: string, transport: EmailTra
     const operationId = randomUUID();
     const expiresAt = new Date(now.getTime() + policy.ttlMs);
     await tx.password_resets.create({ data: { id: operationId, user_id: id, token_hash: tokenHash(token), created_at: now, expires_at: expiresAt }, select: { id: true } });
-    return { kind: "PASSWORD_RECOVERY" as const, to: user.email, token, expiresAt, idempotencyKey: operationId };
+    return { kind: "PASSWORD_RECOVERY" as const, to: user.email, token, expiresAt, idempotencyKey: operationId, userId: id };
   });
   if (message) {
-    const outcome = await transport.send(message);
+    const { userId, ...emailMessage } = message;
+    const outcome = await transport.send(emailMessage);
+    if (outcome === "FAILED") {
+      // Only a confirmed rejection makes this particular link unusable.
+      // Preserve uncertain deliveries and the hourly issuance count.
+      await getPrisma().$transaction(async tx => {
+        await tx.$executeRaw`SET LOCAL TIME ZONE 'UTC'`;
+        if (!await lockAuthUser(tx, userId)) return;
+        await tx.password_resets.updateMany({
+          where: { id: message.idempotencyKey, token_hash: tokenHash(message.token), used_at: null },
+          data: { used_at: new Date() },
+        });
+      });
+    }
     if (outcome !== "ACCEPTED") console.warn("[auth] PASSWORD_RECOVERY_DELIVERY_UNCONFIRMED");
   }
 }

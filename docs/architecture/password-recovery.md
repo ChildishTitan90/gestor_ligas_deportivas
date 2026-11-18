@@ -37,3 +37,30 @@ la expiración guardada coincida con la del mensaje.
 Verificación local: suite de integración aprobada en PostgreSQL 15.19 y
 17.11 con bases temporales, RLS y transporte simulado. Pendiente verificar
 las pantallas y la entrega a un buzón controlado en un entorno autorizado.
+
+
+## Revisión de rechazo de envío y permisos compartidos
+
+Un rechazo confirmado (`FAILED`) invalida únicamente la operación emitida,
+bajo el bloqueo de la misma cuenta y sin modificar su hash ni borrar el registro.
+La persona puede solicitar un enlace nuevo antes del vencimiento del anterior,
+si aún no alcanzó el límite por hora. Los intentos rechazados también cuentan
+para ese límite. No se reintenta automáticamente el envío.
+
+`UNKNOWN` conserva la operación: una pérdida de respuesta no demuestra que el
+proveedor haya rechazado el correo. `ACCEPTED` conserva el enlace hasta su consumo
+o vencimiento. La respuesta pública sigue siendo el mismo 202 genérico y se
+emite antes de consultar la cuenta o enviar; nunca informa existencia de cuenta
+ni resultado del proveedor.
+
+La regresión con rol limitado comprueba rechazo, nueva solicitud con token
+distinto, consumo del nuevo enlace, rechazo del anterior, entrega incierta y
+límite por hora. El plan Preview conserva conjuntamente la inserción de
+`password_resets` y los permisos de `venue_loans` integrados en develop.
+
+
+Validación de esta corrección (18/11/2026): integración PostgreSQL 15.19 y
+17.11, 2/2 casos por versión con RLS y rol limitado; pruebas de política 2/2,
+transporte simulado 7/7, controles de pipeline 91/91, tipado y lint aprobados.
+No se contactó al proveedor real durante estas pruebas. La validación en
+Preview continúa pendiente; no se aplicaron permisos ni cambios en producción.

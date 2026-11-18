@@ -73,3 +73,55 @@ test("PDGLD-32: emisión privada, caducidad, consumo concurrente y revocación",
     await db.end();
   }
 });
+
+
+test("PDGLD-32: rechazo confirmado permite nueva solicitud; incertidumbre conserva enlace y privacidad", async () => {
+  const db = new pg.Client({ connectionString: admin.href });
+  await db.connect();
+  try {
+    const email = `${randomUUID()}@example.test`;
+    const person = (await db.query("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES('Fixture','Reintento') RETURNING id")).rows[0].id;
+    const id = (await db.query(
+      "INSERT INTO sports_management.users(person_id,username,email,password_hash,email_verified_at) VALUES($1,$2,$3,$4,now()) RETURNING id",
+      [person, randomUUID(), email, await hashPassword("Original!Synthetic123")],
+    )).rows[0].id;
+    const sent: AccountEmail[] = [];
+    let outcome: "FAILED" | "ACCEPTED" | "UNKNOWN" = "FAILED";
+    const transport = { async send(message: AccountEmail) { sent.push(message); return outcome; } };
+    const policy = { ttlMs: 900_000, maxPerHour: 3 };
+    const unknown = await requestPasswordRecovery("unknown@example.test", transport, policy);
+    assert.equal(sent.length, 0);
+    const rejected = await requestPasswordRecovery(email, transport, policy);
+    assert.equal(rejected, unknown, "no revela existencia ni resultado de entrega");
+    const first = sent[0];
+    assert.ok(first.kind === "PASSWORD_RECOVERY");
+    const failed = (await db.query("SELECT used_at, expires_at FROM sports_management.password_resets WHERE id=$1", [first.idempotencyKey])).rows[0];
+    assert.ok(failed.used_at instanceof Date);
+    assert.ok(failed.expires_at > new Date(), "no espera a que venza para liberar la solicitud");
+    assert.equal(await completePasswordRecovery(first.token, "Rejected!Synthetic456"), false);
+
+    outcome = "ACCEPTED";
+    const retry = await requestPasswordRecovery(email, transport, policy);
+    assert.equal(retry, unknown);
+    assert.equal(sent.length, 2, "nueva solicitud sí contacta al proveedor");
+    const second = sent[1];
+    assert.ok(second.kind === "PASSWORD_RECOVERY");
+    assert.notEqual(second.token, first.token);
+    assert.equal(await completePasswordRecovery(second.token, "Replacement!Synthetic456"), true);
+
+    outcome = "UNKNOWN";
+    await requestPasswordRecovery(email, transport, policy);
+    const uncertain = sent[2];
+    assert.ok(uncertain.kind === "PASSWORD_RECOVERY");
+    await requestPasswordRecovery(email, transport, policy);
+    assert.equal(sent.length, 3, "no reenvía ante una entrega incierta");
+    assert.equal(await completePasswordRecovery(uncertain.token, "Uncertain!Synthetic789"), true);
+    await requestPasswordRecovery(email, transport, policy);
+    assert.equal(sent.length, 3, "el rechazo sigue contando para el límite por hora");
+    const count = await db.query("SELECT count(*)::int AS total FROM sports_management.password_resets WHERE user_id=$1", [id]);
+    assert.equal(count.rows[0].total, 3);
+  } finally {
+    await getPrisma().$disconnect();
+    await db.end();
+  }
+});

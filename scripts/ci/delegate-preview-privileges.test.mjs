@@ -34,3 +34,13 @@ test('PDGLD-118: correo pendiente tiene ACL mínimas; recuperación usa ACL por 
   assert.deepEqual(runtimePrivileges.insert.password_resets,['id','user_id','token_hash','created_at','expires_at']);
   assert.equal(runtimePrivileges.remove.includes('password_resets'), false);
 });
+
+test('PDGLD-32 y PDGLD-23 conservan juntos recuperación y préstamos de cancha', () => {
+  assert.deepEqual(runtimePrivileges.insert.password_resets,
+    ['id','user_id','token_hash','created_at','expires_at']);
+  assert.deepEqual(runtimePrivileges.update.password_resets, ['used_at']);
+  assert.deepEqual(runtimePrivileges.insert.venue_loans,
+    ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status']);
+  assert.deepEqual(runtimePrivileges.update.venue_loans,
+    ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at']);
+});
