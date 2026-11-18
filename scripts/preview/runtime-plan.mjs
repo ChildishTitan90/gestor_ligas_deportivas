@@ -35,12 +35,13 @@ const readColumns = {
   competition_rule_parameters: ['id', 'competition_rule_id', 'parameter_key', 'parameter_value', 'requires_validation', 'validated_by'],
   competition_stages: ['id', 'season_category_id', 'season_id'],
   imports: ['id', 'season_id'],
-  matchdays: ['id', 'season_id'], match_results: ['id', 'match_id'], match_statuses: ['id', 'code', 'reserves_resources'],
+  matchdays: ['id', 'season_id', 'number'], match_results: ['id', 'match_id'], match_statuses: ['id', 'code', 'reserves_resources'],
   official_documents: ['id', 'season_id'], publications: ['id', 'season_id'],
   season_awards: ['id', 'season_category_id', 'season_id'], season_breaks: ['id', 'season_id'],
-  standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
+  standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'reviewed_by', 'review_reason'],
 };
 const insert = {
+  venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status'],
   regulation_articles: ['id','competition_rule_id','number','description','sanction_type_id','parameters','revision'],
   referee_presentation_credentials:['id','file_id','uploaded_by','operation_key','input_hash'],
   referee_presentations:['club_id','season_id','requester_id','operation_key','input_hash','person_id','first_name','paternal_surname','maternal_surname','reason'],
@@ -90,6 +91,7 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at', 'maintenance_revision'],
 };
 const update = {
+  venue_loans: ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at'],
   regulation_articles: ['number','description','sanction_type_id','parameters'],
   referee_presentations:['status','reviewed_by','reviewed_at','review_reason','review_key','review_hash','approved_person_id','referee_id','approved_identity'],
   people:['curp','first_name','paternal_surname','maternal_surname','birth_date'],

@@ -51,7 +51,7 @@ jobs:
       - name: Probar los controles del pipeline
         run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:account-maintenance && npm run test:email-transport && npm run test:account-maintenance-ui && npm run test:email-confirmation && npm run test:affiliation-input && npm run test:affiliation-review && npm run test:club-maintenance-input
       - name: Probar horarios de canchas y zonas horarias (PDGLD-22)
-        run: node --import tsx --test src/features/venues/time.test.ts
+        run: node --import tsx --test src/features/venues/time.test.ts src/features/venues/home-venue.test.ts
       - name: Probar interfaz de inscripción y actividad de sesión sin base
         run: npm run test:team-registration
       - name: Probar inscripción en Chrome con datos sintéticos
@@ -160,6 +160,8 @@ jobs:
         run: |
           node --conditions=react-server --import tsx prisma/seed.ts --profile permissions
           node --conditions=react-server --import tsx --test tests/integration/league-governance.test.ts
+      - name: Probar préstamos privados, decisiones y localías (PDGLD-23)
+        run: node --conditions=react-server --import tsx --test tests/integration/venue-loans.test.ts
 
   refereeing:
     name: Arbitraje real PostgreSQL ${{ matrix.postgres }}
