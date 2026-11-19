@@ -26,6 +26,10 @@ BEGIN
  INSERT INTO sports_management.competition_rules(season_id,version_number) VALUES(s,1) RETURNING id INTO cr;
  INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by)
  VALUES(cr,'calendar','{"rounds":1,"matchDurationMinutes":90,"scheduling":{"slotStepMinutes":30,"venueStages":[]}}',actor);
+ INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by) VALUES
+ (cr,'announcement','"Reglamento sintético"',actor),
+ (cr,'points','{"win":3,"draw":1,"loss":0}',actor),
+ (cr,'tieBreakers','["GOAL_DIFFERENCE"]',actor);
  UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=actor,approved_at=now() WHERE id=cr;
  INSERT INTO sports_management.season_categories(season_id,category_id,competition_rule_id,hierarchy_order,type,age_cutoff_date,competition_format)
  VALUES(s,ca,cr,1,'OPEN','2030-12-31','GENERAL_TABLE') RETURNING id INTO sc;

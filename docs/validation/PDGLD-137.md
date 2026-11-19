@@ -1,0 +1,75 @@
+# PDGLD-137 — Evidencia de generación e integración pendiente
+
+Estado: pruebas locales para revisión, no aceptación ni cierre de Jira. La rama
+`feat/PDGLD-24-programacion` contiene avances locales de PDGLD-24/135/136/137;
+la revisión y el CI del cambio final aún deben completarse.
+
+## Resultados locales
+
+- `npm run test:scheduling`: pruebas del motor, restricciones y ventanas de préstamo.
+- `node scripts/test-scheduling.mjs`: PostgreSQL local temporal. Tabla General y
+  fase de grupos con cuatro y cinco equipos, parejas únicas y descansos; distribución
+  incompleta; dos vueltas en cancha compartida con bloqueo, intervalo y tramos;
+  ausencia de traslapes, inversión de localía y conflictos sin propuesta inválida.
+- El mismo runner prueba permiso ausente y permiso de otra liga, repetición sin
+  duplicado, dos actores con solicitudes distintas y rechazo de una clave ajena,
+  control de versión, rollback, ACL limitadas y préstamos aprobados/rechazados.
+  Las llamadas concurrentes se iniciaron juntas; la prueba no fuerza un orden de
+  adquisición del bloqueo. El runner elimina su base y rol temporales.
+- `node scripts/test-scheduling.mjs --browser`: navegación, configuración,
+  generación, recuperación tras perder el acuse, recarga y falta de horarios;
+  los mensajes de combinación imposible y límite se verifican con respuestas
+  simuladas. El caso de falta de horarios utiliza el servicio real local.
+- Medición de una muestra: 20 equipos, 19 jornadas, 190 encuentros, cuatro
+  canchas y una vuelta; 8,17 segundos para el grupo completo en PostgreSQL 15
+  local. Condiciones y límites en `docs/architecture/scheduling-generation.md`.
+- `npm run typecheck` pasó después de los cambios locales de pruebas y mensajes.
+
+Los resultados son evidencia de desarrollo local. Falta verificar la revisión
+externa y el CI del commit definitivo; no acreditan aceptación funcional ni el
+comportamiento de todas las configuraciones o del entorno desplegado.
+
+## Entrega disponible para PDGLD-25
+
+El generador crea una fila en `sports_management.schedule_proposals`, con ID de
+operación, temporada, primera jornada, versión de reglamento referenciada,
+autor y fecha. `parameters` contiene un objeto `formatVersion: 1` con contexto
+de grupo y categoría, versión de temporada, reglamento y número de versión,
+motivo, zona horaria, nombres de referencia y `state: DRAFT_PROPOSAL`. Cada
+encuentro incluye jornada y `matchdayId`, local, visitante, cancha, inicio,
+fin y `reservedUntil`; también se guardan descansos y `matchdayId` de cada uno.
+Los identificadores de local/visitante y descanso corresponden a inscripciones
+de equipo en temporada (`season_teams.id`). Inicio, fin y holgura son instantes
+ISO; `reservedUntil` incluye el tiempo de separación de la cancha.
+
+Una propuesta guardada **no reserva recursos, no crea partidos oficiales y no
+publica**. Pueden existir propuestas alternativas para un mismo grupo. El ajuste
+de PDGLD-25 debe comprobar autorización, revalidar reglas y disponibilidad sobre
+el estado vigente, y aplicar su propio control de versiones, autoría y auditoría.
+El campo `seasonVersion` es la versión observada al generar, no una versión de
+edición de la propuesta. La publicación sigue el flujo correspondiente de RF16.
+
+La lectura actual de la pantalla es `GET /api/scheduling/proposals` con
+`seasonId` y `groupId`, autenticación de sesión y permiso `scheduling:CREATE`
+con ámbito de liga. Devuelve ID, fecha y una proyección para revisión visual.
+**No es aún el contrato completo de ajuste:** su esquema de lectura elimina,
+entre otros, `matchdayId`, `reservedUntil`, `seasonVersion`, reglamento, autor y
+estado. No se debe inferir que la respuesta de esa ruta contenga esos datos ni
+usar una copia antigua como autorización o validación para guardar ajustes.
+
+## Por completar con Karol y la persona revisora
+
+1. Compartir una versión revisable de nuestra rama y acordar el contrato de
+   lectura/escritura que PDGLD-25 necesita para su propuesta mínima, incluidos
+   versiones, revalidación y controles de acceso. La rama actual todavía no se
+   ha entregado mediante PR; no se comprobó la integración con PDGLD-25.
+2. Conectar el ajuste de Karol y ejecutar el recorrido integrado: generar,
+   recuperar, ajustar, revalidar y enviar a revisión sin publicar automáticamente.
+   Verificar dos ediciones concurrentes y el rechazo de una versión obsoleta.
+3. Pedir revisión a otra persona y enlazar PR, CI y evidencia en las tareas.
+   No se ha solicitado ni registrado esa revisión desde este documento.
+
+Los escenarios de prueba eliminan sus propuestas sintéticas al terminar. No se
+deja una propuesta persistente en una base compartida ni se expone información
+de una liga real. Para preparar una demostración conjunta, acordar un entorno y
+datos de prueba con quien revise.

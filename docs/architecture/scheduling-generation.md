@@ -10,7 +10,7 @@ La configuración propuesta `calendar.scheduling` forma parte del reglamento
 versionado y aprobado: `slotStepMinutes` y `venueStages` con `fromRound`, `toRound`
 y `venueIds`. Los tramos no se superponen. Una regla antigua sin esta configuración
 se rechaza explícitamente; no se presupone que sus últimas diez jornadas sean neutrales.
-La configuración y su interfaz de edición necesitan integrarse con competencias/PDGLD-23.
+La configuración se captura y revisa al crear una versión del reglamento en competencias.
 
 Las jornadas pertenecen a la temporada. Cada grupo utiliza las primeras jornadas
 consecutivas que necesita, sin exigir que otro grupo tenga el mismo número de equipos.
@@ -32,7 +32,11 @@ de reglas. No crea partidos oficiales ni reservas: PDGLD-25 debe revalidar toda 
 propuesta antes de reservar y confirmar. Dos propuestas pueden competir por una
 cancha; ninguna acredita disponibilidad futura. La propuesta no publica contenido.
 
-## Pendientes antes de cerrar PDGLD-135
+## Estado histórico al 17 de noviembre: pendientes de PDGLD-135
+
+Los apartados siguientes conservan el contexto previo a incorporar PDGLD-23;
+no describen por sí solos el estado actual. Para la evidencia y pendientes de
+integración de PDGLD-137, consultar `docs/validation/PDGLD-137.md`.
 
 ### Dependencia de PDGLD-23: pendiente de incorporación
 
@@ -182,6 +186,29 @@ Si termina la búsqueda, `preferenceOptimal: true` acredita el mínimo bajo los
 candidatos y costos implementados. Las restricciones duras siguen vigentes.
 
 
+## Medición local PDGLD-137 — 18 de noviembre de 2026
+
+La ejecución de `node scripts/test-scheduling.mjs` midió la llamada al servicio
+en una transacción PostgreSQL local, desde antes de abrirla hasta su confirmación.
+La base era temporal y exclusivamente sintética. La medición incluye la
+autorización, lectura de reglas y recursos, generación de candidatos, búsqueda y
+persistencia de la propuesta; no incluye preparación de datos, migraciones,
+red HTTP, navegador, ni publicación de partidos.
+
+Datos: un grupo en tabla General, 20 equipos, una vuelta, 19 jornadas y 190
+encuentros; cuatro canchas de la unidad deportiva con aperturas sintéticas de
+seis horas por jornada, partidos de 90 minutos, 30 minutos de holgura y pasos
+de búsqueda de 30 minutos. No había partidos oficiales ocupando las canchas.
+La propuesta se guardó completa y la base temporal se eliminó al terminar.
+
+La muestra fue **8167,3 ms (8,17 segundos) para el grupo completo**, en Windows
+x64, Node 24.22.1, AMD Ryzen 7 7735U y PostgreSQL 15 local. En paralelo se
+ejecutaba la comprobación de tipos del proyecto. El total queda por debajo de
+la meta propuesta de 30 segundos por jornada y grupo para este caso. No se
+cronometró cada jornada por separado: tampoco es una garantía de rendimiento
+para otros tamaños, restricciones, concurrencia o entornos de despliegue. Una
+sola muestra no caracteriza la variabilidad ni la experiencia HTTP completa.
+
 ## Consulta de propuestas guardadas
 
 Al seleccionar temporada y grupo, la pantalla consulta las propuestas guardadas
@@ -195,3 +222,22 @@ La consulta se comprobó tras recargar en Chrome, con rechazo de una cuenta sin
 permiso y con el rol limitado y RLS activos en PostgreSQL local. La solicitud pendiente se conserva por usuario en IndexedDB antes de enviarse.
 Al recargar, se recupera la misma clave y contenido para reintentar sin duplicar
 la propuesta. La captura se elimina después de recibir un resultado confirmado.
+
+
+## Configuración desde el reglamento
+
+El formulario de reglas permite indicar el intervalo de horarios y tramos de
+jornadas con las canchas autorizadas de la liga. El servidor valida el contrato
+y comprueba que las canchas seleccionadas estén activas y pertenezcan a la liga.
+Al crear una nueva versión se conserva la configuración de programación previa.
+La revisión muestra nombres de canchas y conserva las versiones anteriores.
+
+Una categoría con equipos puede asociarse a una nueva versión aprobada si solo
+cambia la configuración de programación, conserva todas las demás reglas y
+aún no hay partidos ni propuestas de esa categoría. Se mantienen las protecciones
+para otros cambios, temporada iniciada, cierre e historial existente.
+
+El recorrido local en Chrome creó y aprobó la versión, la asoció a una categoría
+con equipos y generó la propuesta. También rechazó una cancha ajena, un cambio
+de puntuación y un reemplazo después de generar una propuesta. El recorrido se
+repitió con RLS y el rol limitado activos en PostgreSQL temporal.

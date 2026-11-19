@@ -35,6 +35,8 @@ export const ruleDraftSchema = z.strictObject({
     matchDurationMinutes: z.number().int().positive(),
     complexOnlyFinalRounds: z.number().int().nonnegative().optional(),
     scheduling: schedulingPolicySchema.optional(),
+  }).refine(calendar => !calendar.scheduling || calendar.rounds <= 4, {
+    path: ["rounds"], message: "La programación admite hasta cuatro vueltas.",
   }),
 });
 

@@ -6,7 +6,7 @@ import { scheduleRecoveryStore, type PendingSchedule } from "../schedule-recover
 import type { getSchedulingWorkspace } from "../server/workspace";
 
 type Workspace = Awaited<ReturnType<typeof getSchedulingWorkspace>>;
-type Pairing = { round: number; home: string; away: string };
+type Pairing = { round: number; home: string; away: string; factors?: string[] };
 type Proposal = {
   teamNames?: Record<string, string>;
   timezone?: string;
@@ -17,7 +17,18 @@ type Proposal = {
 };
 type SavedProposal = { id: string; createdAt: string; proposal: Proposal };
 type Result = { ok: boolean; code?: string; proposalId?: string; proposal?: Proposal; conflicts?: Pairing[] };
-const messages: Record<string,string> = { APPROVED_SCHEDULING_POLICY_REQUIRED: "Falta aprobar la configuración de generación en el reglamento.", MATCHDAY_COUNT_MISMATCH: "Revisa que las jornadas necesarias estén configuradas y no se traslapen.", DISTRIBUTION_PENDING: "Hay equipos pendientes de asignar a un grupo.", NO_AVAILABLE_SLOT: "No hay horarios disponibles para todos los encuentros.", NO_SOLUTION: "No se encontró una combinación que respete las restricciones.", SEARCH_LIMIT: "La búsqueda alcanzó su límite. Ajusta la disponibilidad y vuelve a intentar.", STALE_CONFIGURATION: "La temporada cambió. Actualiza la página antes de volver a generar.", SERVICE_UNAVAILABLE: "No se pudo completar la operación. Puedes volver a intentar con la misma solicitud." };
+const messages: Record<string,string> = { APPROVED_SCHEDULING_POLICY_REQUIRED: "Falta aprobar la configuración de generación en el reglamento.", MATCHDAY_COUNT_MISMATCH: "Revisa que las jornadas necesarias estén configuradas y no se traslapen.", DISTRIBUTION_PENDING: "Hay equipos pendientes de asignar a un grupo.", NO_AVAILABLE_SLOT: "Algunos encuentros no tienen un horario viable. Revisa la disponibilidad y los bloqueos de las canchas, los préstamos y las reglas aplicables.", NO_SOLUTION: "No se encontró una combinación para acomodar el calendario completo. Revisa la disponibilidad de las canchas y las restricciones; la lista incluye todos los encuentros considerados.", SEARCH_LIMIT: "La búsqueda alcanzó su límite antes de encontrar una propuesta; esto no significa que sea imposible generarla. Revisa la disponibilidad y vuelve a intentar.", STALE_CONFIGURATION: "La temporada cambió. Actualiza la página antes de volver a generar.", SERVICE_UNAVAILABLE: "No se pudo completar la operación. Puedes volver a intentar con la misma solicitud." };
+const factorMessages: Record<string,string> = {
+  NO_OPENING:"No se encontró una apertura con tiempo suficiente para esa jornada en las canchas consideradas.",
+  VENUE_STAGE:"La configuración de jornadas excluye algunas canchas.",
+  FINAL_ROUNDS:"La regla de jornadas finales excluye canchas fuera de la unidad deportiva.",
+  DURATION:"La duración configurada no coincide con la de algunas canchas.",
+  SANCTION:"Una restricción de participación descarta horarios del encuentro.",
+  SEASON_BREAK:"Un descanso de temporada descarta horarios de la jornada.",
+  VENUE_BLOCK:"Un bloqueo o mantenimiento descarta horarios de cancha.",
+  LOAN_WINDOW:"Falta una ventana de préstamo aprobada que cubra algunos horarios del local.",
+  OCCUPIED:"Otros partidos ya programados ocupan los horarios viables de cancha o equipo.",
+};
 export function SchedulingWorkspace({ workspace }: { workspace: Workspace }) {
   const [seasonId,setSeason] = useState(""); const [groupId,setGroup] = useState("");
   const [dialog,setDialog] = useState(false); const [reason,setReason] = useState("");
@@ -153,9 +164,13 @@ export function SchedulingWorkspace({ workspace }: { workspace: Workspace }) {
     </section>}
     {result&&!result.ok&&<p role="alert" className="rounded-xl border border-border bg-surface p-4">{messages[result.code??""]??"No se pudo generar la propuesta. Revisa la configuración e inténtalo de nuevo."}</p>}
     {result?.conflicts?.length ? <details className="rounded-xl border border-border bg-surface p-4">
-      <summary className="cursor-pointer font-semibold">Ver encuentros afectados ({result.conflicts.length})</summary>
+      <summary className="cursor-pointer font-semibold">{result.code === "NO_AVAILABLE_SLOT" ? "Ver encuentros sin horario viable" : "Ver encuentros considerados"} ({result.conflicts.length})</summary>
       <ul className="mt-3 space-y-2">{result.conflicts.map(match => <li key={[match.round, match.home, match.away].join("/")}>
         Jornada {match.round} · Local: {teamName(match.home)} · Visitante: {teamName(match.away)}
+        {result.code === "NO_AVAILABLE_SLOT" && match.factors?.some(factor=>factorMessages[factor]) ? <div className="mt-1 text-sm text-muted">
+          <p>Factores detectados al revisar las opciones:</p>
+          <ul className="list-disc pl-5">{match.factors.filter(factor=>factorMessages[factor]).map(factor=><li key={factor}>{factorMessages[factor]}</li>)}</ul>
+        </div> : null}
       </li>)}</ul>
     </details> : null}
     {result?.ok && proposal && <section className="space-y-3 rounded-3xl border border-border bg-surface p-6">

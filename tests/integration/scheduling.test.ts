@@ -13,7 +13,128 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
   const [f]=await db.$queryRaw<{actor:string;outsider:string;season:string;category:string;group_id:string}[]>`SELECT * FROM public.scheduling_fixture`;
   const input={seasonId:f.season,categoryId:f.category,groupId:f.group_id,operationId:randomUUID(),expectedSeasonVersion:1,reason:"Prueba aislada de generacion"};
   const run=(actor=f.actor,data=input)=>db.$transaction(tx=>generateScheduleInTransaction(tx,actor,data),{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:30000});
+  // Cada escenario revierte sus cambios, incluidas las propuestas creadas.
+  const rollback = new Error("ROLLBACK_ESCENARIO_FORMATO");
+  for (const format of ["GENERAL_TABLE", "GROUP_STAGE"] as const) {
+   for (const count of [4, 5]) {
+    await assert.rejects(db.$transaction(async tx => {
+     await tx.$queryRaw`SELECT set_config('app.user_id',${f.actor},true),set_config('app.reason','Prueba de formatos',true)`;
+     const teams=await tx.season_teams.findMany({where:{season_category_id:f.category},orderBy:{id:"asc"},select:{id:true,season_id:true,team_id:true,club_id:true}});
+     const selected=teams.slice(0,count).map(team=>team.id);
+     if(format==="GROUP_STAGE") {
+      await tx.season_teams.deleteMany({where:{season_category_id:f.category}});
+      await tx.season_categories.update({where:{id:f.category},data:{competition_format:format}});
+      const other=await tx.groups.create({data:{season_id:f.season,season_category_id:f.category,name:"Grupo B"}});
+      const otherTeams=teams.slice(count,count+2).map(team=>team.id);
+      for(const team of teams.slice(0,count+2)) {
+       await tx.season_teams.create({data:{...team,season_category_id:f.category}});
+       if(team.id!==otherTeams[0]) await tx.season_teams.update({where:{id:team.id},data:{group_id:selected.includes(team.id)?f.group_id:other.id}});
+      }
+      // No se puede generar si queda un equipo activo sin distribuir.
+      await assert.rejects(generateScheduleInTransaction(tx,f.actor,{...input,operationId:randomUUID()}),{message:"DISTRIBUTION_PENDING"});
+      await tx.season_teams.update({where:{id:otherTeams[0]},data:{group_id:other.id}});
+     } else {
+      await tx.season_teams.updateMany({where:{season_category_id:f.category},data:{status:"WITHDRAWN"}});
+      await tx.season_teams.updateMany({where:{id:{in:selected}},data:{status:"REGISTERED",group_id:f.group_id}});
+     }
+     const result=await generateScheduleInTransaction(tx,f.actor,{...input,operationId:randomUUID()});
+     assert.ok(result.ok,`${format}, ${count} equipos`);
+     assert.equal(result.replayed,false);
+     const {matches,byes}=result.proposal as {matches:{round:number;home:string;away:string}[];byes:{round:number;teamId:string}[]};
+     assert.equal(matches.length,count*(count-1)/2);
+     const pairs=new Set(matches.map(match=>[match.home,match.away].sort().join("/")));
+     assert.equal(pairs.size,matches.length);
+     const rounds=count%2?count:count-1;
+     assert.equal(byes.length,count%2?count:0);
+     for(let round=1;round<=rounds;round++) {
+      const playing=matches.filter(match=>match.round===round).flatMap(match=>[match.home,match.away]);
+      const resting=byes.filter(bye=>bye.round===round).map(bye=>bye.teamId);
+      assert.equal(resting.length,count%2);
+      assert.deepEqual([...playing,...resting].sort(),[...selected].sort());
+     }
+     if(count%2) assert.deepEqual(byes.map(bye=>bye.teamId).sort(),[...selected].sort());
+     throw rollback;
+    },{timeout:30000}),error=>error===rollback);
+    t.diagnostic(`${format}: ${count} equipos; encuentros, jornadas y descansos verificados.`);
+   }
+  }
+  await assert.rejects(db.$transaction(async tx => {
+   await tx.$queryRaw`SELECT set_config('app.user_id',${f.actor},true),set_config('app.reason','Prueba integrada de restricciones',true)`;
+   const teams=await tx.season_teams.findMany({where:{season_category_id:f.category},orderBy:{id:"asc"},take:4,select:{id:true}});
+   await tx.season_teams.updateMany({where:{season_category_id:f.category},data:{status:"WITHDRAWN"}});
+   await tx.season_teams.updateMany({where:{id:{in:teams.map(team=>team.id)}},data:{status:"REGISTERED"}});
+   const venue=await tx.venues.findFirstOrThrow({orderBy:{id:"asc"}});
+   const openings=await tx.venue_availability.findMany({where:{venue_id:venue.id,type:"AVAILABLE"}});
+   const block={start:new Date("2030-01-06T15:00:00Z"),end:new Date("2030-01-06T17:00:00Z")};
+   const closure=await tx.venue_availability.create({data:{venue_id:venue.id,starts_at:block.start,ends_at:block.end,type:"BLOCK",reason:"Bloqueo sintético"}});
+   const rule=await tx.competition_rules.create({data:{season_id:f.season,version_number:2}});
+   await tx.competition_rule_parameters.create({data:{competition_rule_id:rule.id,parameter_key:"calendar",validated_by:f.actor,
+    parameter_value:{rounds:2,matchDurationMinutes:90,complexOnlyFinalRounds:1,
+     scheduling:{slotStepMinutes:30,venueStages:[{fromRound:1,toRound:6,venueIds:[venue.id]}]}}}});
+   await tx.competition_rules.update({where:{id:rule.id},data:{status:"APPROVED",approved_by:f.actor,approved_at:new Date()}});
+   await tx.season_categories.update({where:{id:f.category},data:{competition_rule_id:rule.id}});
+   const result=await generateScheduleInTransaction(tx,f.actor,{...input,operationId:randomUUID()});
+   assert.ok(result.ok);
+   assert.equal(result.replayed,false);
+   const {matches}=result.proposal as {matches:{round:number;home:string;away:string;venueId:string;start:string;end:string;reservedUntil:string}[]};
+   assert.equal(matches.length,12);
+   for(const match of matches) {
+    const start=Date.parse(match.start),end=Date.parse(match.end),reserved=Date.parse(match.reservedUntil);
+    assert.equal(match.venueId,venue.id);
+    assert.equal(end-start,90*60000);
+    assert.equal(reserved-end,30*60000);
+    assert.ok(openings.some(window=>+window.starts_at<=start && reserved<=+window.ends_at));
+    assert.ok(reserved<=+block.start || start>=+block.end);
+    assert.ok(matches.some(other=>other.round===match.round+3 && other.home===match.away && other.away===match.home) ||
+     matches.some(other=>other.round===match.round-3 && other.home===match.away && other.away===match.home));
+   }
+   for(let i=0;i<matches.length;i++) for(let j=i+1;j<matches.length;j++) {
+    const a=matches[i],b=matches[j];
+    assert.ok(Date.parse(a.reservedUntil)<=Date.parse(b.start) || Date.parse(b.reservedUntil)<=Date.parse(a.start),"Cancha compartida sin traslapes");
+    if([a.home,a.away].some(team=>team===b.home || team===b.away))
+     assert.ok(Date.parse(a.end)<=Date.parse(b.start) || Date.parse(b.end)<=Date.parse(a.start),"Equipo sin traslapes");
+   }
+   await tx.venue_availability.update({where:{id:closure.id},data:{ends_at:new Date("2030-01-06T21:00:00Z")}});
+   const blockedId=randomUUID();
+   const blocked=await generateScheduleInTransaction(tx,f.actor,{...input,operationId:blockedId});
+   assert.equal(blocked.ok,false);
+   if(!blocked.ok && blocked.code==="NO_AVAILABLE_SLOT") {
+    const firstRound=blocked.conflicts.filter(match=>match.round===1);
+    assert.equal(firstRound.length,2);
+    assert.ok(firstRound.every(match=>"factors" in match && Array.isArray(match.factors) && match.factors.includes("VENUE_BLOCK")));
+   } else assert.fail("El bloqueo completo debe impedir los encuentros de la primera jornada");
+   assert.equal(await tx.schedule_proposals.count({where:{id:blockedId}}),0);
+   // Cada encuentro tiene un horario candidato, pero dos partidos necesitan
+   // el mismo único intervalo de la cancha en la primera jornada.
+   await tx.venue_availability.deleteMany({where:{venue_id:venue.id,type:"BLOCK"}});
+   const firstOpening=openings.find(window=>+window.starts_at===+block.start);
+   assert.ok(firstOpening);
+   await tx.venue_availability.update({where:{id:firstOpening.id},data:{ends_at:block.end}});
+   const failedId=randomUUID();
+   const countBefore=await tx.schedule_proposals.count();
+   const impossible=await generateScheduleInTransaction(tx,f.actor,{...input,operationId:failedId});
+   assert.equal(impossible.ok,false);
+   if(!impossible.ok) {
+    assert.equal(impossible.code,"NO_SOLUTION");
+    assert.ok(impossible.conflicts.some(match=>match.round===1));
+    assert.ok(impossible.conflicts.every(match=>match.home && match.away));
+   }
+   assert.equal(await tx.schedule_proposals.count(),countBefore);
+   assert.equal(await tx.schedule_proposals.count({where:{id:failedId}}),0);
+   throw rollback;
+  },{timeout:30000}),error=>error===rollback);
+  t.diagnostic("Dos vueltas en cancha compartida: disponibilidad, bloqueo, tramos, localías y ausencia de traslapes verificados.");
   await assert.rejects(run(f.outsider),{message:"FORBIDDEN"});
+  await assert.rejects(db.$transaction(async tx=>{
+   await tx.$queryRaw`SELECT set_config('app.user_id',${f.actor},true),set_config('app.reason','Prueba de ámbito de programación',true)`;
+   const assignment=await tx.user_roles.findFirstOrThrow({where:{user_id:f.actor},select:{role_id:true}});
+   const league=await tx.leagues.create({data:{name:"Liga ajena sintética"}});
+   await tx.user_roles.create({data:{user_id:f.outsider,role_id:assignment.role_id,league_id:league.id}});
+   await assert.rejects(generateScheduleInTransaction(tx,f.outsider,{...input,operationId:randomUUID()}),{message:"FORBIDDEN"});
+   assert.equal(await tx.schedule_proposals.count(),0);
+   throw rollback;
+  },{timeout:30000}),error=>error===rollback);
+  t.diagnostic("Acceso denegado sin permiso y con permiso de otra liga.");
   const start=performance.now();
   const first=await run();
   const elapsed=performance.now()-start;
@@ -45,6 +166,29 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
   assert.ok(raced.every(result=>result.ok));
   assert.equal(raced.filter(result=>result.ok&&result.replayed).length,1);
   assert.equal(await db.schedule_proposals.count(),2);
+  const secondGrant=await db.$transaction(async tx=>{
+   await tx.$queryRaw`SELECT set_config('app.user_id',${f.actor},true),set_config('app.reason','Segundo programador sintético',true)`;
+   const assignment=await tx.user_roles.findFirstOrThrow({where:{user_id:f.actor},select:{role_id:true,league_id:true}});
+   return tx.user_roles.create({data:{user_id:f.outsider,role_id:assignment.role_id,league_id:assignment.league_id},select:{id:true}});
+  });
+  try {
+   const concurrentInputs=[{...input,operationId:randomUUID()},{...input,operationId:randomUUID()}];
+   const independent=await Promise.all([generateScheduleForActor(f.actor,concurrentInputs[0]),generateScheduleForActor(f.outsider,concurrentInputs[1])]);
+   assert.ok(independent.every(result=>result.ok&&!result.replayed));
+   assert.equal(await db.schedule_proposals.count({where:{id:{in:concurrentInputs.map(value=>value.operationId)}}}),2);
+   const shared={...input,operationId:randomUUID()};
+   const collision=await Promise.allSettled([generateScheduleForActor(f.actor,shared),generateScheduleForActor(f.outsider,shared)]);
+   assert.equal(collision.filter(result=>result.status==="fulfilled"&&result.value.ok).length,1);
+   assert.equal(collision.filter(result=>result.status==="rejected"&&result.reason?.message==="OPERATION_KEY_REUSED").length,1);
+   assert.equal(await db.schedule_proposals.count({where:{id:shared.operationId}}),1);
+   t.diagnostic("Dos programadores: solicitudes distintas guardan dos propuestas; una clave compartida no permite recuperar la operación ajena.");
+  } finally {
+   await db.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT set_config('app.user_id',${f.actor},true),set_config('app.reason','Retirar permiso sintético',true)`;
+    await tx.user_roles.delete({where:{id:secondGrant.id}});
+   });
+  }
+  assert.equal(await db.schedule_proposals.count(),5);
   const previewRole=process.env.SCHEDULING_TEST_ROLE;
   assert.match(previewRole??'',/^pdgld135_role_[a-f0-9]+$/);
   await db.$transaction(async tx=>{
@@ -54,14 +198,19 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
     const receipt=await generateScheduleInTransaction(tx,f.actor,{...input,operationId:saved.ok?saved.proposalId:input.operationId});
     assert.equal(receipt.ok&&receipt.replayed,true);
   },{timeout:30000});
-  assert.equal(await db.schedule_proposals.count(),3);
+  assert.equal(await db.schedule_proposals.count(),6);
   await assert.rejects(run(f.actor,{...input,operationId:randomUUID(),expectedSeasonVersion:999}),{message:"STALE_CONFIGURATION"});
   await verifySchedulingLoans(f);
   t.diagnostic('Prestamos reales pendientes/rechazados excluidos; aprobados generan 190 partidos en canchas compartidas.');
   await db.venue_availability.deleteMany();
   const impossible=await run(f.actor,{...input,operationId:randomUUID()});
   assert.equal(impossible.ok,false);
-  if(!impossible.ok) assert.equal(impossible.code,"NO_AVAILABLE_SLOT");
-  assert.equal(await db.schedule_proposals.count(),4);
+  if(!impossible.ok) {
+    assert.equal(impossible.code,"NO_AVAILABLE_SLOT");
+    assert.equal(impossible.conflicts.length,190);
+    assert.ok(impossible.conflicts.every(match=>match.round && match.home && match.away));
+    assert.ok(impossible.conflicts.every(match=>"factors" in match && Array.isArray(match.factors) && match.factors.includes("NO_OPENING")));
+  }
+  assert.equal(await db.schedule_proposals.count(),7);
  } finally { await db.$disconnect(); }
 });

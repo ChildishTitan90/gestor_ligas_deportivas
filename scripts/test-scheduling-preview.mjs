@@ -49,8 +49,12 @@ try {
     LOOP EXECUTE format('ALTER TABLE sports_management.%I ENABLE ROW LEVEL SECURITY',t.tablename); END LOOP; END $$`);
   await provisionPreviewRuntime(client);
   await client.query(`ALTER ROLE gestor_ligas_preview LOGIN PASSWORD '${password}'`);
-  const child = spawnSync(process.execPath, ["--conditions=react-server", "--import", "tsx", "--test", "tests/integration/scheduling-preview.test.ts"], {
-    env: { ...env, DATABASE_URL: runtimeUrl, SCHEDULING_PREVIEW_FIXTURE: JSON.stringify(fixture) },
+  const browser = process.argv.includes("--browser");
+  const args = browser ? ["tests/e2e/scheduling-navigation.mjs"]
+    : ["--conditions=react-server", "--import", "tsx", "--test", "tests/integration/scheduling-preview.test.ts"];
+  const child = spawnSync(process.execPath, args, {
+    env: browser ? { ...env, SCHEDULING_PREVIEW_RUNTIME_URL: runtimeUrl }
+      : { ...env, DATABASE_URL: runtimeUrl, SCHEDULING_PREVIEW_FIXTURE: JSON.stringify(fixture) },
     encoding: "utf8", windowsHide: true,
   });
   process.stdout.write((child.stdout + child.stderr).replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, "[conexión omitida]"));

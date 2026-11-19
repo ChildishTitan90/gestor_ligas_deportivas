@@ -9,7 +9,8 @@ import { launchChrome } from './chrome-session.mjs';
 
 const target = new URL(process.env.DATABASE_URL);
 assert.ok(['localhost','127.0.0.1','[::1]'].includes(target.hostname));
-assert.match(target.pathname, /^\/pdgld135_test_[a-f0-9]{16}$/);
+assert.match(target.pathname, process.env.SCHEDULING_PREVIEW_RUNTIME_URL
+  ? /^\/pdgld48_test_[a-f0-9]{16}$/ : /^\/pdgld135_test_[a-f0-9]{16}$/);
 const db = new pg.Client({connectionString: target.href});
 const listener = createServer();
 await new Promise(resolve => listener.listen(0,'127.0.0.1',resolve));
@@ -22,6 +23,18 @@ try {
   await db.connect();
   await db.query("SELECT set_config('app.user_id',actor::text,false),set_config('app.reason','Recorrido sintético de calendario',false) FROM public.scheduling_fixture");
   await db.query("UPDATE sports_management.users SET password_hash=$1 WHERE username IN ('scheduler','outsider')",[await argon2.hash(password)]);
+  await db.query(`
+    INSERT INTO sports_management.permissions(module,action)
+      VALUES ('competitions','READ'),('competitions','CREATE'),('competitions','UPDATE'),('competitions','APPROVE')
+      ON CONFLICT DO NOTHING;
+    INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
+      SELECT ur.role_id,p.id,true FROM public.scheduling_fixture f
+      JOIN sports_management.user_roles ur ON ur.user_id=f.actor
+      CROSS JOIN sports_management.permissions p
+      WHERE p.module='competitions' AND p.action IN ('READ','CREATE','UPDATE','APPROVE')
+      ON CONFLICT DO NOTHING;
+  `);
+  const fixture = (await db.query('SELECT * FROM public.scheduling_fixture')).rows[0];
   await db.query("UPDATE sports_management.season_teams SET status='WITHDRAWN' WHERE id=(SELECT id FROM sports_management.season_teams ORDER BY id LIMIT 1)");
   // Las canchas pertenecen a otro club y cada equipo cuenta con préstamos sintéticos aprobados.
   await db.query(`
@@ -39,7 +52,7 @@ try {
       WHERE fi.storage_key='synthetic-browser-letter';
   `);
   const launchApp = () => spawn(process.execPath,['node_modules/next/dist/bin/next','dev','--hostname','127.0.0.1','--port',String(port)],{
-    env:{...process.env, AUTH_TEST_RUN:'1',NEXTAUTH_URL:origin,NEXTAUTH_SECRET:randomBytes(32).toString('hex'),NEXT_TELEMETRY_DISABLED:'1'},
+    env:{...process.env, DATABASE_URL:process.env.SCHEDULING_PREVIEW_RUNTIME_URL ?? process.env.DATABASE_URL, AUTH_TEST_RUN:'1',NEXTAUTH_URL:origin,NEXTAUTH_SECRET:randomBytes(32).toString('hex'),NEXT_TELEMETRY_DISABLED:'1'},
     stdio:['ignore','pipe','pipe'],windowsHide:true,detached:process.platform!=='win32'});
   let startup='';
   const capture = chunk => { startup=(startup+chunk.toString()).slice(-2000); };
@@ -77,6 +90,106 @@ try {
   await login('outsider@example.test');
   assert.equal(await run(s=>!!document.querySelector(s),link),false);
   await login('scheduler@example.test');
+  const configUrl = origin+'/competitions/seasons/'+fixture.season;
+  const oldRule=(await db.query("SELECT competition_rule_id FROM sports_management.season_categories WHERE id=$1",[fixture.category])).rows[0].competition_rule_id;
+  const invalidVenue = await run(async (season,actor) => {
+    const response=await fetch('/api/competitions/seasons/'+season+'/configuration',{
+      method:'POST',headers:{'Content-Type':'application/json','X-Expected-Actor-Id':actor},
+      body:JSON.stringify({expectedSeasonVersion:1,reason:'Prueba de cancha ajena',announcement:'Reglamento sintético',
+        points:{win:3,draw:1,loss:0},tieBreakers:['GOAL_DIFFERENCE'],
+        calendar:{rounds:1,matchDurationMinutes:90,scheduling:{slotStepMinutes:30,venueStages:[
+          {fromRound:1,toRound:19,venueIds:[crypto.randomUUID()]},
+        ]}}}),
+    });
+    return {status:response.status,body:await response.json()};
+  },fixture.season,fixture.actor);
+  assert.equal(invalidVenue.status,400);
+  assert.equal(invalidVenue.body.code,'INVALID_SCHEDULING_VENUES');
+  assert.equal((await db.query('SELECT count(*) FROM sports_management.competition_rules WHERE season_id=$1',[fixture.season])).rows[0].count,'1');
+  const clickText = label => run(label => {
+    const button=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===label && b.offsetParent!==null);
+    if(!button) throw Error('No se encontró '+label);
+    button.click();
+  },label);
+  const fill = (selector,value) => run((selector,value) => {
+    const input=document.querySelector(selector);
+    if(!input) throw Error('No se encontró el campo');
+    const proto=input.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto,'value').set.call(input,value);
+    input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));
+  },selector,value);
+  const choose = async(selector,label) => {
+    await run(selector=>document.querySelector(selector).click(),selector);
+    await wait("document.querySelector('[role=option]')",'Opciones del selector');
+    await run(label=>{const option=[...document.querySelectorAll('[role=option]')].find(item=>item.textContent.includes(label));if(!option)throw Error('Opción no encontrada');option.click();},label);
+  };
+  const openConfig = async() => {
+    await browser.command('Page.navigate',{url:configUrl});
+    await wait("[...document.querySelectorAll('button')].some(b=>b.textContent.includes('Modificar reglas') && Object.keys(b).some(k=>k.startsWith('__reactProps$')))",'Configuración de temporada');
+  };
+  await openConfig();
+  await clickText('Modificar reglas · nueva versión');
+  await wait("document.querySelector('dialog[open] [data-scheduling-policy]')",'Formulario de reglas');
+  for(const [name,value] of [['announcement','Reglamento sintético'],['win','3'],['draw','1'],['loss','0'],['rounds','1'],['matchDurationMinutes','90']])
+    await fill('dialog[open] [name="'+name+'"]',value);
+  await choose('dialog[open] #tie-breaker-0','Diferencia de goles');
+  await fill('dialog[open] [data-scheduling-policy] input[type=number]','30');
+  await clickText('Agregar tramo de canchas');
+  await fill('dialog[open] [data-scheduling-policy] section input[type=number]:nth-of-type(1)','1');
+  await fill('dialog[open] [data-scheduling-policy] section label:nth-of-type(2) input','19');
+  for(let i=0;i<4;i++) {
+    await choose('dialog[open] [data-scheduling-policy] [role=combobox]','Cancha sintetica');
+    await wait("document.querySelectorAll('dialog[open] [data-scheduling-policy] li').length==="+(i+1),'Cancha agregada');
+  }
+  await fill('dialog[open] [name=reason]','Reglamento para programación sintética');
+  await run(()=>document.querySelector('dialog[open] form').requestSubmit());
+  await wait("document.querySelector('dialog[open] [role=status]')?.textContent.includes('Cambio confirmado')",'Reglas guardadas');
+  const rule=(await db.query("SELECT id FROM sports_management.competition_rules WHERE season_id=$1 ORDER BY version_number DESC LIMIT 1",[fixture.season])).rows[0].id;
+  const savedPolicy=(await db.query("SELECT parameter_value FROM sports_management.competition_rule_parameters WHERE competition_rule_id=$1 AND parameter_key='calendar'",[rule])).rows[0].parameter_value;
+  assert.equal(savedPolicy.scheduling.slotStepMinutes,30);
+  assert.equal(savedPolicy.scheduling.venueStages[0].venueIds.length,4);
+  assert.equal(savedPolicy.scheduling.venueStages[0].fromRound,1);
+  assert.equal(savedPolicy.scheduling.venueStages[0].toRound,19);
+  await openConfig();
+  await clickText('Aprobar reglamento versión 2');
+  await wait("document.querySelector('dialog[open] [name=confirm]')",'Aprobación de reglas');
+  await fill('dialog[open] [name=confirm]','APROBAR');
+  await fill('dialog[open] [name=reason]','Aprobación de prueba');
+  await run(()=>document.querySelector('dialog[open] form').requestSubmit());
+  await wait("document.querySelector('dialog[open] [role=status]')?.textContent.includes('Cambio confirmado')",'Reglas aprobadas');
+  const versionAfterApproval=(await db.query("SELECT version FROM sports_management.seasons WHERE id=$1",[fixture.season])).rows[0].version;
+  const unsafeChange=await run(async (season,category,actor,version) => {
+    const headers={'Content-Type':'application/json','X-Expected-Actor-Id':actor};
+    const base='/api/competitions/seasons/'+season;
+    const created=await fetch(base+'/configuration',{method:'POST',headers,body:JSON.stringify({
+      expectedSeasonVersion:version,reason:'Prueba de protección de reglamento',announcement:'Reglamento sintético',
+      points:{win:4,draw:1,loss:0},tieBreakers:['GOAL_DIFFERENCE'],
+      calendar:{rounds:1,matchDurationMinutes:90,scheduling:{slotStepMinutes:30,venueStages:[]}},
+    })});
+    const draft=await created.json();
+    if(!created.ok) return {step:'create',status:created.status};
+    const approved=await fetch(base+'/configuration/'+draft.id+'/approve',{method:'POST',headers,
+      body:JSON.stringify({expectedSeasonVersion:draft.seasonVersion,reason:'Prueba sintética',confirm:'APROBAR'})});
+    const approval=await approved.json();
+    if(!approved.ok) return {step:'approve',status:approved.status};
+    const response=await fetch(base+'/categories/'+category,{method:'PATCH',headers,
+      body:JSON.stringify({expectedSeasonVersion:approval.seasonVersion,reason:'No alterar puntos',ruleId:draft.id,type:'OPEN',hierarchyOrder:1})});
+    return {step:'edit',status:response.status,body:await response.json()};
+  },fixture.season,fixture.category,fixture.actor,versionAfterApproval);
+  assert.equal(unsafeChange.step,'edit');
+  assert.equal(unsafeChange.status,409);
+  assert.equal(unsafeChange.body.code,'CATEGORY_IN_USE');
+  assert.equal((await db.query("SELECT competition_rule_id FROM sports_management.season_categories WHERE id=$1",[fixture.category])).rows[0].competition_rule_id,oldRule);
+  await openConfig();
+  await clickText('Editar categoría Abierta');
+  await wait("document.querySelector('dialog[open] [name=ruleId]')",'Edición de categoría');
+  await choose('dialog[open] [role=combobox]','Versión 2');
+  await fill('dialog[open] [name=reason]','Usar la versión aprobada');
+  await run(()=>document.querySelector('dialog[open] form').requestSubmit());
+  await wait("document.querySelector('dialog[open] [role=status]')?.textContent.includes('Cambio confirmado')",'Reglas asociadas');
+  assert.equal((await db.query("SELECT competition_rule_id FROM sports_management.season_categories WHERE id=$1",[fixture.category])).rows[0].competition_rule_id,rule);
+  await browser.command('Page.navigate',{url:origin+'/access'});
+  await wait("location.pathname==='/access' && document.querySelector('nav')",'Panel después de configurar');
   await wait('document.querySelector('+JSON.stringify(link)+') !== null','Enlace Generar calendario');
   await run(s=>document.querySelector(s).click(),link);
   await wait("location.pathname==='/competitions/scheduling' && document.querySelector('#schedule-season')",'Pantalla de programación');
@@ -108,8 +221,9 @@ try {
   await wait("document.querySelector('dialog[open] [role=alert]')",'Respuesta incierta');
   const savedOperation = await browser.evaluate(`new Promise((resolve,reject)=>{const open=indexedDB.open('schedule-generation-submissions',1);open.onerror=()=>reject(open.error);open.onsuccess=()=>{const db=open.result;const tx=db.transaction('pending','readonly');const request=tx.objectStore('pending').getAll();request.onsuccess=()=>resolve(request.result[0].operationId);tx.oncomplete=()=>db.close();};})`);
   assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'1');
+  await browser.evaluate('window.__beforeScheduleReload = true');
   await browser.command('Page.reload');
-  await wait("[...document.querySelectorAll('button')].some(b=>b.textContent==='Recuperar propuesta pendiente'&&!b.disabled)",'Recuperación tras recarga');
+  await wait("!window.__beforeScheduleReload && [...document.querySelectorAll('button')].some(b=>b.textContent==='Recuperar propuesta pendiente'&&!b.disabled)",'Recuperación tras recarga');
   assert.ok(await browser.evaluate("document.querySelector('#schedule-season').disabled && document.querySelector('#schedule-group').disabled"));
   const restoredOperation = await browser.evaluate(`new Promise((resolve,reject)=>{const open=indexedDB.open('schedule-generation-submissions',1);open.onerror=()=>reject(open.error);open.onsuccess=()=>{const db=open.result;const tx=db.transaction('pending','readonly');const request=tx.objectStore('pending').getAll();request.onsuccess=()=>resolve(request.result[0].operationId);tx.oncomplete=()=>db.close();};})`);
   assert.equal(restoredOperation,savedOperation);
@@ -139,14 +253,51 @@ try {
   const restored = await browser.evaluate("document.querySelector('details[open]').innerText");
   for (const label of ['Local','Visitante','Cancha sintetica','Fecha y horario','Descansa']) assert.ok(restored.includes(label),label);
   assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'1');
+  const currentVersion = (await db.query("SELECT version FROM sports_management.seasons WHERE id=$1",[fixture.season])).rows[0].version;
+  const blockedEdit = await run(async (season,category,actor,version,oldRule) => {
+    const response=await fetch('/api/competitions/seasons/'+season+'/categories/'+category,{
+      method:'PATCH',headers:{'Content-Type':'application/json','X-Expected-Actor-Id':actor},
+      body:JSON.stringify({expectedSeasonVersion:version,reason:'Prueba de protección de propuesta',
+        ruleId:oldRule,type:'OPEN',hierarchyOrder:1}),
+    });
+    return {status:response.status,body:await response.json()};
+  },fixture.season,fixture.category,fixture.actor,currentVersion,oldRule);
+  assert.equal(blockedEdit.status,409);
+  assert.equal(blockedEdit.body.code,'CATEGORY_IN_USE');
+  assert.equal((await db.query("SELECT competition_rule_id FROM sports_management.season_categories WHERE id=$1",[fixture.category])).rows[0].competition_rule_id,rule);
   await db.query('DELETE FROM sports_management.venue_availability');
   await clickButton('Generar propuesta');
   await wait("document.querySelector('dialog[open] textarea')",'Segunda solicitud');
   await browser.evaluate("(()=>{const el=document.querySelector('dialog[open] textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,'Grupo sin horarios');el.dispatchEvent(new Event('input',{bubbles:true}));})()");
   await clickButton('Generar');
-  await wait("document.querySelector('summary')?.textContent.startsWith('Ver encuentros afectados')",'Conflictos de disponibilidad');
+  await wait("document.querySelector('summary')?.textContent.startsWith('Ver encuentros sin horario viable')",'Conflictos de disponibilidad');
+  assert.match(await browser.evaluate("document.querySelector('[role=alert]')?.innerText ?? ''"),/Revisa la disponibilidad y los bloqueos/);
   await browser.evaluate("document.querySelector('summary').click()");
   assert.match(await browser.evaluate("document.querySelector('details[open] li').innerText"),/Jornada 1.*Local: Equipo.*Visitante: Equipo/);
+  assert.match(await browser.evaluate("document.querySelector('details[open]').innerText"),/No se encontró una apertura con tiempo suficiente/);
+  assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'1');
+  // Respuestas simuladas para verificar cómo se explican los otros resultados.
+  for (const [code,message] of [['NO_SOLUTION','no se pudo acomodar'],['SEARCH_LIMIT','no significa que sea imposible']]) {
+    await run(code=>{
+      const original=window.fetch.bind(window);
+      window.fetch=async (url,init)=>{
+        if(url==='/api/scheduling/generate') {
+          window.fetch=original;
+          return Response.json({ok:false,code,conflicts:[{round:1,home:'synthetic-home',away:'synthetic-away'}]});
+        }
+        return original(url,init);
+      };
+    },code);
+    await clickButton('Generar propuesta');
+    await wait("document.querySelector('dialog[open] textarea')",'Solicitud para '+code);
+    await browser.evaluate("(()=>{const el=document.querySelector('dialog[open] textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,'Prueba de mensaje');el.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await clickButton('Generar');
+    await wait("document.querySelector('summary')?.textContent.startsWith('Ver encuentros considerados')",'Encuentros considerados para '+code);
+    await wait("document.querySelector('[role=alert]')?.innerText.includes("+JSON.stringify(code==='NO_SOLUTION'?'No se encontró una combinación para acomodar el calendario completo':message)+")",'Mensaje para '+code);
+    const alert=await browser.evaluate("document.querySelector('[role=alert]')?.innerText ?? ''");
+    if(code==='NO_SOLUTION') assert.match(alert,/No se encontró una combinación para acomodar el calendario completo/);
+    else assert.ok(alert.includes(message));
+  }
   assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'1');
   console.log('Chrome: propuesta con canchas compartidas aprobadas, recuperación sin duplicado y conflictos verificados.');
 } finally {

@@ -96,11 +96,13 @@ export async function generateScheduleInTransaction(tx:Prisma.TransactionClient,
     const roundsAfterThis=seasonDays.filter(candidate=>candidate.number>day.number).length;
     const complexOnly=roundsAfterThis<(config.data.complexOnlyFinalRounds ?? 0);
     const slots:Slot[]=[];
+    const factors=new Set<string>();
+    let sawTimeCandidate=false;
     const home=teams.find(t=>t.id===pairing.home)!;
     for(const venue of venues) {
-      if(stage&&!stage.venueIds.includes(venue.id)) continue;
-      if(complexOnly&&!venue.is_league_sports_complex) continue;
-      if(venue.match_duration_minutes!==config.data.matchDurationMinutes) continue;
+      if(stage&&!stage.venueIds.includes(venue.id)) { factors.add("VENUE_STAGE"); continue; }
+      if(complexOnly&&!venue.is_league_sports_complex) { factors.add("FINAL_ROUNDS"); continue; }
+      if(venue.match_duration_minutes!==config.data.matchDurationMinutes) { factors.add("DURATION"); continue; }
       const homeLoans=loans.filter(loan=>loan.venueId===venue.id&&loan.clubId===home.club_id);
       const fixedStarts:number[]=homeLoans.flatMap(loan=>loan.windows.map(w=>w.start));
       for(const assignment of venue.home_venue_assignments.filter(a=>a.season_team_id===pairing.home)) {
@@ -120,25 +122,33 @@ export async function generateScheduleInTransaction(tx:Prisma.TransactionClient,
           if(++candidates>200000) throw new SchedulingError("CANDIDATE_LIMIT");
           const end=start+venue.match_duration_minutes*60000,reservedUntil=end+venue.buffer_minutes*60000;
           if(reservedUntil>+opening.ends_at) continue;
-          if(participationBlocked(sanctions,[pairing.home,pairing.away],start,end)) continue;
           const local=venueLocalTime(new Date(start),season.leagues.timezone), date=local.slice(0,10);
           const finalDate=venueLocalTime(new Date(reservedUntil-1),season.leagues.timezone).slice(0,10);
           if(date<dateOnly(day.start_date)||finalDate>dateOnly(day.end_date)||date<dateOnly(season.start_date)||finalDate>dateOnly(season.end_date)) continue;
-          if(breaks.some(b=>date<=dateOnly(b.ends_at)&&finalDate>=dateOnly(b.starts_at))) continue;
-          if(venue.venue_availability.some(a=>a.type!=="AVAILABLE"&&overlaps(start,reservedUntil,+a.starts_at,+a.ends_at))) continue;
+          sawTimeCandidate=true;
+          if(participationBlocked(sanctions,[pairing.home,pairing.away],start,end)) { factors.add("SANCTION"); continue; }
+          if(breaks.some(b=>date<=dateOnly(b.ends_at)&&finalDate>=dateOnly(b.starts_at))) { factors.add("SEASON_BREAK"); continue; }
+          if(venue.venue_availability.some(a=>a.type!=="AVAILABLE"&&overlaps(start,reservedUntil,+a.starts_at,+a.ends_at))) { factors.add("VENUE_BLOCK"); continue; }
           const authorizedHome=authorizedHomeAssignment(venue.home_venue_assignments,{
             teamId:home.id,clubId:home.club_id,seasonId:season.id,venueId:venue.id,localStart:local,
             localEnd:venueLocalTime(new Date(reservedUntil-1),season.leagues.timezone)});
           const approvedWindow=homeLoans.some(loan=>fitsLoanWindow(loan.windows,start,reservedUntil));
-          if(!venue.is_league_sports_complex&&!approvedWindow) continue;
+          if(!venue.is_league_sports_complex&&!approvedWindow) { factors.add("LOAN_WINDOW"); continue; }
           slots.push({venueId:venue.id,start,end,reservedUntil,preference:authorizedHome?0:1});
         }
       }
     }
-    return {pairing,slots};
+    if(!sawTimeCandidate) factors.add("NO_OPENING");
+    return {pairing,slots,factors:[...factors]};
   });
   const result=assignSlots(jobs,busy);
-  if(!result.ok) return result;
+  if(!result.ok) {
+    if(result.code!=="NO_AVAILABLE_SLOT") return result;
+    return {...result, conflicts:result.conflicts.map(pairing=>{
+      const job=jobs.find(j=>j.pairing.round===pairing.round&&j.pairing.home===pairing.home&&j.pairing.away===pairing.away)!;
+      return {...pairing, factors:job.slots.length ? ["OCCUPIED"] : job.factors};
+    })};
+  }
   const usedVenueIds = new Set(result.matches.map(match => match.venueId));
   const proposal={formatVersion:1,requestHash:hash,groupId:group.id,categoryId:category.id,seasonVersion:season.version,
     timezone: season.leagues.timezone,
