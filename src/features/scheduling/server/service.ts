@@ -29,7 +29,7 @@ export async function generateScheduleForActor(actorId:string,input:unknown) {
   for(let attempt=0;attempt<3;attempt++) {
     try {
       return await getPrisma().$transaction(tx=>generateScheduleInTransaction(tx,actorId,input),
-        {isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:30000});
+        {isolationLevel:Prisma.TransactionIsolationLevel.Serializable,maxWait:10000,timeout:30000});
     } catch(error) {
       if(!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code!=="P2034") throw error;
       if(attempt===2) throw new SchedulingError("CONCURRENT_CONFIGURATION_CHANGE");
@@ -121,7 +121,7 @@ function validateSchedule(context:ScheduleContext,matches:EditedMatch[]) {
  * Solo servidor. Debe llamarse dentro de la misma transacción SERIALIZABLE que
  * comprueba la versión de edición y guarda el ajuste. No escribe por sí sola.
  */
-export async function validateScheduleProposalInTransaction(tx:Prisma.TransactionClient,actorId:string,raw:unknown) {
+export async function validateScheduleProposalInTransaction(tx:Prisma.TransactionClient,actorId:string,raw:unknown,action:"UPDATE"|"APPROVE"="UPDATE") {
   const parsed=validationSchema.safeParse(raw);
   if(!parsed.success) throw new SchedulingError("INVALID_INPUT",400);
   const input=parsed.data;
@@ -131,7 +131,7 @@ export async function validateScheduleProposalInTransaction(tx:Prisma.Transactio
   const lookup=await tx.schedule_proposals.findUnique({where:{id:input.proposalId},select:{season_id:true}});
   if(!lookup) throw new AuthorizationError();
   await tx.$queryRaw`SELECT id FROM sports_management.seasons WHERE id=${lookup.season_id}::uuid FOR UPDATE`;
-  const grants=await assertPermission(tx,actorId,{module:"scheduling",action:"UPDATE",context:{seasonId:lookup.season_id}});
+  const grants=await assertPermission(tx,actorId,{module:"scheduling",action,context:{seasonId:lookup.season_id}});
   if(!grants.some(grant=>!grant.clubId)) throw new AuthorizationError();
   await tx.$queryRaw`SELECT id FROM sports_management.schedule_proposals WHERE id=${input.proposalId}::uuid FOR UPDATE`;
   const stored=await tx.schedule_proposals.findUniqueOrThrow({where:{id:input.proposalId},select:{season_id:true,parameters:true}});

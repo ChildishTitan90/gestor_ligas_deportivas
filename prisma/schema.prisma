@@ -1742,6 +1742,8 @@ model schedule_proposals {
   competition_rule_id String            @db.Uuid
   parameters          Json              @default("{}")
   conflicts           Json              @default("[]")
+  status              String            @default("DRAFT")
+  version             Int               @default(1)
   created_at          DateTime          @default(now()) @db.Timestamptz(6)
   matches             matches[]
   competition_rules   competition_rules @relation(fields: [competition_rule_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)

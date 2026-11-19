@@ -7,7 +7,7 @@ import { runtimePrivileges, schedulingLoanWindowColumns } from './preview/runtim
 
 dotenv.config({ quiet: true });
 const target = new URL(process.env.DIRECT_URL ?? '');
-if (!['localhost','127.0.0.1','[::1]'].includes(target.hostname) || !['5432','5433'].includes(target.port || '5432'))
+if (!['localhost','127.0.0.1','[::1]'].includes(target.hostname) || !['5432','5433','55425'].includes(target.port || '5432'))
   throw new Error('Solo se admite PostgreSQL local para esta prueba.');
 target.search = ''; target.pathname = '/postgres';
 const name = `pdgld135_test_${randomBytes(8).toString('hex')}`;

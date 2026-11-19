@@ -1,5 +1,8 @@
 import { listSavedScheduleProposals } from "../../src/features/scheduling/server/saved-proposals";
 import { verifySchedulingLoans } from "./scheduling-loans";
+import { verifySharedProposalEditing } from "./scheduling-adjustment-shared";
+import { editStoredProposalInTransaction } from "../../src/features/scheduling/server/stored-proposal-edit";
+import { storedProposalSchema } from "../../src/features/scheduling/stored-proposal";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -144,6 +147,8 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
   t.diagnostic(`Servicio completo, 20 equipos/19 jornadas/190 partidos/4 canchas: ${elapsed.toFixed(1)} ms.`);
   assert.ok(elapsed<30000);
   assert.equal(first.ok,true);
+  await verifySharedProposalEditing(f);
+  t.diagnostic("PDGLD-25: generar, recuperar, ajustar, revalidar, enviar; bloqueo, respuesta perdida y concurrencia reales verificados.");
   const stored=await db.schedule_proposals.findUniqueOrThrow({where:{id:input.operationId}});
   assert.equal((stored.parameters as {matches:unknown[]}).matches.length,190);
   const generated=(stored.parameters as {matches:{round:number;matchdayId:string;home:string;away:string;venueId:string;start:string}[]}).matches;
@@ -233,9 +238,18 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
     await tx.$executeRawUnsafe(`SET LOCAL ROLE "${previewRole}"`);
     const saved=await generateScheduleInTransaction(tx,f.actor,{...input,operationId:randomUUID()});
     assert.equal(saved.ok,true);
+    assert.ok(saved.ok);
+    const complete=storedProposalSchema.parse(saved.proposal);
+    const firstMatch=complete.matches[0];
+    const adjusted=await editStoredProposalInTransaction(tx,f.actor,{
+      proposalId:saved.proposalId,expectedVersion:1,encounterIndex:0,
+      venueId:firstMatch.venueId,startsAt:firstMatch.start,swapHomeAway:true,
+      reason:"Ajuste con rol SQL limitado",
+    });
+    assert.equal(adjusted.code,"ADJUSTMENT_SAVED");
     const receipt=await generateScheduleInTransaction(tx,f.actor,{...input,operationId:saved.ok?saved.proposalId:input.operationId});
     assert.equal(receipt.ok&&receipt.replayed,true);
-  },{timeout:30000});
+  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:30000});
   assert.equal(await db.schedule_proposals.count(),6);
   await assert.rejects(run(f.actor,{...input,operationId:randomUUID(),expectedSeasonVersion:999}),{message:"STALE_CONFIGURATION"});
   await verifySchedulingLoans(f);

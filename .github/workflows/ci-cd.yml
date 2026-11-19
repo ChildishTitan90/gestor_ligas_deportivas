@@ -51,7 +51,7 @@ jobs:
       - name: Probar los controles del pipeline
         run: npm run test:ci && npm run test:database-config && npm run test:account-form && npm run test:account-maintenance && npm run test:email-transport && npm run test:password-recovery && npm run test:account-maintenance-ui && npm run test:email-confirmation && npm run test:affiliation-input && npm run test:affiliation-review && npm run test:club-maintenance-input
       - name: Probar horarios de canchas y zonas horarias (PDGLD-22)
-        run: node --import tsx --test src/features/venues/time.test.ts src/features/venues/home-venue.test.ts
+        run: node --import tsx --test src/features/venues/time.test.ts src/features/venues/home-venue.test.ts src/features/scheduling/stored-proposal.test.ts
       - name: Probar generación de calendario y restricciones (PDGLD-135)
         run: npm run test:scheduling
       - name: Probar interfaz de inscripción y actividad de sesión sin base
@@ -63,6 +63,10 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Probar controles de competencias en Chrome con datos sintéticos
         run: npm run test:competition-ui
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - name: Probar ajustes y revisión de propuestas en Chrome (PDGLD-139)
+        run: node --test tests/e2e/scheduling-proposals.test.mjs
         env:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Probar firmas de afiliación
@@ -168,6 +172,8 @@ jobs:
           node --conditions=react-server --import tsx --test tests/integration/league-governance.test.ts
       - name: Probar préstamos privados, decisiones y localías (PDGLD-23)
         run: node --conditions=react-server --import tsx --test tests/integration/venue-loans.test.ts
+      - name: Probar ajuste de borrador, auditoría y concurrencia (PDGLD-138)
+        run: node --conditions=react-server --import tsx --test tests/integration/schedule-adjustment.test.ts
 
   refereeing:
     name: Arbitraje real PostgreSQL ${{ matrix.postgres }}

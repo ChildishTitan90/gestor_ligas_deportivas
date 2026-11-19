@@ -102,3 +102,13 @@ sustituye la versión de edición. La validación no reserva canchas; las operac
 que confirmen partidos deben volver a revalidar y coordinar reservas de recursos.
 La integración real con PDGLD-25, sus controles de concurrencia y la revisión
 del PR siguen pendientes; esta interfaz todavía puede necesitar ajustes conjuntos.
+
+### Adaptación en PDGLD-25
+
+El cuarto argumento opcional de `validateScheduleProposalInTransaction` es
+`action: "UPDATE" | "APPROVE"`, con valor predeterminado `UPDATE`. Se decide
+exclusivamente en servidor: edición y envío usan UPDATE, aprobación usa APPROVE.
+Así Presidencia puede revalidar al aprobar sin recibir permiso de edición.
+El navegador no puede elegir este argumento. Ambas acciones aplican exactamente
+las mismas restricciones y exigen ámbito de liga sin concesiones de club.
+El adaptador y las pruebas están en `docs/architecture/scheduling-proposal-integration.md`.
