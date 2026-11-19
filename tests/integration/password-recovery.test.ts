@@ -125,3 +125,66 @@ test("PDGLD-32: rechazo confirmado permite nueva solicitud; incertidumbre conser
     await db.end();
   }
 });
+
+test("PDGLD-32: cuotas públicas compartidas, concurrencia y contrato sin enumeración", async () => {
+  const {consumeRecoveryBudget}=await import("../../src/server/auth/recovery-abuse");
+  const {recoveryPolicy}=await import("../../src/server/auth/password-recovery");
+  const {handleRecoveryRequest,handleRecoveryCompletion}=await import("../../src/server/auth/recovery-handlers");
+  const db=new pg.Client({connectionString:admin.href});await db.connect();
+  try {
+    const env={...process.env,PASSWORD_RECOVERY_ENABLED:"true",PASSWORD_RECOVERY_TTL_MINUTES:"15",PASSWORD_RECOVERY_MAX_PER_HOUR:"2",
+      PASSWORD_RECOVERY_RATE_WINDOW_SECONDS:"60",PASSWORD_RECOVERY_REQUESTS_PER_IP:"3",PASSWORD_RECOVERY_COMPLETIONS_PER_IP:"3",
+      PASSWORD_RECOVERY_REQUESTS_GLOBAL:"30",PASSWORD_RECOVERY_COMPLETIONS_GLOBAL:"30",PASSWORD_RECOVERY_CLIENT_IP_MODE:"local",
+      NODE_ENV:"development",PASSWORD_RECOVERY_RATE_SECRET:"synthetic-public-budget-secret-not-for-production"};
+    const policy=recoveryPolicy(env);assert.ok(policy);
+    const clear=()=>db.query("DELETE FROM sports_management.password_recovery_budgets");
+    await clear();
+    const races=await Promise.all(Array.from({length:12},()=>consumeRecoveryBudget("request","synthetic-client","unknown@example.test",policy.abuse,2)));
+    assert.equal(races.filter(Boolean).length,2,"Límite compartido y atómico aun con llamadas concurrentes");
+    assert.equal(await consumeRecoveryBudget("request","another-client","unknown@example.test",policy.abuse,2),false,"Cambiar IP no evita la cuota por destinatario");
+    await clear();
+    const global={...policy.abuse,requestGlobal:4,requestIp:3};
+    const distributed=await Promise.all(Array.from({length:10},(_,i)=>consumeRecoveryBudget("request",`client-${i}`,`unknown-${i}@example.test`,global,2)));
+    assert.equal(distributed.filter(Boolean).length,4,"El presupuesto global limita identidades y orígenes rotatorios");
+    assert.ok((await db.query("SELECT count(*)::int AS n FROM sports_management.password_recovery_budgets")).rows[0].n<=9,"No se crean claves adicionales tras agotar el presupuesto global");
+    await clear();
+    await db.query("INSERT INTO sports_management.password_recovery_budgets VALUES($1,now()-interval '3 hours',1)",["a".repeat(64)]);
+    assert.equal(await consumeRecoveryBudget("request","cleaner","cleaner@example.test",policy.abuse,2),true);
+    assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.password_recovery_budgets WHERE bucket_key=$1",["a".repeat(64)])).rows[0].n,0);
+    await clear();
+    const person=(await db.query("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES('Fixture','Público') RETURNING id")).rows[0].id;
+    const email=`${randomUUID()}@example.test`,original="Public!Synthetic123",replacement="Public!Replacement456";
+    const id=(await db.query("INSERT INTO sports_management.users(person_id,username,email,password_hash,email_verified_at) VALUES($1,$2,$3,$4,now()) RETURNING id",[person,randomUUID(),email,await hashPassword(original)])).rows[0].id;
+    const sent:AccountEmail[]=[],jobs:Array<()=>Promise<void>>=[];
+    const transport={async send(message:AccountEmail){sent.push(message);return "ACCEPTED" as const;}};
+    const origin=new URL(process.env.NEXTAUTH_URL!).origin;
+    const request=(body:unknown,headers:Record<string,string>={})=>new Request(`${origin}/api/auth/recovery/request`,{method:"POST",headers:{origin,"content-type":"application/json",...headers},body:JSON.stringify(body)});
+    const settings={policy,transport};
+    const unknown=await handleRecoveryRequest(request({email:"public-unknown@example.test"}),w=>jobs.push(w),settings);
+    const known=await handleRecoveryRequest(request({email}),w=>jobs.push(w),settings);
+    assert.equal(unknown.status,202);assert.equal(known.status,202);
+    assert.equal(await unknown.text(),await known.text());assert.equal(known.headers.get("cache-control"),"no-store");
+    assert.equal(sent.length,0,"La respuesta precede a la consulta y al envío");
+    for(const job of jobs)await job();assert.equal(sent.length,1);assert.equal(sent[0].to,email);
+    const queued=jobs.length;
+    await handleRecoveryRequest(request({email:"third@example.test"}),w=>jobs.push(w),settings);
+    const limited=await handleRecoveryRequest(request({email},{"x-forwarded-for":"8.8.8.8","x-vercel-forwarded-for":"9.9.9.9"}),w=>jobs.push(w),settings);
+    assert.equal(limited.status,202);assert.equal((await limited.json()).code,"REQUEST_RECEIVED");
+    assert.equal(jobs.length,queued+1,"Cambiar cabeceras en local no programa trabajo extra cuando se agota la cuota");
+    assert.equal((await handleRecoveryRequest(request({email},{origin:"https://cross-site.example.test"}),w=>jobs.push(w),settings)).status,400);
+    await clear();
+    const message=sent[0];assert.equal(message.kind,"PASSWORD_RECOVERY");
+    if(message.kind!=="PASSWORD_RECOVERY")throw Error("INVALID_FIXTURE");
+    const completion=(token:string)=>request({token,newPassword:replacement,confirmPassword:replacement});
+    for(let n=0;n<3;n++)assert.equal((await handleRecoveryCompletion(completion("z".repeat(43)),policy)).status,400);
+    assert.equal((await handleRecoveryCompletion(completion(message.token),policy)).status,429);
+    assert.equal(await verifyPassword((await db.query("SELECT password_hash FROM sports_management.users WHERE id=$1",[id])).rows[0].password_hash,original),true);
+    await clear();
+    assert.equal((await handleRecoveryCompletion(completion(message.token),policy)).status,200);
+    assert.equal((await handleRecoveryCompletion(completion(message.token),policy)).status,400);
+    assert.equal(await verifyPassword((await db.query("SELECT password_hash FROM sports_management.users WHERE id=$1",[id])).rows[0].password_hash,replacement),true);
+    const snapshot=(await db.query("SELECT bucket_key,hits FROM sports_management.password_recovery_budgets")).rows;
+    assert.ok(snapshot.every(r=>/^[a-f0-9]{64}$/.test(r.bucket_key)));
+    assert.ok(!JSON.stringify(snapshot).includes(email));assert.ok(!JSON.stringify(snapshot).includes(message.token));
+  } finally {await getPrisma().$disconnect();await db.end();}
+});
