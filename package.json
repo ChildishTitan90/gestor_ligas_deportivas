@@ -38,6 +38,9 @@
     "test:season-identity-history": "node scripts/test-season-identity-history.mjs",
     "test:player-identity-isolated": "node scripts/test-delegate-isolated.mjs --player-identity-correction",
     "test:player-identity-age-isolated": "node scripts/test-delegate-isolated.mjs --player-identity-age",
+
+    "test:password-recovery-integration": "node scripts/test-auth.mjs --preview-recovery",
+    "test:password-recovery": "node --conditions=react-server --import tsx --test src/server/auth/password-recovery.test.ts",
     "test:email-transport": "node --conditions=react-server --import tsx --test src/server/email/resend.test.ts",
     "test:email-confirmation": "node --import tsx --test src/features/accounts/email-confirmation.test.ts",
     "test:account-maintenance-ui": "node --import tsx --test src/features/accounts/maintenance-ui.test.tsx",

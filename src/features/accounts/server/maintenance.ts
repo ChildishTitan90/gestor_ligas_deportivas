@@ -1,3 +1,4 @@
+import { invalidatePasswordRecovery } from "@/server/auth/password-recovery";
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -130,6 +131,7 @@ export async function changeAccountStatus(id: string, input: unknown) {
     const [updated] = await tx.$queryRaw<Account[]>`UPDATE sports_management.users u
       SET is_active=${data.isActive}, maintenance_revision=maintenance_revision+1, version=version+1
       WHERE u.id=${id}::uuid RETURNING ${selection}`;
+    await invalidatePasswordRecovery(tx, id, new Date());
     // También al reactivar: ninguna sesión anterior debe revivir.
     await tx.sessions.updateMany({ where: { user_id: id, revoked_at: null }, data: { revoked_at: new Date() } });
     await tx.audit_logs.create({ data: { user_id: actor.id, action: "UPDATE", table_name: "users", entity_id: id,
