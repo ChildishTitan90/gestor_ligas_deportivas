@@ -110,3 +110,11 @@ reportó `halfReservationAndTimesReopened:true`, temas claro/oscuro, móvil/escr
 firmas y recuperación de respuesta perdida. Esa ejecución corresponde al commit
 anterior; el recorrido de esta corrección debe repetirse en Mac. Este entorno
 sigue sin poder iniciar Chrome por la restricción de su socket local.
+
+Resultados de la corrección: prueba nueva reproducida en rojo antes del cambio y
+verde después; pruebas puras 19/19; integración PostgreSQL embebido 15/17, 21/21
+por versión; HTTP/NextAuth/rol Preview-RLS aprobado. Tras integrar `develop`
+`edf0122` (PDGLD-32) sin conflictos: tipado, lint y controles del pipeline 94/94
+aprobados. Chrome de esta corrección continúa pendiente en Mac; en este intento
+local el ejecutable por defecto no estaba disponible, por lo que no se registra
+como aprobado. La ejecución anterior de Nickte no sustituye esa repetición.
