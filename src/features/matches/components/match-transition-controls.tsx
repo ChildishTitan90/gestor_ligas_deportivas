@@ -17,7 +17,7 @@ const errors: Record<string, string> = {
   SEASON_CLOSED: "La temporada está cerrada y no permite este cambio.",
   IDEMPOTENCY_CONFLICT: "La solicitud no coincide con el cambio registrado. Consulta el estado del partido.",
 };
-export function MatchTransitionControls({ id, version, status, canRecordMatch, canSchedule = false, canCancel = false }: { id: string; version: number; status: string; canRecordMatch: boolean; canSchedule?: boolean; canCancel?: boolean }) {
+export function MatchTransitionControls({ id, version, status, canRecordMatch, canSchedule = false, canCancel = false, canReview = false }: { id: string; version: number; status: string; canRecordMatch: boolean; canSchedule?: boolean; canCancel?: boolean; canReview?: boolean }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Action | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -28,7 +28,7 @@ export function MatchTransitionControls({ id, version, status, canRecordMatch, c
   const [pendingInput, setPendingInput] = useState<TransitionInput | null>(null);
   const sending = useRef(false);
   const [pending, startTransition] = useTransition();
-  const actions = availableMatchActions(status, { canSchedule, canCancel, canRecordMatch });
+  const actions = availableMatchActions(status, { canSchedule, canCancel, canRecordMatch, canReview });
 
   useEffect(() => {
     if (!uncertain) return;

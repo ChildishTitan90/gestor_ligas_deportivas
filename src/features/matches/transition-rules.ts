@@ -16,7 +16,7 @@ export function assertTransition(snapshot: MatchSnapshot, input: TransitionInput
   if (snapshot.version !== input.expectedVersion) throw new MatchTransitionError("STALE_MATCH");
   if (!allowedPair(snapshot.status, input.toStatus))
     throw new MatchTransitionError("TRANSITION_NOT_IMPLEMENTED");
-  if (input.toStatus === "CANCELED") return;
+  if (input.toStatus === "CANCELED" || input.toStatus === "UNDER_REVIEW") return;
   const { venueId, startsAt, endsAt, reservedUntil } = snapshot;
   if (!venueId || !startsAt || !endsAt || !reservedUntil ||
       ![startsAt, endsAt, reservedUntil].every(date => Number.isFinite(date.getTime())) ||
@@ -25,9 +25,10 @@ export function assertTransition(snapshot: MatchSnapshot, input: TransitionInput
 }
 
 export function allowedPair(from: string, to: string) {
-  return (from === "DRAFT" && to === "SCHEDULED") || (from === "SCHEDULED" && to === "CONFIRMED") ||
+  return (from === "DRAFT" && to === "SCHEDULED") || (["SCHEDULED","RESCHEDULED"].includes(from) && to === "CONFIRMED") ||
     (from === "CONFIRMED" && to === "IN_PROGRESS") || (from === "IN_PROGRESS" && to === "SUSPENDED") ||
-    (["SCHEDULED", "CONFIRMED", "SUSPENDED"].includes(from) && to === "CANCELED");
+    (["SCHEDULED", "CONFIRMED", "SUSPENDED"].includes(from) && to === "CANCELED") ||
+    (from === "SUSPENDED" && to === "UNDER_REVIEW");
 }
 
 export type TransitionReceipt = {

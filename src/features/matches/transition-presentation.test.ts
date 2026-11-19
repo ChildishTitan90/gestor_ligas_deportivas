@@ -7,5 +7,6 @@ test("las acciones requieren capacidad y un estado de origen válido", () => {
   assert.deepEqual(availableMatchActions("CONFIRMED", none), []);
   assert.deepEqual(availableMatchActions("CONFIRMED", { ...none, canRecordMatch: true }).map(a => a.toStatus), ["IN_PROGRESS"]);
   assert.deepEqual(availableMatchActions("SUSPENDED", { ...none, canCancel: true }).map(a => a.toStatus), ["CANCELED"]);
+  assert.deepEqual(availableMatchActions("SUSPENDED", { ...none, canReview: true }).map(a => a.toStatus), ["UNDER_REVIEW"]);
   assert.deepEqual(availableMatchActions("FINISHED", { canSchedule: true, canRecordMatch: true, canCancel: true }), []);
 });

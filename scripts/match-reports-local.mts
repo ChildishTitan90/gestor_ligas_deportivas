@@ -53,7 +53,9 @@ try {
   const sport=(await db.query("SELECT id FROM sports_management.sports LIMIT 1")).rows[0].id;
   const season=await scalar("INSERT INTO sports_management.seasons(league_id,sport_id,name,start_date,end_date) VALUES($1,$2,'Temporada sintética', '2026-01-01','2027-12-31') RETURNING id",[league,sport]);
   for(const [name,role]of [["comision","REFEREE_MANAGER"],["programador","SCHEDULER"],["arbitro","REFEREE"],["lector","SUPERADMIN"],["ajeno","REFEREE_MANAGER"]])await db.query("INSERT INTO sports_management.user_roles(user_id,role_id,league_id) SELECT $1,id,$3 FROM sports_management.roles WHERE code=$2",[actors[name],role,name==="ajeno"?otherLeague:league]);
-  const rule=await scalar("INSERT INTO sports_management.competition_rules(season_id,version_number,status,approved_by,approved_at) VALUES($1,1,'APPROVED',$2,now()) RETURNING id",[season,actors.comision]);
+  const rule=await scalar("INSERT INTO sports_management.competition_rules(season_id,version_number) VALUES($1,1) RETURNING id",[season]);
+  await db.query("INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by) VALUES($1,'calendar',$2,$3)",[rule,JSON.stringify({rounds:1,matchDurationMinutes:120,complexOnlyFinalRounds:0}),actors.comision]);
+  await db.query("UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=$2,approved_at=now() WHERE id=$1",[rule,actors.comision]);
   const category=await scalar("INSERT INTO sports_management.categories(league_id,sport_id,name) VALUES($1,$2,'Libre') RETURNING id",[league,sport]);
   const sc=await scalar("INSERT INTO sports_management.season_categories(season_id,category_id,competition_rule_id,hierarchy_order,type,age_cutoff_date,competition_format) VALUES($1,$2,$3,1,'OPEN','2026-12-31','GROUP_STAGE') RETURNING id",[season,category,rule]);
   const group=await scalar("INSERT INTO sports_management.groups(season_id,season_category_id,name) VALUES($1,$2,'A') RETURNING id",[season,sc]);
@@ -67,7 +69,7 @@ try {
     await db.query("UPDATE sports_management.season_teams SET group_id=$2 WHERE id=$1",[enrollment,group]);teams.push(enrollment);
   }
   const day=await scalar("INSERT INTO sports_management.matchdays(season_id,number,start_date,end_date) VALUES($1,1,'2026-12-05','2026-12-05') RETURNING id",[season]);
-  const venue=await scalar("INSERT INTO sports_management.venues(league_id,code,name,address,match_duration_minutes) VALUES($1,'141','Cancha sintética','Sin domicilio real',120) RETURNING id",[league]);
+  const venue=await scalar("INSERT INTO sports_management.venues(league_id,code,name,address,match_duration_minutes,is_league_sports_complex) VALUES($1,'141','Cancha sintética','Sin domicilio real',120,true) RETURNING id",[league]);
   await db.query("INSERT INTO sports_management.venue_availability(venue_id,starts_at,ends_at,type) VALUES($1,'2026-12-05T14:00Z','2026-12-05T22:00Z','AVAILABLE')",[venue]);
   const match=await scalar("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id) VALUES($1,$2,$3,'REAL-147',$4,$5,$6,'2026-12-05T16:00Z','2026-12-05T18:00Z','2026-12-05T18:00Z',sports_management.get_match_status_id('SCHEDULED')) RETURNING id",[season,group,day,teams[0],teams[1],venue]);
 

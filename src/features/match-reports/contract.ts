@@ -2,6 +2,7 @@ import { z } from "zod";
 import { participationTimesSchema } from "@/features/matches/eligibility";
 import { tacticSchema } from "./tactics";
 import { clockActionSchema, type MatchClock } from "./match-clock";
+import { noShowSchema } from "./no-show";
 
 const id = z.uuid();
 export const draftSchema = z.strictObject({
@@ -18,9 +19,10 @@ export const draftSchema = z.strictObject({
   remarks: z.string().max(8000), incidents: z.string().max(8000),
   signatures: z.record(id, id.nullable()),
   tactics: z.record(id, tacticSchema).optional(),
+  noShow: noShowSchema.optional(),
 });
 export const reportCommandSchema = z.strictObject({
-  formatVersion: z.literal(1), operationId: id, matchId: id, kind: z.enum(["save", "lock-lineups", "clock", "confirm"]), clockAction: clockActionSchema.optional(),
+  formatVersion: z.literal(1), operationId: id, matchId: id, kind: z.enum(["save", "lock-lineups", "clock", "confirm", "record-no-show"]), clockAction: clockActionSchema.optional(),
   expectedMatchVersion: z.number().int().positive(), expectedReportVersion: z.number().int().nonnegative(), draft: draftSchema,
 }).refine(command => (command.kind === "clock") === Boolean(command.clockAction), "La acción del reloj debe corresponder a la operación.");
 export type ReportDraft = z.infer<typeof draftSchema>;

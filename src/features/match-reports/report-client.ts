@@ -5,7 +5,7 @@ import type { ClockAction } from "./match-clock";
 export class ReportClientError extends Error {
   constructor(public code: string, public status: number) { super(code); }
 }
-type Operation = { id: string; kind: "save" | "lock-lineups" | "clock" | "confirm"; clockAction?: ClockAction; expectedReportVersion: number; expectedMatchVersion: number; snapshot: MatchReportPresentation };
+type Operation = { id: string; kind: "save" | "lock-lineups" | "clock" | "confirm" | "record-no-show"; clockAction?: ClockAction; expectedReportVersion: number; expectedMatchVersion: number; snapshot: MatchReportPresentation };
 export function createReportClient(actorId: string, data: ReportDemoData) {
   const attempts = new Map<string, { command: ReportCommand; uploads: { teamId: string; captainId: string; operationId: string; image: string }[] }>();
   async function json(path: string, body?: unknown) {
@@ -19,7 +19,7 @@ export function createReportClient(actorId: string, data: ReportDemoData) {
     async send(op: Operation): Promise<ReportReceipt> {
       let attempt = attempts.get(op.id);
       if (!attempt) {
-        const draft: ReportDraft = { lineups: op.snapshot.lineups.map(row => ({ ...row, teamId: data.players.find(p => p.id === row.playerId)!.teamId })), captains: op.snapshot.captains, events: op.snapshot.events, score: op.snapshot.score, remarks: op.snapshot.remarks, incidents: op.snapshot.incidents, signatures: {}, ...(op.snapshot.tactics ? { tactics: op.snapshot.tactics } : {}) };
+        const draft: ReportDraft = { lineups: op.snapshot.lineups.map(row => ({ ...row, teamId: data.players.find(p => p.id === row.playerId)!.teamId })), captains: op.snapshot.captains, events: op.snapshot.events, score: op.snapshot.score, remarks: op.snapshot.remarks, incidents: op.snapshot.incidents, signatures: {}, ...(op.snapshot.tactics ? { tactics: op.snapshot.tactics } : {}), ...(op.snapshot.noShow ? { noShow: op.snapshot.noShow } : {}) };
         const uploads: { teamId: string; captainId: string; operationId: string; image: string }[] = [];
         for (const teamId of [data.match.home.id, data.match.away.id]) {
           const signature = op.snapshot.signatures[teamId];

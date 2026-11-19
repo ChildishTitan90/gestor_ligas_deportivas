@@ -5,6 +5,7 @@ export type MatchActionCapabilities = {
   canSchedule: boolean;
   canRecordMatch: boolean;
   canCancel: boolean;
+  canReview?: boolean;
 };
 
 const actions = [
@@ -13,6 +14,7 @@ const actions = [
   { toStatus: "IN_PROGRESS", label: "Iniciar partido", capability: "canRecordMatch" },
   { toStatus: "SUSPENDED", label: "Suspender partido", capability: "canRecordMatch" },
   { toStatus: "CANCELED", label: "Cancelar partido", capability: "canCancel" },
+  { toStatus: "UNDER_REVIEW", label: "Pasar a revisión", capability: "canReview" },
 ] as const;
 
 export function availableMatchActions(status: string, capabilities: MatchActionCapabilities) {

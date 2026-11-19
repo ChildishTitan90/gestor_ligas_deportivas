@@ -1,4 +1,9 @@
 const messages: Record<string, string> = {
+  NO_SHOW_ACTION_REQUIRED: "Usa Registrar incomparecencia para enviar esta captura; o retira la selección para continuar con la cédula normal.",
+  NO_SHOW_STATE_INVALID: "La incomparecencia solo puede registrarse antes de iniciar el partido y bloquear las alineaciones.",
+  NO_SHOW_CAPTURE_CONFLICT: "No se puede registrar la ausencia con reloj, eventos, tiempos, marcador o firmas de un partido iniciado.",
+  NO_SHOW_ABSENT_LINEUP: "Retira de la convocatoria a los jugadores del equipo que indicaste como ausente.",
+  NO_SHOW_RESULT_EXISTS: "El partido ya tiene un resultado registrado. Consulta a la autoridad de la liga.",
   CONFIRMATION_DEPENDENCIES_PENDING: "La confirmación final todavía no está disponible. Guarda el borrador para conservar esta captura y continuar después.",
   BREAK_SUBSTITUTIONS_ONLY: "Durante el descanso solo puedes registrar cambios de jugadores. Los demás eventos se capturan con el tiempo en juego o posteriormente.",
   BREAK_SUBSTITUTION_TIME: "Los cambios del descanso se registran al inicio del segundo tiempo, con segundos en 00.",

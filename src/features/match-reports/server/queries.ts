@@ -42,7 +42,7 @@ export async function buildPresentation(tx: Prisma.TransactionClient, match: Awa
     eventTypes: catalogue.map(type => ({ code: type.code, label: type.name, team: type.code === "SERIOUS_INCIDENT" ? "optional" : "required", player: ["GOAL", "OWN_GOAL", "ASSIST", "CAUTION", "SENDING_OFF", "SUBSTITUTION", "INJURY"].includes(type.code) ? "required" : "optional", opensCase: type.requires_disciplinary_case })),
     report: { id: report.id, matchId: match.id, version: report.version, status: report.status === "CONFIRMED" ? "CONFIRMED" : "DRAFT", confirmedAt: report.confirmed_at?.toISOString() ?? null, lineupsLock: seal?.lock ?? null, clock,
       lineups: evaluation.players.map(player => draft.lineups.find(row => row.playerId === player.registrationId && row.teamId === player.seasonTeamId) ?? ({ playerId: player.registrationId, selected: false, starter: true, matchJersey: player.jerseyNumber, periods: [] })),
-      captains: draft.captains, events: draft.events, score: draft.score, remarks: draft.remarks, incidents: draft.incidents, ...(draft.tactics ? { tactics: draft.tactics } : {}),
+      captains: draft.captains, events: draft.events, score: draft.score, remarks: draft.remarks, incidents: draft.incidents, ...(draft.tactics ? { tactics: draft.tactics } : {}), ...(draft.noShow ? { noShow: draft.noShow } : {}),
       signatures: Object.fromEntries([match.home_team_id, match.away_team_id].map(teamId => [teamId, draft.signatures[teamId] ? { captainId: effectiveCaptain(draft.captains[teamId],draft.events,teamId)!, source: "device", image: `/api/match-reports/${match.id}/signatures/${draft.signatures[teamId]}` } : null])) },
   };
 }

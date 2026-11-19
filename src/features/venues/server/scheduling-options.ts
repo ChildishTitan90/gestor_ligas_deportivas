@@ -38,7 +38,7 @@ export async function loadHomeVenueOptions(tx: Prisma.TransactionClient, actorId
     where: { id: ctx.matchdayId, season_id: ctx.seasonId }, select: { number: true },
   });
   const teams = await tx.season_teams.findMany({
-    where: { id: { in: [ctx.homeSeasonTeamId, ctx.awaySeasonTeamId] }, season_id: ctx.seasonId, status: "ACTIVE" },
+    where: { id: { in: [ctx.homeSeasonTeamId, ctx.awaySeasonTeamId] }, season_id: ctx.seasonId, status: { in: ["ACTIVE","REGISTERED"] } },
     select: { id: true, club_id: true },
   });
   const home = teams.find(team => team.id === ctx.homeSeasonTeamId);
@@ -60,7 +60,7 @@ export async function loadHomeVenueOptions(tx: Prisma.TransactionClient, actorId
       },
       venue_loans: {
         where: { status: "APPROVED", season_id: ctx.seasonId,
-          requested_by: { not: null }, club_id: { in: [home.club_id, away.club_id] } },
+          requested_by: { not: null }, approved_by: { not: null }, approved_at: { not: null }, club_id: { in: [home.club_id, away.club_id] } },
         select: { season_id: true, club_id: true, requested_windows: true },
       },
     },

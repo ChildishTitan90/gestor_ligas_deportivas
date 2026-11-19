@@ -12,8 +12,8 @@ export async function transitionMatchInTransaction(tx: Prisma.TransactionClient,
   await lockAuthorization(tx);
   // Bloquear actor/asignaciones antes del partido, como el resto de escritores RBAC.
   const refereeAction = input.toStatus === "IN_PROGRESS" || input.toStatus === "SUSPENDED";
-  const permissionModule = refereeAction ? "match-reports" : "scheduling";
-  const action = input.toStatus === "CANCELED" ? "APPROVE" : "UPDATE";
+  const permissionModule = input.toStatus === "UNDER_REVIEW" ? "discipline" : refereeAction ? "match-reports" : "scheduling";
+  const action = input.toStatus === "CANCELED" || input.toStatus === "UNDER_REVIEW" ? "APPROVE" : "UPDATE";
   await getPermissionGrants(tx, actorId, permissionModule, action);
   // Mismo orden que cierre de temporada: temporada antes de partido.
   const seasons = await tx.$queryRaw<{ id: string; status: string }[]>`
@@ -45,11 +45,13 @@ export async function transitionMatchInTransaction(tx: Prisma.TransactionClient,
     SELECT t.id, f.code AS from_code, t.to_status_id AS to_id FROM sports_management.match_status_transitions t
     JOIN sports_management.match_statuses f ON f.id = t.from_status_id
     JOIN sports_management.match_statuses n ON n.id = t.to_status_id
-    WHERE ((f.code = 'DRAFT' AND n.code = 'SCHEDULED') OR (f.code = 'SCHEDULED' AND n.code = 'CONFIRMED')
+    WHERE ((f.code = 'DRAFT' AND n.code = 'SCHEDULED') OR (f.code IN ('SCHEDULED','RESCHEDULED') AND n.code = 'CONFIRMED')
       OR (f.code = 'CONFIRMED' AND n.code = 'IN_PROGRESS') OR (f.code = 'IN_PROGRESS' AND n.code = 'SUSPENDED')
+      OR (f.code = 'SUSPENDED' AND n.code = 'UNDER_REVIEW')
       OR (f.code IN ('SCHEDULED','CONFIRMED','SUSPENDED') AND n.code = 'CANCELED'))
       AND n.code = ${input.toStatus}
       AND t.role_id IN (${Prisma.join(grants.map(grant => grant.roleId))})
+      AND (${input.toStatus} <> 'UNDER_REVIEW' OR EXISTS (SELECT 1 FROM sports_management.roles r WHERE r.id=t.role_id AND r.code='DISCIPLINARY_BOARD'))
     FOR SHARE OF t, f, n
   `;
   if (!allowed[0]) throw new AuthorizationError();
@@ -82,7 +84,8 @@ export async function transitionMatchInTransaction(tx: Prisma.TransactionClient,
       SELECT ra.id FROM sports_management.referee_assignments ra
       JOIN sports_management.referees r ON r.id = ra.referee_id
       WHERE ra.match_id = ${match.id}::uuid AND ra.assignment_role = 'MAIN'
-        AND ra.status = 'APPROVED' AND r.is_active FOR SHARE OF ra, r`;
+        AND ra.status = 'APPROVED' AND r.is_active
+        AND (${status.code} <> 'RESCHEDULED' OR sports_management.referee_assignment_effective(ra.id)) FOR SHARE OF ra, r`;
     if (referees.length !== 1) throw new MatchTransitionError("MAIN_REFEREE_REQUIRED");
   }
   await tx.$queryRaw`SELECT set_config('app.user_id', ${actorId}, true),

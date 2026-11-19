@@ -17,6 +17,7 @@ export type MatchPresentation = {
   groupClubs: { clubId: string; team: string }[]; version?: number;
   /** Proyección del contexto abierto del servidor; no concede autorización. */
   openForAssignments?: boolean;
+  canReleaseForReschedule?: boolean;
 };
 export type AssignmentPresentation = { id: string; matchId: string; refereeId: string; status: AssignmentStatus; version?: number; displayName?:string; historical?:boolean };
 export type AssignmentAssessment = {

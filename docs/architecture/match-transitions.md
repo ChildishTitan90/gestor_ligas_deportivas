@@ -58,8 +58,8 @@ La asignación técnica de los permisos de autoridad de liga y los contratos de
 designación, cédula y efectos deportivos aún requieren integración. El catálogo
 actual no concede al árbitro `scheduling:UPDATE`; no se debe interpretar el acuerdo
 como una concesión global ni permitir transiciones sin validar la designación.
-Quedan por integrar no presentación,
-reprogramación, revisión y resolución administrativa. La finalización cuenta con
+Quedan por integrar la resolución oficial de no presentación,
+revisión y resolución administrativa. La finalización cuenta con
 `finishConfirmedReportMatch(tx, context)` como adaptador interno: revalida permiso
 y ámbito, exige cédula en borrador, resultado procedente de ella, partido en curso
 y versión vigente, e inserta historial con la misma clave de operación. El servicio
@@ -70,9 +70,55 @@ una corrección necesita su autorización y servicio propios.
 
 ## Integración pendiente con cédula y programación
 
+### Revisión y resolución administrativa: decisión funcional
+
+El 19 de noviembre se acordó que la comisión disciplinaria resuelve el partido
+y puede establecer un marcador oficial o cancelarlo. La decisión debe conservar
+autor, fecha y motivo; el servicio comprobará `discipline:APPROVE`, el rol
+`DISCIPLINARY_BOARD` y el ámbito de la liga en la misma asignación. La resolución
+con marcador debe integrarse con clasificación y cualquier efecto disciplinario
+aplicable en la misma transacción, con control de versión y reenvío idempotente.
+Una cancelación no debe borrar la cédula, la evidencia ni un resultado existente.
+
+La comisión puede pasar un partido suspendido a revisión. Esta transición conserva
+libres la cancha y el horario, registra motivo e historial y no modifica resultados.
+La migración conserva la situación de reservas de un partido en revisión durante
+actualizaciones posteriores. La decisión final de marcador o cancelación aún no
+está implementada: el receptor de clasificación y el flujo de expedientes todavía
+no están integrados. Se requiere coordinación con cédula y resultados antes de
+habilitar la resolución en la interfaz.
+
+### Registro de incomparecencia desde la cédula
+
+En un partido CONFIRMED que aún no tiene alineaciones bloqueadas ni reloj,
+el árbitro designado o DATA_ENTRY autorizado puede registrar la ausencia del
+local, visitante o ambos, con observaciones. La operación guarda cédula y
+transición a NO_SHOW con versión, autor, historial y acuse idempotente en la
+misma transacción. El reenvío con la misma clave recupera el acuse. La cédula
+queda en consulta; no acepta edición normal ni permite iniciar el reloj.
+
+Si falta un equipo se muestra 1–0 propuesto a favor del presente. Si faltan
+ambos se indica reprogramación pendiente y no se asigna ganador. En ambos casos
+la incidencia aún no crea `match_results`, no confirma la cédula ni actualiza
+clasificación o sanciones. Si faltan ambos, la comisión libera la designación
+arbitral y el programador puede elegir fecha y cancha para el mismo partido;
+se comprueban restricciones, se actualiza la reserva y se conserva la incidencia
+anterior en su acuse inmutable y la modificación en auditoría. Registrar ambas
+ausencias no mueve automáticamente el partido. La corrección de una
+incidencia ya registrada requiere un procedimiento autorizado aún pendiente.
+
+Para un solo equipo ausente existe un adaptador interno que exige al árbitro
+designado y calcula el marcador reglamentario. Todavía no está conectado a la
+confirmación de la pantalla: faltan los receptores reales de clasificación y
+expedientes. Sus pruebas usan receptores simulados y no habilitan el cierre.
+
+La migración `20261118010000_pdgld132_report_no_show` añade a la matriz el par
+CONFIRMED → NO_SHOW para árbitro y capturista, sin conceder roles o permisos.
+Se requieren revisión y planes de migración antes de aplicarla fuera de pruebas.
+
 - **PDGLD-18, Víctor:** la entrada de confirmación ya tiene la interfaz de efectos;
   conectar el adaptador interno de cierre cuando también estén listos clasificación
-  y expedientes. Acordar cómo registrar no presentación. La confirmación debe
+  y expedientes. Integrar la resolución oficial de la no presentación. La confirmación debe
   coordinar todos los efectos en una transacción; `transitionMatch` no finaliza partidos.
 - **PDGLD-21, Sergio:** definir la corrección autorizada de una cédula y la
   conservación de sus versiones y efectos antes de admitir cambios posteriores

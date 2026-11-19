@@ -4,12 +4,24 @@ import { request as httpRequest } from "node:http";
 import { Browser } from "./auth.test.mjs";
 import type { ReportCommand } from "../../src/features/match-reports/contract";
 
-export async function verifyReportHttp(base: string, actors: Record<string,string>, command: ReportCommand, signatureId: string, image: string) {
+export async function verifyReportHttp(base: string, actors: Record<string,string>, command: ReportCommand, signatureId: string, image: string, noShow:ReportCommand) {
   const own = new Browser(base), foreign = new Browser(base), referee = new Browser(base);
   for (const [client, email, id] of [[own,"capturista@example.test",actors.capturista],[foreign,"ajeno147@example.test",actors.capturistaAjeno],[referee,"arbitro@example.test",actors.arbitro]] as const) {
     await client.login(email,"Arbitraje-Local-141!"); assert.equal((await client.session()).user.id,id);
   }
   const path = `/api/match-reports/${command.matchId}`;
+  const noShowPath=`/api/match-reports/${noShow.matchId}`;
+  const noShowHeaders={origin:base,"content-type":"application/json","X-Expected-Actor-Id":actors.capturista};
+  assert.equal((await foreign.request(noShowPath,{method:"POST",headers:{...noShowHeaders,"X-Expected-Actor-Id":actors.capturistaAjeno},body:JSON.stringify(noShow)})).status,403);
+  const absence=await own.request(noShowPath,{method:"POST",headers:noShowHeaders,body:JSON.stringify(noShow)});
+  assert.equal(absence.status,200);
+  const absenceReceipt=await absence.json();
+  const absenceRetry=await own.request(noShowPath,{method:"POST",headers:noShowHeaders,body:JSON.stringify(noShow)});
+  assert.equal(absenceRetry.status,200);assert.deepEqual(await absenceRetry.json(),absenceReceipt);
+  const absenceView=await own.request(noShowPath);assert.equal(absenceView.status,200);
+  const savedAbsence=await absenceView.json();
+  assert.equal(savedAbsence.match.status.code,"NO_SHOW");assert.equal(savedAbsence.report.noShow.absent,"BOTH");
+  assert.equal(savedAbsence.match.status.captureAllowed,false);
   assert.equal((await new Browser(base).request(path)).status,401);
   assert.equal((await foreign.request(path)).status,403);
   const photoPath = `${path}/players/${command.draft.lineups[0].playerId}/photo`;

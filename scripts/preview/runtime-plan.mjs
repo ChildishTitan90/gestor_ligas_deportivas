@@ -39,8 +39,8 @@ const readColumns = {
   match_status_transitions: ['id', 'from_status_id', 'to_status_id', 'role_id'],
   match_status_history: ['id', 'match_id', 'previous_status_id', 'new_status_id', 'user_id', 'reason', 'expected_version', 'created_at'],
   official_documents: ['id', 'season_id'], publications: ['id', 'season_id'],
-  season_awards: ['id', 'season_category_id', 'season_id'], season_breaks: ['id', 'season_id'],
-  standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'reviewed_by', 'review_reason'],
+  season_awards: ['id', 'season_category_id', 'season_id'], season_breaks: ['id', 'season_id', 'starts_at', 'ends_at'],
+  standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'reviewed_by', 'review_reason', 'approved_by', 'approved_at'],
 };
 const insert = {
   match_status_history: ['id', 'match_id', 'previous_status_id', 'new_status_id', 'user_id', 'reason', 'expected_version'],
@@ -95,7 +95,7 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at', 'maintenance_revision'],
 };
 const update = {
-  matches: ['status_id', 'version'],
+  matches: ['status_id', 'version', 'venue_id', 'starts_at', 'ends_at', 'reserved_until'],
   venue_loans: ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at'],
   regulation_articles: ['number','description','sanction_type_id','parameters'],
   referee_presentations:['status','reviewed_by','reviewed_at','review_reason','review_key','review_hash','approved_person_id','referee_id','approved_identity'],

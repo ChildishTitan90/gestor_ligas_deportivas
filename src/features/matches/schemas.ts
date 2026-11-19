@@ -13,3 +13,10 @@ export const transitionSchema = z.strictObject({
   reason: z.string().trim().min(1).max(500),
 });
 export type TransitionInput = z.infer<typeof transitionSchema>;
+
+export const rescheduleSchema = z.strictObject({
+  matchId:z.uuid(), operationId:z.uuid(), expectedVersion:z.number().int().min(1).max(2147483646),
+  venueId:z.uuid(), startsAtLocal:z.string().regex(/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d)?$/),
+  reason:z.string().trim().min(5).max(500),
+});
+export type RescheduleInput=z.infer<typeof rescheduleSchema>;

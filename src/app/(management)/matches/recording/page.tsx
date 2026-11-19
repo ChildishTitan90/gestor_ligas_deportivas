@@ -1,5 +1,6 @@
 import { getRecorderWorkspace } from "@/features/matches/server/recorder-workspace";
 import { MatchTransitionControls } from "@/features/matches/components/match-transition-controls";
+import { RescheduleControl } from "@/features/matches/components/reschedule-control";
 import Link from "next/link";
 
 export const metadata = { title: "Registro de partidos" };
@@ -12,7 +13,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ a
     {workspace.items.map(match => <article key={match.id} className="space-y-3 rounded-xl border border-border bg-surface p-5">
       <h2 className="text-lg font-semibold">Partido {match.number}</h2><p>Temporada: {match.season}</p>
       {match.startsAt && <p>Inicio programado: {new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Mexico_City" }).format(new Date(match.startsAt))}</p>}
-      <MatchTransitionControls id={match.id} version={match.version} status={match.status} canRecordMatch={match.canRecordMatch} canSchedule={match.canSchedule} canCancel={match.canCancel} />
+      <MatchTransitionControls id={match.id} version={match.version} status={match.status} canRecordMatch={match.canRecordMatch} canSchedule={match.canSchedule} canCancel={match.canCancel} canReview={match.canReview} />
+      {match.canReschedule && <RescheduleControl matchId={match.id} version={match.version} timezone={match.timezone} venues={match.venues} />}
     </article>)}
     <nav aria-label="Paginación de partidos" className="flex gap-4">{after && <Link href="/matches/recording">Primera página</Link>}{workspace.nextAfter && <Link href={`/matches/recording?after=${workspace.nextAfter}`}>Siguientes partidos</Link>}</nav>
   </section>;
