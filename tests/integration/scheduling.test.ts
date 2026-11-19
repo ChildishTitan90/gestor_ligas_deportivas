@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { getPrisma } from "../../src/server/db/prisma";
-import { generateScheduleForActor, generateScheduleInTransaction } from "../../src/features/scheduling/server/service";
+import { generateScheduleForActor, generateScheduleInTransaction, validateScheduleProposalInTransaction } from "../../src/features/scheduling/server/service";
 
 test("generación real: permisos, persistencia, reintento y rollback", async t => {
  const db=getPrisma();
@@ -76,7 +76,7 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
    const result=await generateScheduleInTransaction(tx,f.actor,{...input,operationId:randomUUID()});
    assert.ok(result.ok);
    assert.equal(result.replayed,false);
-   const {matches}=result.proposal as {matches:{round:number;home:string;away:string;venueId:string;start:string;end:string;reservedUntil:string}[]};
+   const {matches}=result.proposal as {matches:{round:number;matchdayId:string;home:string;away:string;venueId:string;start:string;end:string;reservedUntil:string}[]};
    assert.equal(matches.length,12);
    for(const match of matches) {
     const start=Date.parse(match.start),end=Date.parse(match.end),reserved=Date.parse(match.reservedUntil);
@@ -95,6 +95,9 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
      assert.ok(Date.parse(a.end)<=Date.parse(b.start) || Date.parse(b.end)<=Date.parse(a.start),"Equipo sin traslapes");
    }
    await tx.venue_availability.update({where:{id:closure.id},data:{ends_at:new Date("2030-01-06T21:00:00Z")}});
+   const editableMatches=matches.map(({round,matchdayId,home,away,venueId,start})=>({round,matchdayId,home,away,venueId,start}));
+   const recheck=await validateScheduleProposalInTransaction(tx,f.actor,{proposalId:result.proposalId,expectedSeasonVersion:1,matches:editableMatches});
+   assert.ok(!recheck.ok && recheck.conflicts.some(conflict=>conflict.code==="VENUE_BLOCK"),"El ajuste revalida bloqueos actuales");
    const blockedId=randomUUID();
    const blocked=await generateScheduleInTransaction(tx,f.actor,{...input,operationId:blockedId});
    assert.equal(blocked.ok,false);
@@ -122,7 +125,7 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
    assert.equal(await tx.schedule_proposals.count(),countBefore);
    assert.equal(await tx.schedule_proposals.count({where:{id:failedId}}),0);
    throw rollback;
-  },{timeout:30000}),error=>error===rollback);
+  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:30000}),error=>error===rollback);
   t.diagnostic("Dos vueltas en cancha compartida: disponibilidad, bloqueo, tramos, localías y ausencia de traslapes verificados.");
   await assert.rejects(run(f.outsider),{message:"FORBIDDEN"});
   await assert.rejects(db.$transaction(async tx=>{
@@ -143,6 +146,41 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
   assert.equal(first.ok,true);
   const stored=await db.schedule_proposals.findUniqueOrThrow({where:{id:input.operationId}});
   assert.equal((stored.parameters as {matches:unknown[]}).matches.length,190);
+  const generated=(stored.parameters as {matches:{round:number;matchdayId:string;home:string;away:string;venueId:string;start:string}[]}).matches;
+  const editable=generated.map(({round,matchdayId,home,away,venueId,start})=>({round,matchdayId,home,away,venueId,start}));
+  const validate=(matches=editable,actor=f.actor,version=1)=>db.$transaction(tx=>validateScheduleProposalInTransaction(tx,actor,
+    {proposalId:input.operationId,expectedSeasonVersion:version,matches}),{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:30000});
+  const unchanged=await validate();
+  assert.ok(unchanged.ok);
+  assert.equal(unchanged.matches.length,190);
+  const swapped=editable.map((match,index)=>index===0?{...match,home:match.away,away:match.home}:match);
+  assert.ok((await validate(swapped)).ok,"Puede invertir local y visitante en una vuelta");
+  const availableVenues=await db.venues.findMany({select:{id:true}});
+  const firstMatch=editable[0],firstStart=Date.parse(firstMatch.start);
+  const openings=[0,1,2].flatMap(hour=>availableVenues.map(venue=>({venueId:venue.id,start:Date.parse("2030-01-06T15:00:00Z")+hour*120*60000})));
+  const alternate=openings.find(option=>option.start!==firstStart && editable.slice(1).every(match=>
+    match.venueId!==option.venueId || Date.parse(match.start)+120*60000<=option.start || option.start+120*60000<=Date.parse(match.start)));
+  assert.ok(alternate,"El escenario ofrece otro horario disponible");
+  const moved=editable.map((match,index)=>index===0?{...match,venueId:alternate.venueId,start:new Date(alternate.start).toISOString()}:match);
+  const movedResult=await validate(moved);
+  assert.ok(movedResult.ok,"Puede cambiar cancha y horario a una opción válida");
+  const normalized=movedResult.matches.find(match=>match.round===firstMatch.round&&match.home===firstMatch.home&&match.away===firstMatch.away)!;
+  assert.equal(Date.parse(normalized.end)-Date.parse(normalized.start),90*60000);
+  assert.equal(Date.parse(normalized.reservedUntil)-Date.parse(normalized.end),30*60000);
+  const badVenue=editable.map((match,index)=>index===0?{...match,venueId:randomUUID()}:match);
+  const invalidVenue=await validate(badVenue);
+  assert.ok(!invalidVenue.ok && invalidVenue.conflicts.some(conflict=>conflict.code==="INVALID_VENUE"));
+  const overlap=editable.map((match,index)=>index===1?{...match,venueId:editable[0].venueId,start:editable[0].start}:match);
+  const overlapping=await validate(overlap);
+  assert.ok(!overlapping.ok && overlapping.conflicts.some(conflict=>conflict.code==="SLOT_CONFLICT"));
+  const duplicate=editable.map((match,index)=>index===1?{...match,home:editable[0].home}:match);
+  assert.ok(!(await validate(duplicate)).ok);
+  await assert.rejects(validate(editable,f.outsider),{message:"FORBIDDEN"});
+  await assert.rejects(validate(editable,f.actor,999),{message:"STALE_CONFIGURATION"});
+  await assert.rejects(db.$transaction(tx=>validateScheduleProposalInTransaction(tx,f.actor,
+    {proposalId:input.operationId,expectedSeasonVersion:1,matches:editable})),{message:"SERIALIZABLE_TRANSACTION_REQUIRED"});
+  assert.equal(await db.schedule_proposals.count(),1);
+  t.diagnostic("Validador compartido: propuesta íntegra, cambio de localía, cancha inválida, traslape, permisos y versión.");
   assert.equal(await db.schedule_proposals.count(),1);
   const listed = await listSavedScheduleProposals(f.actor, f.season, f.group_id);
   assert.equal(listed.length, 1);

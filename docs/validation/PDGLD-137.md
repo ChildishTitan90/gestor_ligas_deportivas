@@ -73,3 +73,32 @@ Los escenarios de prueba eliminan sus propuestas sintéticas al terminar. No se
 deja una propuesta persistente en una base compartida ni se expone información
 de una liga real. Para preparar una demostración conjunta, acordar un entorno y
 datos de prueba con quien revise.
+
+## Contrato local del validador compartido
+
+`validateScheduleProposalInTransaction(tx, actorId, input)` se exporta desde
+`src/features/scheduling/server/service.ts`. Es exclusivo de servidor. Recibe
+`proposalId`, `expectedSeasonVersion` y la lista completa de encuentros, cada uno
+con `round`, `matchdayId`, `home`, `away`, `venueId` y `start` ISO UTC. No debe
+recibir el actor desde el navegador: el llamador debe obtenerlo de la sesión.
+La función exige una transacción `SERIALIZABLE`, comprueba `scheduling:UPDATE`
+en la liga, bloquea temporada y propuesta, y lee la configuración vigente.
+
+Permite intercambiar local y visitante y cambiar cancha y horario. Conserva los
+enfrentamientos y las jornadas existentes; mover jornadas o cambiar equipos no
+forma parte del contrato actual. Comprueba la estructura de cada vuelta, la
+alternancia de localía entre vueltas, duración y holgura, disponibilidad,
+bloqueos, jornada y temporada, descansos, sanciones, préstamos aprobados,
+canchas permitidas y traslapes contra otros encuentros y partidos que reservan
+recursos. Recalcula `end`, `reservedUntil`, preferencias y descansos en el
+servidor. Devuelve `{ok:true,matches,byes}` normalizados, o `{ok:false,code,
+conflicts}`; cada conflicto de horario incluye jornada, equipos y código.
+
+La función **no guarda cambios ni comprueba la versión de edición de PDGLD-25**.
+Karol debe comprobar esa versión y guardar la salida normalizada dentro de la
+misma transacción, manejar los conflictos de serialización y conservar su propia
+autorización, auditoría y estados. `seasonVersion` protege la configuración, no
+sustituye la versión de edición. La validación no reserva canchas; las operaciones
+que confirmen partidos deben volver a revalidar y coordinar reservas de recursos.
+La integración real con PDGLD-25, sus controles de concurrencia y la revisión
+del PR siguen pendientes; esta interfaz todavía puede necesitar ajustes conjuntos.

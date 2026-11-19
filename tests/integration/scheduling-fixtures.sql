@@ -21,6 +21,9 @@ BEGIN
  INSERT INTO sports_management.permissions(module,action) VALUES('scheduling','CREATE') ON CONFLICT DO NOTHING;
  SELECT id INTO perm FROM sports_management.permissions WHERE module='scheduling' AND action='CREATE';
  INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES(r,perm,true) ON CONFLICT DO NOTHING;
+ INSERT INTO sports_management.permissions(module,action) VALUES('scheduling','UPDATE') ON CONFLICT DO NOTHING;
+ SELECT id INTO perm FROM sports_management.permissions WHERE module='scheduling' AND action='UPDATE';
+ INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES(r,perm,true) ON CONFLICT DO NOTHING;
  INSERT INTO sports_management.user_roles(user_id,role_id,league_id) VALUES(actor,r,l);
  INSERT INTO sports_management.categories(league_id,sport_id,name) VALUES(l,sp,'Abierta') RETURNING id INTO ca;
  INSERT INTO sports_management.competition_rules(season_id,version_number) VALUES(s,1) RETURNING id INTO cr;

@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { listSavedScheduleProposals } from "../../src/features/scheduling/server/saved-proposals";
 import { getPrisma } from "../../src/server/db/prisma";
-import { generateScheduleForActor } from "../../src/features/scheduling/server/service";
+import { generateScheduleForActor, validateScheduleProposalInTransaction } from "../../src/features/scheduling/server/service";
 
 test("Preview con RLS genera y recupera una propuesta con préstamos aprobados", async () => {
   const fixture = JSON.parse(process.env.SCHEDULING_PREVIEW_FIXTURE!);
@@ -15,6 +16,11 @@ test("Preview con RLS genera y recupera una propuesta con préstamos aprobados",
     const first = await generateScheduleForActor(fixture.actor, input);
     assert.ok(first.ok);
     if (first.ok) assert.equal((first.proposal as { matches: unknown[] }).matches.length, 190);
+    const raw=(first.proposal as {matches:{round:number;matchdayId:string;home:string;away:string;venueId:string;start:string}[]}).matches;
+    const matches=raw.map(({round,matchdayId,home,away,venueId,start})=>({round,matchdayId,home,away,venueId,start}));
+    const valid=await db.$transaction(tx=>validateScheduleProposalInTransaction(tx,fixture.actor,
+      {proposalId:input.operationId,expectedSeasonVersion:1,matches}),{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:30000});
+    assert.ok(valid.ok,"El rol limitado puede validar una propuesta sin modificarla");
     const saved = await listSavedScheduleProposals(fixture.actor, fixture.season, fixture.group_id);
     assert.equal(saved.length, 1);
     assert.equal(saved[0].id, input.operationId);
