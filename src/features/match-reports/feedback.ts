@@ -1,4 +1,13 @@
 const messages: Record<string, string> = {
+  PARTICIPATION_RETRY_REQUIRED: "Otra captura cambió al mismo tiempo. Conservamos tus datos; vuelve a guardar.",
+  PARTICIPATION_HALF_REQUIRED: "Indica mitades distintas en las cédulas de horarios coincidentes.",
+  PARTICIPATION_HALF_CONFLICT: "La captura contradice la mitad reservada o repite la del otro partido.",
+  PARTICIPATION_CONTEXT_CONFLICT: "El traslado requiere categorías distintas del mismo club y temporada.",
+  PARTICIPATION_CLOCK_REQUIRED: "Faltan marcas reales del medio tiempo. No se puede certificar el traslado.",
+  PARTICIPATION_REAL_TIME_CONFLICT: "Los tiempos reales se superponen: el otro primer tiempo terminó después de iniciar este segundo tiempo.",
+  SECOND_HALF_STARTER: "Quien participa solo en el segundo tiempo debe iniciar en banca.",
+  HALFTIME_ENTRY_REQUIRED: "El traslado de partido solo admite entrada al inicio del segundo tiempo, minuto relativo 0 y segundo 0.",
+  FIRST_HALF_PLAYER_MUST_LEAVE: "Retira mediante un cambio de descanso a quien reservó solo el primer tiempo, antes de iniciar el segundo.",
   CONFIRMATION_DEPENDENCIES_PENDING: "La confirmación final todavía no está disponible. Guarda el borrador para conservar esta captura y continuar después.",
   BREAK_SUBSTITUTIONS_ONLY: "Durante el descanso solo puedes registrar cambios de jugadores. Los demás eventos se capturan con el tiempo en juego o posteriormente.",
   BREAK_SUBSTITUTION_TIME: "Los cambios del descanso se registran al inicio del segundo tiempo, con segundos en 00.",

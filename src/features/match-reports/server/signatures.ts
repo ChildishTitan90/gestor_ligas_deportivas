@@ -1,5 +1,6 @@
 import { effectiveCaptain } from "../captaincy";
 import "server-only";
+import { matchClockSchema } from "../match-clock";
 import { evaluateAuthorizedMatchInTransaction } from "@/features/matches/server/eligibility";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -69,7 +70,10 @@ export async function uploadReportSignature(actorId: string, input: unknown, sto
     if (match.version !== command.expectedMatchVersion || (existing?.version ?? 0) !== command.expectedReportVersion) throw new ReportError("STALE_VERSION");
     const selected = command.draft.lineups.find(row => row.playerId === command.captainId && row.teamId === command.teamId && row.selected);
     if (![match.home_team_id, match.away_team_id].includes(command.teamId) || !selected || effectiveCaptain(command.draft.captains[command.teamId],command.draft.events,command.teamId) !== command.captainId) throw new ReportError("INVALID_CAPTAIN", 400);
-    const evaluation = await evaluateAuthorizedMatchInTransaction(tx, match);
+    const current = await tx.match_reports.findUnique({ where: { match_id: match.id }, select: { draft_data: true } });
+    const rawClock = (current?.draft_data as { clock?: unknown } | undefined)?.clock;
+    const parsedClock = matchClockSchema.safeParse(rawClock);
+    const evaluation = await evaluateAuthorizedMatchInTransaction(tx, match, { draft: command.draft, clock: parsedClock.success ? parsedClock.data : null });
     if (!evaluation.players.some(player => player.registrationId === command.captainId && player.seasonTeamId === command.teamId && player.eligible)) throw new ReportError("PLAYER_NOT_ELIGIBLE");
     return match;
   }
