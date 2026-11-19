@@ -44,6 +44,7 @@ export type ReportEvent = {
 export type CaptainSignature = {
   captainId: string;
   image: string;
+  fileId?: string;
   source: "device" | "synthetic";
 };
 export type MatchReportPresentation = {

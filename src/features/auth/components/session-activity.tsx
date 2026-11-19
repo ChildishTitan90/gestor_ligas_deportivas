@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { isTeamRegistrationPreview } from "@/lib/development-preview";
+import { observeLocalAccount } from "@/features/match-reports/offline/store.client";
 
 const ACTIVITY_INTERVAL_MS = 15_000;
 const activityEvents = ["pointerdown", "click", "keydown", "wheel", "touchstart", "input"] as const;
@@ -63,13 +64,16 @@ export function SessionActivity() {
         lastSessionState.current = sessionState;
         // Actualizar la identidad renderizada si cambia la cuenta en otra pestaña
         // o vence la sesión pública; conservar al espectador en el portal.
-        if (changed && (sessionState !== null || publicPage)) router.refresh();
+        const reportCapture = window.location.pathname === "/offline/report" || /^\/matches\/[^/]+\/report$/.test(window.location.pathname);
+        if (session?.user?.id && "indexedDB" in window) await observeLocalAccount(session.user.id).catch(() => undefined);
+        if (changed && (sessionState !== null || publicPage) && !reportCapture) router.refresh();
         if (!session?.user?.id) {
           if (expiryTimer) clearTimeout(expiryTimer);
           if (activityTimer) clearTimeout(activityTimer);
           // Solo abandonar una sesión que este monitor había visto autenticada.
           // Un espectador puede seguir en el portal si su sesión anterior vence.
-          if (wasAuthenticated.current && !publicPage) window.location.replace("/login");
+          if (reportCapture) window.dispatchEvent(new Event("report-session-expired"));
+          else if (wasAuthenticated.current && !publicPage) window.location.replace("/login");
           wasAuthenticated.current = false;
           return;
         }

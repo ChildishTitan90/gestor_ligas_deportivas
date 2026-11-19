@@ -225,6 +225,18 @@ jobs:
         run: npm run test:pdgld149 -- --regression --postgres=${{ matrix.postgres }}
         env:
           CHROME_BIN: /usr/bin/google-chrome
+      - name: PDGLD-19 y PDGLD-20 con almacenamiento y transporte reales
+        run: npm run test:match-report-offline -- --postgres=${{ matrix.postgres }}
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - name: Conservar criterios offline sin datos de captura
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pdgld19-20-pg${{ matrix.postgres }}
+          path: .codex-attachments/pdgld19-20/pg${{ matrix.postgres }}/*.json
+          include-hidden-files: true
+          if-no-files-found: warn
       - name: Conservar evidencia y bloqueos incluso ante fallo
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

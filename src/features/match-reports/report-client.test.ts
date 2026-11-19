@@ -27,3 +27,26 @@ test("transportes sintéticos: recuperar subida y acuse sin cambiar intención n
   assert.equal(drafts[0],drafts[1],"Un reintento conserva exactamente la intención original");
   assert.equal(uploads.length,2,"No repite la subida ya acusada");
 });
+
+test("recarga sintética: la clave de subida y el comando sobreviven a otra instancia del cliente", async t => {
+  const data = createReportDemo();
+  data.report.signatures.home = { captainId: "home-4", source: "device", image: "data:image/png;base64,c3ludGhldGlj" };
+  const operation = { id: randomUUID(), kind: "save" as const, expectedReportVersion: 2, expectedMatchVersion: 3, snapshot: structuredClone(data.report) };
+  let persisted: import("./report-client").ReportAttempt | undefined;
+  const durable = {
+    async load() { return persisted && structuredClone(persisted); },
+    async save(_id: string, attempt: import("./report-client").ReportAttempt) { persisted = structuredClone(attempt); },
+  };
+  const requests: string[] = [];
+  const original = global.fetch;
+  t.after(() => { global.fetch = original; });
+  global.fetch = async (_input, init) => {
+    assert.ok(persisted, "La intención completa está persistida antes de la primera llamada");
+    requests.push(String(init?.body));
+    throw Error("Respuesta de subida perdida");
+  };
+  await assert.rejects(createReportClient("actor", data, durable).send(operation));
+  operation.snapshot.remarks = "Edición posterior que debe permanecer fuera de la intención";
+  await assert.rejects(createReportClient("actor", data, durable).send(operation));
+  assert.equal(requests[0], requests[1]);
+});

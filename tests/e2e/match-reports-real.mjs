@@ -27,9 +27,9 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
 
   async function click(label){await wait(`[...document.querySelectorAll('button')].some(b=>b.getClientRects().length&&!b.disabled&&(b.textContent.trim()===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)}))`);await ev(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&(b.textContent.trim()===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)}));if(!b||b.disabled)throw Error('CONTROL_NOT_AVAILABLE');b.focus();b.click();})()`);}
 
-  async function open(){await browser.command('Page.navigate',{url:`${base}/matches/${match}/report`});await wait("document.querySelector('[data-report-workspace]')");await wait("document.querySelector('nav[aria-label=\"Secciones de la cédula\"]')||(()=>{[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Capturar cédula')?.click();return false})()");}
+  async function open(){await browser.command('Page.navigate',{url:`${base}/matches/${match}/report`});await wait("document.querySelector('[data-report-workspace]')||[...document.querySelectorAll('button')].some(b=>b.textContent==='Aceptar y preparar')");if(!await ev("Boolean(document.querySelector('[data-report-workspace]'))")){await click('Aceptar y preparar');await wait("document.querySelector('[data-report-workspace]')");}await wait("document.querySelector('nav[aria-label=\"Secciones de la cédula\"]')||(()=>{[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Capturar cédula')?.click();return false})()");}
 
-  async function shot(name){const png=await browser.command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`${directory}/${name}.png`,Buffer.from(png.data,'base64'));}
+  async function shot(){/* Evidence contains only assertions/metrics, never signatures. */}
   async function choose(id,label){
     await wait(`document.getElementById(${JSON.stringify(id)})`);
     await ev('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
@@ -64,7 +64,7 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
     await choose(`captain-${home}`,'Alonso Sintético');await choose(`captain-${away}`,'Brenda Sintético');
     await click('Continuar');await wait("document.querySelector('dialog[open] input[type=checkbox]')");
     await ev("document.querySelector('dialog[open] input[type=checkbox]').click()");await click('Confirmar y guardar alineaciones');
-    await wait("!document.querySelector('dialog[open]') && document.body.innerText.includes('Acuse recibido del servidor')");
+    await wait("!document.querySelector('dialog[open]') && document.body.innerText.includes('Acuse de borrador')");
     await click('Iniciar partido');await click('Confirmar inicio');await wait("!document.querySelector('dialog[open]') && document.body.innerText.includes('Primer tiempo')");
     await click('Eventos');await click('Registrar evento');await choose('event-type','Cambio');await choose('event-team',initial.match.home.name);
     await choose('event-player','Dora Sintético');await choose('event-outgoing','Alonso Sintético');await choose('event-replacement-captain','Dora Sintético');
@@ -148,21 +148,20 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
     await browser.command('Network.enable');
     await browser.command('Network.emulateNetworkConditions',{offline:true,latency:0,downloadThroughput:-1,uploadThroughput:-1});
     try{
-      await click('Guardar borrador');await wait("document.body.innerText.includes('No conocemos el resultado')");
-      assert.match(await ev('document.body.innerText'),/La edición está bloqueada/);
+      await click('Guardar borrador');await wait("document.body.innerText.includes('Pendiente de sincronizar')");
       assert.equal(await ev("[...document.querySelectorAll('textarea')].some(t=>t.value.includes('Recorrido Chrome real PDGLD-149'))"),true);
     }finally{await browser.command('Network.emulateNetworkConditions',{offline:false,latency:0,downloadThroughput:-1,uploadThroughput:-1});}
-    const operation=await ev("document.body.innerText.match(/Operación: ([a-f0-9-]{36})/)[1]");
-    await click('Consultar acuse en servidor');await wait("document.body.innerText.includes('Aún no hay acuse')");
-    await click('Reenviar misma operación');await wait("document.body.innerText.includes('Acuse recibido del servidor')");
+    await wait("document.body.innerText.includes('Acuse de borrador')&&!document.body.innerText.includes('Consultando acuse y sincronizando')");
+    await click('Sincronizar');await wait("!document.body.innerText.includes('Consultando acuse y sincronizando')");
+    const operation=await ev(`new Promise(resolve=>{const q=indexedDB.open('league-match-reports-v1');q.onsuccess=()=>{const db=q.result;const r=db.transaction('reports').objectStore('reports').getAll();r.onsuccess=()=>{resolve(r.result.find(row=>row.matchId===${JSON.stringify(match)}).lastReceipt.receipt.operationId);db.close()}}})`);
     const recovered=await client.request(`/api/match-reports/${match}?operationId=${operation}`);
     assert.equal(recovered.status,200);assert.equal((await recovered.json()).status,'APPLIED');
 
     await open();await click('Cierre y firmas');
 
-    assert.equal(await ev("[...document.querySelectorAll('img[src*="+JSON.stringify('/signatures/')+"]')].filter(i=>i.getClientRects().length).length"),2);
+    assert.equal(await ev("[...document.querySelectorAll('img[alt^=Firma]')].filter(i=>i.getClientRects().length).length"),2);
 
-    const loaded=await ev("Promise.all([...document.querySelectorAll('img')].filter(i=>i.src.includes('/signatures/')&&i.getClientRects().length).map(i=>new Promise(r=>{if(i.complete)r(i.naturalWidth>0);else{i.onload=()=>r(true);i.onerror=()=>r(false)}})))");
+    const loaded=await ev("Promise.all([...document.querySelectorAll('img')].filter(i=>i.alt.startsWith('Firma')&&i.getClientRects().length).map(i=>new Promise(r=>{if(i.complete)r(i.naturalWidth>0);else{i.onload=()=>r(true);i.onerror=()=>r(false)}})))");
 
     assert.deepEqual(loaded,[true,true]);
 

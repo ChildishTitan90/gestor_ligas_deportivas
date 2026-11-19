@@ -21,6 +21,7 @@ export const draftSchema = z.strictObject({
 });
 export const reportCommandSchema = z.strictObject({
   formatVersion: z.literal(1), operationId: id, matchId: id, kind: z.enum(["save", "lock-lineups", "clock", "confirm"]), clockAction: clockActionSchema.optional(),
+  occurredAt: z.iso.datetime().optional(),
   expectedMatchVersion: z.number().int().positive(), expectedReportVersion: z.number().int().nonnegative(), draft: draftSchema,
 }).refine(command => (command.kind === "clock") === Boolean(command.clockAction), "La acción del reloj debe corresponder a la operación.");
 export type ReportDraft = z.infer<typeof draftSchema>;

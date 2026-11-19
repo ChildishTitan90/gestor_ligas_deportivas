@@ -80,7 +80,10 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
   }
   if (command.kind === "clock") {
     if (!sealed) throw new ReportError("LINEUPS_NOT_LOCKED");
-    try { clock = advanceMatchClock(clock, command.clockAction!, new Date().toISOString()); }
+    const now = Date.now();
+    const occurredAt = command.occurredAt ? Date.parse(command.occurredAt) : now;
+    if (occurredAt > now + 60000 || occurredAt < now - 7 * 86400000 || clock && occurredAt < Date.parse(clock.phaseStartedAt)) throw new ReportError("CLOCK_TIME_CONFLICT");
+    try { clock = advanceMatchClock(clock, command.clockAction!, new Date(occurredAt).toISOString()); }
     catch (error) { throw new ReportError(error instanceof Error ? error.message : "CLOCK_PHASE_CONFLICT"); }
     if (command.clockAction?.type === "start") {
       const started = await startReportMatchInTransaction(tx, actorId, match, command.operationId);

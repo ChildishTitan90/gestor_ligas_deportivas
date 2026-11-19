@@ -1,4 +1,6 @@
 const messages: Record<string, string> = {
+  STALE_VERSION: "Cambió la versión del partido o de la cédula. Conservamos tu copia para comparar y revisar antes de continuar.",
+  CLOCK_TIME_CONFLICT: "La hora capturada está fuera del intervalo permitido o es anterior al periodo vigente. Conserva la copia para revisión.",
   CONFIRMATION_DEPENDENCIES_PENDING: "La confirmación final todavía no está disponible. Guarda el borrador para conservar esta captura y continuar después.",
   BREAK_SUBSTITUTIONS_ONLY: "Durante el descanso solo puedes registrar cambios de jugadores. Los demás eventos se capturan con el tiempo en juego o posteriormente.",
   BREAK_SUBSTITUTION_TIME: "Los cambios del descanso se registran al inicio del segundo tiempo, con segundos en 00.",

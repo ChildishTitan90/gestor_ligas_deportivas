@@ -27,7 +27,7 @@ async function bindingFor(tx: Prisma.TransactionClient, draft: ReportDraft) {
   return hash([unsignedDraft(draftSchema.parse(draft)), identities]);
 }
 export function createReportSignatureStorage(environment: Record<string, string | undefined> = process.env) {
-  if (environment.NODE_ENV === "development" && environment.REPORT_SIGNATURE_LOCAL_DIRECTORY) {
+  if ((environment.NODE_ENV === "development" || environment.AUTH_TEST_RUN === "1") && environment.REPORT_SIGNATURE_LOCAL_DIRECTORY) {
     let local = environment.AUTH_TEST_RUN === "1";
     try {
       const target = new URL(environment.DATABASE_URL ?? "");

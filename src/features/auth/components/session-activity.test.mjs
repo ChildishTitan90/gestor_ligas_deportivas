@@ -27,6 +27,7 @@ function harness(environment = 'development') {
       addEventListener(name, handler) { if (!events.has(name)) events.set(name, new Set()); events.get(name).add(handler); },
       removeEventListener(name, handler) { events.get(name)?.delete(handler); },
       emit(name) { for (const handler of events.get(name) ?? []) handler({ isTrusted: true }); },
+      dispatchEvent(event) { for (const handler of events.get(event.type) ?? []) handler(event); },
       count() { return [...events.values()].reduce((sum, handlers) => sum + handlers.size, 0); },
     };
   }
@@ -52,9 +53,10 @@ function harness(environment = 'development') {
       if (name === 'react/jsx-runtime') return { jsx: () => null };
       if (name === 'next/navigation') return { usePathname: () => pathname, useRouter: () => router };
       if (name === '@/lib/development-preview') return { isTeamRegistrationPreview };
+      if (name === '@/features/match-reports/offline/store.client') return { observeLocalAccount: async () => undefined };
       throw new Error(`Unexpected import: ${name}`);
     },
-    document, window, AbortController,
+    document, window, AbortController, Event,
     Date: class extends Date { static now() { return now; } },
     setTimeout(callback, delay) { const id = ++timerId; timers.set(id, { callback, delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -145,5 +147,18 @@ test('revocar la sesión conserva el resultado público de confirmación; gesti�
     h.revokeSession(); h.window.emit('online'); await flush();
     assert.deepEqual(h.redirects, path === '/access' ? ['/login'] : []);
     h.unmount(); assert.equal(h.timers.size, 0);
+  }
+});
+
+test('vencer la sesión en captura permite reautenticar sin abandonar el borrador', async () => {
+  for (const path of ['/matches/synthetic/report', '/offline/report']) {
+    const h = harness('production');
+    let notices = 0;
+    h.window.addEventListener('report-session-expired', () => { notices++; });
+    h.render(path); await flush();
+    h.revokeSession(); h.window.emit('online'); await flush();
+    assert.deepEqual(h.redirects, []);
+    assert.equal(notices, 1);
+    h.unmount();
   }
 });
