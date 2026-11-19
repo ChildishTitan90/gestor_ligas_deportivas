@@ -86,3 +86,19 @@ cédula y su reloj, sin una escritura paralela que eluda el contrato.
 CLOSED no recalcula elegibilidad con nombres o reglas vigentes. La evidencia
 histórica la presenta la cédula; no se rellenan marcas ausentes. Ni merge ni CI
 sustituyen aceptación funcional de PDGLD-16.
+
+## Revisión de horarios separados y reloj incompleto · 18/11/2026
+
+Los horarios programados separados no prueban por sí solos la ausencia de cruce
+cuando ya existe participación registrada. Antes de devolver elegibilidad en esa
+rama, el evaluador comprueba las marcas reales disponibles. Si falta evidencia
+y no hay una frontera real que demuestre separación, devuelve
+`PARTICIPATION_CLOCK_REQUIRED`. Una salida real anterior o igual a la entrada del
+otro permite comprobar separación sin exigir que ese segundo partido ya termine.
+
+Los periodos persistidos cuentan como participación incluso si falta todo el
+reloj, también en una reserva de segunda mitad. Solo se distingue como reserva
+al descanso una segunda mitad con entrada cero y salida vacía que aún no empezó.
+No se rellenan marcas históricas ni se sustituye una marca real por la hora
+programada. Los antecedentes incompletos requieren evidencia suficiente antes
+de certificar un nuevo traslado.

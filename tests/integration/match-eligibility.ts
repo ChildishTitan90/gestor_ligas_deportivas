@@ -264,8 +264,21 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
       await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_REAL_TIME_CONFLICT/);
       await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft}}});
       await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_CLOCK_REQUIRED/);
+      // Programados separados; la participación registrada impide confiar solo en el horario.
+      await tx.matches.update({where:{id:firstMatch.id},data:{starts_at:new Date("2026-11-11T16:00Z"),ends_at:new Date("2026-11-11T18:00Z"),reserved_until:new Date("2026-11-11T18:00Z")}});
+      for(const data of [{draft:firstDraft},{draft:firstDraft,clock:{...firstClock,boundaries:{firstStartedAt:"2026-11-11T18:00:00Z"}}}]) {
+        await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:data}});
+        await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_CLOCK_REQUIRED/);
+      }
+      await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft,clock:firstClock}}});
+      await tx.match_reports.update({where:{id:report.id},data:{draft_data:{draft}}});
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_CLOCK_REQUIRED/,"Los periodos del segundo partido siguen siendo participación aunque le falte reloj");
+      assert.equal((await tx.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,saved.reportVersion,"Los rechazos no incrementan la versión");
+      assert.deepEqual(await tx.player_period_participations.findMany({where:{lineups:{match_report_id:report.id}},select:{period_number:true,entry_minute:true,exit_minute:true}}),times);
+      await tx.match_reports.update({where:{id:report.id},data:{draft_data:{draft,clock}}});
+      await mutateReportInTransaction(tx,actors.admin,next);
       assert.deepEqual(await tx.player_period_participations.findMany({where:{lineups:{match_report_id:report.id}},select:{period_number:true,entry_minute:true,exit_minute:true}}),times,"Un bloqueo no borra tiempos guardados");
-      assert.equal((await tx.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,saved.reportVersion);
+      assert.equal((await tx.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,saved.reportVersion+1);
       throw Error("HALVES_FIXTURE_ROLLBACK");
     },{timeout:30000}),/HALVES_FIXTURE_ROLLBACK/);
   });

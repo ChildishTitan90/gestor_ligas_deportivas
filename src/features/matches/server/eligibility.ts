@@ -116,7 +116,7 @@ export async function evaluateAuthorizedMatchInTransaction(tx: Prisma.Transactio
         ) ORDER BY m.id FOR SHARE OF m`;
       const otherLineups = await tx.lineups.findMany({ where: { player_registrations: { person_id: reg.person_id },
         match_reports: { match_id: { not: matchId }, matches: { deleted_at: null, match_statuses:{code:{not:"CANCELED"}} } } },
-        select: { registration_id: true, season_team_id: true, is_starter: true, player_period_participations: { select: { period_number: true } },
+        select: { registration_id: true, season_team_id: true, is_starter: true, player_period_participations: { select: { period_number: true, entry_minute: true, exit_minute: true } },
           season_teams: { select: { club_id: true, season_category_id: true } },
           match_reports: { select: { draft_data: true, matches: { select: { season_id: true, starts_at: true, ends_at: true } } } } } });
       const otherHalves: ParticipationHalf[] = [];
@@ -127,10 +127,10 @@ export async function evaluateAuthorizedMatchInTransaction(tx: Prisma.Transactio
         const otherHalf = otherRow?.participationHalf;
         const problem = halfCrossingProblem({ seasonId: match.season_id, clubId: target.clubId, categoryId: target.seasonCategoryId,
           half: ownRow?.participationHalf, startsAt: match.starts_at, endsAt: match.ends_at,
-          boundaries: clock?.boundaries, hasParticipation: (ownPeriods.length > 0 || !!ownRow?.starter && !!clock?.boundaries?.firstStartedAt) && (ownRow?.participationHalf !== 2 || !!clock?.boundaries?.secondStartedAt) }, {
+          boundaries: clock?.boundaries, hasParticipation: (ownPeriods.length > 0 && !(ownRow?.participationHalf === 2 && clock?.phase === "BREAK" && ownPeriods.every(p => p.periodNumber === 2 && p.entryMinute === 0 && p.exitMinute === null))) || !!ownRow?.starter && !!clock?.boundaries?.firstStartedAt }, {
           seasonId: other.match_reports.matches.season_id, clubId: other.season_teams.club_id, categoryId: other.season_teams.season_category_id!,
           half: otherHalf, startsAt: other.match_reports.matches.starts_at, endsAt: other.match_reports.matches.ends_at,
-          boundaries: otherClock.success ? otherClock.data.boundaries : undefined, hasParticipation: (other.player_period_participations.length > 0 || other.is_starter && !!(otherClock.success && otherClock.data.boundaries?.firstStartedAt)) && (otherHalf !== 2 || !!(otherClock.success && otherClock.data.boundaries?.secondStartedAt)),
+          boundaries: otherClock.success ? otherClock.data.boundaries : undefined, hasParticipation: (other.player_period_participations.length > 0 && !(otherHalf === 2 && otherClock.success && otherClock.data.phase === "BREAK" && other.player_period_participations.every(p => p.period_number === 2 && p.entry_minute === 0 && p.exit_minute === null))) || other.is_starter && !!(otherClock.success && otherClock.data.boundaries?.firstStartedAt),
         });
         if (problem && !blockers.some(b => b.code === problem)) blockers.push({ code: problem, message: halfBlockerMessages[problem] });
         if (problem === "PARTICIPATION_HALF_REQUIRED" && otherHalf) otherHalves.push(otherHalf);

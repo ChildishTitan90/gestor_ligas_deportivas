@@ -18,7 +18,17 @@ export function halfCrossingProblem(a: HalfContext, b: HalfContext): string | nu
   };
   const left = interval(a), right = interval(b);
   const actualCross = !!left && !!right && left[0] < right[1] && right[0] < left[1];
-  if (!scheduledCross && !actualCross) return null;
+  if (!scheduledCross && !actualCross) {
+    // La programación no demuestra que una participación real terminó a tiempo.
+    // Basta una frontera comprobada entre ambos: no exigimos el final del
+    // segundo partido, que puede seguir en juego.
+    const start = (c: HalfContext) => c.hasParticipation ? Date.parse((c.half === 2 ? c.boundaries?.secondStartedAt : c.boundaries?.firstStartedAt) ?? "") : NaN;
+    const end = (c: HalfContext) => c.hasParticipation ? Date.parse((c.half === 1 ? c.boundaries?.firstEndedAt : c.boundaries?.secondEndedAt) ?? "") : NaN;
+    const provenApart = end(a) <= start(b) || end(b) <= start(a);
+    const incomplete = [a, b].some(c => c.hasParticipation && (!Number.isFinite(start(c)) || !Number.isFinite(end(c))));
+    if (incomplete && !provenApart) return "PARTICIPATION_CLOCK_REQUIRED";
+    return null;
+  }
   if (a.seasonId !== b.seasonId || a.clubId !== b.clubId || a.categoryId === b.categoryId) return "PARTICIPATION_CONTEXT_CONFLICT";
   if (!a.half || !b.half) return "PARTICIPATION_HALF_REQUIRED";
   if (a.half === b.half) return "PARTICIPATION_HALF_CONFLICT";
@@ -33,6 +43,6 @@ export const halfBlockerMessages: Record<string, string> = {
   PARTICIPATION_CONTEXT_CONFLICT: "El cruce solo permite categorías distintas del mismo club y temporada.",
   PARTICIPATION_HALF_REQUIRED: "Para compartir horarios indica una mitad distinta en cada cédula. La reserva no autoriza entrar antes del medio tiempo.",
   PARTICIPATION_HALF_CONFLICT: "El jugador ya está reservado para la misma mitad en otro partido coincidente.",
-  PARTICIPATION_CLOCK_REQUIRED: "Faltan marcas reales del descanso y del segundo tiempo para comprobar el traslado.",
+  PARTICIPATION_CLOCK_REQUIRED: "Faltan marcas reales suficientes para descartar participación simultánea y comprobar el traslado.",
   PARTICIPATION_REAL_TIME_CONFLICT: "El segundo tiempo comenzó antes de terminar el primero del otro partido; no se autoriza este traslado.",
 };

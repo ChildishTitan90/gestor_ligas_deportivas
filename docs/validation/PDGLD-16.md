@@ -85,3 +85,28 @@ El build emitió un aviso de seguridad de la versión instalada de Next.js en un
 repetición; la siguiente ejecución del mismo comando terminó correctamente.
 No se cambió la dependencia ni se desactivó ese control. Ese aviso debe revisarse
 por separado del alcance funcional de PDGLD-16.
+
+## Observación de Checo: retraso con horarios separados
+
+Se reprodujo primero el fallo en una prueba nueva: esperaba
+`PARTICIPATION_CLOCK_REQUIRED` y recibía `null`. La corrección comprueba evidencia
+real antes de aceptar horarios programados separados. La regresión cubre reloj
+ausente o parcial en cualquiera de los dos partidos, ambos órdenes de evaluación,
+cruce real, frontera contigua válida y reservas sin participación registrada.
+
+La integración de cédula ahora cambia los horarios del primer encuentro para
+que no coincidan con el segundo, conserva participación registrada y elimina
+marcas reales: el servicio rechaza la captura, mantiene versión y periodos, y
+permite guardar al restablecer evidencia suficiente. Incluye falta del reloj del
+segundo partido para evitar tratar sus periodos persistidos como mera reserva.
+
+El escenario positivo Chrome reutiliza jugadores del escenario HTTP anterior.
+Ese antecedente de prueba ahora aporta marcas sintéticas explícitas de cierre
+anteriores al recorrido Chrome; no se infiere cierre desde su programación. Los
+casos negativos de reloj ausente se prueban mediante el servicio y PostgreSQL.
+
+Nickte ejecutó correctamente Chrome real en Mac sobre `5314d02`: el resultado
+reportó `halfReservationAndTimesReopened:true`, temas claro/oscuro, móvil/escritorio,
+firmas y recuperación de respuesta perdida. Esa ejecución corresponde al commit
+anterior; el recorrido de esta corrección debe repetirse en Mac. Este entorno
+sigue sin poder iniciar Chrome por la restricción de su socket local.

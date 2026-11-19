@@ -41,3 +41,15 @@ test("reserva provisional no elude sanción ni ubica al segundo tiempo como titu
  const next=updateDraftLineup(reserved,data.report,p.id,{selected:true});assert.equal(next.lineups.find(r=>r.playerId===p.id)!.starter,false);
  p.blockers.push({code:'PARTICIPATION_BLOCKED',message:'Sanción'});assert.equal(halfReservationData(data,data.report).players[0].eligible,false);
 });
+
+test("horarios separados no sustituyen marcas reales de una participación registrada",()=>{
+ const a={...first,startsAt:new Date("2026-11-18T10:00Z"),endsAt:new Date("2026-11-18T12:00Z"),hasParticipation:true,boundaries:{firstStartedAt:"2026-11-18T10:00:00Z",firstEndedAt:"2026-11-18T12:15:00Z"}};
+ const b={...second,startsAt:new Date("2026-11-18T12:00Z"),endsAt:new Date("2026-11-18T14:00Z"),hasParticipation:true,boundaries:{secondStartedAt:"2026-11-18T12:10:00Z"}};
+ for(const [left,right] of [[{...a,boundaries:{}},b],[{...a,boundaries:{firstStartedAt:a.boundaries.firstStartedAt}},b],[a,{...b,boundaries:{}}]] as const){
+   assert.equal(halfCrossingProblem(left,right),"PARTICIPATION_CLOCK_REQUIRED");
+   assert.equal(halfCrossingProblem(right,left),"PARTICIPATION_CLOCK_REQUIRED");
+ }
+ assert.equal(halfCrossingProblem(a,b),"PARTICIPATION_REAL_TIME_CONFLICT");
+ assert.equal(halfCrossingProblem({...a,boundaries:{...a.boundaries,firstEndedAt:b.boundaries.secondStartedAt}},b),null);
+ assert.equal(halfCrossingProblem({...a,hasParticipation:false,boundaries:{}},{...b,hasParticipation:false,boundaries:{}}),null,"Reservar sin juego registrado no acredita un traslado");
+});

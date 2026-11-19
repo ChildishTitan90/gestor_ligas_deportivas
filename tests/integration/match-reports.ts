@@ -212,6 +212,16 @@ export async function runReportAcceptance(f: Fixture) {
       await verifyReportHttp(base,actors,command(3),draft.signatures[teams[0]]!,"data:image/png;base64,"+png.toString("base64"));
       if(process.argv.includes("--browser")){
         const {verifyRealMatchReportBrowser}=await import("../e2e/match-reports-real.mjs");
+        // El escenario HTTP anterior registró periodos sin reloj. Para reutilizar
+        // sus jugadores en otro partido, aportar evidencia sintética explícita
+        // de que terminó antes de iniciar el escenario Chrome (no inferirla del horario).
+        const {advanceMatchClock}=await import("../../src/features/match-reports/match-clock");
+        const endedAt=Date.now()-60_000;
+        let priorClock=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},new Date(endedAt-90*60_000).toISOString());
+        priorClock=advanceMatchClock(priorClock,{type:"end-half"},new Date(endedAt-50*60_000).toISOString());
+        priorClock=advanceMatchClock(priorClock,{type:"start-second"},new Date(endedAt-40*60_000).toISOString());
+        priorClock=advanceMatchClock(priorClock,{type:"end-half"},new Date(endedAt).toISOString());
+        await db.query("UPDATE sports_management.match_reports SET draft_data=jsonb_set(draft_data,'{clock}',$2::jsonb,true) WHERE match_id=$1",[match,JSON.stringify(priorClock)]);
         const browserMatch=await scalar("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id) SELECT season_id,group_id,matchday_id,'BROWSER-149',home_team_id,away_team_id,venue_id,starts_at+interval '4 hours',ends_at+interval '4 hours',reserved_until+interval '4 hours',sports_management.get_match_status_id('CONFIRMED') FROM sports_management.matches WHERE id=$1 RETURNING id",[match]);
         await verifyRealMatchReportBrowser({base,match:browserMatch,postgres:process.argv.find(a=>a.startsWith('--postgres='))?.split('=')[1]??'15'});
       }
