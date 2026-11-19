@@ -15,6 +15,22 @@ export const loginSchema = z.object({
 
 export type LoginInput = z.infer<typeof loginSchema>;
 
+const newPasswordSchema = z
+      .string({ error: "Escribe tu nueva contraseña." })
+      .min(8, "La nueva contraseña debe tener al menos 8 caracteres.")
+      .max(128, "La nueva contraseña no puede superar los 128 caracteres.")
+      .regex(/[A-Z]/, "Debe incluir al menos una letra mayúscula.")
+      .regex(/[a-z]/, "Debe incluir al menos una letra minúscula.")
+      .regex(/[0-9]/, "Debe incluir al menos un número.")
+      .regex(/[^A-Za-z0-9]/, "Debe incluir al menos un carácter especial.");
+
+export const recoveryRequestSchema = z.object({ email: emailSchema });
+export const recoveryCompletionSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  newPassword: newPasswordSchema,
+  confirmPassword: z.string().max(128),
+}).refine(data => data.newPassword === data.confirmPassword, { path: ["confirmPassword"], message: "La confirmación no coincide." });
+
 // --- Esquema para PDGLD-49: Cambio obligatorio de contraseña ---
 export const changePasswordSchema = z
   .object({
@@ -22,14 +38,7 @@ export const changePasswordSchema = z
       .string({ error: "Escribe tu contraseña actual." })
       .min(1, "Escribe tu contraseña actual.")
       .max(1024, "La contraseña no puede superar los 1024 caracteres."),
-    newPassword: z
-      .string({ error: "Escribe tu nueva contraseña." })
-      .min(8, "La nueva contraseña debe tener al menos 8 caracteres.")
-      .max(128, "La nueva contraseña no puede superar los 128 caracteres.")
-      .regex(/[A-Z]/, "Debe incluir al menos una letra mayúscula.")
-      .regex(/[a-z]/, "Debe incluir al menos una letra minúscula.")
-      .regex(/[0-9]/, "Debe incluir al menos un número.")
-      .regex(/[^A-Za-z0-9]/, "Debe incluir al menos un carácter especial."),
+    newPassword: newPasswordSchema,
     confirmPassword: z
       .string({ error: "Confirma tu nueva contraseña." })
       .min(1, "Confirma tu nueva contraseña."),

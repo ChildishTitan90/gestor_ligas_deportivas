@@ -3,6 +3,7 @@ import { changePasswordSchema } from "@/features/auth/schemas";
 import { getPrisma } from "@/server/db/prisma";
 import { getPrivateRequestIdentity } from "@/server/auth/request-identity";
 import { verifyPassword, hashPassword } from "@/server/auth/password";
+import { invalidatePasswordRecovery } from "@/server/auth/password-recovery";
 import { lockAuthUser } from "@/server/auth/lock-user";
 
 export const runtime = "nodejs";
@@ -83,6 +84,7 @@ export async function POST(request: Request) {
           locked_until: null,
         },
       });
+      await invalidatePasswordRecovery(tx, user.id, new Date());
       await tx.authentication_events.create({ data: { user_id: user.id, action: "PASSWORD_CHANGED" } });
 
       return { ok: true as const };

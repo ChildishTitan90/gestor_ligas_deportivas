@@ -63,6 +63,11 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
       <div className="grid gap-4 sm:grid-cols-3"><Field name="win" label="Puntos por victoria" type="number" value={previousNumber("points", "win")} /><Field name="draw" label="Puntos por empate" type="number" value={previousNumber("points", "draw")} /><Field name="loss" label="Puntos por derrota" type="number" value={previousNumber("points", "loss")} /></div>
       <TieBreakerFields initialValues={Array.isArray(latest.tieBreakers) ? latest.tieBreakers.filter((value): value is string => typeof value === "string") : []} />
       <Field name="rounds" label="Vueltas" type="number" value={previousNumber("calendar", "rounds")} /><Field name="matchDurationMinutes" label="Duración del partido (minutos)" type="number" value={previousNumber("calendar", "matchDurationMinutes")} />
+      <label className="block">Últimas jornadas solo en unidad deportiva
+        <input name="complexOnlyFinalRounds" type="number" min={0} step={1} aria-describedby="complex-only-final-rounds-help"
+          defaultValue={previousNumber("calendar", "complexOnlyFinalRounds")} className={control} />
+        <span id="complex-only-final-rounds-help" className="mt-1 block text-sm text-muted">Usa 0 para desactivar la restricción o deja el campo vacío si aún no se ha definido.</span>
+      </label>
       <p>El borrador conserva las versiones anteriores. Su creación no publica ni aprueba las reglas.</p>
     </ConfigurationForm>}
       {rules.map((rule, index) => <details key={rule.id} open={index === 0} className="rounded-2xl border border-border bg-surface p-5"><summary className="min-h-12 cursor-pointer font-semibold">Versión {rule.version} · {rule.status === "DRAFT" ? "Borrador" : rule.status === "APPROVED" ? "Aprobado" : rule.status}{index === 0 ? " · Última versión" : " · Historial"}</summary>

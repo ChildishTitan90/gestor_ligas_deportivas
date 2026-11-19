@@ -26,7 +26,7 @@ const readColumns = {
   season_identity_closures:['season_id','season_version','closed_at','captured_at','person_count','format_version'],
   appointments: ['id', 'position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
   venue_reservations: ['venue_id', 'match_id', 'time_range'],
-  password_resets: ['user_id','used_at'],
+  password_resets: ['id','user_id','token_hash','created_at','expires_at','used_at'],
   sanctions:['id','article_id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
   billing_plans: ['id', 'season_id'], club_team_changes: ['id', 'season_id'],
   // update() de aprobación devuelve todos los escalares, incluido file_id.
@@ -35,15 +35,17 @@ const readColumns = {
   competition_rule_parameters: ['id', 'competition_rule_id', 'parameter_key', 'parameter_value', 'requires_validation', 'validated_by'],
   competition_stages: ['id', 'season_category_id', 'season_id'],
   imports: ['id', 'season_id'],
-  matchdays: ['id', 'season_id'], match_results: ['id', 'match_id'], match_statuses: ['id', 'code', 'reserves_resources'],
+  matchdays: ['id', 'season_id', 'number'], match_results: ['id', 'match_id'], match_statuses: ['id', 'code', 'reserves_resources'],
   match_status_transitions: ['id', 'from_status_id', 'to_status_id', 'role_id'],
   match_status_history: ['id', 'match_id', 'previous_status_id', 'new_status_id', 'user_id', 'reason', 'expected_version', 'created_at'],
   official_documents: ['id', 'season_id'], publications: ['id', 'season_id'],
   season_awards: ['id', 'season_category_id', 'season_id'], season_breaks: ['id', 'season_id'],
-  standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id'],
+  standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'reviewed_by', 'review_reason'],
 };
 const insert = {
   match_status_history: ['id', 'match_id', 'previous_status_id', 'new_status_id', 'user_id', 'reason', 'expected_version'],
+  password_resets: ['id','user_id','token_hash','created_at','expires_at'],
+  venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status'],
   regulation_articles: ['id','competition_rule_id','number','description','sanction_type_id','parameters','revision'],
   referee_presentation_credentials:['id','file_id','uploaded_by','operation_key','input_hash'],
   referee_presentations:['club_id','season_id','requester_id','operation_key','input_hash','person_id','first_name','paternal_surname','maternal_surname','reason'],
@@ -94,6 +96,7 @@ const insert = {
 };
 const update = {
   matches: ['status_id', 'version'],
+  venue_loans: ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at'],
   regulation_articles: ['number','description','sanction_type_id','parameters'],
   referee_presentations:['status','reviewed_by','reviewed_at','review_reason','review_key','review_hash','approved_person_id','referee_id','approved_identity'],
   people:['curp','first_name','paternal_surname','maternal_surname','birth_date'],

@@ -3,6 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { LoginForm } from "@/features/auth/components/login-form";
+import { recoveryPolicy } from "@/server/auth/password-recovery";
+import { getEmailTransport } from "@/server/email/transport";
 import { getAuthSession } from "@/server/auth/session";
 import { ActionLink } from "@/components/ui/action-link";
 import { ThemeSelector } from "@/components/ui/theme-selector";
@@ -44,6 +46,7 @@ export default async function LoginPage() {
             <h2 id="login-title" className="text-2xl font-semibold tracking-tight">Iniciar sesión</h2>
             <p className="mt-2 mb-7 text-sm leading-6 text-muted">Usa tu usuario o correo y la contraseña de tu cuenta.</p>
             <LoginForm />
+            {recoveryPolicy() && getEmailTransport() && <Link href="/recover-password" className="mt-4 inline-block underline">¿Olvidaste tu contraseña?</Link>}
             <ActionLink href="/futbol" variant="secondary" className="mt-4 w-full">Continuar como espectador</ActionLink>
             <p className="mt-7 border-t border-border pt-5 text-sm leading-6 text-muted">
               ¿Necesitas una cuenta o ayuda para entrar? Comunícate con la administración de la liga.
