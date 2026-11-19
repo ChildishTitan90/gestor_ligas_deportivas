@@ -115,11 +115,17 @@ export function participationPeriods(row: ReportLineup, events: ReportEvent[], c
     if (enters) period.entryMinute = event.periodMinute ?? event.minute;
     if (leaves) period.exitMinute = event.periodMinute ?? event.minute;
   }
-  if (row.participationHalf === 1 && row.starter && clock?.boundaries?.firstStartedAt) {
+  if (row.participationHalf === 1 && clock?.boundaries?.firstStartedAt) {
     let first = periods.find(p => p.periodNumber === 1);
-    if (!first) { first = { periodNumber: 1, entryMinute: 0, exitMinute: null }; periods.push(first); }
-    if (first.entryMinute === null) first.entryMinute = 0;
-    if (first.exitMinute === null && clock.boundaries.firstEndedAt)
+    // Solo el titular tiene entrada implícita al iniciar. La reserva de un
+    // suplente no prueba que haya entrado ni autoriza inventarle minutos.
+    if (row.starter) {
+      if (!first) { first = { periodNumber: 1, entryMinute: 0, exitMinute: null }; periods.push(first); }
+      if (first.entryMinute === null) first.entryMinute = 0;
+    }
+    // Una entrada acreditada, también de banca, termina con la mitad reservada.
+    // Conservar la entrada real y cualquier salida anterior ya capturada.
+    if (first && first.entryMinute !== null && first.exitMinute === null && clock.boundaries.firstEndedAt)
       first.exitMinute = Math.floor((Date.parse(clock.boundaries.firstEndedAt) - Date.parse(clock.boundaries.firstStartedAt)) / 60_000);
   }
   // Salir en el descanso no equivale a jugar el segundo periodo.

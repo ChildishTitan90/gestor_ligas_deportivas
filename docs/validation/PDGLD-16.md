@@ -144,3 +144,28 @@ evidencia pasó 21/21 en cada versión. Pruebas puras 20/20, tipado, lint y cont
 del pipeline 94/94 aprobados. No se modificaron permisos ni pruebas anteriores
 para obtener estos resultados. Chrome y el CI remoto de esta revisión no se
 presentan como ejecutados aquí; deben comprobarse al publicar y revisar.
+
+
+## PR #63: suplente reservado a la primera mitad (19/11/2026)
+
+Se reprodujo antes de corregir: entrada al minuto 20 y salida pendiente aunque
+la primera mitad terminó al 48. El cierre del periodo estaba condicionado a
+haber sido titular. Ahora la entrada implícita cero sigue siendo exclusiva del
+titular, pero toda entrada acreditada en la primera mitad reservada completa
+su salida con la marca real del cierre. No inventa participación de banca,
+no sustituye una salida anterior ni crea minutos en el segundo periodo.
+
+La prueba pura falla con el código anterior y pasa con la corrección. La
+regresión de cédula usa el servicio de guardado, reloj persistido y rol
+Preview/RLS: sella con el suplente en banca, inicia, registra la entrada 20,
+termina la mitad con duración real 48, verifica periodos en PostgreSQL,
+relee el borrador, vuelve a guardar y comprueba entrada 20/salida 48, ausencia
+de segundo periodo y replay idempotente. El reloj es sintético explícito;
+no se toma el horario programado como evidencia de participación.
+
+Aprobado en PostgreSQL embebido 15.19 y 17.11: regresión de cédula y suite de
+elegibilidad 21/21 en cada versión. Conserva las regresiones de reserva futura
+sin juego y rechazo de traslado con marcas incompletas. Pruebas puras 21/21,
+controles de pipeline 94/94, tipado y lint aprobados. No se cambian migraciones,
+permisos ni reglas de cruces. Esta revisión no acredita Chrome ni CI remoto;
+ambos deben verificarse al publicar la actualización del PR #63.

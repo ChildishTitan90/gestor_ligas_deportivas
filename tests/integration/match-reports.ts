@@ -83,6 +83,48 @@ export async function runReportAcceptance(f: Fixture) {
     const pre=command(0);pre.kind="lock-lineups";pre.draft.events=[];pre.draft.score={home:null,away:null};pre.draft.lineups.forEach(r=>r.periods=[]);
     const {mutateReportInTransaction:prepareLineups}=await import("../../src/features/match-reports/server/service");
     await assert.rejects(getPrisma().$transaction(async tx=>{const ack=await prepareLineups(tx,actors.capturista,pre);assert.equal(ack.status,"DRAFT");const start={...pre,kind:"clock" as const,operationId:randomUUID(),expectedReportVersion:1,clockAction:{type:"start" as const,halfMinutes:45,breakMinutes:15}};const started=await prepareLineups(tx,actors.capturista,start);assert.equal(started.matchVersion,page.match.version+1);assert.deepEqual(await prepareLineups(tx,actors.capturista,start),started);assert.equal(await tx.match_status_history.count({where:{id:start.operationId}}),1);throw Error("PREMATCH_ROLLBACK");},{timeout:30000}),/PREMATCH_ROLLBACK/);
+    // Regresión del PR #63: banca reservada a primera mitad, entrada real y salida al descanso.
+    await assert.rejects(getPrisma().$transaction(async tx => {
+      const own = structuredClone(pre); own.operationId = randomUUID();
+      own.draft.lineups.find(r => r.playerId === registrations[3])!.participationHalf = 1;
+      const sealed = await prepareLineups(tx, actors.capturista, own);
+      let matchVersion = own.expectedMatchVersion;
+      const next = (version: number): ReportCommand => ({ ...structuredClone(own), operationId: randomUUID(), expectedMatchVersion: matchVersion, expectedReportVersion: version });
+      const start = next(sealed.reportVersion); start.kind = "clock";
+      start.clockAction = { type: "start", halfMinutes: 45, breakMinutes: 15 };
+      const started = await prepareLineups(tx, actors.capturista, start);
+      matchVersion = started.matchVersion;
+      // Tiempo sintético explícito del reloj; el test no espera 48 minutos reales.
+      const clock = structuredClone(started.clock!);
+      clock.phaseStartedAt = new Date(Date.now() - 48 * 60_000).toISOString();
+      clock.boundaries!.firstStartedAt = clock.phaseStartedAt;
+      await tx.match_reports.update({ where: { id: started.reportId }, data: { draft_data: { formatVersion: 1, draft: own.draft, clock } } });
+      const entered = next(started.reportVersion); entered.kind = "save";
+      entered.draft.events = [{ id: randomUUID(), typeCode: "SUBSTITUTION", teamId: teams[0],
+        playerId: registrations[3], outgoingPlayerId: registrations[0], replacementCaptainId: registrations[3],
+        periodNumber: 1, periodMinute: 20, minute: 20, second: 0, description: "Entrada desde banca en primera mitad" }];
+      const savedEntry = await prepareLineups(tx, actors.capturista, entered);
+      const period = () => tx.player_period_participations.findFirstOrThrow({ where: {
+        lineups: { match_report_id: started.reportId, registration_id: registrations[3] }, period_number: 1 },
+        select: { entry_minute: true, exit_minute: true } });
+      assert.deepEqual(await period(), { entry_minute: 20, exit_minute: null });
+      const end = { ...structuredClone(entered), kind: "clock" as const, operationId: randomUUID(), expectedReportVersion: savedEntry.reportVersion,
+        clockAction: { type: "end-half" as const } };
+      const rest = await prepareLineups(tx, actors.capturista, end);
+      assert.equal(rest.clock?.phase, "BREAK");
+      assert.deepEqual(await period(), { entry_minute: 20, exit_minute: 48 });
+      assert.deepEqual(await prepareLineups(tx, actors.capturista, end), rest, "Reintento idempotente");
+      // Nueva lectura del borrador persistido y nuevo guardado durante el descanso.
+      const reopened = await tx.match_reports.findUniqueOrThrow({ where: { id: rest.reportId } });
+      const stored = reopened.draft_data as unknown as { draft: ReportDraft };
+      const again = { ...next(rest.reportVersion), kind: "save" as const, draft: stored.draft };
+      await prepareLineups(tx, actors.capturista, again);
+      assert.deepEqual(await period(), { entry_minute: 20, exit_minute: 48 });
+      assert.equal(await tx.player_period_participations.count({ where: { lineups: {
+        match_report_id: rest.reportId, registration_id: registrations[3] }, period_number: 2 } }), 0);
+      throw Error("SUBSTITUTE_HALF_ROLLBACK");
+    }, { timeout: 30000 }), /SUBSTITUTE_HALF_ROLLBACK/);
+    console.log("PDGLD-16 suplente: entrada 20, salida real 48, guardado y relectura, sin segundo periodo; replay: OK");
     // Cédula actual + reserva del día siguiente. Ninguna marca futura inventada.
     await db.query("INSERT INTO sports_management.venue_availability(venue_id,starts_at,ends_at,type) SELECT venue_id,starts_at+interval '1 day',ends_at+interval '1 day','AVAILABLE' FROM sports_management.venue_availability WHERE venue_id=(SELECT venue_id FROM sports_management.matches WHERE id=$1)",[match]);
     const futureMatch=await scalar("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id) SELECT season_id,group_id,matchday_id,'FUTURE-16',home_team_id,away_team_id,venue_id,starts_at+interval '1 day',ends_at+interval '1 day',reserved_until+interval '1 day',sports_management.get_match_status_id('CONFIRMED') FROM sports_management.matches WHERE id=$1 RETURNING id",[match]);
