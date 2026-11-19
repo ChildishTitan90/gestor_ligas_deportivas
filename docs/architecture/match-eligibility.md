@@ -102,3 +102,17 @@ al descanso una segunda mitad con entrada cero y salida vacía que aún no empez
 No se rellenan marcas históricas ni se sustituye una marca real por la hora
 programada. Los antecedentes incompletos requieren evidencia suficiente antes
 de certificar un nuevo traslado.
+
+## Reserva posterior al iniciar el partido evaluado · 18/11/2026
+
+Una reserva futura sin participación no obliga a que el partido evaluado ya
+haya terminado para poder iniciarlo. Si ambos horarios están completos y
+separados, el inicio real del encuentro evaluado es conocido y anterior al
+inicio programado de la reserva posterior, se permite iniciar y seguir
+capturando ese primer encuentro aunque todavía no tenga marca de cierre.
+
+Esta distinción solo se aplica cuando el otro encuentro no registra juego.
+No sustituye la comprobación del antecedente al evaluar el destino posterior:
+los periodos registrados sin reloj siguen contando como participación y, al
+registrar el traslado, se mantienen las comprobaciones de evidencia y cruce.
+Los horarios coincidentes conservan la regla de mitades complementarias.

@@ -53,3 +53,12 @@ test("horarios separados no sustituyen marcas reales de una participación regis
  assert.equal(halfCrossingProblem({...a,boundaries:{...a.boundaries,firstEndedAt:b.boundaries.secondStartedAt}},b),null);
  assert.equal(halfCrossingProblem({...a,hasParticipation:false,boundaries:{}},{...b,hasParticipation:false,boundaries:{}}),null,"Reservar sin juego registrado no acredita un traslado");
 });
+
+test("iniciar el partido actual no exige terminarlo por una reserva posterior sin juego",()=>{
+ const today={...first,hasParticipation:true,boundaries:{firstStartedAt:"2026-11-18T18:00:00Z"}};
+ const tomorrow={...second,startsAt:new Date("2026-11-19T18:00Z"),endsAt:new Date("2026-11-19T20:00Z"),hasParticipation:false};
+ assert.equal(halfCrossingProblem(today,tomorrow),null);
+ assert.equal(halfCrossingProblem(tomorrow,today),"PARTICIPATION_CLOCK_REQUIRED","Evaluar el destino no ignora el antecedente en juego");
+ assert.equal(halfCrossingProblem(today,{...tomorrow,hasParticipation:true}),"PARTICIPATION_CLOCK_REQUIRED","Una participación registrada sin reloj no es reserva");
+ assert.equal(halfCrossingProblem({...today,boundaries:{}},tomorrow),"PARTICIPATION_CLOCK_REQUIRED","Sin inicio real no se presupone la secuencia");
+});

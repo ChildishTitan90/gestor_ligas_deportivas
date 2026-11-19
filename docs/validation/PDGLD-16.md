@@ -118,3 +118,29 @@ por versión; HTTP/NextAuth/rol Preview-RLS aprobado. Tras integrar `develop`
 aprobados. Chrome de esta corrección continúa pendiente en Mac; en este intento
 local el ejecutable por defecto no estaba disponible, por lo que no se registra
 como aprobado. La ejecución anterior de Nickte no sustituye esa repetición.
+
+## Regresión de reserva futura al arrancar el reloj
+
+Se añadió primero una prueba desde la cédula que falló con
+`PARTICIPATION_CLOCK_REQUIRED` al iniciar el primer partido. Utiliza los servicios
+reales con DATA_ENTRY y rol Preview/RLS: guarda una reserva del día siguiente
+sin reloj ni periodos, sella la alineación del partido actual con un titular de
+primera mitad, e inicia su reloj mediante `kind:clock` / `start`.
+
+La prueba exige `FIRST_HALF`, inicio real presente, cierre todavía ausente,
+estado `IN_PROGRESS`, periodo persistido con entrada cero/salida vacía y replay
+idempotente. Comprueba que la reserva futura conserva sus convocados, sin reloj
+ni periodos. El fixture revierte la transacción y no altera bases compartidas.
+
+La prueba unitaria distingue reserva posterior de participación registrada y
+exige un inicio real conocido. Se conserva, sin retirar ni relajar, la prueba
+anterior de cédula que rechaza registrar el traslado con horarios separados y
+marcas incompletas en el antecedente o destino, manteniendo versión y periodos.
+
+Resultado: la prueba nueva desde cédula reprodujo el fallo antes del cambio y
+pasó después en PostgreSQL embebido 15 y 17, con rol Preview/RLS y servicios
+reales. La suite de elegibilidad que conserva el rechazo por antecedente sin
+evidencia pasó 21/21 en cada versión. Pruebas puras 20/20, tipado, lint y controles
+del pipeline 94/94 aprobados. No se modificaron permisos ni pruebas anteriores
+para obtener estos resultados. Chrome y el CI remoto de esta revisión no se
+presentan como ejecutados aquí; deben comprobarse al publicar y revisar.

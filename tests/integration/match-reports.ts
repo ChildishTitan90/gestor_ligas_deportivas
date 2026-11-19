@@ -83,6 +83,31 @@ export async function runReportAcceptance(f: Fixture) {
     const pre=command(0);pre.kind="lock-lineups";pre.draft.events=[];pre.draft.score={home:null,away:null};pre.draft.lineups.forEach(r=>r.periods=[]);
     const {mutateReportInTransaction:prepareLineups}=await import("../../src/features/match-reports/server/service");
     await assert.rejects(getPrisma().$transaction(async tx=>{const ack=await prepareLineups(tx,actors.capturista,pre);assert.equal(ack.status,"DRAFT");const start={...pre,kind:"clock" as const,operationId:randomUUID(),expectedReportVersion:1,clockAction:{type:"start" as const,halfMinutes:45,breakMinutes:15}};const started=await prepareLineups(tx,actors.capturista,start);assert.equal(started.matchVersion,page.match.version+1);assert.deepEqual(await prepareLineups(tx,actors.capturista,start),started);assert.equal(await tx.match_status_history.count({where:{id:start.operationId}}),1);throw Error("PREMATCH_ROLLBACK");},{timeout:30000}),/PREMATCH_ROLLBACK/);
+    // Cédula actual + reserva del día siguiente. Ninguna marca futura inventada.
+    await db.query("INSERT INTO sports_management.venue_availability(venue_id,starts_at,ends_at,type) SELECT venue_id,starts_at+interval '1 day',ends_at+interval '1 day','AVAILABLE' FROM sports_management.venue_availability WHERE venue_id=(SELECT venue_id FROM sports_management.matches WHERE id=$1)",[match]);
+    const futureMatch=await scalar("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id) SELECT season_id,group_id,matchday_id,'FUTURE-16',home_team_id,away_team_id,venue_id,starts_at+interval '1 day',ends_at+interval '1 day',reserved_until+interval '1 day',sports_management.get_match_status_id('CONFIRMED') FROM sports_management.matches WHERE id=$1 RETURNING id",[match]);
+    await assert.rejects(getPrisma().$transaction(async tx=>{
+      const future=await tx.matches.findUniqueOrThrow({where:{id:futureMatch}});
+      const reserve={...structuredClone(pre),kind:"save" as const,operationId:randomUUID(),matchId:future.id,expectedMatchVersion:future.version};
+      const reserved=await prepareLineups(tx,actors.capturista,reserve);
+      const own=structuredClone(pre);own.operationId=randomUUID();own.draft.lineups[0].participationHalf=1;
+      const sealed=await prepareLineups(tx,actors.capturista,own);
+      const start={...own,kind:"clock" as const,operationId:randomUUID(),expectedReportVersion:sealed.reportVersion,clockAction:{type:"start" as const,halfMinutes:40,breakMinutes:10}};
+      const started=await prepareLineups(tx,actors.capturista,start);
+      assert.equal(started.clock?.phase,"FIRST_HALF");assert.ok(started.clock?.boundaries?.firstStartedAt);
+      assert.equal(started.clock?.boundaries?.firstEndedAt,undefined);
+      assert.deepEqual(await prepareLineups(tx,actors.capturista,start),started);
+      assert.equal((await tx.matches.findUniqueOrThrow({where:{id:match},include:{match_statuses:true}})).match_statuses.code,"IN_PROGRESS");
+      const reopened=await tx.match_reports.findUniqueOrThrow({where:{id:started.reportId}});
+      assert.equal((reopened.draft_data as {clock:{phase:string}}).clock.phase,"FIRST_HALF");
+      assert.equal(await tx.player_period_participations.count({where:{lineups:{match_report_id:started.reportId},period_number:1,entry_minute:0,exit_minute:null}}),1);
+      const pending=await tx.match_reports.findUniqueOrThrow({where:{id:reserved.reportId}});
+      assert.equal((pending.draft_data as {clock?:unknown}).clock,undefined);
+      assert.equal(await tx.lineups.count({where:{match_report_id:reserved.reportId}}),reserve.draft.lineups.length);
+      assert.equal(await tx.player_period_participations.count({where:{lineups:{match_report_id:reserved.reportId}}}),0);
+      throw Error("FUTURE_RESERVATION_ROLLBACK");
+    },{timeout:30000}),/FUTURE_RESERVATION_ROLLBACK/);
+    console.log("PDGLD-16 cédula real: reserva futura sin juego permite sellar e iniciar el partido actual; reloj y periodos persisten; replay: OK");
     await db.query("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('IN_PROGRESS') WHERE id=$1",[match]);
     const invalidPosition=command(0);invalidPosition.draft.tactics![teams[0]].slots[0].playerId=registrations[1];
     await assert.rejects(mutateReport(actors.capturista,invalidPosition),/TACTICS_LINEUP_MISMATCH/);

@@ -6,6 +6,7 @@ export type HalfContext = {
   startsAt: Date | null; endsAt: Date | null;
   boundaries?: HalfBoundaries; hasParticipation: boolean;
 };
+/** a es el encuentro evaluado; b es el antecedente u otra reserva de la persona. */
 export function halfCrossingProblem(a: HalfContext, b: HalfContext): string | null {
   const complete = a.startsAt && a.endsAt && b.startsAt && b.endsAt;
   const scheduledCross = !complete || a.startsAt! < b.endsAt! && b.startsAt! < a.endsAt!;
@@ -26,7 +27,12 @@ export function halfCrossingProblem(a: HalfContext, b: HalfContext): string | nu
     const end = (c: HalfContext) => c.hasParticipation ? Date.parse((c.half === 1 ? c.boundaries?.firstEndedAt : c.boundaries?.secondEndedAt) ?? "") : NaN;
     const provenApart = end(a) <= start(b) || end(b) <= start(a);
     const incomplete = [a, b].some(c => c.hasParticipation && (!Number.isFinite(start(c)) || !Number.isFinite(end(c))));
-    if (incomplete && !provenApart) return "PARTICIPATION_CLOCK_REQUIRED";
+    // Iniciar el partido evaluado no exige que ya haya terminado por tener
+    // una reserva posterior. Esa reserva no prueba juego ni suple evidencia
+    // del antecedente cuando después se intente registrar el traslado.
+    const futureReservation = a.hasParticipation && !b.hasParticipation &&
+      a.endsAt! <= b.startsAt! && Number.isFinite(start(a)) && start(a) < b.startsAt!.getTime();
+    if (incomplete && !provenApart && !futureReservation) return "PARTICIPATION_CLOCK_REQUIRED";
     return null;
   }
   if (a.seasonId !== b.seasonId || a.clubId !== b.clubId || a.categoryId === b.categoryId) return "PARTICIPATION_CONTEXT_CONFLICT";
