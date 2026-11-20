@@ -22,12 +22,22 @@ export async function captureReportCaptainSignatures(page) {
   const bounds = () => ev("(()=>{const r=document.querySelector('canvas').getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height}})()");
 
   for (const remaining of [2, 1]) {
-    await wait(`document.querySelectorAll('canvas').length===${remaining}&&document.querySelector('canvas').getAttribute('aria-disabled')==='false'`, 'canvas ready');
+    await wait(`document.querySelectorAll('canvas').length===${remaining}&&document.querySelector('canvas').getClientRects().length>0&&document.querySelector('canvas').getAttribute('aria-disabled')==='false'`, 'visible canvas ready');
     await page.command('Page.bringToFront');
-    await ev("document.querySelector('canvas').scrollIntoView({block:'center',behavior:'instant'})");
+    // Navigation schedules its own focus/scroll. It can run after our first
+    // scroll, so observe real hit testing and reposition within a bounded wait.
     await settle();
+    const end = Date.now() + 45000;
+    let receivesPointer = false;
+    while (Date.now() < end) {
+      await ev("document.querySelector('canvas').scrollIntoView({block:'center',behavior:'instant'})");
+      await settle();
+      receivesPointer = await ev("(()=>{const c=document.querySelector('canvas'),r=c.getBoundingClientRect();return r.width>0&&r.height>0&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===c&&Array.from({length:10},(_,n)=>document.elementFromPoint(r.x+r.width*(.15+n*.06),r.y+r.height*(.45+(n%2)*.15))===c).every(Boolean)})()");
+      if (receivesPointer) break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.equal(receivesPointer, true, 'The real canvas receives the pointer');
     let rect = await bounds();
-    assert.equal(await ev("(()=>{const c=document.querySelector('canvas'),r=c.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===c})()"), true, 'The real canvas receives the pointer');
     const point = n => ({ x: rect.x + rect.w * (.15 + n * .06), y: rect.y + rect.h * (.45 + (n % 2) * .15) });
     await page.command('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point(0), button: 'none', buttons: 0 });
     await page.command('Input.dispatchMouseEvent', { type: 'mousePressed', ...point(0), button: 'left', buttons: 1, clickCount: 1 });

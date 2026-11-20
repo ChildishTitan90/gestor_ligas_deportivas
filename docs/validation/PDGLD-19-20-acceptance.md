@@ -108,6 +108,22 @@ Verificación final del merge, con datos sintéticos y PostgreSQL desechable:
 
 En este seguimiento no se repitieron el recorrido offline PG15 ni la regresión completa `--regression`. La evidencia actual de cédula está en `.codex-attachments/pdgld149/pg15` y `pg17`; la offline en `.codex-attachments/pdgld19-20/pg17/browser.json`. No se generan imágenes de firmas.
 
+## Corrida #216: posición del lienzo de firma
+
+La corrida `44652075675` falló en offline PG17, en `report-signature-browser.mjs`, antes de dibujar: `The real canvas receives the pointer` devolvió `false`. El job agregado mantuvo su bloqueo porque falló un job requerido; no se modifican sus condiciones.
+
+Se reprodujo la misma aserción en Chromium Linux con `ReportClosing` y `DirectSignatureField` reales: un foco tardío desplaza la página después de llevar el lienzo a la vista. `ReportWorkspace` también programa el foco/desplazamiento del encabezado al navegar. La prueba nueva `report-signature-browser.test.mjs` fuerza ese orden mediante un evento de scroll real; con el helper anterior falla y con el corregido pasa a 390 y 1440 px.
+
+El helper espera un lienzo visible y reposiciona dentro de un plazo de 45 segundos hasta que el centro y los diez puntos del trazo reciben el puntero según `elementFromPoint`. Conserva la aserción, el trazo nativo, la vista previa, la confirmación y la vinculación. No oculta elementos ni inyecta firmas. El runner `test:pdgld149` incluye la nueva regresión y ejecuta ambos archivos de componentes secuencialmente.
+
+Verificación posterior:
+
+- Linux/Chromium: la regresión falló con el helper anterior y pasó con el corregido. Los dos archivos de componentes, ejecutados secuencialmente, aprobaron sus 21 pruebas. Se usó la imagen local de reproducción con dependencias Linux y los iconos JavaScript instalados montados en solo lectura; no se instaló ningún paquete ni se permitió red.
+- Windows/Chrome y PostgreSQL 17 desechable: `npm run test:pdgld149 -- --postgres=17` pasó (17 reglas/cliente, 21 componentes e integración HTTP/navegador); compilación de producción y TypeScript incluidos.
+- Windows/Chrome y PostgreSQL 17 desechable: `npm run test:match-report-offline -- --postgres=17` pasó (25 criterios, 10 operaciones distintas y 10 acuses).
+- ESLint de los archivos de prueba/runner modificados y `git diff --check`: pasaron. Los acuses y firmas siguen comprobándose; no se generan capturas de pantalla ni volcados de firmas.
+- En este seguimiento no se repitió PG15 ni el backend completo en Linux. La corrida remota debe repetirse tras publicar el ajuste.
+
 ## Demo de cinco minutos para el 20 o 23 de noviembre
 
 1. `npm run match-reports:offline`; abrir el listado real del puerto 3198 con la cuenta sintética del runner.
