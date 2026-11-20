@@ -5,6 +5,8 @@ import { assertPermission, AuthorizationError, getPermissionGrants, lockAuthoriz
 import { requireOperationalUser } from "@/server/auth/session";
 import { getPrisma } from "@/server/db/prisma";
 import { intervalSchema, venueIdSchema, venueSchema } from "../schemas";
+import { assignmentOccurrences } from "../assignment-occurrences";
+import { z } from "zod";
 
 type Tx = Prisma.TransactionClient;
 export class VenueInputError extends Error {}
@@ -45,6 +47,9 @@ export async function getVenueWorkspace(requestedLeague?: string, requestedVenue
     await assertPermission(tx, actor.id, { module: "venues", action: "READ", context: { leagueId: league.id } });
     const canCreate = await authorized(tx, actor.id, league.id, "CREATE");
     const canUpdate = await authorized(tx, actor.id, league.id, "UPDATE");
+    const clubs = await tx.clubs.findMany({
+      where: { league_id: league.id }, select: { id: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }],
+    });
     const venues = await tx.venues.findMany({
       where: { league_id: league.id },
       select: { id: true, code: true, name: true, is_active: true },
@@ -66,8 +71,48 @@ export async function getVenueWorkspace(requestedLeague?: string, requestedVenue
       WHERE a.venue_id = ${venue.id}::uuid AND s.league_id = ${league.id}::uuid AND a.type <> 'AVAILABLE'
       ORDER BY m.starts_at, m.id
     ` : [];
-    return { leagues, league, venues, venue, canCreate, canUpdate, conflicts };
+    const canAssign = await authorized(tx, actor.id, league.id, "UPDATE", "scheduling");
+    const assignmentTeams = venue && (venue.is_league_sports_complex || venue.owner_club_id) && canAssign ? await tx.season_teams.findMany({
+      where: { status: { in: ["ACTIVE", "REGISTERED"] }, ...(!venue.is_league_sports_complex ? {club_id:venue.owner_club_id!} : {}), club_affiliations: { seasons: { league_id: league.id, status: { not: "CLOSED" } } } },
+      select: { id: true, teams: { select: { name: true } }, club_affiliations: { select: { seasons: { select: { name: true } } } } }, orderBy: { id: "asc" },
+    }) : [];
+    return { leagues, league, clubs, venues, venue, canCreate, canUpdate, conflicts, canAssign, assignmentTeams };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+}
+
+const assignmentSchema = z.object({ venueId: z.uuid(), seasonTeamId: z.uuid(), from: z.iso.date(), through: z.iso.date(),
+  weekday: z.coerce.number().int().min(1).max(7), time: z.string().regex(/^\d{2}:\d{2}$/) });
+
+export async function assignLeagueVenue(input: unknown) {
+  const data = assignmentSchema.parse(input);
+  const actor = await requireOperationalUser();
+  return getPrisma().$transaction(async tx => {
+    await lockAuthorization(tx);
+    const leagueId = await lockVenue(tx, data.venueId);
+    const grants = await assertPermission(tx, actor.id, { module: "scheduling", action: "UPDATE", context: { leagueId } });
+    if (!grants.some(grant => !grant.clubId)) throw new AuthorizationError();
+    const venue = await tx.venues.findUniqueOrThrow({ where: { id: data.venueId }, include: { leagues: { select: { timezone: true } }, venue_availability: true } });
+    const team = await tx.season_teams.findFirst({ where: { id: data.seasonTeamId, status: { in: ["ACTIVE", "REGISTERED"] }, club_affiliations: { seasons: { league_id: leagueId, status: { not: "CLOSED" } } } }, include: { club_affiliations: { include: { seasons: true } } } });
+    if (!team || !venue.is_active || (venue.is_league_sports_complex ? !!venue.owner_club_id : !venue.owner_club_id || team.club_id !== venue.owner_club_id)) throw new VenueInputError("INVALID_ASSIGNMENT");
+    if (data.from < team.club_affiliations.seasons.start_date.toISOString().slice(0, 10) || data.through > team.club_affiliations.seasons.end_date.toISOString().slice(0, 10)) throw new VenueInputError("INVALID_ASSIGNMENT");
+    let dates: Date[];
+    try { dates = assignmentOccurrences(data.from, data.through, data.weekday, data.time, venue.leagues.timezone); }
+    catch { throw new VenueInputError("INVALID_ASSIGNMENT"); }
+    for (const start of dates) {
+      const end = new Date(start.getTime() + (venue.match_duration_minutes + venue.buffer_minutes) * 60000);
+      if (!venue.venue_availability.some(w => w.type === "AVAILABLE" && w.starts_at <= start && w.ends_at >= end) ||
+          venue.venue_availability.some(w => w.type !== "AVAILABLE" && w.starts_at < end && w.ends_at > start)) throw new VenueInputError("ASSIGNMENT_UNAVAILABLE");
+      const conflicts = await tx.$queryRaw<{ match_id: string }[]>`SELECT match_id FROM sports_management.venue_reservations WHERE venue_id=${venue.id}::uuid AND time_range && tstzrange(${start},${end},'[)') LIMIT 1`;
+      if (conflicts.length) throw new VenueInputError("ASSIGNMENT_UNAVAILABLE");
+    }
+    const overlap = await tx.home_venue_assignments.findFirst({ where: { venue_id: venue.id, weekday: data.weekday,
+      starts_at: { lte: new Date(`${data.through}T00:00:00Z`) }, ends_at: { gte: new Date(`${data.from}T00:00:00Z`) } } });
+    if (overlap) throw new VenueInputError("ASSIGNMENT_UNAVAILABLE");
+    const result = await tx.home_venue_assignments.create({ data: { season_team_id: team.id, venue_id: venue.id, weekday: data.weekday,
+      start_time: new Date(`1970-01-01T${data.time}:00Z`), starts_at: new Date(`${data.from}T00:00:00Z`), ends_at: new Date(`${data.through}T00:00:00Z`) } });
+    await audit(tx, actor.id, "home_venue_assignments", result.id, null, result);
+    return { leagueId, venueId: venue.id };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 async function lockVenue(tx: Tx, id: string) {
@@ -98,6 +143,8 @@ export async function saveVenue(input: unknown) {
     await assertPermission(tx, actor.id, {
       module: "venues", action: data.venueId ? "UPDATE" : "CREATE", context: { leagueId: data.leagueId },
     });
+    if (data.ownerClubId && !await tx.clubs.findFirst({ where: { id: data.ownerClubId, league_id: data.leagueId }, select: { id: true } }))
+      throw new VenueInputError("INVALID_OWNER");
     const values = {
       code: data.code, name: data.name, address: data.address,
       is_league_sports_complex: data.kind === "complex",
@@ -107,10 +154,12 @@ export async function saveVenue(input: unknown) {
     if (data.venueId) {
       if (await lockVenue(tx, data.venueId) !== data.leagueId) throw new AuthorizationError();
       previous = await tx.venues.findUniqueOrThrow({ where: { id: data.venueId } });
+      if ((previous.owner_club_id !== (data.ownerClubId || null) || previous.is_league_sports_complex !== (data.kind === "complex")) &&
+          await tx.venue_loans.count({ where: { venue_id: previous.id } })) throw new VenueInputError("OWNER_HAS_LOANS");
     }
     const features = previous?.features;
     const extra = features && typeof features === "object" && !Array.isArray(features) ? features : {};
-    const changes = { ...values, features: { ...extra, description: data.features } };
+    const changes = { ...values, owner_club_id: data.ownerClubId || null, features: { ...extra, description: data.features } };
     const venue = previous
       ? await tx.venues.update({ where: { id: previous.id }, data: changes })
       : await tx.venues.create({ data: { ...changes, league_id: data.leagueId } });

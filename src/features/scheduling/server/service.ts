@@ -7,11 +7,14 @@ import { requireOperationalUser } from "@/server/auth/session";
 import { assertPermission, AuthorizationError, lockAuthorization } from "@/server/auth/authorization";
 import { venueTimeToIso } from "@/features/venues/time";
 import { generateScheduleSchema, schedulingPolicySchema } from "../schemas";
-import { assignSlots, clashes, roundRobin, type Slot, type Scheduled } from "../generator";
+import { assignSlots, assignPartialSlots, clashes, roundRobin, type Slot, type Scheduled } from "../generator";
 import { calendarMatchdays, candidateStarts } from "../constraints";
 import { validateSlot } from "../slot-validation";
 import { validateScheduleStructure } from "../structure-validation";
 import { loadApprovedLoanWindows } from "./loan-windows";
+import { pendingEncounter } from "../pending-encounters";
+import { proposeTeamSwap } from "../team-swap";
+import { storedProposalSchema } from "../stored-proposal";
 
 export class SchedulingError extends Error {
   constructor(public code: string, public status = 409) { super(code); }
@@ -81,7 +84,7 @@ async function loadScheduleContext(tx:Prisma.TransactionClient,input:{seasonId:s
 }
 
 const editedMatchSchema=z.strictObject({round:z.number().int().positive(),matchdayId:z.uuid(),home:z.uuid(),away:z.uuid(),
-  venueId:z.uuid(),start:z.iso.datetime()});
+  venueId:z.uuid().nullable(),start:z.iso.datetime().nullable()}).refine(m => (m.venueId === null) === (m.start === null));
 const validationSchema=z.strictObject({proposalId:z.uuid(),expectedSeasonVersion:z.number().int().positive(),
   matches:z.array(editedMatchSchema).min(1).max(1024)});
 type ScheduleContext=Awaited<ReturnType<typeof loadScheduleContext>>;
@@ -93,8 +96,10 @@ function validateSchedule(context:ScheduleContext,matches:EditedMatch[]) {
   const structure=validateScheduleStructure(teams.map(team=>team.id),days,config.rounds,matches);
   if(!structure.ok) return {ok:false as const,code:structure.code,conflicts:[]};
   const checked:Scheduled[]=[];
+  const normalized: ({round:number;matchdayId:string;home:string;away:string;venueId:string|null;start:string|null;end:string|null;reservedUntil:string|null})[]=[];
   const conflicts:{round:number;home:string;away:string;code:string}[]=[];
   for(const match of matches) {
+    if (!match.venueId || !match.start) { normalized.push(pendingEncounter(match)); continue; }
     const day=days.find(value=>value.id===match.matchdayId)!;
     const venue=venues.find(value=>value.id===match.venueId);
     const home=teams.find(value=>value.id===match.home)!;
@@ -111,17 +116,17 @@ function validateSchedule(context:ScheduleContext,matches:EditedMatch[]) {
       conflicts.push({...match,code:"SLOT_CONFLICT"});continue;
     }
     checked.push(scheduled);
+    normalized.push({...match, end:new Date(scheduled.end).toISOString(),reservedUntil:new Date(scheduled.reservedUntil).toISOString()});
   }
   if(conflicts.length) return {ok:false as const,code:"INVALID_SCHEDULE",conflicts};
-  return {ok:true as const,matches:checked.map(match=>({...match,matchdayId:days.find(day=>day.number===match.round)!.id,
-    start:new Date(match.start).toISOString(),end:new Date(match.end).toISOString(),reservedUntil:new Date(match.reservedUntil).toISOString()})),byes:structure.byes};
+  return {ok:true as const,matches:normalized,byes:structure.byes};
 }
 
 /**
  * Solo servidor. Debe llamarse dentro de la misma transacción SERIALIZABLE que
  * comprueba la versión de edición y guarda el ajuste. No escribe por sí sola.
  */
-export async function validateScheduleProposalInTransaction(tx:Prisma.TransactionClient,actorId:string,raw:unknown,action:"UPDATE"|"APPROVE"="UPDATE") {
+export async function validateScheduleProposalInTransaction(tx:Prisma.TransactionClient,actorId:string,raw:unknown,action:"UPDATE"|"APPROVE"="UPDATE",swaps?:{round:number;first:string;second:string}[]) {
   const parsed=validationSchema.safeParse(raw);
   if(!parsed.success) throw new SchedulingError("INVALID_INPUT",400);
   const input=parsed.data;
@@ -143,12 +148,64 @@ export async function validateScheduleProposalInTransaction(tx:Prisma.Transactio
   // equipos requiere un contrato específico y no debe hacerse implícitamente.
   const matchKey=(match:{round:number;matchdayId:string;home:string;away:string})=>
     `${match.round}/${match.matchdayId}/${[match.home,match.away].sort().join("/")}`;
-  const storedKeys=meta.data.matches.map(matchKey).sort(), submittedKeys=input.matches.map(matchKey).sort();
+  let expected=meta.data.matches;
+  if(swaps) {
+    try { for(const swap of swaps) expected=proposeTeamSwap(expected,swap.round,swap.first,swap.second).map(item=>({...item.before,home:item.home,away:item.away})); }
+    catch { return {ok:false as const,code:"MATCHUP_CHANGE_NOT_ALLOWED",conflicts:[]}; }
+  }
+  const storedKeys=expected.map(matchKey).sort(), submittedKeys=input.matches.map(matchKey).sort();
   if(storedKeys.length!==submittedKeys.length || storedKeys.some((key,index)=>key!==submittedKeys[index]))
     return {ok:false as const,code:"MATCHUP_CHANGE_NOT_ALLOWED",conflicts:[]};
   const context=await loadScheduleContext(tx,{seasonId:stored.season_id,categoryId:meta.data.categoryId,
     groupId:meta.data.groupId,expectedSeasonVersion:input.expectedSeasonVersion});
   return validateSchedule(context,input.matches);
+}
+
+const venuePreviewSchema=z.strictObject({proposalId:z.uuid(),expectedVersion:z.number().int().positive(),
+  encounterIndex:z.number().int().nonnegative(),startsAt:z.iso.datetime(),swapHomeAway:z.boolean()});
+
+/** Consulta informativa; guardar vuelve a validar en la transacción de escritura. */
+export async function previewStoredVenueOptions(raw:unknown) {
+  const actor=await requireOperationalUser();
+  return previewStoredVenueOptionsForActor(actor.id,raw);
+}
+
+export async function previewStoredVenueOptionsForActor(actorId:string,raw:unknown) {
+  const input=venuePreviewSchema.parse(raw);
+  return getPrisma().$transaction(async tx=>{
+    const row=await tx.schedule_proposals.findUnique({where:{id:input.proposalId},
+      select:{season_id:true,version:true,status:true,parameters:true,seasons:{select:{status:true,version:true}}}});
+    if(!row) throw new AuthorizationError();
+    const grants=await assertPermission(tx,actorId,{module:"scheduling",action:"UPDATE",context:{seasonId:row.season_id}});
+    if(!grants.some(grant=>!grant.clubId)) throw new AuthorizationError();
+    if(row.version!==input.expectedVersion) return {code:"STALE_PROPOSAL" as const};
+    if(row.status!=="DRAFT" || row.seasons.status==="CLOSED") return {code:"INVALID_PROPOSAL_TRANSITION" as const};
+    const proposal=storedProposalSchema.parse(row.parameters);
+    if(proposal.seasonVersion!==row.seasons.version) return {code:"STALE_CONFIGURATION" as const};
+    const match=proposal.matches[input.encounterIndex];
+    if(!match) return {code:"ENCOUNTER_NOT_FOUND" as const};
+    const context=await loadScheduleContext(tx,{seasonId:row.season_id,categoryId:proposal.categoryId,groupId:proposal.groupId,expectedSeasonVersion:proposal.seasonVersion});
+    const home=input.swapHomeAway?match.away:match.home, away=input.swapHomeAway?match.home:match.away;
+    const day=context.days.find(d=>d.id===match.matchdayId), team=context.teams.find(t=>t.id===home);
+    if(!day || !team) throw new AuthorizationError();
+    const stage=context.config.scheduling.venueStages.find(x=>day.number>=x.fromRound&&day.number<=x.toRound);
+    const options=[];
+    for(const venue of context.venues) {
+      const matches=proposal.matches.map((m,index)=>({round:m.round,matchdayId:m.matchdayId,
+        home:index===input.encounterIndex?home:m.home,away:index===input.encounterIndex?away:m.away,
+        venueId:index===input.encounterIndex?venue.id:m.venueId,start:index===input.encounterIndex?input.startsAt:m.start}));
+      const validated=validateSchedule(context,matches);
+      if(!validated.ok) continue;
+      const slot=validateSlot({seasonId:context.season.id,timezone:context.season.leagues.timezone,seasonStart:context.season.start_date,seasonEnd:context.season.end_date,
+        day,home,away,homeClub:team.club_id,matchDurationMinutes:context.config.matchDurationMinutes,
+        complexOnly:context.seasonDays.filter(d=>d.number>day.number).length<(context.config.complexOnlyFinalRounds??0),
+        allowedVenueIds:stage?.venueIds,breaks:context.breaks,sanctions:context.sanctions,venue,
+        loanWindows:context.loans.filter(loan=>loan.venueId===venue.id&&loan.clubId===team.club_id).flatMap(loan=>loan.windows)},Date.parse(input.startsAt));
+      if(slot.ok) options.push({venueId:venue.id,name:venue.name,preferred:slot.slot.preference===0});
+    }
+    options.sort((a,b)=>Number(b.preferred)-Number(a.preferred)||a.name.localeCompare(b.name));
+    return {code:"VENUE_OPTIONS" as const,venues:options};
+  },{isolationLevel:"RepeatableRead",maxWait:10000,timeout:30000});
 }
 
 /** Genera una propuesta de calendario. Aprobar/reservar requiere PDGLD-25. */
@@ -212,15 +269,22 @@ export async function generateScheduleInTransaction(tx:Prisma.TransactionClient,
     return {pairing,slots,factors:[...factors]};
   });
   const result=assignSlots(jobs,busy);
-  if(!result.ok) {
-    if(result.code!=="NO_AVAILABLE_SLOT") return result;
+  if(!result.ok && result.code!=="NO_AVAILABLE_SLOT" && !(input.allowPending && result.code==="NO_SOLUTION")) return result;
+  if(!result.ok && (!input.allowPending || result.conflicts.some(pairing => jobs.find(job => job.pairing === pairing)?.factors.includes("SANCTION")))) {
     return {...result, conflicts:result.conflicts.map(pairing=>{
       const job=jobs.find(j=>j.pairing.round===pairing.round&&j.pairing.home===pairing.home&&j.pairing.away===pairing.away)!;
       return {...pairing, factors:job.slots.length ? ["OCCUPIED"] : job.factors};
     })};
   }
-  const validated=validateSchedule(context,result.matches.map(match=>({round:days[match.round-1].number,matchdayId:days[match.round-1].id,
-    home:match.home,away:match.away,venueId:match.venueId,start:new Date(match.start).toISOString()})));
+  const schedulable = result.ok ? result : assignPartialSlots(jobs,busy);
+  if (!schedulable.ok) return {ok:false as const,code:schedulable.code,conflicts:[]};
+  const scheduled = schedulable.matches;
+  const draftMatches = calendar.pairings.map(match=>{
+    const chosen=scheduled.find(item=>item.round===match.round && item.home===match.home && item.away===match.away);
+    return {round:days[match.round-1].number,matchdayId:days[match.round-1].id,home:match.home,away:match.away,
+      venueId:chosen?.venueId ?? null,start:chosen ? new Date(chosen.start).toISOString() : null};
+  });
+  const validated=validateSchedule(context,draftMatches);
   if(!validated.ok) return validated;
   const usedVenueIds = new Set(validated.matches.map(match => match.venueId));
   const proposal={formatVersion:1,requestHash:hash,groupId:group.id,categoryId:group.season_category_id,seasonVersion:season.version,
@@ -228,8 +292,14 @@ export async function generateScheduleInTransaction(tx:Prisma.TransactionClient,
     venueNames: Object.fromEntries(venues.filter(venue => usedVenueIds.has(venue.id)).map(venue => [venue.id, venue.name])),
     teamNames:Object.fromEntries(teams.map(enrollment=>[enrollment.id,enrollment.teams.name])),
     ruleId:rule.id,ruleVersion:rule.version_number,reason:input.reason,state:"DRAFT_PROPOSAL",reservesResources:false,
-    matches:validated.matches,
-    preferenceOptimal:result.preferenceOptimal,
+    matches:validated.matches.map(match=>{
+      if (match.venueId) return match;
+      const job=jobs.find(j=>days[j.pairing.round-1].number===match.round && j.pairing.home===match.home && j.pairing.away===match.away)!;
+      const factors=job.slots.length ? ["OCCUPIED"] : job.factors;
+      return {...match,factors:!("optimal" in schedulable) || schedulable.optimal ? factors : [...factors,"SEARCH_LIMIT"]};
+    }),
+    preferenceOptimal:result.ok ? result.preferenceOptimal : false,
+    ...(result.ok ? {} : { partialOptimal: "optimal" in schedulable && schedulable.optimal }),
     byes:validated.byes};
   await tx.$queryRaw`SELECT set_config('app.user_id',${actorId},true),set_config('app.reason',${input.reason},true)`;
   await tx.schedule_proposals.create({data:{id:input.operationId,season_id:season.id,matchday_id:days[0].id,competition_rule_id:rule.id,created_by:actorId,parameters:proposal,conflicts:[]}});

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { PDFDocument } from "pdf-lib";
+import { approvedSchedulePdfForActor, SchedulePdfUnavailable } from "../../src/features/scheduling/server/schedule-pdf";
 import { randomUUID } from "node:crypto";
 import { getPrisma } from "../../src/server/db/prisma";
 import { generateScheduleForActor } from "../../src/features/scheduling/server/service";
@@ -6,6 +8,8 @@ import { editStoredProposalForActor, editStoredProposalInTransaction } from "../
 import { changeProposalReviewForActor } from "../../src/features/scheduling/server/adjustment";
 import { readStoredProposalForActor } from "../../src/features/scheduling/server/stored-proposal";
 import { storedProposalSchema } from "../../src/features/scheduling/stored-proposal";
+import { saveTeamSwapInTransaction } from "../../src/features/scheduling/server/team-swap";
+import { proposeTeamSwap } from "../../src/features/scheduling/team-swap";
 
 /** Propuesta real de PDGLD-24 + validador compartido, sin sustituir restricciones. */
 export async function verifySharedProposalEditing(f: {actor:string;outsider:string;season:string;category:string;group_id:string}) {
@@ -20,12 +24,40 @@ export async function verifySharedProposalEditing(f: {actor:string;outsider:stri
   const beforeReservations = await db.venue_reservations.count();
   try {
     const row = await db.schedule_proposals.findUniqueOrThrow({where:{id}});
+    await assert.rejects(approvedSchedulePdfForActor(f.actor,id),SchedulePdfUnavailable);
+    await assert.rejects(approvedSchedulePdfForActor(f.outsider,id),{message:"FORBIDDEN"});
     const proposal = storedProposalSchema.parse(row.parameters);
+    const dayOne=proposal.matches.filter(match=>match.round===proposal.matches[0].round);
+    const firstSwap={round:dayOne[0].round,first:dayOne[0].home,second:dayOne[1].home};
+    const firstPass=proposeTeamSwap(proposal.matches,firstSwap.round,firstSwap.first,firstSwap.second).map(entry=>({...entry.before,home:entry.home,away:entry.away}));
+    const afterDay=firstPass.filter(match=>match.round===firstSwap.round);
+    const second={round:firstSwap.round,first:afterDay[0].home,second:afterDay[1].away};
+    const swap={proposalId:id,expectedVersion:row.version,swaps:[firstSwap,second],reason:"Intercambio de equipos de prueba"};
+    const expected=proposeTeamSwap(firstPass,second.round,second.first,second.second).map((entry,index)=>({...entry,changed:entry.home!==proposal.matches[index].home || entry.away!==proposal.matches[index].away}));
+    const rollbackSwap=new Error("ROLLBACK_INTERCAMBIO");
+    await assert.rejects(db.$transaction(async tx=>{
+      await assert.rejects(saveTeamSwapInTransaction(tx,f.outsider,swap),{message:"FORBIDDEN"});
+      const saved=await saveTeamSwapInTransaction(tx,f.actor,swap);
+      assert.equal(saved.code,"ADJUSTMENT_SAVED");
+      const after=await tx.schedule_proposals.findUniqueOrThrow({where:{id}});
+      assert.equal(after.version,row.version+1);
+      const changed=storedProposalSchema.parse(after.parameters);
+      expected.forEach((entry,index)=>{
+        assert.equal(changed.matches[index].home,entry.home);
+        assert.equal(changed.matches[index].away,entry.away);
+        if(entry.changed) {assert.equal(changed.matches[index].venueId,null);assert.equal(changed.matches[index].start,null);}
+        else assert.deepEqual(changed.matches[index],proposal.matches[index]);
+      });
+      assert.equal((await saveTeamSwapInTransaction(tx,f.actor,swap)).code,"STALE_PROPOSAL");
+      assert.equal(await tx.audit_logs.count({where:{entity_id:id,action:"UPDATE",reason:swap.reason}}),1);
+      throw rollbackSwap;
+    },{isolationLevel:"Serializable",timeout:30000}),error=>error===rollbackSwap);
     const original = proposal.matches[0];
+    assert.ok(original.start);
     const venues = await db.venues.findMany({where:{is_active:true},select:{id:true}});
     const free = venues.flatMap(venue => [0,1,2].map(hour => ({venueId:venue.id,start:Date.parse("2030-01-06T15:00:00Z")+hour*120*60000})))
       .find(slot => slot.start !== Date.parse(original.start) && !proposal.matches.some((match,index) => index !== 0 &&
-        match.venueId === slot.venueId && slot.start < Date.parse(match.reservedUntil) &&
+        match.venueId === slot.venueId && match.start && match.reservedUntil && slot.start < Date.parse(match.reservedUntil) &&
         Date.parse(match.start) < slot.start + 120*60000));
     assert.ok(free,"La fixture debe ofrecer un horario alternativo libre");
     const first = {...original,venueId:free.venueId,start:new Date(free.start).toISOString(),
@@ -102,6 +134,10 @@ export async function verifySharedProposalEditing(f: {actor:string;outsider:stri
     const approved = await changeProposalReviewForActor(reviewer.reviewer,{proposalId:id,expectedVersion:4,operation:"approve",reason:"Revisión con permiso exclusivo de aprobación"});
     assert.equal(approved.code,"PROPOSAL_UPDATED");
     assert.equal((await db.schedule_proposals.findUniqueOrThrow({where:{id}})).status,"APPROVED");
+    const pdf=await PDFDocument.load(await approvedSchedulePdfForActor(f.actor,id));
+    assert.ok(pdf.getPageCount()>0);
+    assert.equal(pdf.getTitle(),"Programación de jornadas");
+    await assert.rejects(approvedSchedulePdfForActor(f.outsider,id),{message:"FORBIDDEN"});
     assert.equal(await db.matches.count(),beforeMatches);
     assert.equal(await db.venue_reservations.count(),beforeReservations);
   } finally {

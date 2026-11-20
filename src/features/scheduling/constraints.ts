@@ -55,14 +55,14 @@ type HomeAssignment = {
 
 /** Una asignación del visitante no concede al local el préstamo de su club. */
 export function authorizedHomeAssignment(assignments: readonly HomeAssignment[], context: {
-  teamId: string; clubId: string; seasonId: string; venueId: string; localStart: string; localEnd: string;
+  teamId: string; clubId: string; seasonId: string; venueId: string; localStart: string; localEnd: string; directAssignmentAllowed?: boolean;
 }) {
   const date = context.localStart.slice(0, 10), lastDate = context.localEnd.slice(0, 10);
   return assignments.some(a => a.season_team_id === context.teamId && a.venue_id === context.venueId &&
     date >= a.starts_at.toISOString().slice(0, 10) && lastDate <= a.ends_at.toISOString().slice(0, 10) &&
     a.weekday === (new Date(`${date}T12:00:00Z`).getUTCDay() || 7) &&
     a.start_time.toISOString().slice(11, 19) === context.localStart.slice(11, 19) &&
-    a.venue_loans?.status === "APPROVED" && !!a.venue_loans.approved_by && !!a.venue_loans.approved_at &&
+    ((a.venue_loans === null && context.directAssignmentAllowed === true) || (a.venue_loans?.status === "APPROVED" && !!a.venue_loans.approved_by && !!a.venue_loans.approved_at &&
     a.venue_loans.season_id === context.seasonId && a.venue_loans.club_id === context.clubId &&
-    a.venue_loans.venue_id === context.venueId);
+    a.venue_loans.venue_id === context.venueId)));
 }

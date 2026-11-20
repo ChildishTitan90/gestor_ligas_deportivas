@@ -32,3 +32,17 @@ test("revalida reglas de jornada, sanción y ventana de préstamo del local",()=
   const final=validateSlot({...context,venue:privateVenue,complexOnly:true},at);
   assert.ok(!final.ok && final.factor==="FINAL_ROUNDS");
 });
+
+test("prefiere asignaciones directas de la liga y del dueño, sin habilitar canchas ajenas",()=>{
+  const assignment={season_team_id:"a",venue_id:"venue",weekday:7,start_time:new Date("1970-01-01T09:00:00Z"),
+    starts_at:new Date("2030-01-01"),ends_at:new Date("2030-12-31"),venue_loans:null};
+  const league={...context.venue,home_venue_assignments:[assignment]};
+  const preferred=validateSlot({...context,venue:league},at);
+  assert.ok(preferred.ok && preferred.slot.preference===0);
+  const own=validateSlot({...context,venue:{...league,is_league_sports_complex:false,owner_club_id:"club"}},at);
+  assert.ok(own.ok && own.slot.preference===0);
+  const other=validateSlot({...context,venue:{...league,is_league_sports_complex:false,owner_club_id:"otro"}},at);
+  assert.ok(!other.ok && other.factor==="LOAN_WINDOW");
+  const differentTime=validateSlot({...context,venue:league},at+30*60000);
+  assert.ok(differentTime.ok && differentTime.slot.preference===1);
+});

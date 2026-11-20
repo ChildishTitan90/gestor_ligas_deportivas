@@ -35,6 +35,41 @@ export function clashes(a: Scheduled, b: Scheduled) {
     ([a.home, a.away].some(id => id === b.home || id === b.away) && overlaps(a.start, a.end, b.start, b.end));
 }
 
+/** Busca una asignación parcial sin conflictos; informa cuando no pudo demostrar el máximo. */
+export function assignPartialSlots(jobs: { pairing: Pairing; slots: Slot[] }[], occupied: Scheduled[],
+  limits = { milliseconds: 3000, nodes: 100000 }) {
+  if (jobs.length > 1024 || jobs.reduce((n, job) => n + job.slots.length, 0) > 200000)
+    return { ok: false as const, code: "INPUT_LIMIT" as const };
+  const candidates = jobs.map(job => ({ ...job, slots: job.slots.filter(s =>
+    [s.start,s.end,s.reservedUntil,s.preference].every(Number.isFinite) && s.end > s.start && s.reservedUntil >= s.end &&
+    !occupied.some(other => clashes({ ...job.pairing, ...s }, other)))
+    .sort((a,b)=>a.preference-b.preference || a.start-b.start || a.venueId.localeCompare(b.venueId)) }))
+    .filter(job => job.slots.length).sort((a,b)=>a.slots.length-b.slots.length);
+  let best: Scheduled[] = [];
+  for (const job of candidates) {
+    const slot = job.slots.find(s => best.every(other => !clashes({ ...job.pairing, ...s }, other)));
+    if (slot) best.push({ ...job.pairing, ...slot });
+  }
+  const deadline = performance.now() + limits.milliseconds;
+  let nodes = 0, exhausted = false;
+  const chosen: Scheduled[] = [];
+  function search(index: number) {
+    if (chosen.length + candidates.length - index <= best.length) return;
+    if (++nodes > limits.nodes || performance.now() > deadline) { exhausted = true; return; }
+    if (index === candidates.length) { best = [...chosen]; return; }
+    const job = candidates[index];
+    for (const slot of job.slots) {
+      const match = { ...job.pairing, ...slot };
+      if (chosen.some(other => clashes(match, other))) continue;
+      chosen.push(match); search(index + 1); chosen.pop();
+      if (exhausted) return;
+    }
+    search(index + 1);
+  }
+  search(0);
+  return { ok: true as const, matches: best, optimal: !exhausted, nodes };
+}
+
 /** Búsqueda acotada sobre candidatos ya autorizados. Nunca devuelve una solución parcial.
  * Busca minimizar el costo de preferencias dentro de los límites operativos. */
 export function assignSlots(jobs: { pairing: Pairing; slots: Slot[] }[], occupied: Scheduled[],

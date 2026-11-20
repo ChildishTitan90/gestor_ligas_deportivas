@@ -1,114 +1,95 @@
-# PDGLD-137 — Evidencia de generación e integración pendiente
+# PDGLD-137 — Evidencia de generación y restricciones
 
-Estado: pruebas locales para revisión, no aceptación ni cierre de Jira. La rama
-`feat/PDGLD-24-programacion` contiene avances locales de PDGLD-24/135/136/137;
-la revisión y el CI del cambio final aún deben completarse.
+Estado: evidencia local de la rama `feat/PDGLD-25-canchas-pendientes`, basada
+en el trabajo de PDGLD-24 y PDGLD-25. Los cambios siguen sin commit ni push;
+esta evidencia no constituye aceptación funcional ni resultado de CI remoto.
 
-## Resultados locales
+## Generación y propuestas parciales
 
-- `npm run test:scheduling`: pruebas del motor, restricciones y ventanas de préstamo.
-- `node scripts/test-scheduling.mjs`: PostgreSQL local temporal. Tabla General y
-  fase de grupos con cuatro y cinco equipos, parejas únicas y descansos; distribución
-  incompleta; dos vueltas en cancha compartida con bloqueo, intervalo y tramos;
-  ausencia de traslapes, inversión de localía y conflictos sin propuesta inválida.
-- El mismo runner prueba permiso ausente y permiso de otra liga, repetición sin
-  duplicado, dos actores con solicitudes distintas y rechazo de una clave ajena,
-  control de versión, rollback, ACL limitadas y préstamos aprobados/rechazados.
-  Las llamadas concurrentes se iniciaron juntas; la prueba no fuerza un orden de
-  adquisición del bloqueo. El runner elimina su base y rol temporales.
-- `node scripts/test-scheduling.mjs --browser`: navegación, configuración,
-  generación, recuperación tras perder el acuse, recarga y falta de horarios;
-  los mensajes de combinación imposible y límite se verifican con respuestas
-  simuladas. El caso de falta de horarios utiliza el servicio real local.
-- Medición de una muestra: 20 equipos, 19 jornadas, 190 encuentros, cuatro
-  canchas y una vuelta; 8,17 segundos para el grupo completo en PostgreSQL 15
-  local. Condiciones y límites en `docs/architecture/scheduling-generation.md`.
-- `npm run typecheck` pasó después de los cambios locales de pruebas y mensajes.
+El generador considera temporada, categoría, grupo, equipos, jornadas,
+descansos, canchas y restricciones. Cuando se solicita permitir pendientes,
+puede guardar una propuesta parcial sin reservar recursos: los encuentros que
+no se acomodaron conservan jornada, local y visitante, con cancha y horario
+nulos. La propuesta también puede contener encuentros completos. Los factores
+registrados describen lo detectado al generar y no sustituyen la revalidación
+posterior.
 
-Los resultados son evidencia de desarrollo local. Falta verificar la revisión
-externa y el CI del commit definitivo; no acreditan aceptación funcional ni el
-comportamiento de todas las configuraciones o del entorno desplegado.
+La búsqueda parcial intenta maximizar los encuentros programados sin traslapes.
+Si alcanza el límite de tiempo o intentos antes de demostrar el máximo, conserva
+la mejor combinación encontrada e informa que podría haber otra con menos
+pendientes. Un resultado completo no garantiza disponibilidad futura.
 
-## Entrega disponible para PDGLD-25
+La propuesta no crea partidos oficiales, no reserva canchas y no publica. Su
+confirmación posterior debe volver a comprobar permisos, autorización,
+disponibilidad y reservas. La pantalla se documenta en
+`docs/validation/PDGLD-136-pantalla.md`.
 
-El generador crea una fila en `sports_management.schedule_proposals`, con ID de
-operación, temporada, primera jornada, versión de reglamento referenciada,
-autor y fecha. `parameters` contiene un objeto `formatVersion: 1` con contexto
-de grupo y categoría, versión de temporada, reglamento y número de versión,
-motivo, zona horaria, nombres de referencia y `state: DRAFT_PROPOSAL`. Cada
-encuentro incluye jornada y `matchdayId`, local, visitante, cancha, inicio,
-fin y `reservedUntil`; también se guardan descansos y `matchdayId` de cada uno.
-Los identificadores de local/visitante y descanso corresponden a inscripciones
-de equipo en temporada (`season_teams.id`). Inicio, fin y holgura son instantes
-ISO; `reservedUntil` incluye el tiempo de separación de la cancha.
+## Integración con PDGLD-25
 
-Una propuesta guardada **no reserva recursos, no crea partidos oficiales y no
-publica**. Pueden existir propuestas alternativas para un mismo grupo. El ajuste
-de PDGLD-25 debe comprobar autorización, revalidar reglas y disponibilidad sobre
-el estado vigente, y aplicar su propio control de versiones, autoría y auditoría.
-El campo `seasonVersion` es la versión observada al generar, no una versión de
-edición de la propuesta. La publicación sigue el flujo correspondiente de RF16.
+La rama incorpora el ajuste de propuestas de Karol y el validador compartido.
+La prueba con PostgreSQL local ha cubierto generar, recuperar, ajustar, revalidar
+y enviar una propuesta a revisión, así como versión obsoleta, bloqueo de cancha,
+permisos y ediciones simultáneas. También se probó completar un encuentro
+pendiente, conservar los motivos de otros y rechazar la aprobación mientras
+queden pendientes. Enviar a revisión no publica ni reserva.
 
-La lectura actual de la pantalla es `GET /api/scheduling/proposals` con
-`seasonId` y `groupId`, autenticación de sesión y permiso `scheduling:CREATE`
-con ámbito de liga. Devuelve ID, fecha y una proyección para revisión visual.
-**No es aún el contrato completo de ajuste:** su esquema de lectura elimina,
-entre otros, `matchdayId`, `reservedUntil`, `seasonVersion`, reglamento, autor y
-estado. No se debe inferir que la respuesta de esa ruta contenga esos datos ni
-usar una copia antigua como autorización o validación para guardar ajustes.
+El detalle autorizado y el ajuste usan la propuesta guardada, su versión de
+temporada y su versión de edición. El validador se ejecuta en una transacción
+`SERIALIZABLE`; valida estructura y restricciones de los encuentros completos y
+conserva los pendientes para el ajuste posterior. Antes de aprobar se exige que
+no queden encuentros pendientes. La información de sesión y permisos se obtiene
+en el servidor. La interfaz de ajuste y sus límites están descritos en
+`docs/architecture/scheduling-proposal-integration.md`.
 
-## Por completar con Karol y la persona revisora
+## Autorización de canchas y concurrencia
 
-1. Compartir una versión revisable de nuestra rama y acordar el contrato de
-   lectura/escritura que PDGLD-25 necesita para su propuesta mínima, incluidos
-   versiones, revalidación y controles de acceso. La rama actual todavía no se
-   ha entregado mediante PR; no se comprobó la integración con PDGLD-25.
-2. Conectar el ajuste de Karol y ejecutar el recorrido integrado: generar,
-   recuperar, ajustar, revalidar y enviar a revisión sin publicar automáticamente.
-   Verificar dos ediciones concurrentes y el rechazo de una versión obsoleta.
-3. Pedir revisión a otra persona y enlazar PR, CI y evidencia en las tareas.
-   No se ha solicitado ni registrado esa revisión desde este documento.
+Con datos sintéticos en PostgreSQL temporal, las pruebas comprobaron que una
+cancha de otro club no queda habilitada únicamente con la aprobación del dueño;
+el rechazo del dueño o de la liga tampoco la habilita. Dos aprobaciones permiten
+usarla dentro de la ventana autorizada, incluyendo partido y holgura; se rechaza
+un horario fuera de esa ventana. Se probaron identidades diferentes para el
+solicitante, el dueño y la liga.
 
-Los escenarios de prueba eliminan sus propuestas sintéticas al terminar. No se
-deja una propuesta persistente en una base compartida ni se expone información
-de una liga real. Para preparar una demostración conjunta, acordar un entorno y
-datos de prueba con quien revise.
+La generación y el ajuste bloquean la temporada durante su transacción. La
+decisión del préstamo adquiere el mismo bloqueo antes de cambiar su estado. Las
+pruebas forzaron dos escenarios y comprobaron la espera con PostgreSQL:
 
-## Contrato local del validador compartido
+1. Una aprobación de la liga iniciada durante la generación espera al cierre de
+   esta; la propuesta generada no usa la autorización aún pendiente.
+2. Una aprobación iniciada durante un ajuste espera al cierre del ajuste. El
+   ajuste con préstamo pendiente se rechaza sin cambiar la versión; tras la
+   aprobación, un nuevo intento se revalida y se guarda.
 
-`validateScheduleProposalInTransaction(tx, actorId, input)` se exporta desde
-`src/features/scheduling/server/service.ts`. Es exclusivo de servidor. Recibe
-`proposalId`, `expectedSeasonVersion` y la lista completa de encuentros, cada uno
-con `round`, `matchdayId`, `home`, `away`, `venueId` y `start` ISO UTC. No debe
-recibir el actor desde el navegador: el llamador debe obtenerlo de la sesión.
-La función exige una transacción `SERIALIZABLE`, comprueba `scheduling:UPDATE`
-en la liga, bloquea temporada y propuesta, y lee la configuración vigente.
+Estos escenarios comprueban los órdenes descritos; no demuestran todos los
+posibles intercalados ni sustituyen una prueba del entorno con RLS habilitado.
 
-Permite intercambiar local y visitante y cambiar cancha y horario. Conserva los
-enfrentamientos y las jornadas existentes; mover jornadas o cambiar equipos no
-forma parte del contrato actual. Comprueba la estructura de cada vuelta, la
-alternancia de localía entre vueltas, duración y holgura, disponibilidad,
-bloqueos, jornada y temporada, descansos, sanciones, préstamos aprobados,
-canchas permitidas y traslapes contra otros encuentros y partidos que reservan
-recursos. Recalcula `end`, `reservedUntil`, preferencias y descansos en el
-servidor. Devuelve `{ok:true,matches,byes}` normalizados, o `{ok:false,code,
-conflicts}`; cada conflicto de horario incluye jornada, equipos y código.
+## Pruebas y medición ejecutadas
 
-La función **no guarda cambios ni comprueba la versión de edición de PDGLD-25**.
-Karol debe comprobar esa versión y guardar la salida normalizada dentro de la
-misma transacción, manejar los conflictos de serialización y conservar su propia
-autorización, auditoría y estados. `seasonVersion` protege la configuración, no
-sustituye la versión de edición. La validación no reserva canchas; las operaciones
-que confirmen partidos deben volver a revalidar y coordinar reservas de recursos.
-La integración real con PDGLD-25, sus controles de concurrencia y la revisión
-del PR siguen pendientes; esta interfaz todavía puede necesitar ajustes conjuntos.
+- `npm run test:scheduling`: **19 pruebas** del motor, restricciones y ventanas
+  de préstamo, incluidas búsqueda parcial y límite de búsqueda.
+- `tests/integration/scheduling.test.ts` mediante `scripts/test-scheduling.mjs`:
+  ejecución aprobada en PostgreSQL local temporal, con General y grupos de cuatro
+  y cinco equipos, localías, descansos, bloqueos, permisos, reintentos,
+  concurrencia y los escenarios de préstamos descritos arriba. El runner eliminó
+  la base y el rol temporales al terminar.
+- `npm run typecheck` y ESLint de los archivos modificados: aprobados en las
+  comprobaciones locales ejecutadas.
+- `tests/e2e/scheduling-proposals.test.mjs`: cuatro casos Chrome aprobados, en
+  390/1440 píxeles y temas claro/oscuro, con respuestas simuladas. Incluyen la
+  presentación de pendientes, motivos y aviso de límite; no prueban sesiones ni
+  servicios reales.
+- Una ejecución local del servicio con **20 equipos, 19 jornadas, 190 encuentros,
+  cuatro canchas y una vuelta** registró aproximadamente **6,05 segundos**.
+  Es una medición de ese escenario y entorno, no una garantía para otros tamaños
+  ni una verificación del entorno desplegado. En pruebas previas a estos cambios
+  se documentaron ejecuciones con PostgreSQL 15 y 17; no se atribuye esa matriz
+  a la versión final sin volver a ejecutarla.
 
-### Adaptación en PDGLD-25
+## Pendiente de aceptación
 
-El cuarto argumento opcional de `validateScheduleProposalInTransaction` es
-`action: "UPDATE" | "APPROVE"`, con valor predeterminado `UPDATE`. Se decide
-exclusivamente en servidor: edición y envío usan UPDATE, aprobación usa APPROVE.
-Así Presidencia puede revalidar al aprobar sin recibir permiso de edición.
-El navegador no puede elegir este argumento. Ambas acciones aplican exactamente
-las mismas restricciones y exigen ámbito de liga sin concesiones de club.
-El adaptador y las pruebas están en `docs/architecture/scheduling-proposal-integration.md`.
+- Ejecutar al final el recorrido completo en la aplicación con sesiones y
+  permisos reales, incluyendo canchas pendientes, sus motivos y su ajuste.
+- Verificar la versión final en los entornos y versiones PostgreSQL requeridos,
+  incluyendo RLS donde corresponda, y registrar el resultado del CI remoto.
+- Integrar los cambios locales, enlazar la implementación y la evidencia en
+  Jira y actualizar el estado según el resultado. No se ha cerrado PDGLD-137.

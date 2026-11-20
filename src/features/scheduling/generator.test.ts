@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { roundRobin, assignSlots, clashes } from "./generator";
+import { roundRobin, assignSlots, assignPartialSlots, clashes } from "./generator";
 
 test("pares únicos, descanso por equipo impar y localía inversa en segunda vuelta", () => {
   for (let count = 2; count <= 16; count++) {
@@ -27,6 +27,33 @@ test("retrocede para reservar cancha compartida sin cambiar local y visitante", 
   assert.equal(result.ok,true);
   if(result.ok) assert.equal(result.matches.find(m=>m.home==="a")?.start,75);
   assert.equal(assignSlots(jobs.map(j=>({...j,slots:[early]})),[]).ok,false);
+});
+
+test("la búsqueda parcial conserva el mayor conjunto y evita conflictos entre candidatos", () => {
+  const slot=(venueId:string)=>({venueId,start:0,end:60,reservedUntil:60,preference:0});
+  const jobs=[
+    {pairing:{round:1,home:"a",away:"b"},slots:[slot("x"),slot("y")]},
+    {pairing:{round:1,home:"c",away:"d"},slots:[slot("x"),slot("z")]},
+    {pairing:{round:1,home:"e",away:"f"},slots:[slot("x"),slot("z")]},
+    {pairing:{round:1,home:"g",away:"h"},slots:[]},
+  ];
+  const result=assignPartialSlots(jobs,[]);
+  assert.ok(result.ok);
+  assert.equal(result.matches.length,3);
+  assert.equal(result.optimal,true);
+  for(let i=0;i<result.matches.length;i++) for(let j=i+1;j<result.matches.length;j++)
+    assert.equal(clashes(result.matches[i],result.matches[j]),false);
+});
+
+test("la búsqueda parcial informa si agotó el límite sin afirmar que encontró el máximo", () => {
+  const slot=(venueId:string)=>({venueId,start:0,end:60,reservedUntil:60,preference:0});
+  const jobs=[{pairing:{round:1,home:"a",away:"b"},slots:[slot("x"),slot("y")]},
+    {pairing:{round:1,home:"c",away:"d"},slots:[slot("x"),slot("z")]},
+    {pairing:{round:1,home:"e",away:"f"},slots:[slot("x"),slot("z")]}];
+  const result=assignPartialSlots(jobs,[],{nodes:0,milliseconds:5000});
+  assert.ok(result.ok);
+  assert.equal(result.matches.length,2);
+  assert.equal(result.optimal,false);
 });
 test("conflicto de equipos entre canchas y límite de búsqueda no entregan partidos parciales",()=>{
   const pairing={round:1,home:"a",away:"b"};

@@ -58,7 +58,7 @@ export async function editStoredProposalInTransaction(
     proposalId: row.id, expectedSeasonVersion: proposal.seasonVersion, matches,
   });
   if (!result.ok) return { code: result.code, conflicts: result.conflicts };
-  const venues = await tx.venues.findMany({ where: { id: { in: result.matches.map(match => match.venueId) } }, select: { id: true, name: true } });
+  const venues = await tx.venues.findMany({ where: { id: { in: result.matches.flatMap(match => match.venueId ? [match.venueId] : []) } }, select: { id: true, name: true } });
   const parameters = storedProposalSchema.parse({ ...proposal,
     matches: result.matches.map((match, index) => ({ ...proposal.matches[index], ...match })),
     byes: result.byes, preferenceOptimal: false, venueNames: Object.fromEntries(venues.map(venue => [venue.id, venue.name])),

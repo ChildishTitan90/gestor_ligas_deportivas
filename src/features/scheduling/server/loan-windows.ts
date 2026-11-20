@@ -11,6 +11,7 @@ export async function loadApprovedLoanWindows(tx: Prisma.TransactionClient, seas
     FROM sports_management.venue_loans
     WHERE season_id = ${seasonId}::uuid AND club_id IN (${Prisma.join(clubIds.map(id => Prisma.sql`${id}::uuid`))})
       AND status = 'APPROVED' AND requested_by IS NOT NULL
+      AND owner_decision_required = true AND owner_decision = 'APPROVED'
       AND approved_by IS NOT NULL AND approved_at IS NOT NULL`;
   return rows.map(row => ({ id: row.id, venueId: row.venue_id, clubId: row.club_id,
     windows: parseLoanWindows(row.requested_windows) }));

@@ -76,12 +76,14 @@ export async function listScheduleProposals() {
         encounterIndex: index, round: match.round, matchdayId: match.matchdayId,
         home: stored.data.teamNames?.[match.home] ?? "Equipo local",
         away: stored.data.teamNames?.[match.away] ?? "Equipo visitante",
+        homeId: match.home, awayId: match.away,
         venueId: match.venueId,
-        venue: stored.data.venueNames?.[match.venueId] ?? "Cancha",
+        venue: match.venueId ? stored.data.venueNames?.[match.venueId] ?? "Cancha" : "Cancha pendiente",
         start: match.start, end: match.end, reservedUntil: match.reservedUntil,
+        factors: "factors" in match && Array.isArray(match.factors) ? match.factors : [],
       })),
       byes: stored.data.byes.map(bye => ({
-        round: bye.round, team: stored.data.teamNames?.[bye.teamId] ?? "Equipo",
+        round: bye.round, teamId: bye.teamId, team: stored.data.teamNames?.[bye.teamId] ?? "Equipo",
       })),
     } : null;
     const { parameters: _parameters, ...safeProposal } = proposal;

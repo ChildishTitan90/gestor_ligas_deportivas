@@ -19,7 +19,7 @@
     "test:scheduling:integration": "node scripts/test-scheduling.mjs",
     "test:scheduling:preview": "node scripts/test-scheduling-preview.mjs",
     "venues:cleanup-cancelled": "node --conditions=react-server --import tsx scripts/cleanup-venue-loans.mts",
-    "test:scheduling": "node --import tsx --test src/features/scheduling/generator.test.ts src/features/scheduling/constraints.test.ts src/features/scheduling/loan-windows.test.ts src/features/scheduling/slot-validation.test.ts",
+    "test:scheduling": "node --import tsx --test src/features/scheduling/generator.test.ts src/features/scheduling/constraints.test.ts src/features/scheduling/loan-windows.test.ts src/features/scheduling/slot-validation.test.ts src/features/scheduling/team-swap.test.ts src/features/scheduling/schedule-pdf.test.ts",
     "test:pdgld149": "node scripts/test-pdgld149.mjs",
     "test:match-report-tactics": "node --import tsx --test src/features/match-reports/tactics.test.ts src/features/match-reports/lineup-clock.test.ts",
     "test:match-report-storage": "node --conditions=react-server --import tsx --test src/features/match-reports/server/signature-storage-profile.test.ts",

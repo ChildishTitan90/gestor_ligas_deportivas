@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pendingEncounterSchema } from "./pending-encounters";
 
 const encounter = z.object({
   matchdayId: z.uuid(),
@@ -25,7 +26,7 @@ export const storedProposalSchema = z.object({
   timezone: z.string().min(1),
   teamNames: z.record(z.string(), z.string()).optional(),
   venueNames: z.record(z.string(), z.string()).optional(),
-  matches: z.array(encounter).min(1).max(1024),
+  matches: z.array(z.union([encounter, pendingEncounterSchema])).min(1).max(1024),
   byes: z.array(z.object({
     matchdayId: z.uuid(), round: z.number().int().positive(), teamId: z.uuid(),
   }).passthrough()),

@@ -1,6 +1,7 @@
-import { GeneratedEncounterDraft } from "@/features/scheduling/components/generated-encounter-draft";
 import { ProposalReview } from "@/features/scheduling/components/proposal-review";
 import { venueLocalTime } from "@/features/venues/time";
+import { TeamSwapBoard } from "@/features/scheduling/components/team-swap-board";
+import { ProgressSteps } from "@/features/scheduling/components/progress-steps";
 import { AdjustmentPreview } from "@/features/scheduling/components/adjustment-preview";
 import { listScheduleProposals } from "@/features/scheduling/server/proposals";
 import { AuthorizationError } from "@/server/auth/authorization";
@@ -41,26 +42,19 @@ export default async function ScheduleProposalsPage() {
         <p className="mt-3 text-sm text-muted">
           {format.format(proposal.created_at)} · Reglamento v{proposal.competition_rules.version_number} · Propuesta v{proposal.version}
         </p>
+        {(["DRAFT", "IN_REVIEW", "APPROVED"].includes(proposal.status)) && <div className="mt-4"><ProgressSteps label="Estado de la propuesta" current={proposal.status === "DRAFT" ? 0 : proposal.status === "IN_REVIEW" ? 1 : 2} steps={[
+          {label:"Borrador",detail:"Prepara y ajusta los encuentros."},
+          {label:"En revisión",detail:"La propuesta espera una decisión."},
+          {label:"Aprobada",detail:"Lista para el proceso posterior."},
+        ]} /></div>}
+        {proposal.status === "APPROVED" && proposal.generated && <p className="mt-4"><a
+          href={`/api/scheduling/proposals/${proposal.id}/pdf`} download
+          className="primary-action inline-flex min-h-12 items-center rounded-xl px-4 py-2 text-sm font-semibold">Descargar programación en PDF</a></p>}
         {proposal.generated && <section className="mt-4 space-y-3" aria-label="Encuentros propuestos">
           <p className="text-sm text-muted">Versión de temporada {proposal.generated.seasonVersion}</p>
-          <ul className="divide-y divide-border">
-            {proposal.generated.matches.map(match => <li key={match.encounterIndex} className="space-y-1 py-3">
-              <p className="font-medium">{match.home} vs. {match.away}</p>
-              <p className="text-sm text-muted">Jornada {match.round} · {match.venue}</p>
-              <p className="text-sm">{format.format(new Date(match.start))} – {format.format(new Date(match.end))}</p>
-              <p className="text-sm text-muted">Cancha ocupada hasta {format.format(new Date(match.reservedUntil))}</p>
-              {proposal.canEdit && <GeneratedEncounterDraft
-                key={`${actorId}:${proposal.version}:${match.encounterIndex}`}
-                actorId={actorId} proposalId={proposal.id} version={proposal.version}
-                encounterIndex={match.encounterIndex} timeZone={league.timezone}
-                initialVenueId={match.venueId}
-                initialStart={venueLocalTime(new Date(match.start), league.timezone).slice(0, 16)}
-                venues={league.venues.map(venue => ({ value: venue.id, label: venue.name }))} />}
-            </li>)}
-          </ul>
-          {proposal.generated.byes.length > 0 && <ul aria-label="Descansos" className="space-y-1 text-sm">
-            {proposal.generated.byes.map((bye, index) => <li key={index}>Jornada {bye.round} · Descansa {bye.team}</li>)}
-          </ul>}
+          <TeamSwapBoard key={`${proposal.id}:${proposal.version}`} matches={proposal.generated.matches} byes={proposal.generated.byes}
+            actorId={actorId} proposalId={proposal.id} version={proposal.version} canEdit={proposal.canEdit} timeZone={league.timezone}
+            venues={league.venues.map(venue=>({value:venue.id,label:venue.name}))} />
           <p className="text-sm text-muted">Los ajustes y el envío a revisión revalidan el calendario completo. La propuesta no reserva canchas ni publica partidos.</p>
         </section>}
         {!proposal.generated && (proposal.matches.length ? <ul className="mt-4 divide-y divide-border">
@@ -82,6 +76,7 @@ export default async function ScheduleProposalsPage() {
         {(proposal.canEdit || proposal.canReview) && <ProposalReview
           key={`${actorId}:${proposal.version}`}
           actorId={actorId} proposalId={proposal.id} version={proposal.version}
+          context={`${league.name} · ${proposal.seasons.name}`}
           operations={proposal.canReview ? ["approve", "return"] : ["submit"]}
           matches={Object.fromEntries(proposal.matches.map(match => [match.id, match.number]))} />}
       </details>;

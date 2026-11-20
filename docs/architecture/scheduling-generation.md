@@ -3,8 +3,13 @@
 El motor genera vueltas completas por grupo, invierte localía entre vueltas y
 conserva descansos para equipos impares. Compartir cancha nunca invierte local y
 visitante. La búsqueda elige horarios completos sin traslapes de cancha/holgura o
-equipos; ante falta de solución o límite de búsqueda no devuelve partidos parciales.
-La búsqueda compara preferencias y registra si terminó de encontrar el mínimo entre los candidatos.
+equipos. La búsqueda de calendario completo compara preferencias y registra si
+terminó de encontrar el mínimo entre los candidatos. Cuando se solicita permitir
+pendientes y no se encuentra un calendario completo por falta de horarios o por
+conflictos entre candidatos, busca una combinación parcial sin traslapes y deja
+sin cancha ni horario los encuentros restantes. La búsqueda parcial está acotada;
+si no demuestra el máximo, lo indica. Un límite agotado en la búsqueda completa
+no se presenta como prueba de que sea imposible programar.
 
 La configuración propuesta `calendar.scheduling` forma parte del reglamento
 versionado y aprobado: `slotStepMinutes` y `venueStages` con `fromRound`, `toRound`
@@ -31,6 +36,8 @@ distribuido, con afiliaciones y categorías autorizadas. Conserva el resultado e
 de reglas. No crea partidos oficiales ni reservas: PDGLD-25 debe revalidar toda la
 propuesta antes de reservar y confirmar. Dos propuestas pueden competir por una
 cancha; ninguna acredita disponibilidad futura. La propuesta no publica contenido.
+La pantalla de generación y las comprobaciones específicas de pendientes se
+describen en `docs/validation/PDGLD-136-pantalla.md`.
 
 ## Estado histórico al 17 de noviembre: pendientes de PDGLD-135
 

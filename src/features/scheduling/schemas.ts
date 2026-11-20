@@ -11,5 +11,5 @@ export const schedulingPolicySchema = z.strictObject({
 
 export const generateScheduleSchema = z.strictObject({
   seasonId:z.uuid(), categoryId:z.uuid(), groupId:z.uuid(), operationId:z.uuid(),
-  expectedSeasonVersion:z.number().int().positive(), reason:z.string().trim().min(5).max(500),
+  expectedSeasonVersion:z.number().int().positive(), reason:z.string().trim().min(5).max(500), allowPending:z.boolean().optional(),
 });

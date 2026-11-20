@@ -240,6 +240,8 @@ export async function changeProposalReviewForActor(actorId: string, input: unkno
       }
 
       const generated = storedProposalSchema.safeParse(proposal.parameters);
+      if (generated.success && data.operation === "approve" && generated.data.matches.some(match => !match.venueId))
+        return { code: "INCOMPLETE_PROPOSAL_MATCH" as const };
       let normalized: Prisma.InputJsonValue | undefined;
       if (generated.success && data.operation !== "return") {
         const result = await validateScheduleProposalInTransaction(tx, actorId, {

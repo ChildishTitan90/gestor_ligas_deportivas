@@ -218,6 +218,7 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
       <div className="flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">{row.venue}</h2>
         <span className="rounded-full border border-border px-3 py-1 text-sm">{labels[row.status] ?? row.status}</span></div>
       <p className="text-sm text-muted">{row.club} · {row.season}</p>
+      {row.stage && <p className="text-sm">{row.stage}</p>}
       <div className="space-y-1 text-sm">
         <h3 className="font-semibold">{row.status === "APPROVED" ? "Horarios aprobados" : "Horarios solicitados"}</h3>
         {row.windows.length > 0 ? <>

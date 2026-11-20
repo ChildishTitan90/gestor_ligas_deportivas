@@ -11,9 +11,11 @@ const proposalSchema = z.object({
   teamNames: z.record(z.string(), z.string()).optional(),
   venueNames: z.record(z.string(), z.string()).optional(),
   preferenceOptimal: z.boolean().optional(),
+  partialOptimal: z.boolean().optional(),
   matches: z.array(z.object({
     round: z.number().int().positive(), home: z.string(), away: z.string(),
-    venueId: z.string(), start: z.iso.datetime(), end: z.iso.datetime(),
+    venueId: z.string().nullable(), start: z.iso.datetime().nullable(), end: z.iso.datetime().nullable(),
+    factors: z.array(z.string()).optional(),
   })),
   byes: z.array(z.object({ round: z.number().int().positive(), teamId: z.string() })),
 });

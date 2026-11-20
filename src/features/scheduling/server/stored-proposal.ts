@@ -48,6 +48,7 @@ export async function readStoredProposalForActor(actorId: string, input: unknown
         matches: proposal.matches.map((match, encounterIndex) => ({
           encounterIndex, matchdayId: match.matchdayId, round: match.round, home: match.home, away: match.away,
           venueId: match.venueId, start: match.start, end: match.end, reservedUntil: match.reservedUntil,
+          factors: "factors" in match && Array.isArray(match.factors) ? match.factors : [],
         })),
         byes: proposal.byes.map(bye => ({ matchdayId: bye.matchdayId, round: bye.round, teamId: bye.teamId })),
       },

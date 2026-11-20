@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, AuthorizationError } from "@/server/auth/authorization";
+import { assertPermission, AuthorizationError, lockAuthorization } from "@/server/auth/authorization";
 import { requireOperationalUser } from "@/server/auth/session";
 import { getPrisma } from "@/server/db/prisma";
 import { PRIVATE_FILE_MAX_BYTES, validatePrivateFileContent } from "@/server/files/private-file-validation";
@@ -43,7 +43,8 @@ async function requestContext(tx: Tx, actor: string, data: z.infer<typeof reques
     select: { league_id: true, status: true, start_date: true, end_date: true, leagues: { select: { timezone: true } } },
   });
   const venue = await tx.venues.findFirst({
-    where: { id: data.venueId, league_id: season.league_id, is_active: true, is_league_sports_complex: false }, select: { id: true },
+    where: { id: data.venueId, league_id: season.league_id, is_active: true, is_league_sports_complex: false,
+      owner_club_id: { not: null, notIn: [data.clubId] } }, select: { id: true },
   });
   if (!venue) throw new AuthorizationError();
   return season;
@@ -117,6 +118,7 @@ export async function submitVenueLoanForActor(actor: string, input: unknown, att
 
     return await db.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${data.requestId}, 2301))`;
+      await tx.$queryRaw`SELECT id FROM sports_management.venues WHERE id = ${data.venueId}::uuid FOR UPDATE`;
       const current = await check(tx);
       if (current.receipt) return current.receipt;
       if (current.objectKey !== prepared.objectKey) throw new AuthorizationError();
@@ -127,7 +129,7 @@ export async function submitVenueLoanForActor(actor: string, input: unknown, att
       await auditContext(tx, actor, "Solicitud de préstamo de cancha");
       return tx.venue_loans.create({ data: {
         id: data.requestId, season_id: data.seasonId, club_id: data.clubId, venue_id: data.venueId,
-        letter_file_id: letter.id, requested_by: actor, request_hash: hash, requested_windows: windows,
+        letter_file_id: letter.id, requested_by: actor, request_hash: hash, requested_windows: windows, owner_decision_required: true,
       }, select: receipt });
     });
   } catch (error) {
@@ -192,14 +194,33 @@ export async function decideVenueLoan(input: unknown) {
 export async function decideVenueLoanForActor(actor: string, input: unknown) {
   const data = decisionSchema.parse(input);
   return getPrisma().$transaction(async tx => {
+    // Mismo orden que generación y ajustes: autorización, temporada, solicitud.
+    await lockAuthorization(tx);
+    const scope = await tx.venue_loans.findUnique({where:{id:data.requestId},select:{season_id:true}});
+    if (!scope) throw new AuthorizationError();
+    await tx.$queryRaw`SELECT id FROM sports_management.seasons WHERE id=${scope.season_id}::uuid FOR UPDATE`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${data.requestId}, 2301))`;
     const row = await tx.venue_loans.findUnique({ where: { id: data.requestId }, select: {
       id: true, club_id: true, season_id: true, requested_by: true, status: true,
-      reviewed_by: true, review_reason: true, seasons: { select: { status: true } },
+      reviewed_by: true, review_reason: true, owner_decision_required: true, owner_decision: true,
+      owner_reviewed_by: true, owner_review_reason: true, venues: { select: { owner_club_id: true } },
+      seasons: { select: { status: true } },
     } });
     if (!row?.requested_by) throw new AuthorizationError();
-    await authorize(tx, actor, "APPROVE", { clubId: row.club_id, seasonId: row.season_id });
     if (row.requested_by === actor) throw new AuthorizationError();
+    if (row.owner_decision_required && !row.owner_decision) {
+      if (!row.venues.owner_club_id) throw new AuthorizationError();
+      await authorize(tx, actor, "CREATE", { clubId: row.venues.owner_club_id, seasonId: row.season_id });
+      if (row.status !== "PENDING" || row.seasons.status === "CLOSED") throw new LoanError("REQUEST_NOT_PENDING");
+      await auditContext(tx, actor, data.reason);
+      await tx.venue_loans.update({ where: { id: row.id }, data: { owner_decision: data.status, owner_reviewed_by: actor,
+        owner_reviewed_at: new Date(), owner_review_reason: data.reason, ...(data.status === "REJECTED" ? { status: "REJECTED" } : {}) } });
+      return { id: row.id, status: data.status === "REJECTED" ? "REJECTED" : "PENDING" };
+    }
+    if (row.owner_decision_required && row.owner_decision === data.status && row.owner_reviewed_by === actor && row.owner_review_reason === data.reason)
+      return { id: row.id, status: row.status };
+    if (row.owner_decision_required && row.owner_decision !== "APPROVED") throw new LoanError("REQUEST_NOT_PENDING");
+    await authorize(tx, actor, "APPROVE", { clubId: row.club_id, seasonId: row.season_id });
     if (row.status === data.status && row.reviewed_by === actor && row.review_reason === data.reason) {
       return { id: row.id, status: row.status };
     }
@@ -213,7 +234,7 @@ export async function decideVenueLoanForActor(actor: string, input: unknown) {
     } });
     if (!updated.count) throw new LoanError("REQUEST_NOT_PENDING");
     return { id: row.id, status: data.status };
-  });
+  }, { maxWait: 10_000, timeout: 30_000 });
 }
 
 export async function previewVenueLoanLetter(value: unknown, storage?: PrivateDocumentTransport) {
@@ -225,13 +246,16 @@ export async function previewVenueLoanLetterForActor(actor: string, value: unkno
   const id = z.uuid().parse(value);
   const load = () => getPrisma().$transaction(async tx => {
     const row = await tx.venue_loans.findUnique({ where: { id }, select: {
-      club_id: true, season_id: true, requested_by: true, files: { select: {
+      club_id: true, season_id: true, requested_by: true, owner_decision_required: true, owner_decision: true,
+      venues: { select: { owner_club_id: true } }, files: { select: {
         id: true, storage_key: true, mime_type: true, size_bytes: true, sha256: true,
       } },
     } });
     if (!row?.requested_by) throw new AuthorizationError();
-    await authorize(tx, actor, row.requested_by === actor ? "CREATE" : "APPROVE",
-      { clubId: row.club_id, seasonId: row.season_id });
+    if (row.requested_by === actor) await authorize(tx, actor, "CREATE", { clubId: row.club_id, seasonId: row.season_id });
+    else if (row.owner_decision_required && !row.owner_decision && row.venues.owner_club_id)
+      await authorize(tx, actor, "CREATE", { clubId: row.venues.owner_club_id, seasonId: row.season_id });
+    else await authorize(tx, actor, "APPROVE", { clubId: row.club_id, seasonId: row.season_id });
     return row.files;
   });
   const file = await load();

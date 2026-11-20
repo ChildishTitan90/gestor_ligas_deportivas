@@ -16,10 +16,11 @@ const captureSchema = z.strictObject({
   uncertain: z.boolean().default(false),
 });
 
-export function GeneratedEncounterDraft({ actorId, proposalId, version, encounterIndex, initialStart, initialVenueId, timeZone, venues }: {
+export function GeneratedEncounterDraft({ actorId, proposalId, version, encounterIndex, initialStart, initialVenueId, timeZone, venues, context }: {
   actorId: string; proposalId: string; version: number; encounterIndex: number;
   initialStart: string; initialVenueId: string; timeZone: string;
   venues: { value: string; label: string }[];
+  context?: string;
 }) {
   const id = useId();
   const router = useRouter();
@@ -34,6 +35,7 @@ export function GeneratedEncounterDraft({ actorId, proposalId, version, encounte
   const [swapHomeAway, setSwapHomeAway] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const [pending, setPending] = useState(false);
+  const [options, setOptions] = useState<{value:string;label:string}[] | null>(null);
 
   function openDraft() {
     try {
@@ -52,6 +54,26 @@ export function GeneratedEncounterDraft({ actorId, proposalId, version, encounte
     } catch {
       setMessage("No se pudo recuperar el borrador guardado en esta pestaña.");
     }
+  }
+
+  async function consultVenues() {
+    if (busy.current) return;
+    let utc:string;
+    try { utc=venueTimeToIso(startsAt,timeZone); }
+    catch { setMessage("Elige una fecha y hora válidas antes de consultar."); return; }
+    if (!utc) { setMessage("Elige una fecha y hora válidas antes de consultar."); return; }
+    busy.current=true; setPending(true); setMessage(""); setOptions(null);
+    try {
+      const outcome=await sendSchedulingRequest("/api/scheduling/stored-venue-options",actorId,
+        {proposalId,expectedVersion:version,encounterIndex,startsAt:utc,swapHomeAway},"VENUE_OPTIONS");
+      if(outcome.error) { setMessage(outcome.error); return; }
+      const available=outcome.result.venues.map((venue:{venueId:string;name:string;preferred:boolean})=>
+        ({value:venue.venueId,label:venue.name+(venue.preferred ? " · Horario preferente de local" : "")}));
+      setOptions(available);
+      setVenueId(current=>available.some((item:{value:string})=>item.value===current)?current:"");
+      if(!available.length) setMessage("No hay canchas disponibles y autorizadas para este encuentro a esa hora. Prueba otra fecha u horario.");
+    } catch { setMessage("No se pudo consultar la disponibilidad. Inténtalo nuevamente."); }
+    finally { busy.current=false; setPending(false); }
   }
 
   async function saveDraft(event: FormEvent) {
@@ -107,7 +129,7 @@ export function GeneratedEncounterDraft({ actorId, proposalId, version, encounte
     <button type="button" className="mt-2 rounded-xl border border-border px-3 py-2 text-sm font-medium"
       onClick={openDraft}>{uncertain ? "Recuperar ajuste" : "Ajustar encuentro"}</button>
     {!open && message && <p role="alert" className="text-sm">{message}</p>}
-    {open && <FormDialog open title="Ajustar encuentro" description={`Jornada propuesta · ${timeZone}. Versión ${version}.`}
+    {open && <FormDialog open title="Ajustar encuentro" description={`${context ?? "Encuentro propuesto"} · ${timeZone}. Versión ${version}.`}
       pending={pending} uncertain={uncertain}
       dirty={!saved && (startsAt !== initialStart || venueId !== initialVenueId || swapHomeAway || Boolean(reason))}
       onClose={closeReason => {
@@ -122,21 +144,23 @@ export function GeneratedEncounterDraft({ actorId, proposalId, version, encounte
         <fieldset disabled={pending || uncertain} className="space-y-3">
         <label className="block text-sm">Horario propuesto · {timeZone}
           <input type="datetime-local" required className={fieldClass} value={startsAt}
-            onChange={event => { setStartsAt(event.target.value); change(); }} />
+            onChange={event => { setStartsAt(event.target.value); setOptions(null); change(); }} />
         </label>
+        <button type="button" onClick={consultVenues} className="min-h-11 rounded-xl border border-border px-3 py-2 text-sm font-medium">Consultar canchas disponibles</button>
+        <p className="text-sm text-muted">La consulta considera el horario, la autorización y los partidos registrados. El horario preferente se marca en la lista.</p>
         <label className="block text-sm" htmlFor={id}>Cancha propuesta</label>
-        <SelectField id={id} value={venueId} options={venues}
+        <SelectField id={id} value={venueId} options={options ?? venues}
           onValueChange={value => { setVenueId(value); change(); }} />
         <label className="block text-sm">Motivo del ajuste
           <textarea required minLength={8} maxLength={500} className={fieldClass} value={reason}
             onChange={event => { setReason(event.target.value); change(); }} />
         </label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={swapHomeAway}
-          onChange={event => { setSwapHomeAway(event.target.checked); change(); }} />Intercambiar local y visitante</label>
+          onChange={event => { setSwapHomeAway(event.target.checked); setOptions(null); change(); }} />Intercambiar local y visitante</label>
         </fieldset>
         <p className="text-sm text-muted">Se revalidará el calendario completo con las restricciones vigentes. El ajuste conserva la propuesta como borrador.</p>
         {message && <p role="status" className="text-sm">{message}</p>}
-        <button type="submit" disabled={pending} className={actionButton}>{pending ? "Validando…" : uncertain ? "Reintentar el mismo ajuste" : "Validar y guardar ajuste"}</button>
+        <button type="submit" disabled={pending || (options !== null && options.length === 0)} className={actionButton}>{pending ? "Validando…" : uncertain ? "Reintentar el mismo ajuste" : "Validar y guardar ajuste"}</button>
         {uncertain && <button type="button" disabled={pending} className="block text-sm underline" onClick={() => router.refresh()}>Comprobar propuesta actual</button>}
       </form>
     </FormDialog>}

@@ -11,6 +11,7 @@ export type HomeVenueCandidate = {
   leagueId: string;
   active: boolean;
   kind: "complex" | "private";
+  ownerClubId?: string | null;
   durationMinutes: number;
   bufferMinutes: number;
   openings: readonly Interval[];
@@ -29,7 +30,7 @@ type HomeVenueContext = {
   priorHomeVenueId?: string;
 };
 
-const preference = { HOME_LOAN: 0, COMPLEX: 1, RIVAL_LOAN: 2 } as const;
+const preference = { OWN: 0, HOME_LOAN: 1, COMPLEX: 2 } as const;
 
 function contains(window: Interval, start: number, end: number) {
   return window.startsAt.getTime() <= start && window.endsAt.getTime() >= end;
@@ -62,9 +63,8 @@ export function homeVenueOptions(context: HomeVenueContext, venues: readonly Hom
       loan.windows.some(window => contains(window, start, reserved)));
 
     const source: keyof typeof preference | null = venue.kind === "complex" ? "COMPLEX"
-      : approvedFor(context.homeClubId) ? "HOME_LOAN"
-      : context.homeClubId !== context.awayClubId && venue.id === context.priorHomeVenueId && approvedFor(context.awayClubId)
-        ? "RIVAL_LOAN" : null;
+      : venue.ownerClubId === context.homeClubId ? "OWN"
+      : approvedFor(context.homeClubId) ? "HOME_LOAN" : null;
     if (!source) return [];
 
     return [{ venueId: venue.id, source, endsAt: new Date(end), reservedUntil: new Date(reserved) }];

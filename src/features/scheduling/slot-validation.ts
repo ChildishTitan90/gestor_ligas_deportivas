@@ -13,7 +13,7 @@ export type SlotContext = {
   day: Day; home: string; away: string; homeClub: string;
   matchDurationMinutes: number; complexOnly: boolean; allowedVenueIds?: string[];
   breaks: { starts_at: Date; ends_at: Date }[]; sanctions: Sanctions;
-  venue: { id: string; is_league_sports_complex: boolean; match_duration_minutes: number;
+  venue: { id: string; is_league_sports_complex: boolean; owner_club_id?: string | null; match_duration_minutes: number;
     buffer_minutes: number; venue_availability: Range[]; home_venue_assignments: HomeAssignments };
   loanWindows: Windows;
 };
@@ -35,8 +35,9 @@ export function validateSlot(context: SlotContext, start: number) {
   if(participationBlocked(context.sanctions,[context.home,context.away],start,end)) return {ok:false as const,factor:"SANCTION"};
   if(context.breaks.some(b=>date<=dateOnly(b.ends_at)&&finalDate>=dateOnly(b.starts_at))) return {ok:false as const,factor:"SEASON_BREAK"};
   if(venue.venue_availability.some(a=>a.type!=="AVAILABLE"&&overlaps(start,reservedUntil,+a.starts_at,+a.ends_at))) return {ok:false as const,factor:"VENUE_BLOCK"};
-  if(!venue.is_league_sports_complex&&!fitsLoanWindow(context.loanWindows,start,reservedUntil)) return {ok:false as const,factor:"LOAN_WINDOW"};
+  if(!venue.is_league_sports_complex&&venue.owner_club_id!==context.homeClub&&!fitsLoanWindow(context.loanWindows,start,reservedUntil)) return {ok:false as const,factor:"LOAN_WINDOW"};
   const preferred=authorizedHomeAssignment(venue.home_venue_assignments,{teamId:context.home,clubId:context.homeClub,
-    seasonId:context.seasonId,venueId:venue.id,localStart:local,localEnd:lastLocal});
+    seasonId:context.seasonId,venueId:venue.id,localStart:local,localEnd:lastLocal,
+    directAssignmentAllowed:venue.is_league_sports_complex || venue.owner_club_id===context.homeClub});
   return {ok:true as const,slot:{venueId:venue.id,start,end,reservedUntil,preference:preferred?0:1}};
 }

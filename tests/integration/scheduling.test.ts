@@ -3,6 +3,7 @@ import { verifySchedulingLoans } from "./scheduling-loans";
 import { verifySharedProposalEditing } from "./scheduling-adjustment-shared";
 import { editStoredProposalInTransaction } from "../../src/features/scheduling/server/stored-proposal-edit";
 import { storedProposalSchema } from "../../src/features/scheduling/stored-proposal";
+import { changeProposalReviewForActor } from "../../src/features/scheduling/server/adjustment";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -110,6 +111,28 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
     assert.ok(firstRound.every(match=>"factors" in match && Array.isArray(match.factors) && match.factors.includes("VENUE_BLOCK")));
    } else assert.fail("El bloqueo completo debe impedir los encuentros de la primera jornada");
    assert.equal(await tx.schedule_proposals.count({where:{id:blockedId}}),0);
+   const pending=await generateScheduleInTransaction(tx,f.actor,{...input,operationId:randomUUID(),allowPending:true});
+   assert.ok(pending.ok);
+   const pendingProposal=await tx.schedule_proposals.findUniqueOrThrow({where:{id:pending.proposalId}});
+   const pendingData=pendingProposal.parameters as { matches:{round:number;matchdayId:string;home:string;away:string;venueId:string|null;start:string|null}[] };
+   assert.ok(pendingData.matches.some(match=>match.venueId===null && match.start===null));
+   assert.ok(pendingData.matches.some(match=>match.venueId!==null && match.start!==null));
+   const pendingWithReasons=storedProposalSchema.parse(pendingProposal.parameters);
+   assert.ok(pendingWithReasons.matches.some(match=>match.venueId===null && match.factors?.includes("VENUE_BLOCK")));
+   const pendingValidation=await validateScheduleProposalInTransaction(tx,f.actor,{proposalId:pending.proposalId,expectedSeasonVersion:1,matches:pendingData.matches.map(({round,matchdayId,home,away,venueId,start})=>({round,matchdayId,home,away,venueId,start}))});
+   assert.ok(pendingValidation.ok,"La propuesta con encuentros pendientes puede revisarse");
+   await tx.venue_availability.delete({where:{id:closure.id}});
+   const availableMatch=matches.find(match=>pendingData.matches.some(p=>p.round===match.round && p.home===match.home && p.away===match.away && p.venueId===null))!;
+   const index=pendingData.matches.findIndex(match=>match.round===availableMatch.round && match.home===availableMatch.home && match.away===availableMatch.away);
+   assert.ok(index>=0);
+   const fixed=await editStoredProposalInTransaction(tx,f.actor,{proposalId:pending.proposalId,expectedVersion:1,encounterIndex:index,
+     venueId:availableMatch.venueId,startsAt:availableMatch.start,reason:"Asignar cancha disponible"});
+   assert.equal(fixed.code,"ADJUSTMENT_SAVED");
+   const updated=storedProposalSchema.parse((await tx.schedule_proposals.findUniqueOrThrow({where:{id:pending.proposalId}})).parameters);
+   assert.equal(updated.matches[index].venueId,availableMatch.venueId);
+   assert.ok(updated.matches.some(match=>match.venueId===null));
+   assert.ok(updated.matches.some(match=>match.venueId===null && match.factors?.includes("VENUE_BLOCK")),"Los motivos restantes sobreviven al ajuste");
+   await tx.venue_availability.create({data:{id:closure.id,venue_id:venue.id,starts_at:block.start,ends_at:new Date("2030-01-06T21:00:00Z"),type:"BLOCK",reason:"Bloqueo sintético"}});
    // Cada encuentro tiene un horario candidato, pero dos partidos necesitan
    // el mismo único intervalo de la cancha en la primera jornada.
    await tx.venue_availability.deleteMany({where:{venue_id:venue.id,type:"BLOCK"}});
@@ -127,6 +150,13 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
    }
    assert.equal(await tx.schedule_proposals.count(),countBefore);
    assert.equal(await tx.schedule_proposals.count({where:{id:failedId}}),0);
+   const partial=await generateScheduleInTransaction(tx,f.actor,{...input,operationId:randomUUID(),allowPending:true});
+   assert.ok(partial.ok,"Un conflicto entre encuentros permite conservar una propuesta parcial");
+   const partialData=storedProposalSchema.parse((await tx.schedule_proposals.findUniqueOrThrow({where:{id:partial.proposalId}})).parameters);
+   const firstRound=partialData.matches.filter(match=>match.round===1);
+   assert.equal(firstRound.filter(match=>match.venueId!==null).length,1);
+   assert.equal(firstRound.filter(match=>match.venueId===null).length,1);
+   assert.ok(partialData.matches.some(match=>match.round>1 && match.venueId!==null));
    throw rollback;
   },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:30000}),error=>error===rollback);
   t.diagnostic("Dos vueltas en cancha compartida: disponibilidad, bloqueo, tramos, localías y ausencia de traslapes verificados.");
@@ -170,6 +200,7 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
   const movedResult=await validate(moved);
   assert.ok(movedResult.ok,"Puede cambiar cancha y horario a una opción válida");
   const normalized=movedResult.matches.find(match=>match.round===firstMatch.round&&match.home===firstMatch.home&&match.away===firstMatch.away)!;
+  assert.ok(normalized.start && normalized.end && normalized.reservedUntil);
   assert.equal(Date.parse(normalized.end)-Date.parse(normalized.start),90*60000);
   assert.equal(Date.parse(normalized.reservedUntil)-Date.parse(normalized.end),30*60000);
   const badVenue=editable.map((match,index)=>index===0?{...match,venueId:randomUUID()}:match);
@@ -264,5 +295,15 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
     assert.ok(impossible.conflicts.every(match=>"factors" in match && Array.isArray(match.factors) && match.factors.includes("NO_OPENING")));
   }
   assert.equal(await db.schedule_proposals.count(),7);
+  const pending=await generateScheduleForActor(f.actor,{...input,operationId:randomUUID(),allowPending:true});
+  assert.ok(pending.ok);
+  const saved=await db.schedule_proposals.findUniqueOrThrow({where:{id:pending.proposalId}});
+  const draft=storedProposalSchema.parse(saved.parameters);
+  assert.ok(draft.matches.every(match=>match.venueId===null));
+  const sent=await changeProposalReviewForActor(f.actor,{proposalId:pending.proposalId,expectedVersion:1,operation:"submit",reason:"Revisión de canchas pendientes"});
+  assert.equal(sent.code,"PROPOSAL_UPDATED");
+  const [reviewer]=await db.$queryRaw<{reviewer:string}[]>`SELECT reviewer FROM public.scheduling_fixture`;
+  const approved=await changeProposalReviewForActor(reviewer.reviewer,{proposalId:pending.proposalId,expectedVersion:2,operation:"approve",reason:"Aprobación de propuesta pendiente"});
+  assert.equal(approved.code,"INCOMPLETE_PROPOSAL_MATCH");
  } finally { await db.$disconnect(); }
 });

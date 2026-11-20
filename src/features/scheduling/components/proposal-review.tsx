@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { FormDialog } from "@/components/ui/form-dialog";
+import { hasPendingTeamSwaps, subscribePendingTeamSwaps } from "./pending-team-swaps";
 import { actionButton, fieldClass, sendSchedulingRequest } from "./scheduling-request";
 
 type Operation = "submit" | "approve" | "return";
@@ -10,11 +11,13 @@ type Operation = "submit" | "approve" | "return";
 const labels = { submit: "Enviar a revisión", approve: "Aprobar propuesta", return: "Devolver a borrador" };
 const notices = { submit: "Propuesta enviada a revisión.", approve: "Propuesta aprobada para operación.", return: "Propuesta devuelta a borrador." };
 
-export function ProposalReview({ actorId, proposalId, version, operations, matches }: {
+export function ProposalReview({ actorId, proposalId, version, operations, matches, context }: {
   actorId: string; proposalId: string; version: number; operations: Operation[];
   matches: Record<string, string>;
+  context?: string;
 }) {
   const router = useRouter();
+  const hasUnsavedSwaps = useSyncExternalStore(subscribePendingTeamSwaps, () => hasPendingTeamSwaps(proposalId), () => false);
   const busy = useRef(false);
   const confirmed = useRef(false);
   const [operation, setOperation] = useState<Operation | null>(null);
@@ -58,10 +61,12 @@ export function ProposalReview({ actorId, proposalId, version, operations, match
   }
 
   return <div className="mt-4">
+    {hasUnsavedSwaps && <p className="mb-2 text-sm">Guarda los cambios de equipos antes de enviar la propuesta.</p>}
     {notice ? <p role="status" className="text-sm">{notice}</p>
       : <div className="flex flex-wrap gap-2">
         {(uncertain && operation ? [operation] : operations).map(action => <button key={action} type="button"
           className={action === "return" ? "min-h-12 rounded-xl border border-border px-4 py-2 text-sm font-semibold" : actionButton}
+          disabled={hasUnsavedSwaps}
           onClick={() => {
             if (!uncertain) { setReason(""); setMessage(""); }
             setOperation(action);
@@ -69,8 +74,8 @@ export function ProposalReview({ actorId, proposalId, version, operations, match
           }}>{uncertain ? `Recuperar acción · ${labels[action]}` : labels[action]}</button>)}
       </div>}
     {open && operation && <FormDialog open title={labels[operation]} description={
-      operation === "approve" ? "La aprobación es operativa. La publicación se realiza por separado."
-        : "El motivo quedará registrado en el historial de la propuesta."
+      `${context ? `${context} · ` : ""}${operation === "approve" ? "La aprobación es operativa. La publicación se realiza por separado."
+        : "El motivo quedará registrado en el historial de la propuesta."}`
     } pending={pending} dirty={Boolean(reason)} uncertain={uncertain} onClose={() => setOpen(false)}>
       <form className="space-y-3" onSubmit={submit}>
         <label className="block text-sm">Motivo
