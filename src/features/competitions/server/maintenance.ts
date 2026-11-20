@@ -1,4 +1,5 @@
 import "server-only";
+import { isDeepStrictEqual } from "node:util";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { getPrisma } from "@/server/db/prisma";
@@ -65,14 +66,48 @@ export async function maintainSeasonCategory(seasonId: string, participationId: 
       await tx.$queryRaw`SELECT id FROM sports_management.season_categories WHERE id=${participationId}::uuid FOR UPDATE`;
       const previous = await tx.season_categories.findFirst({ where: { id: participationId, season_id: seasonId }, include: { _count: true } });
       if (!previous) throw new CompetitionError("INVALID_CONTEXT");
-      if (Object.values(previous._count).some(count => count > 0)) throw new CompetitionError("CATEGORY_IN_USE", 409);
+      const hasDependencies = Object.values(previous._count).some(count => count > 0);
+      if (hasDependencies) {
+        if (operation !== "UPDATE") throw new CompetitionError("CATEGORY_IN_USE", 409);
+        const edit = seasonCategoryEditSchema.parse(data);
+        if (edit.type !== previous.type || edit.hierarchyOrder !== previous.hierarchy_order ||
+            edit.ruleId === previous.competition_rule_id) throw new CompetitionError("CATEGORY_IN_USE", 409);
+        const rules = await tx.competition_rules.findMany({
+          where: { id: { in: [previous.competition_rule_id, edit.ruleId] }, season_id: seasonId, status: "APPROVED" },
+          select: { id: true, competition_rule_parameters: { select: { parameter_key: true, parameter_value: true } } },
+        });
+        if (rules.length !== 2) throw new CompetitionError("CATEGORY_IN_USE", 409);
+        const comparable = (id: string) => {
+          const rule = rules.find(item => item.id === id);
+          if (!rule) return null;
+          const values = Object.fromEntries(rule.competition_rule_parameters.map(parameter => [parameter.parameter_key, parameter.parameter_value]));
+          const calendar = values.calendar;
+          if (!calendar || typeof calendar !== "object" || Array.isArray(calendar)) return null;
+          const { scheduling: omitted, ...otherCalendar } = calendar;
+          void omitted;
+          return { ...values, calendar: otherCalendar };
+        };
+        const original = comparable(previous.competition_rule_id);
+        const replacement = comparable(edit.ruleId);
+        if (!original || !replacement || !isDeepStrictEqual(original, replacement))
+          throw new CompetitionError("CATEGORY_IN_USE", 409);
+        const matches = await tx.matches.count({ where: { groups: { season_category_id: participationId } } });
+        const proposals = await tx.schedule_proposals.findMany({ where: { season_id: seasonId }, select: { parameters: true } });
+        const affected = proposals.some(proposal => {
+          const value = proposal.parameters;
+          return !value || typeof value !== "object" || Array.isArray(value) ||
+            typeof value.categoryId !== "string" || value.categoryId === participationId;
+        });
+        if (matches || affected) throw new CompetitionError("CATEGORY_IN_USE", 409);
+      }
       await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true), set_config('app.reason', ${data.reason}, true)`;
       let next;
       if (operation === "DELETE") {
         await tx.season_categories.delete({ where: { id: participationId } });
       } else {
         const edit = seasonCategoryEditSchema.parse(data);
-        if (!previous.eligibility_pending && (edit.type !== previous.type || edit.ruleId !== previous.competition_rule_id))
+        if (!previous.eligibility_pending && !hasDependencies &&
+            (edit.type !== previous.type || edit.ruleId !== previous.competition_rule_id))
           throw new CompetitionError("CATEGORY_ELIGIBILITY_CONFIGURED", 409);
         if (!await tx.competition_rules.findFirst({ where: { id: edit.ruleId, season_id: seasonId }, select: { id: true } })) throw new CompetitionError("INVALID_CONTEXT");
         next = await tx.season_categories.update({ where: { id: participationId }, data: { competition_rule_id: edit.ruleId, hierarchy_order: edit.hierarchyOrder, type: edit.type } });

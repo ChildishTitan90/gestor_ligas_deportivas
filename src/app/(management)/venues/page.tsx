@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { SelectField } from "@/components/ui/select-field";
 import { AuthorizationError } from "@/server/auth/authorization";
 import { AuthAccessError } from "@/server/auth/session";
-import { removeIntervalAction, saveIntervalAction, saveVenueAction } from "@/features/venues/actions";
+import { assignLeagueVenueAction, removeIntervalAction, saveIntervalAction, saveVenueAction } from "@/features/venues/actions";
 import { SubmitButton } from "@/features/venues/components/submit-button";
 import { intervalLabels, intervalTypes } from "@/features/venues/schemas";
 import { getVenueWorkspace } from "@/features/venues/server/service";
@@ -18,6 +18,10 @@ const control = "min-h-11 w-full rounded-xl border border-border bg-surface px-3
 const card = "space-y-4 rounded-2xl border border-border bg-surface p-5";
 const errorMessages: Record<string, string> = {
   INVALID_VENUE: "Revisa el código, nombre, domicilio, duración y holgura.",
+  INVALID_OWNER: "Selecciona un club de esta liga.",
+  OWNER_HAS_LOANS: "Esta cancha tiene solicitudes de préstamo. No se puede cambiar su dueño o tipo hasta revisar esas solicitudes.",
+  INVALID_ASSIGNMENT: "Revisa el equipo, el periodo y la hora de la asignación.",
+  ASSIGNMENT_UNAVAILABLE: "Hay fechas sin disponibilidad, con reservas o con otra asignación para ese día.",
   INVALID_INTERVAL: "Revisa las fechas en la zona de la liga. La hora debe existir y ser inequívoca, el fin debe ser posterior al inicio y los bloqueos requieren un motivo.",
   DUPLICATE_CODE: "Ya existe una cancha con ese código en la liga.",
   INTERVAL_CONFLICT: "El intervalo se traslapa con otra disponibilidad o con otro bloqueo del mismo grupo.",
@@ -26,7 +30,7 @@ const errorMessages: Record<string, string> = {
   UNAVAILABLE: "No se pudo confirmar el cambio. Revisa los datos antes de volver a intentarlo.",
 };
 
-function VenueForm({ leagueId, venue }: { leagueId: string; venue?: Venue }) {
+function VenueForm({ leagueId, venue, clubs }: { leagueId: string; venue?: Venue; clubs: Workspace["clubs"] }) {
   const features = venue?.features;
   const description = features && typeof features === "object" && !Array.isArray(features)
     && typeof features.description === "string" ? features.description : "";
@@ -39,9 +43,12 @@ function VenueForm({ leagueId, venue }: { leagueId: string; venue?: Venue }) {
       <label>Domicilio<input name="address" className={control} required maxLength={300} defaultValue={venue?.address} /></label>
       <label>Tipo<SelectField name="kind" defaultValue={venue?.is_league_sports_complex ? "complex" : "private"}
         options={[{ value: "private", label: "Particular" }, { value: "complex", label: "Unidad deportiva" }]} /></label>
+      <label>Club dueño<SelectField name="ownerClubId" defaultValue={venue?.owner_club_id ?? ""}
+        options={[{ value: "", label: "Sin dueño registrado" }, ...clubs.map(club => ({ value: club.id, label: club.name }))]} /></label>
       <label>Duración del partido (min)<input name="duration" type="number" className={control} required min={1} max={1440} defaultValue={venue?.match_duration_minutes ?? 90} /></label>
       <label>Holgura después del partido (min)<input name="buffer" type="number" className={control} required min={0} max={1440} defaultValue={venue?.buffer_minutes ?? 0} /></label>
     </div>
+    <p className="text-sm text-muted">Para una unidad deportiva administrada por la liga, deja el club dueño sin registrar.</p>
     <label className="block">Características<textarea name="features" className={control} maxLength={1000} defaultValue={description} /></label>
     <SubmitButton>{venue ? "Guardar cancha" : "Registrar cancha"}</SubmitButton>
   </form>;
@@ -82,7 +89,7 @@ export default async function VenuesPage({ searchParams }: {
   }
   const { league, venue } = data;
   const date = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short", timeZone: league.timezone });
-  const status = ({ venue: "Cancha guardada.", interval: "Intervalo guardado.", removed: "Intervalo retirado." } as Record<string, string>)[params.saved ?? ""];
+  const status = ({ venue: "Cancha guardada.", interval: "Intervalo guardado.", removed: "Intervalo retirado.", assignment: "Asignación guardada. La disponibilidad se vuelve a comprobar al programar cada partido." } as Record<string, string>)[params.saved ?? ""];
   return <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6">
     <h1 className="text-2xl font-semibold">Canchas y disponibilidad</h1>
     {params.error && <p role="alert">{errorMessages[params.error] ?? errorMessages.UNAVAILABLE}</p>}
@@ -95,7 +102,7 @@ export default async function VenuesPage({ searchParams }: {
 
     {data.canCreate && <details className={card}>
       <summary className="cursor-pointer font-semibold">Registrar cancha</summary>
-      <VenueForm leagueId={league.id} />
+      <VenueForm leagueId={league.id} clubs={data.clubs} />
     </details>}
 
     <section className={card}>
@@ -113,12 +120,26 @@ export default async function VenuesPage({ searchParams }: {
     {venue && <section className={card}>
       <h2 className="text-xl font-semibold">{venue.name}</h2>
       <p>{venue.address} · {venue.is_league_sports_complex ? "Unidad deportiva" : "Particular"}</p>
+      <p>Club dueño: {data.clubs.find(club => club.id === venue.owner_club_id)?.name ?? (venue.owner_club_id ? "No disponible" : "Sin dueño registrado")}</p>
       <p>{venue.match_duration_minutes} min de juego · {venue.buffer_minutes} min de holgura</p>
+      {(venue.is_league_sports_complex || venue.owner_club_id) && data.canAssign && <details className="space-y-3">
+        <summary className="cursor-pointer font-semibold">Asignar cancha a un equipo</summary>
+        <form action={assignLeagueVenueAction} className="space-y-3">
+          <input type="hidden" name="leagueId" value={league.id} /><input type="hidden" name="venueId" value={venue.id} />
+          <label className="block">Equipo y temporada<SelectField name="seasonTeamId" options={data.assignmentTeams.map(team => ({ value: team.id, label: `${team.teams.name} · ${team.club_affiliations.seasons.name}` }))} /></label>
+          <label className="block">Día de la semana<SelectField name="weekday" options={["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"].map((label, index) => ({ value: String(index + 1), label }))} /></label>
+          <label className="block">Hora local<input className={control} type="time" name="time" required /></label>
+          <label className="block">Desde<input className={control} type="date" name="from" required /></label>
+          <label className="block">Hasta<input className={control} type="date" name="through" required /></label>
+          <p className="text-sm text-muted">La asignación es una preferencia semanal y no reserva los partidos. Zona horaria: {league.timezone}.</p>
+          <SubmitButton>Guardar asignación</SubmitButton>
+        </form>
+      </details>}
       {venue.features && typeof venue.features === "object" && !Array.isArray(venue.features)
         && typeof venue.features.description === "string" && <p>{venue.features.description}</p>}
       {data.canUpdate && <details>
         <summary className="mb-3 cursor-pointer font-semibold">Editar cancha</summary>
-        <VenueForm venue={venue} leagueId={league.id} />
+        <VenueForm venue={venue} leagueId={league.id} clubs={data.clubs} />
       </details>}
 
       <h3 className="text-lg font-semibold">Disponibilidad y bloqueos</h3>

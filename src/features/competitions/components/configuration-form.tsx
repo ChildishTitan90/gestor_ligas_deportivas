@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { schedulingPolicySchema } from "@/features/scheduling/schemas";
 import { FormDialog } from "@/components/ui/form-dialog";
 
 const conflicts: Record<string, string> = {
@@ -12,6 +13,7 @@ const conflicts: Record<string, string> = {
   RULE_ALREADY_APPROVED: "Esta versión del reglamento ya fue aprobada. Consulta la configuración actualizada.",
   INVALID_RULE_PARAMETERS: "El reglamento está incompleto o sus parámetros no son válidos. Crea una versión completa antes de aprobarla.",
   INVALID_RULE_APPROVAL: "Escribe APROBAR y un motivo para confirmar la revisión de esta versión del reglamento.",
+  INVALID_SCHEDULING_VENUES: "Revisa las canchas seleccionadas. Deben estar activas y pertenecer a esta liga.",
   INVALID_CONFIGURATION: "Revisa los campos: escribe los criterios de desempate sin repetir y usa números positivos para vueltas y duración.",
   STALE_CONFIGURATION: "Otra persona modificó la temporada. Consulta la versión actual antes de continuar.",
   SEASON_DATES_IN_USE: "No se pueden cambiar las fechas: la temporada ya tiene categorías o actividad relacionada.",
@@ -37,6 +39,7 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [formRevision, setFormRevision] = useState(0);
   const [pending, setPending] = useState(false);
   const [locked, setLocked] = useState(false);
   const [uncertain, setUncertain] = useState(false);
@@ -49,7 +52,9 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
     setLocked(true);
   }
   const formRef = useRef<HTMLFormElement>(null);
-  const form = <form ref={formRef} className="space-y-4" onChange={() => setDirty(true)} onSubmit={async event => {
+  const form = <form ref={formRef} className="space-y-4" onChange={() => setDirty(true)} onClick={event => {
+    if ((event.target as HTMLElement).closest("[data-scheduling-policy]")) setDirty(true);
+  }} onSubmit={async event => {
     event.preventDefault();
     if (disabled || guard.current || captureLocked.current) return;
     guard.current = true; setPending(true); setMessage("");
@@ -80,6 +85,19 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
       for (const key of ["win", "draw", "loss", "rounds", "matchDurationMinutes", "tieBreakers"]) if (key !== "tieBreakers") delete payload[key];
     }
     try {
+      if ("announcement" in payload && typeof fields.schedulingJson === "string") {
+        if (!Number.isInteger(Number(fields.rounds)) || Number(fields.rounds) < 1 || Number(fields.rounds) > 4) {
+          setMessage("La programación admite entre una y cuatro vueltas.");
+          return;
+        }
+        const parsed = schedulingPolicySchema.safeParse(JSON.parse(fields.schedulingJson));
+        if (!parsed.success) {
+          setMessage("Revisa el intervalo y los tramos: cada tramo necesita jornadas válidas y al menos una cancha, sin superponerse.");
+          return;
+        }
+        payload.calendar = { ...(payload.calendar as object), scheduling: parsed.data };
+        delete payload.schedulingJson;
+      }
       const response = await fetch(endpoint, { method, headers: { "Content-Type": "application/json", ...(actorId ? { "X-Expected-Actor-Id": actorId } : {}) }, body: JSON.stringify(payload) });
       if (response.status >= 500) throw new Error("uncertain");
       const result: unknown = await response.json();
@@ -98,12 +116,12 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
     finally { setPending(false); guard.current = false; }
   }}>
     <fieldset disabled={disabled || pending || locked} className="space-y-4">
-      {children}
+      <div key={formRevision} className="space-y-4">{children}</div>
       <label className="block">Motivo<textarea name="reason" required maxLength={1000} className="min-h-24 w-full rounded-xl border border-border bg-surface p-3" /></label>
       <button className="primary-action min-h-12 rounded-xl px-5 py-3 font-semibold">{pending ? "Guardando…" : title}</button>
     </fieldset>
     {message && <p role="status">{message}</p>}
     {locked && <button type="button" className="min-h-12 underline" onClick={() => window.location.reload()}>Consultar configuración actualizada</button>}
   </form>;
-  return modal ? <><button className="min-h-12 rounded-xl border border-border px-4" onClick={() => setOpen(true)}>{title}</button><FormDialog open={open} title={title} description="El cambio requiere permisos vigentes y queda registrado con su motivo." dirty={dirty} pending={pending} uncertain={uncertain} onClose={reason => { setOpen(false); if (reason === "discard") { formRef.current?.reset(); setDirty(false); } }}>{form}</FormDialog></> : <section className="rounded-2xl border border-border bg-surface p-5"><h3 className="mb-4 text-lg font-semibold">{title}</h3>{form}</section>;
+  return modal ? <><button className="min-h-12 rounded-xl border border-border px-4" onClick={() => setOpen(true)}>{title}</button><FormDialog open={open} title={title} description="El cambio requiere permisos vigentes y queda registrado con su motivo." dirty={dirty} pending={pending} uncertain={uncertain} onClose={reason => { setOpen(false); if (reason === "discard") { formRef.current?.reset(); setFormRevision(value => value + 1); setDirty(false); } }}>{form}</FormDialog></> : <section className="rounded-2xl border border-border bg-surface p-5"><h3 className="mb-4 text-lg font-semibold">{title}</h3>{form}</section>;
 }
