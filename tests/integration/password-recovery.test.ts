@@ -56,6 +56,23 @@ test("PDGLD-32: emisión privada, caducidad, consumo concurrente y revocación",
     assert.equal(sent.length, 2);
     const second = sent[1];
     assert.ok(second.kind === "PASSWORD_RECOVERY");
+    const failureName = `pdgld32_fail_${randomUUID().replaceAll("-", "")}`;
+    await db.query(`CREATE FUNCTION public.${failureName}() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'SYNTHETIC_RECOVERY_ROLLBACK'; END $$`);
+    try {
+      await db.query(`CREATE TRIGGER ${failureName} BEFORE INSERT ON sports_management.authentication_events
+        FOR EACH ROW WHEN (NEW.user_id='${id}'::uuid AND NEW.action='PASSWORD_CHANGED')
+        EXECUTE FUNCTION public.${failureName}()`);
+      await assert.rejects(completePasswordRecovery(second.token, replacement));
+      assert.deepEqual(await snapshot(), initial, "Fallo de auditoría revierte contraseña, versión y revocación");
+      assert.equal((await db.query("SELECT used_at FROM sports_management.password_resets WHERE id=$1", [second.idempotencyKey])).rows[0].used_at, null,
+        "El token permanece disponible después del rollback");
+    } finally {
+      await db.query(`DROP TRIGGER IF EXISTS ${failureName} ON sports_management.authentication_events`);
+      await db.query(`DROP FUNCTION public.${failureName}()`);
+    }
+    assert.equal(await completePasswordRecovery("x".repeat(43), replacement), false, "Un token manipulado no cambia la cuenta");
+    assert.deepEqual(await snapshot(), initial);
     const outcomes = await Promise.all([completePasswordRecovery(second.token, replacement), completePasswordRecovery(second.token, replacement)]);
     assert.deepEqual(outcomes.sort(), [false, true]);
     assert.equal(await completePasswordRecovery(second.token, original), false);
