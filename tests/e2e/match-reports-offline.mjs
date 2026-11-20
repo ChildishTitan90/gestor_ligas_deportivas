@@ -153,6 +153,71 @@ export async function verifyOfflineReportBrowser({ base, match, db, actorId }) {
     assert.equal((await db.query("SELECT remarks FROM sports_management.match_reports WHERE match_id=$1", [match])).rows[0].remarks, retained.data.report.remarks);
     assert.equal((await db.query("SELECT draft_data->'clock'->>'phaseStartedAt' AS started FROM sports_management.match_reports WHERE match_id=$1", [match])).rows[0].started, retained.data.report.clock.phaseStartedAt);
     console.log("PDGLD-20 borrador sincronizado con acuse real en PostgreSQL");
+    criterion = "prepared-online-clock-lost-receipt";
+    await click("Alineaciones");
+    let lostClock = false;
+    const clockListener = event => {
+      const message = JSON.parse(event.data);
+      if (message.method !== "Fetch.requestPaused") return;
+      const fail = !lostClock && message.params.request.method === "POST";
+      if (fail) lostClock = true;
+      void page.command(fail ? "Fetch.failRequest" : "Fetch.continueRequest", { requestId: message.params.requestId, ...(fail ? {errorReason:"ConnectionReset"} : {}) });
+    };
+    await ev("window.originalClockDate=Date; window.Date=class extends window.originalClockDate { constructor(...args){super(...(args.length?args:[window.originalClockDate.now()-120000]));} static now(){return window.originalClockDate.now()-120000;} };");
+    page.socket.addEventListener("message", clockListener);
+    await page.command("Fetch.enable",{patterns:[{urlPattern:base+"/api/match-reports/"+match,requestStage:"Response"}]});
+    try {
+      await click("Terminar tiempo"); await click("Confirmar fin del tiempo");
+      await wait("document.body.innerText.includes('No se recibió el acuse')");
+    } finally {
+      await ev("window.Date=window.originalClockDate; delete window.originalClockDate;");
+      await page.command("Fetch.disable"); page.socket.removeEventListener("message", clockListener);
+    }
+    assert.equal(lostClock,true);
+    const clockIntent=(await ev(local)).pending[0];
+    const committedClock=(await db.query("SELECT draft_data->'clock' AS clock FROM sports_management.match_reports WHERE match_id=$1",[match])).rows[0].clock;
+    assert.equal(committedClock.boundarySources.firstEndedAt,"server");
+    assert.ok(Date.parse(committedClock.boundaries.firstEndedAt)-Date.parse(clockIntent.operation.occurredAt)>100000);
+    await page.command("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+    await click("Ajustar descanso");
+    await ev("(()=>{const field=document.querySelector('dialog[open] input[type=number]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,'17');field.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await click("Confirmar descanso");
+    await wait(`(async()=>(await ${local}).pending.length===2)()`);
+    const laterClockIntent=(await ev(local)).pending[1];
+    assert.equal(fingerprint((await ev(local)).pending[0]),fingerprint(clockIntent));
+    await page.command("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await wait(`(async()=>!(await ${local}).pending.length)()`);
+    const acknowledgedClock=await ev(local);
+    assert.equal(acknowledgedClock.lastReceipt.receipt.operationId,laterClockIntent.operation.id);
+    assert.equal(acknowledgedClock.data.report.clock.boundarySources.firstEndedAt,"server");
+    assert.deepEqual(acknowledgedClock.data.report.clock.boundaries,committedClock.boundaries);
+    assert.equal(acknowledgedClock.data.report.clock.breakMinutes,17,"El acuse anterior conserva la acción posterior del reloj");
+    assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.match_report_syncs WHERE client_id=$1",[clockIntent.operation.id])).rows[0].n,1);
+    // A new connected clock action keeps its first-send path while an earlier
+    // save is awaiting its real receipt. Delaying the save must not downgrade it.
+    await click("Cierre y firmas"); await edit("Guardado previo al segundo tiempo conectado");
+    let beforeClockReceipt;
+    const beforeClockListener=event=>{
+      const message=JSON.parse(event.data);
+      if(message.method!=="Fetch.requestPaused")return;
+      if(message.params.request.method==="POST")beforeClockReceipt=message.params.requestId;
+      else void page.command("Fetch.continueRequest",{requestId:message.params.requestId});
+    };
+    page.socket.addEventListener("message",beforeClockListener);
+    await page.command("Fetch.enable",{patterns:[{urlPattern:"*api/v1/match-reports/sync",requestStage:"Response"}]});
+    try {
+      await click("Sincronizar");
+      for(let attempt=0;!beforeClockReceipt&&attempt<300;attempt++)await new Promise(resolve=>setTimeout(resolve,100));
+      assert.ok(beforeClockReceipt,"El guardado está confirmado en SQL y espera su respuesta");
+      await click("Alineaciones");
+      await click("Iniciar segundo tiempo"); await click("Confirmar segundo tiempo");
+      await wait(`(async()=>(await ${local}).pending.length===2)()`);
+      await page.command("Fetch.continueRequest",{requestId:beforeClockReceipt});
+    } finally {
+      await page.command("Fetch.disable"); page.socket.removeEventListener("message",beforeClockListener);
+    }
+    await wait(`(async()=>{const row=await ${local}; return !row.pending.length&&row.data.report.clock?.boundarySources?.secondStartedAt==='server'})()`);
+    await click("Cierre y firmas");
     criterion = "lost-commit-and-late-receipt";
 
     await edit('PDGLD20 commit con respuesta perdida');
@@ -305,12 +370,55 @@ export async function verifyOfflineReportBrowser({ base, match, db, actorId }) {
     };
     assert.equal((await account.request(`/api/match-reports/${match}`, { method: "POST", headers: { origin: base, "Content-Type": "application/json", "X-Expected-Actor-Id": actorId }, body: JSON.stringify(otherCommand) })).status, 200);
     await click("Cierre y firmas"); await edit("Borrador local en conflicto conservado");
+    await captureReportCaptainSignatures(page);
+    await wait(`(async()=>Object.values((await ${local}).data.report.signatures).filter(Boolean).length===2)()`);
     await click("Sincronizar");
     await wait("document.body.innerText.includes('Cambió la versión del partido')");
     assert.equal((await ev(local)).data.report.remarks, "Borrador local en conflicto conservado");
     await click("Comparar versiones");
     await wait("document.querySelector('dialog[open]')?.innerText.includes('Otro dispositivo sintético')");
     assert.equal((await db.query("SELECT remarks FROM sports_management.match_reports WHERE match_id=$1", [match])).rows[0].remarks, "Otro dispositivo sintético");
+    const conflictCopy=await ev(local);
+    const conflictIntent=conflictCopy.pending[0];
+    const beforeDecision=(await db.query("SELECT version,remarks FROM sports_management.match_reports WHERE match_id=$1",[match])).rows[0];
+    const advanceReference={...otherCommand,operationId:crypto.randomUUID(),expectedReportVersion:beforeDecision.version,draft:{...otherCommand.draft,remarks:"Servidor avanzado durante revisión"}};
+    assert.equal((await account.request(`/api/match-reports/${match}`,{method:"POST",headers:{origin:base,"Content-Type":"application/json","X-Expected-Actor-Id":actorId},body:JSON.stringify(advanceReference)})).status,200);
+    await ev("document.querySelector('dialog[open] input[type=checkbox]').click()");
+    await click("Revisar mis eventos y notas");
+    await wait("document.querySelector('dialog[open]')?.innerText.includes('Cambió una de las versiones')");
+    assert.equal(fingerprint((await ev(local)).pending),fingerprint(conflictCopy.pending));
+    await click("Cancelar","document.querySelector('dialog[open]')");
+    await click("Comparar versiones");
+    await wait("document.querySelector('dialog[open]')?.innerText.includes('Servidor avanzado durante revisión')");
+    await ev("document.querySelector('dialog[open] input[type=checkbox]').click()");
+    await click("Revisar mis eventos y notas");
+    await wait(`(async()=>(await ${local}).reviewRequired===true)()`);
+    const reviewCopy=await ev(local);
+    assert.notEqual(reviewCopy.draftId,conflictCopy.draftId);
+    assert.equal(reviewCopy.data.report.remarks,"Borrador local en conflicto conservado");
+    assert.equal(fingerprint(reviewCopy.archives.at(-1).pending[0]),fingerprint(conflictIntent));
+    assert.equal(fingerprint(reviewCopy.archives.at(-1).data),fingerprint(conflictCopy.data));
+    assert.equal(reviewCopy.pending.length,0);
+    assert.equal(Object.values(reviewCopy.data.report.signatures).filter(Boolean).length,0);
+    await open();
+    await wait("document.body.innerText.includes('Revisa tus eventos y notas sobre la referencia vigente')");
+    assert.equal((await db.query("SELECT remarks FROM sports_management.match_reports WHERE match_id=$1",[match])).rows[0].remarks,"Servidor avanzado durante revisión","Retomar y revisar conserva la versión del servidor hasta la decisión de sincronizar");
+    await edit("Resolución sintética revisada");
+    await click("Sincronizar"); await wait(`(async()=>{const row=await ${local};return row.acknowledgedRevision===row.revision&&!row.pending.length})()`);
+    assert.equal((await db.query("SELECT remarks FROM sports_management.match_reports WHERE match_id=$1",[match])).rows[0].remarks,"Resolución sintética revisada");
+    const resolved=await ev(local);
+    const serverChoice={...advanceReference,operationId:crypto.randomUUID(),expectedReportVersion:resolved.data.report.version,draft:{...advanceReference.draft,remarks:"Referencia elegida para continuar"}};
+    assert.equal((await account.request(`/api/match-reports/${match}`,{method:"POST",headers:{origin:base,"Content-Type":"application/json","X-Expected-Actor-Id":actorId},body:JSON.stringify(serverChoice)})).status,200);
+    await edit("Otra captura local conservada");
+    await click("Sincronizar"); await wait("document.body.innerText.includes('Cambió la versión del partido')");
+    await click("Comparar versiones"); await wait("document.querySelector('dialog[open]')?.innerText.includes('Referencia elegida para continuar')");
+    await ev("document.querySelector('dialog[open] input[type=checkbox]').click()");
+    await click("Usar versión del servidor");
+    await wait(`(async()=>{const row=await ${local};return row.data.report.remarks==='Referencia elegida para continuar'&&!row.pending.length})()`);
+    assert.ok((await ev(local)).archives.some(copy=>copy.data.report.remarks==="Otra captura local conservada"));
+    await open();
+    assert.equal(await ev("document.querySelector('textarea').disabled"),false);
+    assert.equal((await db.query("SELECT version FROM sports_management.match_reports WHERE match_id=$1",[match])).rows[0].version,serverChoice.expectedReportVersion+1);
     const assignment=(await db.query("SELECT id FROM sports_management.referee_assignments WHERE match_id=$1 AND status='APPROVED'",[match])).rows[0].id;
     const beforeRevocation=fingerprint((await ev(local)).data);
     await db.query("UPDATE sports_management.referee_assignments SET status='REVOKED' WHERE id=$1",[assignment]);
@@ -355,6 +463,9 @@ export async function verifyOfflineReportBrowser({ base, match, db, actorId }) {
     assert.equal(denied.pending[0].error,'FORBIDDEN');
     assert.equal(await ev(`document.getElementById(${JSON.stringify(formationId)}).disabled`),true);
     assert.notEqual((await db.query('SELECT draft_data FROM sports_management.match_reports WHERE match_id=$1',[future])).rows[0].draft_data.draft.tactics?.[afterSchedule.data.match.home.id]?.formation,'4-3-3');
+    await click("Comparar versiones");
+    await wait("document.body.innerText.includes('No se pudo obtener una referencia autorizada')");
+    assert.equal(fingerprint((await ev(securedLocal)).pending),fingerprint(denied.pending));
     page=mainPage;
     const counts = (await db.query("SELECT count(*)::int AS total,count(DISTINCT client_id)::int AS operations FROM sports_management.match_report_syncs WHERE user_id=$1", [actorId])).rows[0];
     assert.equal(counts.total, counts.operations);
@@ -383,7 +494,7 @@ export async function verifyOfflineReportBrowser({ base, match, db, actorId }) {
     await wait("!document.querySelector('dialog[open]')");
     assert.equal(fingerprint((await ev(securedLocal)).pending),fingerprint(denied.pending),"Cancelar la salida conserva la intención pendiente");
     await mkdir(directory, { recursive: true });
-    await writeFile(`${directory}/browser.json`, JSON.stringify({postgres, revokedAssignmentUiBlocked:true, accountSwitchIsolatesAndRestoresPending:true, onlineOnlyWithoutServiceWorker:true, rescheduledSnapshotRejected:true, transactionalRollback:true, incompletePreparation:true, allSavedFieldsRestored:true, offlineEventAndSignatures:true, interruptedSignatureUpload:true, lostCommitResponse:true, sameUuidSameReceipt:true, changedPayloadRejected:true, foreignAccountDenied:true, revokedAssignmentDenied:true, officialEffectsAbsent:true, onlineFirstEdit: true, abruptOffline: true, closedTabRestored: true, realPostgresAck: true, lateAckPreservesEdits: true, twoTabsSeeReceipt: true, quotaFailureRetainsMemory: true, reauthenticationRetainsIntent: true, versionConflictPreservesCopy: true, privateDataOutsideCache: true, officialConfirmationBlocked: true, counts }, null, 2));
+    await writeFile(`${directory}/browser.json`, JSON.stringify({postgres, preparedConnectedClockServerTime:true, lostClockReceiptKeepsOrigin:true, laterClockActionPreserved:true, conflictReviewedAndResumed:true, serverChoiceNoWrite:true, changedReferenceRequiresNewReview:true, resolutionDeniedAfterRevocation:true, revokedAssignmentUiBlocked:true, accountSwitchIsolatesAndRestoresPending:true, onlineOnlyWithoutServiceWorker:true, rescheduledSnapshotRejected:true, transactionalRollback:true, incompletePreparation:true, allSavedFieldsRestored:true, offlineEventAndSignatures:true, interruptedSignatureUpload:true, lostCommitResponse:true, sameUuidSameReceipt:true, changedPayloadRejected:true, foreignAccountDenied:true, revokedAssignmentDenied:true, officialEffectsAbsent:true, onlineFirstEdit: true, abruptOffline: true, closedTabRestored: true, realPostgresAck: true, lateAckPreservesEdits: true, twoTabsSeeReceipt: true, quotaFailureRetainsMemory: true, reauthenticationRetainsIntent: true, versionConflictPreservesCopy: true, privateDataOutsideCache: true, officialConfirmationBlocked: true, counts }, null, 2));
     console.log("PDGLD-19/20 navegador real: primera edición online, corte de red, cierre de pestaña, reapertura offline, acuse SQL y revisión posterior preservada: OK");
   } catch (error) {
     await mkdir(directory, { recursive: true });

@@ -44,7 +44,15 @@ async function acknowledge(actorId: string, matchId: string, item: PendingReport
         ? { ...signature, fileId: uploaded } : signature];
     }));
     if (!report.lineupsLock && receipt.lineupsLock) report.lineupsLock = receipt.lineupsLock;
-    if (!report.clock && receipt.clock) report.clock = receipt.clock;
+    if (receipt.clock) {
+      report.clock = receipt.clock;
+      // Replay only later durable clock intents over the authoritative receipt.
+      const later = record.pending.slice(record.pending.findIndex(pending => pending.operation.id === receipt.operationId) + 1);
+      for (const pending of later) {
+        if (pending.operation.clockAction && pending.operation.occurredAt)
+          report.clock = advanceMatchClock(report.clock, pending.operation.clockAction, pending.operation.occurredAt);
+      }
+    }
     // Never replace report content with an older sent snapshot.
     return {
       ...record, data: { ...record.data, report, match: { ...record.data.match, version: receipt.matchVersion } },
@@ -55,12 +63,13 @@ async function acknowledge(actorId: string, matchId: string, item: PendingReport
     };
   });
 }
-export async function synchronizeReport(actorId: string, matchId: string, notify: (record: LocalReport) => void) {
+export async function synchronizeReport(actorId: string, matchId: string, notify: (record: LocalReport) => void, liveClockOperations?: Set<string>) {
   return navigator.locks.request(`report-sync:${actorId}:${matchId}`, { ifAvailable: true }, async lock => {
     if (!lock) return;
     for (;;) {
       const record = await readLocalReport(actorId, matchId);
       if (!record) throw Error("LOCAL_ACCOUNT_LOCKED");
+      for (const id of liveClockOperations ?? []) if (!record.pending.some(item => item.operation.id === id)) liveClockOperations?.delete(id);
       const item = record.pending[0];
       if (!item || item.error || !navigator.onLine) return;
       const client = createReportClient(actorId, record.data, {
@@ -72,8 +81,10 @@ export async function synchronizeReport(actorId: string, matchId: string, notify
         },
       });
       try {
-        const found = await client.query(item.operation.id);
-        const receipt = found.status === "APPLIED" && found.receipt ? found.receipt : await client.send(item.operation);
+        const liveClock = liveClockOperations?.has(item.operation.id) === true && item.operation.kind === "clock";
+        liveClockOperations?.delete(item.operation.id);
+        const found: Awaited<ReturnType<typeof client.query>> = liveClock ? { status: "UNKNOWN" } : await client.query(item.operation.id);
+        const receipt = found.status === "APPLIED" && found.receipt ? found.receipt : await client.send(item.operation, liveClock);
         notify(await acknowledge(actorId, matchId, item, receipt));
       } catch (error) {
         if (error instanceof ReportClientError && error.code === "CONFIRMATION_DEPENDENCIES_PENDING") {

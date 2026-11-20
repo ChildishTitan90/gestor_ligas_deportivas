@@ -22,17 +22,18 @@ import { participationTimesSchema } from "@/features/matches/eligibility";
 export const digest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const signatureBinding = (draft: ReportDraft): string => digest(unsignedDraft(draftSchema.parse(draft)));
 
-export async function mutateReport(actorId: string, input: unknown, transport: "online" | "sync" = "online"): Promise<ReportReceipt> {
+export async function mutateReport(actorId: string, input: unknown, transport: "online" | "sync" | "live" = "online"): Promise<ReportReceipt> {
+  const receivedAt = Date.now();
   const parsed = reportCommandSchema.safeParse(input);
   if (!parsed.success) throw new ReportError("INVALID_PAYLOAD", 400);
-  try { return await getPrisma().$transaction(tx => mutateReportInTransaction(tx, actorId, parsed.data, transport), { timeout: 30000 }); }
+  try { return await getPrisma().$transaction(tx => mutateReportInTransaction(tx, actorId, parsed.data, transport, receivedAt), { timeout: 30000 }); }
   catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2034") throw new ReportError("PARTICIPATION_RETRY_REQUIRED");
     throw error;
   }
 }
 
-export async function mutateReportInTransaction(tx: Prisma.TransactionClient, actorId: string, command: ReportCommand, transport: "online" | "sync" = "online"): Promise<ReportReceipt> {
+export async function mutateReportInTransaction(tx: Prisma.TransactionClient, actorId: string, command: ReportCommand, transport: "online" | "sync" | "live" = "online", receivedAt = Date.now()): Promise<ReportReceipt> {
   const existing = await tx.match_reports.findUnique({ where: { match_id: command.matchId }, select: { id: true } });
   let match = await reportAccess(tx, actorId, command.matchId, existing ? "UPDATE" : "CREATE");
   if (!existing && await tx.match_reports.findUnique({ where: { match_id: match.id }, select: { id: true } })) await reportAccess(tx, actorId, match.id, "UPDATE");
@@ -59,9 +60,9 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
     if (!sealed) throw new ReportError("LINEUPS_NOT_LOCKED");
     if (transport === "sync" && !command.occurredAt) throw new ReportError("CLOCK_TIME_CONFLICT");
     const now = Date.now();
-    const occurredAt = command.occurredAt ? Date.parse(command.occurredAt) : now;
+    const occurredAt = transport === "live" ? receivedAt : command.occurredAt ? Date.parse(command.occurredAt) : receivedAt;
     if (occurredAt > now + 60000 || occurredAt < now - 7 * 86400000 || clock && occurredAt < Date.parse(clock.phaseStartedAt)) throw new ReportError("CLOCK_TIME_CONFLICT");
-    try { clock = advanceMatchClock(clock, command.clockAction!, new Date(occurredAt).toISOString(), command.occurredAt ? "device" : "server"); }
+    try { clock = advanceMatchClock(clock, command.clockAction!, new Date(occurredAt).toISOString(), transport === "live" || !command.occurredAt ? "server" : "device"); }
     catch (error) { throw new ReportError(error instanceof Error ? error.message : "CLOCK_PHASE_CONFLICT"); }
   }
   const evaluation = await evaluateAuthorizedMatchInTransaction(tx, match, { draft, clock });

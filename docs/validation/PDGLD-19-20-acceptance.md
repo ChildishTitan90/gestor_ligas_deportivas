@@ -224,6 +224,81 @@ distintas y once acuses, incluido el cambio de cuenta que falló en CI.
 Ambos recorridos compilaron la aplicación de producción. La validación en
 Linux de este seguimiento corresponde al archivo de pruebas del navegador.
 
+## Revisión del PR · 20 de noviembre de 2026
+
+La cédula preparada enviaba siempre `occurredAt` por el transporte de
+sincronización. El servicio identificaba correctamente esa hora como declarada,
+pero también lo hacía para una acción realizada con conexión. Ahora el primer
+envío de una acción conectada usa el endpoint privado con marca de recepción
+del servidor. La intención ya está persistida y conserva su UUID y contenido.
+Un acuse perdido recupera esa misma marca. Sin acuse previo, una reapertura o
+reconexión conserva el tratamiento declarado de la intención original.
+
+La comparación de conflictos de la cédula preparada permite elegir una copia
+tras obtener una referencia autorizada nueva. Ambas decisiones conservan las
+capturas e intenciones anteriores en IndexedDB. **Usar versión del servidor**
+no modifica la base. **Revisar mis eventos y notas** crea otro borrador con
+eventos, marcador, observaciones e incidencias locales, sobre las alineaciones
+y el reloj del servidor. Exige repetir firmas y pulsar **Sincronizar** después
+de revisar. Cambiar de versión mientras se decide exige volver a comparar.
+La resolución no concede permisos ni excepciones a las reglas deportivas.
+
+| Historia | Criterio añadido | Prueba | Resultado | Pendiente |
+|---|---|---|---|---|
+| PDGLD-19 | Conservar las copias del conflicto sin mezclarlas con otra cuenta | Archivo atómico por cuenta/partido, comparación íntegra de captura, firmas e intenciones; reapertura real | Pasó PG15/17 | Prueba manual en dispositivo físico |
+| PDGLD-20 | Hora del servidor en cédula preparada conectada | Chrome atrasa el reloj dos minutos, corta la respuesta tras commit, recupera el mismo acuse y verifica origen `server` en SQL | Pasó PG15/17 | Ninguno en ese supuesto |
+| PDGLD-20 | Conservar acciones posteriores al acuse anterior | Ajuste de descanso sin red mientras falta el acuse del fin de tiempo; al volver conserva ambas fronteras y el ajuste de 17 minutos | Pasó PG15/17 | Ninguno en ese supuesto |
+| PDGLD-20 | Reloj conectado mientras hay un guardado pendiente | Se pausa una respuesta real de guardado, se inicia segundo tiempo y después se libera el acuse; la acción del reloj conserva origen `server` | Pasó PG15/17 | Ninguno en ese supuesto |
+| PDGLD-20 | Salida explícita del conflicto sin sobrescritura silenciosa | Cambia la referencia durante la comparación, exige nueva revisión; crea borrador, conserva firmas antiguas, exige nuevas y espera sincronización manual incluso tras reabrir | Pasó PG15/17 | Revisión visual/manual de Víctor |
+| PDGLD-20 | Adoptar servidor y conservar autorización | Elegir servidor no incrementa su versión; designación revocada impide obtener la referencia para resolver | Pasó PG15/17 | Ninguno en ese supuesto |
+
+El recorrido final `test:match-report-offline` aprobó en PG15 y PG17 con Chrome,
+Service Worker, IndexedDB, sesión, backend y PostgreSQL desechable reales. Cada
+versión registró 18 operaciones distintas y 18 acuses. Estos conteos sustituyen
+a los de ejecuciones anteriores descritas en este registro. Los JSON de criterios
+de cada versión contienen las banderas nuevas y solo publican conteos.
+
+La regresión principal `test:pdgld149` aprobó sus tres grupos en PG15 y PG17.
+Cada versión ejecutó 18 pruebas de reglas/cliente, 21 de componentes y la
+integración con HTTP, NextAuth, Chrome y PostgreSQL, con build de producción.
+El estado `acceptance: BLOCKED` de `checks.json` conserva el bloqueo de los
+servicios oficiales pendientes. También aprobaron `npm run typecheck`,
+`npm run lint`, las 22 pruebas de `test:match-report-tactics` y los 94 controles
+de `test:ci` en Node 24 Linux sin red con repositorio de solo lectura.
+
+La regresión `test:pdgld149 -- --regression --postgres=15` y su repetición con
+`--postgres=17` aprobaron elegibilidad, designaciones, identidad histórica y
+firmas, incluido el grupo del paso fallido en #207. Ambos `regression.json`
+tienen todos los códigos en cero y `notExecuted: []`. Los controles conservaron
+las comprobaciones de cruce real, reloj ausente, rollback, revocación y RLS.
+
+Se actualizó `origin/develop` antes y después de la implementación. La referencia
+`821ac86` permanece integrada en la rama. El CI remoto de estos cambios queda
+pendiente de su publicación y ejecución en GitHub.
+
+La aserción nueva de fronteras compara valores estructurales de JSON para
+tolerar el orden de claves de `jsonb`. Las pruebas de inmutabilidad de comandos,
+firmas y copias anteriores mantienen sus comparaciones completas.
+
+Para revisar manualmente estas dos correcciones en PostgreSQL desechable:
+
+1. Ejecutar `npm run match-reports:offline` y entrar en `http://127.0.0.1:3198/matches`
+   con las cuentas sintéticas anunciadas por el runner. Preparar **OFFLINE-20**
+   y abrir la cédula real, o usar su URL exacta anunciada al iniciar.
+2. Con conexión, guardar las alineaciones e iniciar un tiempo. En **Marcas de
+   los tiempos**, comprobar **Registrada por el servidor** después del acuse.
+   Cortar la red y terminar el tiempo. Comprobar la revisión guardada y la marca
+   declarada. Al recuperar conexión se conserva su origen.
+3. En otro perfil o ventana privada, entrar con la misma cuenta y abrir la misma
+   URL con `?modo=en-linea`. Guardar una observación desde ese perfil. En la
+   cédula preparada escribir otra observación y pulsar **Sincronizar** para
+   provocar el conflicto versionado.
+4. Abrir **Comparar versiones**, revisar ambas, marcar la aceptación y elegir
+   **Revisar mis eventos y notas**. Comprobar el nuevo borrador, la captura
+   anterior conservada y las firmas por recapturar. Cerrar y reabrir mantiene
+   la revisión pendiente. La base conserva la otra observación hasta pulsar
+   **Sincronizar**.
+
 ## Demo de cinco minutos para el 20 o 23 de noviembre
 
 1. `npm run match-reports:offline`; abrir el listado real del puerto 3198 con la cuenta sintética del runner.

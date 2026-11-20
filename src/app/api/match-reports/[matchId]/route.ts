@@ -15,6 +15,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ matc
 export async function POST(request: Request, { params }: { params: Promise<{ matchId: string }> }) {
   try { const actor = await requireOperationalUser(); const { matchId } = await params; const body = await readReportBody(request, actor.id);
     if (!body || typeof body !== "object" || !("matchId" in body) || body.matchId !== matchId) throw new ReportError("INVALID_PAYLOAD", 400);
-    return Response.json(await mutateReport(actor.id, body), { headers: { "Cache-Control": "no-store" } });
+    return Response.json(await mutateReport(actor.id, body, request.headers.get("X-Report-Live-Clock") === "1" ? "live" : "online"), { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return reportHttpError(error); }
 }

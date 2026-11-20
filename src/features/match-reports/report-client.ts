@@ -38,15 +38,15 @@ export function createReportClient(actorId: string, data: ReportDemoData, durabl
   save(id: string, attempt: ReportAttempt): Promise<void>;
 }) {
   const attempts = new Map<string, ReportAttempt>();
-  async function json(path: string, body?: unknown) {
-    const response = await fetch(path, { method: body ? "POST" : "GET", cache: "no-store", signal: AbortSignal.timeout(20000), headers: { "Content-Type": "application/json", "X-Expected-Actor-Id": actorId }, body: body ? JSON.stringify(body) : undefined });
+  async function json(path: string, body?: unknown, liveClock = false) {
+    const response = await fetch(path, { method: body ? "POST" : "GET", cache: "no-store", signal: AbortSignal.timeout(20000), headers: { "Content-Type": "application/json", "X-Expected-Actor-Id": actorId, ...(liveClock ? { "X-Report-Live-Clock": "1" } : {}) }, body: body ? JSON.stringify(body) : undefined });
     const result = await response.json();
     if (!response.ok) throw new ReportClientError(result.code ?? "OPERATION_UNAVAILABLE", response.status);
     return result;
   }
   const base = `/api/match-reports/${data.match.id}`;
   return {
-    async send(op: ReportOperation): Promise<ReportReceipt> {
+    async send(op: ReportOperation, liveClock = false): Promise<ReportReceipt> {
       let attempt = attempts.get(op.id) ?? await durable?.load(op.id);
       if (!attempt) {
         attempt = prepareReportAttempt(data, op);
@@ -59,7 +59,7 @@ export function createReportClient(actorId: string, data: ReportDemoData, durabl
         attempt.command.draft.signatures[upload.teamId] = result.fileId;
         await durable?.save(op.id, attempt);
       }
-      return json(durable ? "/api/v1/match-reports/sync" : base, attempt.command);
+      return json(durable && !liveClock ? "/api/v1/match-reports/sync" : base, attempt.command, liveClock);
     },
     query(operationId: string): Promise<{ status: "UNKNOWN" | "APPLIED"; receipt?: ReportReceipt }> {
       return json(durable ? `/api/v1/match-reports/sync?matchId=${data.match.id}&operationId=${encodeURIComponent(operationId)}` : `${base}?operationId=${encodeURIComponent(operationId)}`);

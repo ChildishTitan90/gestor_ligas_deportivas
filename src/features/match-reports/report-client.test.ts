@@ -4,6 +4,30 @@ import { randomUUID } from "node:crypto";
 import { createReportDemo } from "./demo-data";
 import { createReportClient } from "./report-client";
 
+test("reloj preparado: primer envío conectado y recuperación conservan UUID y contenido", async t => {
+  const data = createReportDemo();
+  const operation = { id: randomUUID(), kind: "clock" as const, clockAction: {type:"end-half" as const},
+    occurredAt:"2026-11-20T06:00:00.000Z", expectedReportVersion:2, expectedMatchVersion:3, snapshot:structuredClone(data.report) };
+  let persisted: import("./report-client").ReportAttempt | undefined;
+  const durable = { load:async()=>persisted && structuredClone(persisted),
+    save:async(_id:string,attempt:import("./report-client").ReportAttempt)=>{persisted=structuredClone(attempt);} };
+  const requests:{path:string;body:string;live:string|null}[]=[];
+  const prior=global.fetch; t.after(()=>{global.fetch=prior;});
+  global.fetch=async(path,init)=>{
+    assert.ok(persisted,"La intención está escrita antes del transporte");
+    requests.push({path:String(path),body:String(init?.body),live:new Headers(init?.headers).get("X-Report-Live-Clock")});
+    if(requests.length===1)throw Error("Respuesta perdida sintética");
+    return Response.json({operationId:operation.id});
+  };
+  await assert.rejects(createReportClient(randomUUID(),data,durable).send(operation,true));
+  await createReportClient(randomUUID(),data,durable).send(operation);
+  assert.equal(requests[0].path,`/api/match-reports/${data.match.id}`);
+  assert.equal(requests[0].live,"1");
+  assert.equal(requests[1].path,"/api/v1/match-reports/sync");
+  assert.equal(requests[1].live,null);
+  assert.equal(requests[0].body,requests[1].body);
+});
+
 test("transportes sintéticos: recuperar subida y acuse sin cambiar intención ni contenido", async t => {
   const data=createReportDemo(), actor=randomUUID(), op=randomUUID(), file=randomUUID();
   data.report.signatures.home={captainId:"home-4",source:"device",image:"data:image/png;base64,c3ludGhldGlj"};

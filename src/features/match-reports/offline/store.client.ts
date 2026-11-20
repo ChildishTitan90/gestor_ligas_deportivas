@@ -15,6 +15,11 @@ export type LocalReport = {
   serverMatchStatus: string;
   pending: PendingReport[];
   lastReceipt?: { draftId: string; revision: number; receipt: ReportReceipt };
+  archives?: ArchivedReport[];
+  reviewRequired?: boolean;
+};
+export type ArchivedReport = Pick<LocalReport, "draftId" | "editId" | "revision" | "acknowledgedRevision" | "data" | "pending" | "lastReceipt"> & {
+  archivedAt: string; choice: "server" | "review";
 };
 
 
@@ -90,7 +95,7 @@ export async function clearLocalReports(actorId: string, discardPending: boolean
         const entry = cursor.result;
         if (entry && !discardPending) {
           const row = entry.value as LocalReport;
-          if (row.pending.length || row.revision > row.acknowledgedRevision) return result(false);
+          if (row.pending.length || row.revision > row.acknowledgedRevision || row.archives?.length) return result(false);
           entry.continue();
           return;
         }
@@ -143,7 +148,7 @@ export async function writeLocalReport(record: LocalReport, expectedRevision: nu
         // Receipts can arrive while a later edit is being written.
         const next = prior ? { ...record, pending: prior.pending, acknowledgedRevision: prior.acknowledgedRevision, lastReceipt: prior.lastReceipt,
           prepared: prior.prepared || record.prepared, serverMatchStatus: prior.serverMatchStatus, expiresAt: prior.expiresAt,
-          data: { ...record.data, match: { ...record.data.match, version: prior.data.match.version }, report: { ...record.data.report, version: prior.data.report.version } } } : record;
+          data: { ...record.data, match: { ...record.data.match, version: prior.data.match.version }, report: { ...record.data.report, version: prior.data.report.version, clock: prior.data.report.clock, lineupsLock: prior.data.report.lineupsLock } } } : record;
         store.put(next);
       };
     };

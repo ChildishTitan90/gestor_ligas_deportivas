@@ -183,6 +183,16 @@ export async function runReportAcceptance(f: Fixture) {
     const frozen=command(1);frozen.draft.lineups[0].matchJersey=88;await assert.rejects(mutateReport(actors.capturista,frozen),/LINEUPS_LOCKED/);
     const {mutateReportInTransaction:clockMutation}=await import("../../src/features/match-reports/server/service");
     await assert.rejects(getPrisma().$transaction(async tx=>{
+      const live={...command(1),kind:"clock" as const,occurredAt:new Date(Date.now()-8*86400000).toISOString(),clockAction:{type:"start" as const,halfMinutes:45,breakMinutes:15}};
+      const before=Date.now();
+      const started=await clockMutation(tx,actors.capturista,live,"live");
+      assert.equal(started.clock?.boundarySources?.firstStartedAt,"server");
+      assert.ok(Date.parse(started.clock!.phaseStartedAt)>=before);
+      assert.ok(Date.parse(started.clock!.phaseStartedAt)<=Date.now());
+      assert.deepEqual(await clockMutation(tx,actors.capturista,live,"sync"),started,"El acuse perdido conserva la marca del primer commit");
+      throw Error("LIVE_CLOCK_TEST_ROLLBACK");
+    },{timeout:30000}),/LIVE_CLOCK_TEST_ROLLBACK/);
+    await assert.rejects(getPrisma().$transaction(async tx=>{
       const clockStart={...command(1),kind:"clock" as const,occurredAt:new Date(Date.now()-120000).toISOString(),clockAction:{type:"start" as const,halfMinutes:45,breakMinutes:15}};
       await assert.rejects(clockMutation(tx,actors.capturista,{...clockStart,occurredAt:undefined},"sync"),/CLOCK_TIME_CONFLICT/);
       await assert.rejects(clockMutation(tx,actors.capturista,{...clockStart,occurredAt:new Date(Date.now()+120000).toISOString()}),/CLOCK_TIME_CONFLICT/);

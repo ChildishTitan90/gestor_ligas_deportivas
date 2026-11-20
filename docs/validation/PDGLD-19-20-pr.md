@@ -10,7 +10,9 @@ Un corte de red durante la captura podía dejar la edición únicamente en memor
 
 Se reutilizan ReportWorkspace, el shell y selectores compartidos, el contrato de versiones de PDGLD-18, `match_report_syncs`, autorización del servicio y endpoints privados de firmas. El Service Worker guarda recursos públicos; las copias privadas quedan separadas por cuenta/partido. No hay migraciones nuevas. La autorización local dura siete días con aviso previo; vencimiento de sesión permite reautenticación, y el cambio de cuenta conserva y aísla las copias pendientes. La salida explícita elimina solo las copias del titular tras advertir sobre sus pendientes.
 
-Las marcas del reloj indican su origen. Una hora declarada por el dispositivo conserva el reloj de captura y exige revisión si el traslado entre encuentros depende de comprobarla. Las marcas anteriores sin origen también requieren esa revisión. La sincronización conserva la intención original.
+Las acciones nuevas del reloj conectado reciben una marca del servidor también en una cédula preparada. Una acción capturada sin red conserva su hora declarada. Un reintento recupera el acuse del primer commit sin cambiar UUID ni contenido. Las marcas declaradas o antiguas sin origen exigen revisión si un traslado depende de comprobarlas.
+
+Los conflictos ofrecen una resolución explícita tras comparar una referencia autorizada reciente. Se puede retomar el servidor sin escribir en la base o crear un borrador para revisar eventos y notas sobre las alineaciones y el reloj vigentes, repitiendo firmas. Se conservan íntegramente las capturas e intenciones anteriores en el dispositivo. El nuevo borrador espera Sincronizar manualmente. Si una versión cambia durante la revisión, se exige comparar otra vez.
 
 En disponibilidad arbitral se usa «No disponible». Su prioridad rige el tramo superpuesto y ambos intervalos conservan su registro. La agenda excluye los vencidos. La política acordada conserva doce meses los intervalos sin relación con partidos y mantiene los que respaldan una decisión. La implementación de la depuración queda pendiente de revisión.
 
@@ -26,7 +28,7 @@ La rama también contiene la actualización de Next.js 16.4.3 a 16.4.6 de PDGLD-
 
 Matriz de criterios, resultados exactos y pendientes en `docs/validation/PDGLD-19-20-acceptance.md`. Chrome, Service Worker, IndexedDB, NextAuth, backend y PostgreSQL desechable reales para los recorridos principales. Incluye matriz PG15/17, reintentos tras commit y subidas, cuota, rollback y comparación visible. Los artefactos nuevos publican solo JSON de resultados y conteos; no incluyen imágenes de firmas ni borradores.
 
-Ejecuciones locales aprobadas: recorrido offline PG15/17 (11 operaciones distintas y 11 acuses por versión), regresión principal de cédula PG15/17, regresión de elegibilidad/designaciones/historial/firmas PG15/17, lint, tipos y build de producción. Los controles de componentes usan datos sintéticos; los recorridos principales usan backend real. La ejecución remota del workflow queda para después de publicar el PR autorizado.
+Las ejecuciones locales y sus resultados más recientes están en la sección de revisión del 20 de noviembre del documento de aceptación. Los controles de componentes usan datos sintéticos; los recorridos principales usan backend real. El estado remoto requiere publicar estos cambios y repetir el workflow.
 
 La regresión del paso de designaciones de #207 conserva sus aserciones y selecciona el diálogo abierto. No atribuye el fallo original al merge de otro integrante ni al motor del navegador.
 
@@ -34,4 +36,4 @@ El job de cédulas incorpora la nueva prueba en ambas versiones de PostgreSQL si
 
 ## Revisión requerida
 
-Revisión visual/manual de Víctor, política de datos locales y separación borrador/cierre. Mantener PR sin publicar hasta su autorización. No se modifica Jira ni se realiza push desde esta tarea.
+Revisión visual/manual de Víctor, política de datos locales y separación borrador/cierre. Los cambios de esta revisión permanecen locales hasta su autorización. No se modifica Jira ni se realiza push desde esta tarea.

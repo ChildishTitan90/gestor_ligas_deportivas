@@ -31,7 +31,7 @@ Las copias están separadas por UUID de cuenta y partido en
 `league-match-reports-v1`, almacén `reports`. `account` registra la cuenta
 activa y la caducidad local. No contiene credenciales, JWT, cookies ni documentos
 de identidad. Un cambio de cuenta bloquea el acceso de la aplicación a la partición anterior. Sus borradores, firmas, revisiones e intenciones permanecen en IndexedDB. Al identificarse su titular puede retomar las copias vigentes.
-El cierre de sesión explícito advierte si hay pendientes y elimina las copias
+El cierre de sesión explícito advierte si hay pendientes o capturas archivadas y elimina las copias
 de esa cuenta antes de la salida. El vencimiento de sesión conserva el borrador y permite
 iniciar sesión en otra pestaña. Los otros tabs reciben la invalidación local y
 sus escrituras dejan de estar permitidas.
@@ -94,7 +94,34 @@ Un acuse actualiza la revisión reconocida y las versiones base, sin reemplazar
 las ediciones posteriores. BroadcastChannel avisa a otras pestañas y ambas
 identifican el operationId y la revisión que recibió acuse. Los conflictos de
 versión, pérdida de permisos o reglas deportivas bloquean la cola y muestran
-comparación para revisión humana. No existe una conciliación automática.
+comparación para revisión humana.
+
+## Resolución explícita de conflictos
+
+**Comparar versiones** obtiene una referencia nueva con los permisos de captura
+vigentes. Tras revisar ambas copias y marcar la aceptación, la persona puede:
+
+- **Usar versión del servidor**: retomar su contenido sin escribir en la base.
+- **Revisar mis eventos y notas**: crear otro `draftId` sobre las versiones
+  vigentes, trasladando eventos, marcador, observaciones e incidencias locales.
+  Las alineaciones y el reloj proceden del servidor, y se repiten las firmas.
+  El borrador queda editable y espera la acción manual **Sincronizar**, incluso
+  tras cerrar y reabrir o recuperar conexión.
+
+Ambas decisiones archivan íntegramente las capturas anteriores, incluidas las
+firmas, las intenciones y las claves originales, dentro del mismo registro privado
+de cuenta/partido. Las capturas se consultan en **Capturas anteriores conservadas**.
+No se reenvían sus operaciones durante la resolución. Se consultan sus acuses y se
+vuelve a descargar la referencia autorizada antes de sustituir la cola activa.
+
+La resolución comparte el Web Lock del sincronizador y compara atómicamente el
+registro completo de IndexedDB. Si otra pestaña lo cambia o si avanza la versión
+del servidor durante la revisión, exige comparar otra vez. Un error de permisos,
+conexión o espacio conserva la copia activa. Una pestaña anterior no puede
+sincronizar el nuevo borrador sin reconocer el cambio. La siguiente escritura en
+el servidor utiliza UUID nuevos y vuelve a validar versiones y reglas deportivas.
+Esta decisión no permite alterar alineaciones selladas ni acreditar marcas
+declaradas del reloj.
 
 ## Alineaciones, reloj y cierre
 
@@ -106,9 +133,23 @@ los clientes online. El servidor permite hasta siete días hacia atrás y un
 minuto de tolerancia futura, exige orden respecto del periodo vigente y reutiliza
 las transiciones de PDGLD-18. Una hora incompatible produce conflicto para revisión.
 
-Cada frontera conserva su origen en `boundarySources`. La hora enviada con
-`occurredAt` es una declaración del dispositivo, incluso si llega de inmediato.
-El reloj de captura conserva esa hora al reabrir. Para validar cruces entre dos
+Cada frontera conserva su origen en `boundarySources`. Una acción nueva del reloj
+realizada con conexión se persiste primero en
+IndexedDB y se envía al endpoint privado de cédula con `X-Report-Live-Clock: 1`.
+El servicio registra su hora de recepción y devuelve origen `server`. El UUID,
+contenido y `occurredAt` declarados de la intención permanecen intactos para
+recuperar el mismo acuse si se pierde la respuesta. La cabecera no convierte la
+hora declarada en evidencia: el servidor genera una marca nueva al recibir la
+acción autorizada.
+
+La posibilidad de primer envío conectado vive solo en memoria. Un reintento,
+una reapertura o una reconexión consulta el acuse y utiliza `/api/v1/match-reports/sync`.
+Si no existe acuse, conserva la hora declarada y origen `device`. Una acción nueva
+conectada puede esperar el acuse anterior en la misma pestaña y conservar su
+primer envío al servidor. Perder la red, fallar el envío o cerrar la pestaña
+retira esa posibilidad. Una operación capturada sin red tampoco obtiene
+automáticamente una marca comprobada. Las acciones posteriores del reloj se reaplican sobre el acuse
+anterior para conservar la captura y sus orígenes. Para validar cruces entre dos
 partidos, el servicio solo usa las fronteras fechadas por el servidor al recibir
 la acción. Las marcas antiguas sin origen quedan sin verificar. Si falta una
 frontera necesaria, la operación devuelve `PARTICIPATION_CLOCK_REQUIRED` y
