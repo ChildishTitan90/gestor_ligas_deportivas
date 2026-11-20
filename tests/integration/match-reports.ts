@@ -16,6 +16,7 @@ import { verifyCaptureMatchList } from "./match-report-list";
 import { uploadReportSignature, readReportSignature } from "../../src/features/match-reports/server/signatures";
 import { localSignatureStorage } from "../../src/features/match-reports/server/local-signature-storage";
 import { getPrisma } from "../../src/server/db/prisma";
+import { prepareOwnReport } from "../../src/features/match-reports/server/sync-service";
 import type { ReportCommand, ReportDraft } from "../../src/features/match-reports/contract";
 
 type Fixture = { db: Client; actors: Record<string,string>; people: Record<string,string>; league: string; otherLeague: string; season: string; sc: string; category: string; rule: string; group: string; clubs: string[]; teams: string[]; match: string; presenting: string; scalar: (sql: string, values?: unknown[]) => Promise<string>; runtimeUrl: string; env: Record<string,string|undefined>; runtimePassword: string; serve: boolean };
@@ -38,20 +39,25 @@ export async function runReportAcceptance(f: Fixture) {
     await db.query("UPDATE sports_management.referee_assignments SET status='APPROVED',approved_by=$2,approved_at=now(),approved_identity_version=1 WHERE id=$1", [assignment,actors.comision]);
     await db.query("UPDATE sports_management.season_categories SET eligibility_pending=false,player_policy=$2 WHERE id=$1", [sc,JSON.stringify({...syntheticPlayerPolicy(),registrationDays:[1,2,3,4,5,6,7]})]);
     for (const club of clubs.slice(1)) await db.query("INSERT INTO sports_management.club_affiliation_categories(affiliation_id,season_id,category_id,authorized_by,authorized_at) SELECT id,$2,$3,$4,now() FROM sports_management.club_affiliations WHERE club_id=$1 AND season_id=$2", [club,season,category,actors.comision]);
-    const registrations: string[] = [];
-    for (let index = 0; index < 4; index++) {
-      const prefix = ["SIAA000101HMNLRRA","SIEA000102HMNLRRA","SIOA000103HMNLRRA","SIOE000104HMNLRRA"][index];
-      const alphabet="0123456789ABCDEFGHIJKLMNÑOPQRSTUVWXYZ";
-      const curp=prefix+(10-[...prefix].reduce((total,char,n)=>total+alphabet.indexOf(char)*(18-n),0)%10)%10;
-      const dob=`2000-01-0${index+1}`;
-      const name=["Alonso","Brenda","Carlos","Dora"][index];
-      const id = await scalar("INSERT INTO sports_management.people(first_name,paternal_surname,birth_date,curp) VALUES($1,'Sintético',$2,$3) RETURNING id", [name,dob,curp]);
-      const registration = await scalar("INSERT INTO sports_management.player_registrations(person_id,season_id,season_team_id,reference_number,status,jersey_number) VALUES($1,$2,$3,$4,'ACTIVE',$5) RETURNING id", [id,season,teams[index === 1 ? 1 : 0],randomUUID(),index === 0 ? null : index+7]);
-      const raw={curp,firstName:name,paternalSurname:"Sintético",maternalSurname:"",birthDate:dob};
-      await db.query("INSERT INTO sports_management.player_curp_checks(operation_key,actor_id,person_id,registration_id,identity_version,fingerprint,status) VALUES($1,$2,$3,$4,1,$5,'PENDING')", [randomUUID(),actors.comision,id,registration,createHash("sha256").update(JSON.stringify([1,raw])).digest("hex")]);
-      await db.query("UPDATE sports_management.player_curp_checks SET status='VERIFIED',finished_at=now() WHERE registration_id=$1 AND status='PENDING'",[registration]);
-      registrations.push(registration);
+    async function createSyntheticRoster(browser = false) {
+      const registrations: string[] = [];
+      for (let index = 0; index < 4; index++) {
+        const day = index + (browser ? 5 : 1);
+        const prefix = ["SIAA","SIEA","SIOA","SIOE"][index] + `00010${day}HMNLRRA`;
+        const alphabet="0123456789ABCDEFGHIJKLMNÑOPQRSTUVWXYZ";
+        const curp=prefix+(10-[...prefix].reduce((total,char,n)=>total+alphabet.indexOf(char)*(18-n),0)%10)%10;
+        const dob=`2000-01-0${day}`;
+        const name=["Alonso","Brenda","Carlos","Dora"][index] + (browser ? " Navegador" : "");
+        const id = await scalar("INSERT INTO sports_management.people(first_name,paternal_surname,birth_date,curp) VALUES($1,'Sintético',$2,$3) RETURNING id", [name,dob,curp]);
+        const registration = await scalar("INSERT INTO sports_management.player_registrations(person_id,season_id,season_team_id,reference_number,status,jersey_number) VALUES($1,$2,$3,$4,'ACTIVE',$5) RETURNING id", [id,season,teams[index === 1 ? 1 : 0],randomUUID(),index === 0 ? null : index + (browser ? 27 : 7)]);
+        const raw={curp,firstName:name,paternalSurname:"Sintético",maternalSurname:"",birthDate:dob};
+        await db.query("INSERT INTO sports_management.player_curp_checks(operation_key,actor_id,person_id,registration_id,identity_version,fingerprint,status) VALUES($1,$2,$3,$4,1,$5,'PENDING')", [randomUUID(),actors.comision,id,registration,createHash("sha256").update(JSON.stringify([1,raw])).digest("hex")]);
+        await db.query("UPDATE sports_management.player_curp_checks SET status='VERIFIED',finished_at=now() WHERE registration_id=$1 AND status='PENDING'",[registration]);
+        registrations.push(registration);
+      }
+      return registrations;
     }
+    const registrations = await createSyntheticRoster();
     // Bloqueo auténtico por inscripción suspendida, sin inventar excepciones ni llamar al proveedor.
     await db.query("UPDATE sports_management.player_registrations SET status='INELIGIBLE' WHERE id=$1", [registrations[2]]);
     await db.query("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('IN_PROGRESS') WHERE id=$1", [match]);
@@ -61,6 +67,11 @@ export async function runReportAcceptance(f: Fixture) {
     await db.query(`ALTER ROLE gestor_ligas_preview LOGIN PASSWORD '${f.runtimePassword}'`);
     Object.assign(process.env,f.env,{DATABASE_URL:f.runtimeUrl});
     const page=await getReportPage(actors.arbitro,match);
+    const offlineSnapshot = await prepareOwnReport(actors.arbitro,match);
+    assert.equal(offlineSnapshot.actorId,actors.arbitro);
+    assert.ok(offlineSnapshot.data.players.every(player=>player.photoUrl===null));
+    await assert.rejects(prepareOwnReport(actors.capturistaAjeno,match));
+    assert.equal((await prepareOwnReport(actors.capturista,match)).actorId,actors.capturista);
     assert.ok(page.players.some(p=>p.id===registrations[0]&&p.eligible), JSON.stringify(page.players.map(p=>({id:p.id,blockers:p.blockers}))));
     assert.equal(page.players.find(p=>p.id===registrations[2])!.eligible,false);
     await assert.rejects(getReportPage(actors.capturistaAjeno,match));
@@ -172,11 +183,29 @@ export async function runReportAcceptance(f: Fixture) {
     const frozen=command(1);frozen.draft.lineups[0].matchJersey=88;await assert.rejects(mutateReport(actors.capturista,frozen),/LINEUPS_LOCKED/);
     const {mutateReportInTransaction:clockMutation}=await import("../../src/features/match-reports/server/service");
     await assert.rejects(getPrisma().$transaction(async tx=>{
-      const clockStart={...command(1),kind:"clock" as const,clockAction:{type:"start" as const,halfMinutes:45,breakMinutes:15}};
+      const live={...command(1),kind:"clock" as const,occurredAt:new Date(Date.now()-8*86400000).toISOString(),clockAction:{type:"start" as const,halfMinutes:45,breakMinutes:15}};
+      const before=Date.now();
+      const started=await clockMutation(tx,actors.capturista,live,"live");
+      assert.equal(started.clock?.boundarySources?.firstStartedAt,"server");
+      assert.ok(Date.parse(started.clock!.phaseStartedAt)>=before);
+      assert.ok(Date.parse(started.clock!.phaseStartedAt)<=Date.now());
+      assert.deepEqual(await clockMutation(tx,actors.capturista,live,"sync"),started,"El acuse perdido conserva la marca del primer commit");
+      throw Error("LIVE_CLOCK_TEST_ROLLBACK");
+    },{timeout:30000}),/LIVE_CLOCK_TEST_ROLLBACK/);
+    await assert.rejects(getPrisma().$transaction(async tx=>{
+      const clockStart={...command(1),kind:"clock" as const,occurredAt:new Date(Date.now()-120000).toISOString(),clockAction:{type:"start" as const,halfMinutes:45,breakMinutes:15}};
+      await assert.rejects(clockMutation(tx,actors.capturista,{...clockStart,occurredAt:undefined},"sync"),/CLOCK_TIME_CONFLICT/);
+      await assert.rejects(clockMutation(tx,actors.capturista,{...clockStart,occurredAt:new Date(Date.now()+120000).toISOString()}),/CLOCK_TIME_CONFLICT/);
+      await assert.rejects(clockMutation(tx,actors.capturista,{...clockStart,occurredAt:new Date(Date.now()-8*86400000).toISOString()}),/CLOCK_TIME_CONFLICT/);
       const started=await clockMutation(tx,actors.capturista,clockStart);assert.equal(started.clock?.phase,"FIRST_HALF");
+      assert.equal(started.clock?.phaseStartedAt,clockStart.occurredAt);
+      assert.equal(started.clock?.boundarySources?.firstStartedAt,"device");
+      assert.equal(started.clock?.boundaries?.firstStartedAt,clockStart.occurredAt,"La validación por mitades conserva el inicio capturado sin red");
       assert.deepEqual(await clockMutation(tx,actors.capturista,clockStart),started);
       const extra=await clockMutation(tx,actors.capturista,{...command(2),kind:"clock",clockAction:{type:"add-time",minutes:3}});assert.equal(extra.clock?.extraMinutes,3);
       const rest=await clockMutation(tx,actors.capturista,{...command(3),kind:"clock",clockAction:{type:"end-half"}});assert.equal(rest.clock?.phase,"BREAK");
+      assert.equal(rest.clock?.boundarySources?.firstEndedAt,"server");
+      assert.equal(rest.clock?.boundarySources?.firstStartedAt,"device");
       const blockedGoal=command(4);blockedGoal.draft.events[0].description="No se permite modificar goles durante el descanso";
       await assert.rejects(clockMutation(tx,actors.capturista,blockedGoal),/BREAK_SUBSTITUTIONS_ONLY/);
       const breakChange=command(4);Object.assign(breakChange.draft.events[1],{periodNumber:2,minute:45,second:0,periodMinute:0});
@@ -270,8 +299,13 @@ export async function runReportAcceptance(f: Fixture) {
     await assert.rejects(getPrisma().$executeRaw`UPDATE sports_management.matches SET starts_at=starts_at WHERE id=${match}::uuid`);
     if(process.argv.includes("--http")) {
       const env={...f.env,NODE_ENV:"development" as const,DATABASE_URL:f.runtimeUrl,REPORT_SIGNATURE_LOCAL_DIRECTORY:directory};
-      app=spawn(process.execPath,["node_modules/next/dist/bin/next","dev","--hostname","127.0.0.1","--port","3198"],{env,stdio:"inherit",windowsHide:true});
-      const base="http://127.0.0.1:3198";
+      const base=f.env.NEXTAUTH_URL!;
+      const realBrowser=process.argv.includes("--browser");
+      if(realBrowser){
+        const build=spawn(process.execPath,["node_modules/next/dist/bin/next","build"],{env:{...env,NODE_ENV:"production",NODE_OPTIONS:"--use-system-ca"},stdio:"inherit",windowsHide:true});
+        assert.equal(await new Promise(resolve=>build.once("exit",resolve)),0);
+      }
+      app=spawn(process.execPath,["node_modules/next/dist/bin/next",realBrowser?"start":"dev","--hostname","127.0.0.1","--port",new URL(base).port],{env:{...env,NODE_ENV:realBrowser?"production":"development"},stdio:"inherit",windowsHide:true});
       let ready=false;
       for(let n=0;n<180;n++){if(app.exitCode!==null)throw Error("REPORT_APP_EXITED");try{const response=await fetch(base+"/api/auth/csrf",{signal:AbortSignal.timeout(2000)});if(response.ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,500));}
       if(!ready)throw Error("REPORT_APP_NOT_READY");
@@ -279,16 +313,9 @@ export async function runReportAcceptance(f: Fixture) {
       await verifyReportHttp(base,actors,command(3),draft.signatures[teams[0]]!,"data:image/png;base64,"+png.toString("base64"));
       if(process.argv.includes("--browser")){
         const {verifyRealMatchReportBrowser}=await import("../e2e/match-reports-real.mjs");
-        // El escenario HTTP anterior registró periodos sin reloj. Para reutilizar
-        // sus jugadores en otro partido, aportar evidencia sintética explícita
-        // de que terminó antes de iniciar el escenario Chrome (no inferirla del horario).
-        const {advanceMatchClock}=await import("../../src/features/match-reports/match-clock");
-        const endedAt=Date.now()-60_000;
-        let priorClock=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},new Date(endedAt-90*60_000).toISOString());
-        priorClock=advanceMatchClock(priorClock,{type:"end-half"},new Date(endedAt-50*60_000).toISOString());
-        priorClock=advanceMatchClock(priorClock,{type:"start-second"},new Date(endedAt-40*60_000).toISOString());
-        priorClock=advanceMatchClock(priorClock,{type:"end-half"},new Date(endedAt).toISOString());
-        await db.query("UPDATE sports_management.match_reports SET draft_data=jsonb_set(draft_data,'{clock}',$2::jsonb,true) WHERE match_id=$1",[match,JSON.stringify(priorClock)]);
+        // El recorrido de captura tiene personas independientes del escenario
+        // HTTP. Los cruces entre partidos se prueban en la suite de elegibilidad.
+        await createSyntheticRoster(true);
         const browserMatch=await scalar("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id) SELECT season_id,group_id,matchday_id,'BROWSER-149',home_team_id,away_team_id,venue_id,starts_at+interval '4 hours',ends_at+interval '4 hours',reserved_until+interval '4 hours',sports_management.get_match_status_id('CONFIRMED') FROM sports_management.matches WHERE id=$1 RETURNING id",[match]);
         await verifyRealMatchReportBrowser({base,match:browserMatch,postgres:process.argv.find(a=>a.startsWith('--postgres='))?.split('=')[1]??'15'});
       }
@@ -304,9 +331,34 @@ export async function runReportAcceptance(f: Fixture) {
     }
     console.log("PDGLD-147 OK: PostgreSQL desechable, rol Preview/RLS, árbitro efectivo, DATA_ENTRY propio/ajeno, elegibilidad, dorsal histórico, periodos, marcador, firmas privadas/reintentos, versiones concurrentes, acuse, rollback y confirmación bloqueada sin efectos.");
     if(f.serve){
-      const env={...f.env,NODE_ENV:"development" as const,DATABASE_URL:f.runtimeUrl,REPORT_SIGNATURE_LOCAL_DIRECTORY:directory};
-      console.log(`Revisión aislada: http://127.0.0.1:3198/matches/${match}/report · usuarios arbitraje_arbitro / cedula_capturista / cedula_ajeno · clave sintética Arbitraje-Local-141!`);
-      app=spawn(process.execPath,["node_modules/next/dist/bin/next","dev","--hostname","127.0.0.1","--port","3198"],{env,stdio:"inherit",windowsHide:true});
+      const production = process.argv.includes("--offline");
+      const base = f.env.NEXTAUTH_URL!;
+      const port = new URL(base).port;
+      if (production) {
+        const freshMatch = await scalar("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id) SELECT season_id,group_id,matchday_id,'OFFLINE-20',home_team_id,away_team_id,venue_id,starts_at+interval '4 hours',ends_at+interval '4 hours',reserved_until+interval '4 hours',sports_management.get_match_status_id('CONFIRMED') FROM sports_management.matches WHERE id=$1 RETURNING id",[match]);
+        const freshAssignment = await scalar("INSERT INTO sports_management.referee_assignments(match_id,referee_id,created_by) VALUES($1,$2,$3) RETURNING id",[freshMatch,referee,actors.comision]);
+        await db.query("UPDATE sports_management.referee_assignments SET status='APPROVED',approved_by=$2,approved_at=now(),approved_identity_version=1 WHERE id=$1",[freshAssignment,actors.comision]);
+        console.log(`Captura desde cero: ${base}/matches/${freshMatch}/report · partido OFFLINE-20 asignado al árbitro sintético.`);
+      }
+      const env: NodeJS.ProcessEnv={...f.env,NODE_ENV:production ? "production" : "development",DATABASE_URL:f.runtimeUrl,REPORT_SIGNATURE_LOCAL_DIRECTORY:directory};
+      if (production) {
+        const build = spawn(process.execPath,["node_modules/next/dist/bin/next","build"],{env:{...env,NODE_OPTIONS:"--use-system-ca"},stdio:"inherit",windowsHide:true});
+        const code = await new Promise<number|null>(resolve=>build.once("exit",resolve));
+        assert.equal(code,0,"OFFLINE_PRODUCTION_BUILD_FAILED");
+      }
+      console.log(`Revisión aislada: ${base}/matches/${match}/report · usuarios arbitraje_arbitro / cedula_capturista / cedula_ajeno · clave sintética Arbitraje-Local-141!`);
+      app=spawn(process.execPath,["node_modules/next/dist/bin/next",production ? "start" : "dev","--hostname","127.0.0.1","--port",port],{env,stdio:"inherit",windowsHide:true});
+      if (production && process.argv.includes("--verify-offline")) {
+        let ready = false;
+        for (let attempt = 0; attempt < 100; attempt++) {
+          try { if ((await fetch(base+"/login")).ok) { ready=true;break; } } catch {}
+          await new Promise(resolve=>setTimeout(resolve,300));
+        }
+        assert.ok(ready,"OFFLINE_SERVER_NOT_READY");
+        const { verifyOfflineReportBrowser } = await import("../e2e/match-reports-offline.mjs");
+        await verifyOfflineReportBrowser({base,match,db,actorId:actors.arbitro});
+      }
+      if (process.argv.includes("--verify-offline")) return;
       await new Promise<void>(resolve=>{process.once("SIGINT",()=>{app?.kill();resolve();});app!.once("exit",()=>resolve());});
     }
   } finally {

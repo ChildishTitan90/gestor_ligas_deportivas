@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertChromeEndpoint, CHROME_PAGE_DISCOVERY_MS, discoverChromePage } from '../../tests/e2e/chrome-page-discovery.mjs';
+import { assertChromeEndpoint, CHROME_PAGE_DISCOVERY_MS, CHROME_STARTUP_MS, discoverChromePage } from '../../tests/e2e/chrome-page-discovery.mjs';
 
 const browserEndpoint = 'ws://127.0.0.1:9222/devtools/browser/owned-browser';
 const startUrl = 'http://127.0.0.1:3000';
@@ -48,6 +48,36 @@ test('CDP: plazos de lectura y pausa respetan el límite total original de cinco
   await assert.rejects(r.promise, error => error.code === 'CDP_PAGE_DISCOVERY_TIMEOUT' &&
     error.diagnostic.elapsedMs === 5000 && error.diagnostic.readTimeouts === 5);
   assert.equal(r.elapsed(), 5000); assert.deepEqual(r.budgets, [1000, 1000, 1000, 1000, 800]);
+});
+
+test('CDP: publicación tardía y cinco lecturas vencidas usan solo el arranque restante', async () => {
+  const publishedMs = 18170;
+  const remaining = CHROME_STARTUP_MS - publishedMs;
+  let reads = 0;
+  const r = run(({ budget, advance }) => {
+    if (++reads <= 5) {
+      advance(budget);
+      throw Object.assign(new Error('synthetic delayed endpoint'), { name: 'TimeoutError' });
+    }
+    return { status: 200, targets: [blank] };
+  }, { timeoutMs: remaining });
+  assert.equal((await r.promise).id, blank.id);
+  assert.equal(reads, 6);
+  assert.ok(r.elapsed() > CHROME_PAGE_DISCOVERY_MS);
+  assert.ok(publishedMs + r.elapsed() < CHROME_STARTUP_MS);
+  const stalled = run(({ budget, advance }) => {
+    advance(budget); throw Object.assign(new Error(), { name: 'TimeoutError' });
+  }, { timeoutMs: remaining });
+  await assert.rejects(stalled.promise, error => error.code === 'CDP_PAGE_DISCOVERY_TIMEOUT' && error.diagnostic.elapsedMs === remaining);
+  assert.equal(publishedMs + stalled.elapsed(), CHROME_STARTUP_MS);
+});
+
+test('CDP: presupuesto agotado no lee y los plazos inválidos se rechazan', async () => {
+  let reads = 0;
+  await assert.rejects(run(() => { reads++; }, { timeoutMs: 0 }).promise, error => error.code === 'CDP_PAGE_DISCOVERY_TIMEOUT');
+  assert.equal(reads, 0);
+  for (const timeoutMs of [-1, Infinity, NaN, CHROME_STARTUP_MS + 1])
+    await assert.rejects(run(() => {}, { timeoutMs }).promise, { code: 'ERR_ASSERTION' });
 });
 test('CDP: el diagnóstico de ausencia distingue páginas y nunca publica URLs, títulos o errores originales', async () => {
   const secret = 'synthetic-private-value';

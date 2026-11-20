@@ -28,7 +28,7 @@ test('disponibilidad propia: contexto, zona, motivo, incertidumbre y lectura sin
       const receipt=()=>({id:refereeId,version:5,operationKey:window.posts.at(-1).operationKey});
       window.fetch=async(url,init)=>{if(init?.method==='POST'){window.posts.push(JSON.parse(init.body));if(window.reply==='pending')return await new Promise((resolve,reject)=>{window.failPost=()=>reject(Error('Respuesta incierta sintetica'));window.finishPost=()=>resolve(new Response(JSON.stringify(receipt())))});return new Response(JSON.stringify(receipt()))}return new Response(JSON.stringify({receipt:window.recovered?receipt():null}))};
       const root=createRoot(document.getElementById('root'));let serial=0;
-      window.renderScenario=(mode='select')=>flushSync(()=>root.render(<OwnAvailabilityWorkspaceView key={++serial} workspace={{actorId,referee:mode==='unregistered'?null:{id:refereeId,version:4,active:mode!=='inactive'},contexts:mode==='unregistered'?[]:[window.fixtureContext],leagueId:mode==='select'?'':leagueId,seasonId:mode==='select'?'':seasonId,canUpdate:!['select','unregistered','readonly','inactive'].includes(mode),blockedCode:mode==='readonly'?'SHARED_AVAILABILITY_SCOPE':mode==='inactive'?'INACTIVE':null,intervals:['list','readonly','inactive'].includes(mode)?[{id:id(),refereeId,startsAt:'2026-12-05T14:00:00Z',endsAt:'2026-12-05T16:00:00Z',available:true},{id:id(),refereeId,startsAt:'2026-12-06T14:00:00Z',endsAt:'2026-12-06T16:00:00Z',available:false}]:[]}}/>));
+      window.renderScenario=(mode='select')=>flushSync(()=>root.render(<OwnAvailabilityWorkspaceView key={++serial} workspace={{actorId,referee:mode==='unregistered'?null:{id:refereeId,version:4,active:mode!=='inactive'},contexts:mode==='unregistered'?[]:[window.fixtureContext],leagueId:mode==='select'?'':leagueId,seasonId:mode==='select'?'':seasonId,canUpdate:!['select','unregistered','readonly','inactive'].includes(mode),blockedCode:mode==='readonly'?'SHARED_AVAILABILITY_SCOPE':mode==='inactive'?'INACTIVE':null,intervals:mode==='expiring'?[{id:id(),refereeId,startsAt:new Date(Date.now()-10000).toISOString(),endsAt:new Date(Date.now()+1800).toISOString(),available:false}]:['list','readonly','inactive'].includes(mode)?[{id:id(),refereeId,startsAt:new Date(new Date(Date.now()+86400000).setUTCHours(14,0,0,0)).toISOString(),endsAt:new Date(new Date(Date.now()+86400000).setUTCHours(16,0,0,0)).toISOString(),available:true},{id:id(),refereeId,startsAt:new Date(Date.now()+86400000).toISOString(),endsAt:new Date(Date.now()+90000000).toISOString(),available:false}]:[]}}/>));
       window.renderScenario();
     ` } });
   const server = createServer((req, res) => {
@@ -48,14 +48,14 @@ test('disponibilidad propia: contexto, zona, motivo, incertidumbre y lectura sin
   assert.equal(await ev(`document.getElementById('own-availability-context').value`), '');
   assert.equal(await ev(`document.getElementById('own-availability-context').placeholder`), 'Selecciona una liga y temporada');
   await ev(`document.getElementById('own-availability-context').click()`); await wait(`document.querySelector('[role=option]')`);
-  await ev(`document.querySelector('[role=option]').click()`); await wait(`document.body.textContent.includes('Aún no has registrado intervalos')`);
+  await ev(`document.querySelector('[role=option]').click()`); await wait(`document.body.textContent.includes('Sin intervalos vigentes ni próximos')`);
   assert.match(await ev('window.route'), /my-availability\?league=.*&season=/);
   await click('Añadir intervalo'); await wait(`document.querySelector('dialog[open]')`);
   assert.match(await ev(`document.querySelector('dialog textarea').placeholder`), /Disponibilidad confirmada/);
   assert.equal(await ev(`document.querySelector('dialog textarea').value`), '');
   await ev(`document.querySelector('dialog [role=combobox]').click()`); await wait(`document.querySelector('[role=option]')`);
-  await ev(`[...document.querySelectorAll('[role=option]')].find(e=>e.textContent==='Indisponible').click()`);
-  assert.match(await ev(`document.querySelector('dialog textarea').placeholder`), /horario de trabajo/);
+  await ev(`[...document.querySelectorAll('[role=option]')].find(e=>e.textContent==='No disponible').click()`);
+  assert.match(await ev(`document.querySelector('dialog textarea').placeholder`), /Compromiso de trabajo/);
   await input('dialog input[type=datetime-local]', 0, '2026-12-05T08:00');
   await input('dialog input[type=datetime-local]', 1, '2026-12-05T10:00');
   await input('dialog textarea', 0, 'Horario de trabajo sintético');
@@ -78,6 +78,8 @@ test('disponibilidad propia: contexto, zona, motivo, incertidumbre y lectura sin
     await click('Añadir intervalo'); await click('Cancelar'); await wait(`!document.querySelector('dialog[open]')`);
     assert.equal(await ev('document.activeElement.textContent'), 'Añadir intervalo');
   }
+  await ev(`window.renderScenario('expiring')`); await wait(`document.querySelector('article')?.innerText.includes('No disponible')`);
+  await wait(`!document.querySelector('article') && document.body.textContent.includes('Sin intervalos vigentes ni próximos')`);
   await ev(`window.renderScenario('readonly')`);
   assert.equal(await ev(`[...document.querySelectorAll('button')].filter(b=>b.textContent==='Añadir intervalo'||b.textContent==='Editar intervalo').every(b=>b.disabled)`), true);
   assert.match(await ev('document.body.textContent'), /Falta permiso propio/);

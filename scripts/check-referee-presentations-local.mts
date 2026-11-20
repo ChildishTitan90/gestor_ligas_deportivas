@@ -134,9 +134,9 @@ try{
     const [receipt]=await tx.$queryRaw<{input_hash:string;result:unknown}[]>`SELECT input_hash,result FROM sports_management.referee_operations WHERE actor_id=${actors.commission}::uuid AND operation_key=${create.operationKey}::uuid`;
     assert.equal(JSON.stringify(receipt).includes(create.temporaryPassword),false);
     stage="own-availability-before-assignments";
-    await assert.rejects(readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id),{code:"FORBIDDEN"});
+    await assert.rejects(readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id,new Date('2026-12-05T14:00:00Z')),{code:"FORBIDDEN"});
     await tx.users.update({where:{id:access.id},data:{must_change_password:false},select:{id:true}});
-    let own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id);
+    let own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id,new Date('2026-12-05T14:00:00Z'));
     assert.equal(own.canUpdate,true);assert.equal(own.intervals.length,0);
     assert.equal(await tx.referee_assignments.count({where:{referee_id:row.referee_id!}}),0);
     const availability={kind:"availability",refereeId:row.referee_id!,leagueId:league.id,seasonId:season.id,expectedVersion:own.referee!.version,
@@ -148,8 +148,11 @@ try{
     await assert.rejects(mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,operationKey:randomUUID()}),{code:"STALE_VERSION"});
     await assert.rejects(mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,kind:"approve"}),{code:"INVALID_PAYLOAD"});
     await assert.rejects(authorizeRefereeing(tx,access.id,"UPDATE",league.id,season.id),{code:"FORBIDDEN"});
-    own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id);
+    own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id,new Date('2026-12-05T14:00:00Z'));
     assert.equal(own.intervals.length,1);assert.equal(own.intervals[0].refereeId,row.referee_id);
+    const atEnd = await readOwnAvailabilityWorkspace(tx, access.id, league.id, season.id, new Date(availability.endsAt));
+    assert.equal(atEnd.intervals.length, 0, "Al terminar desaparece de la agenda");
+    assert.equal(await tx.referee_availability.count({where:{referee_id:row.referee_id!}}), 1, "El vencimiento conserva el antecedente");
     const otherPerson=await tx.people.create({data:{first_name:`Otro ${nonce}`,paternal_surname:"Sintético"},select:{id:true}});
     const otherReferee=await tx.referees.create({data:{person_id:otherPerson.id},select:{id:true}});
     const otherInterval=await tx.referee_availability.create({data:{referee_id:otherReferee.id,starts_at:new Date(availability.startsAt),ends_at:new Date(availability.endsAt),is_available:true},select:{id:true}});
@@ -197,7 +200,7 @@ try{
     assert.equal(await tx.referee_operations.count({where:{assignment_id:assignment.id}}),3);
 
     stage="own-conflict-attempt";
-    own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id);
+    own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id,new Date('2026-12-05T14:00:00Z'));
     await tx.$executeRawUnsafe("SAVEPOINT own_conflict_attempt");
     let conflictError:unknown;
     await assert.rejects(mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,operationKey:randomUUID(),expectedVersion:own.referee!.version,startsAt:"2026-12-05T16:00:00Z",endsAt:"2026-12-05T17:00:00Z",available:false}),error=>{conflictError=error;return error instanceof Error&&"meta"in error&&JSON.stringify(error.meta).includes("APPROVED_ASSIGNMENT_CONFLICT");});
@@ -221,7 +224,7 @@ try{
     const foreignClub=await tx.clubs.create({data:{league_id:foreignLeague.id,name:"Club ajeno",reference_number:`F-${nonce}`},select:{id:true}});
     await tx.club_affiliations.create({data:{club_id:foreignClub.id,season_id:foreignSeason.id,league_id:foreignLeague.id,reference_number:`F-${nonce}`,uniform_colors:"Sintético",status:"APPROVED",requested_by:actors.delegate},select:{id:true}});
     await tx.club_season_referees.create({data:{referee_id:row.referee_id!,club_id:foreignClub.id,season_id:foreignSeason.id},select:{id:true}});
-    own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id);
+    own=await readOwnAvailabilityWorkspace(tx,access.id,league.id,season.id,new Date('2026-12-05T14:00:00Z'));
     assert.equal(own.canUpdate,false);assert.equal(own.blockedCode,"SHARED_AVAILABILITY_SCOPE");
     assert.equal(own.contexts.some(c=>c.leagueId===foreignLeague.id),false);
     await assert.rejects(mutateOwnAvailabilityInTransaction(tx,access.id,{...availability,operationKey:randomUUID(),expectedVersion:own.referee!.version}),{code:"SHARED_AVAILABILITY_SCOPE"});

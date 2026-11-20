@@ -38,7 +38,13 @@
     ".next-auth-tests/types/**/*.ts",
     ".next-auth-tests/dev/types/**/*.ts",
     ".next-player-manual/types/**/*.ts",
-    ".next-player-manual/dev/types/**/*.ts"
+    ".next-player-manual/dev/types/**/*.ts",
+    ".next-offline-tests/types/**/*.ts",
+    ".next-offline-tests/dev/types/**/*.ts",
+    ".next-auth-tests-3193/types/**/*.ts",
+    ".next-auth-tests-3193/dev/types/**/*.ts",
+    ".next-auth-tests-3398/types/**/*.ts",
+    ".next-auth-tests-3398/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

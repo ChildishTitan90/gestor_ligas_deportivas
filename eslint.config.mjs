@@ -10,6 +10,8 @@ const eslintConfig = defineConfig([
     // Default ignores of eslint-config-next:
     ".next/**",
     ".next-auth-tests/**",
+    ".next-auth-tests-*/**",
+    ".next-offline-tests/**",
     ".next-player-manual/**",
     ".worktrees/**",
     "out/**",

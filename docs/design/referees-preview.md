@@ -42,13 +42,13 @@ demostración» restaura el fixture. El estado sin conexión informa esta limita
 | Padrón | Buscar Alba (también `ÁLBA`), filtrar club o activo/inactivo. Bruna está inactiva. |
 | Presentar | Elegir Fina del catálogo existente y un club; aplicar solo a la demo. No crea persona, cuenta, rol ni permiso. |
 | Editar | Modificar club/estado; persona queda fija. Escape/Cancelar con cambios pide descartar o continuar. La relación es única por árbitro y temporada. |
-| Disponibilidad | Ciro tiene disponibilidad amplia y una indisponibilidad de 10:00 a 12:00 del 21/11/2026; el bloqueo prevalece en el ejemplo. Dara presenta traslape. |
+| Disponibilidad | Ciro tiene disponibilidad amplia y un intervalo «No disponible» de 10:00 a 12:00 del 21/11/2026; el bloqueo prevalece en el ejemplo. Dara presenta traslape. |
 | Sin intervalos | «Simular sin intervalos» muestra disponibilidad sin confirmar y evita presumir elegibilidad. Reiniciar restaura los intervalos. |
 | Cuota | Brisas: 5 equipos → 2 requeridos, 3 presentados, 0 faltantes. Cedro: 4 → 1, 1, 0. Roble: 9 → 3, 1, 2. Faro: 0 → 0, 0, 0. |
 | Positiva | D-101 / Alba está pendiente y sin bloqueos; se puede simular aprobación y revocación. |
 | Aprobada sin conflictos | D-104 / Alba, de 12:00 a 14:00 en la zona de la liga, comienza al terminar D-101. |
 | Inactivo | D-101 / Bruna no permite aprobación. |
-| Indisponible | D-101 / Ciro coincide con su intervalo de indisponibilidad. |
+| No disponible | D-101 / Ciro coincide con su intervalo de indisponibilidad. |
 | Traslape | D-101 / Dara coincide con D-102, que ya está aprobado. |
 | Club en grupo | D-101 / Elio: Cedro C pertenece al grupo A aunque el encuentro sea Roble A – Faro A. Se muestra ese motivo de bloqueo. |
 | Estados | Pendiente (`PROPOSED`), aprobada (`APPROVED`), revocada (`REVOKED`). Bloqueos y disponibilidad son evaluación de presentación, no estados nuevos de base. |

@@ -4,6 +4,7 @@ import {participationPeriods} from '../../src/features/match-reports/tactics.ts'
 import {mkdir,writeFile} from 'node:fs/promises';
 
 import {launchChrome} from './chrome-session.mjs';
+import {captureReportCaptainSignatures} from './report-signature-browser.mjs';
 
 import {Browser} from '../integration/auth.test.mjs';
 
@@ -20,17 +21,18 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
   const browser=await launchChrome(`${base}/login`);
 
   const ev=s=>browser.evaluate(s),directory=`.codex-attachments/pdgld149/pg${postgres}`;
+  const localRecord=`new Promise(resolve=>{const q=indexedDB.open('league-match-reports-v1');q.onsuccess=()=>{const db=q.result;const r=db.transaction('reports').objectStore('reports').getAll();r.onsuccess=()=>{resolve(r.result.find(row=>row.matchId===${JSON.stringify(match)}));db.close()}}})`;
 
   await mkdir(directory,{recursive:true});
   await writeFile(`${directory}/browser.json`,JSON.stringify({status:'RUNNING',postgres,startedAt:new Date().toISOString()}));
 
-  async function wait(s){const end=Date.now()+45000;while(Date.now()<end){try{if(await ev(`Boolean(${s})`))return;}catch(e){if(!/context|navigat/i.test(String(e)))throw e;}await new Promise(r=>setTimeout(r,100));}throw Error(`REAL_REPORT_EXPECTATION: ${s}`);}
+  async function wait(s){const end=Date.now()+45000;while(Date.now()<end){try{if(await ev(`Promise.resolve(${s}).then(Boolean)`))return;}catch(e){if(!/context|navigat/i.test(String(e)))throw e;}await new Promise(r=>setTimeout(r,100));}throw Error(`REAL_REPORT_EXPECTATION: ${s}`);}
 
   async function click(label){await wait(`[...document.querySelectorAll('button')].some(b=>b.getClientRects().length&&!b.disabled&&(b.textContent.trim()===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)}))`);await ev(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&(b.textContent.trim()===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)}));if(!b||b.disabled)throw Error('CONTROL_NOT_AVAILABLE');b.focus();b.click();})()`);}
 
-  async function open(){await browser.command('Page.navigate',{url:`${base}/matches/${match}/report`});await wait("document.querySelector('[data-report-workspace]')");await wait("document.querySelector('nav[aria-label=\"Secciones de la cédula\"]')||(()=>{[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Capturar cédula')?.click();return false})()");}
+  async function open(){await browser.command('Page.navigate',{url:`${base}/matches/${match}/report`});await wait("document.querySelector('[data-report-workspace]')||[...document.querySelectorAll('button')].some(b=>b.textContent==='Aceptar y preparar')");if(!await ev("Boolean(document.querySelector('[data-report-workspace]'))")){await click('Aceptar y preparar');await wait("document.querySelector('[data-report-workspace]')");}await wait("document.querySelector('nav[aria-label=\"Secciones de la cédula\"]')||(()=>{[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Capturar cédula')?.click();return false})()");}
 
-  async function shot(name){const png=await browser.command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(`${directory}/${name}.png`,Buffer.from(png.data,'base64'));}
+  async function shot(){/* Evidence contains only assertions/metrics, never signatures. */}
   async function choose(id,label){
     await wait(`document.getElementById(${JSON.stringify(id)})`);
     await ev('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
@@ -54,25 +56,28 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
     for(const team of [home,away]){
       await choose(`formation-${team}`,'4-4-2');
       await ev(`document.querySelector('[data-pitch="${team}"] [data-pitch-slot="0"]').click()`);
-      await choose('pitch-player',team===home?'Alonso Sintético':'Brenda Sintético');await click('Aplicar posición');
+      await choose('pitch-player',team===home?'Alonso Navegador Sintético':'Brenda Navegador Sintético');
+      await ev(`(()=>{const field=document.querySelector('#pitch-slot-form input[type=number]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,${JSON.stringify(team===home?'17':'18')});field.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+      await click('Aplicar posición');
       await wait("!document.querySelector('dialog[open]')");
     }
-    await ev("(()=>{const box=[...document.querySelectorAll('input[type=checkbox]')].find(i=>i.closest('label')?.textContent.includes('Dora Sintético'));box.closest('details').open=true;box.click();})()");
+    await ev("(()=>{const box=[...document.querySelectorAll('input[type=checkbox]')].find(i=>i.closest('label')?.textContent.includes('Dora Navegador Sintético'));box.closest('details').open=true;box.click();})()");
     // Convocar ahora ocupa el campo automáticamente. Este fixture mínimo deja
     // explícitamente al suplente en banca para probar la sustitución posterior.
     await ev(`document.querySelector('[data-pitch="${home}"] [data-pitch-slot="1"]').click()`);
     await choose('pitch-player','Posición sin asignar');await click('Aplicar posición');await wait("!document.querySelector('dialog[open]')");
-    const firstHalf=initial.players.find(p=>p.name==='Alonso Sintético').id;
+    const firstHalf=initial.players.find(p=>p.name==='Alonso Navegador Sintético').id;
     await choose(`half-${firstHalf}`,'Solo primer tiempo');
-    await choose(`captain-${home}`,'Alonso Sintético');await choose(`captain-${away}`,'Brenda Sintético');
+    await choose(`captain-${home}`,'Alonso Navegador Sintético');await choose(`captain-${away}`,'Brenda Navegador Sintético');
     await click('Continuar');await wait("document.querySelector('dialog[open] input[type=checkbox]')");
     await ev("document.querySelector('dialog[open] input[type=checkbox]').click()");await click('Confirmar y guardar alineaciones');
-    await wait("!document.querySelector('dialog[open]') && document.body.innerText.includes('Acuse recibido del servidor')");
+    await wait("!document.querySelector('dialog[open]') && document.body.innerText.includes('Acuse de borrador')");
     await click('Iniciar partido');await click('Confirmar inicio');await wait("!document.querySelector('dialog[open]') && document.body.innerText.includes('Primer tiempo')");
+    await wait(`(${localRecord}).then(row=>!row.pending.length&&row.lastReceipt?.receipt.clock?.phase==='FIRST_HALF')`);
     await click('Eventos');await click('Registrar evento');await choose('event-type','Cambio');await choose('event-team',initial.match.home.name);
-    await choose('event-player','Dora Sintético');await choose('event-outgoing','Alonso Sintético');await choose('event-replacement-captain','Dora Sintético');
+    await choose('event-player','Dora Navegador Sintético');await choose('event-outgoing','Alonso Navegador Sintético');await choose('event-replacement-captain','Dora Navegador Sintético');
     await number('period','1');await number('minute','12');await number('second','0');await click('Aplicar cambio');await wait("!document.querySelector('dialog[open]')");
-    await click('Registrar evento');await choose('event-type','Gol');await choose('event-team',initial.match.home.name);await choose('event-player','Dora Sintético');
+    await click('Registrar evento');await choose('event-type','Gol');await choose('event-team',initial.match.home.name);await choose('event-player','Dora Navegador Sintético');
     await number('period','1');await number('minute','15');await number('second','34');await click('Aplicar evento');await wait("!document.querySelector('dialog[open]')");
     await click('Alineaciones');
     for(const theme of ['light','dark'])for(const width of [390,1440]){
@@ -116,7 +121,12 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
 
     await click('Aplicar evento');await wait("!document.querySelector('dialog[open]')");
 
-    await click('Guardar borrador');await wait("document.body.innerText.includes('Acuse recibido del servidor')");
+    await wait(`(${localRecord}).then(row=>row.data.report.events.some(event=>event.typeCode==='SERIOUS_INCIDENT'))`);
+    const revisionToSave=await ev(`(${localRecord}).then(row=>row.revision)`);
+    await click('Guardar borrador');
+    // An earlier clock receipt remains visible while edits are being saved.
+    // Require the revision containing the incident before reading SQL.
+    await wait(`(${localRecord}).then(row=>!row.pending.length&&row.acknowledgedRevision>=${revisionToSave})`);
     const persisted=await(await client.request(`/api/match-reports/${match}`)).json();
     const halfRow=persisted.report.lineups.find(r=>r.playerId===firstHalf);
     assert.equal(halfRow.participationHalf,1);
@@ -129,40 +139,17 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
 
     await wait("document.querySelectorAll('canvas').length===2");
 
-    for(let i=0;i<2;i++){
-
-      await ev(`document.querySelectorAll('canvas')[0].scrollIntoView({block:'center'})`);
-
-      const r=await ev(`(()=>{const r=document.querySelectorAll('canvas')[0].getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height}})()`);
-
-      const point=n=>({x:r.x+r.w*(.15+n*.06),y:r.y+r.h*(.45+(n%2)*.15)});
-
-      await browser.command('Input.dispatchMouseEvent',{type:'mousePressed',...point(0),button:'left',buttons:1,clickCount:1});
-
-      for(let n=1;n<10;n++)await browser.command('Input.dispatchMouseEvent',{type:'mouseMoved',...point(n),button:'left',buttons:1});
-
-      await browser.command('Input.dispatchMouseEvent',{type:'mouseReleased',...point(9),button:'left',buttons:0,clickCount:1});
-
-      await new Promise(r=>setTimeout(r,80));
-
-      await ev(`document.querySelectorAll('canvas')[0].closest('fieldset').querySelectorAll('button')[1].click()`);
-
-      await wait(`document.querySelectorAll('canvas')[0].closest('fieldset').querySelector('img')`);
-
-      await ev(`[...document.querySelectorAll('canvas')[0].closest('fieldset').querySelectorAll('button')].find(b=>b.textContent.trim()==='Confirmar captura').click()`);
-
-    }
+    await captureReportCaptainSignatures(browser);
 
     await browser.command('Network.enable');
     await browser.command('Network.emulateNetworkConditions',{offline:true,latency:0,downloadThroughput:-1,uploadThroughput:-1});
     try{
-      await click('Guardar borrador');await wait("document.body.innerText.includes('No conocemos el resultado')");
-      assert.match(await ev('document.body.innerText'),/La edición está bloqueada/);
+      await click('Guardar borrador');await wait("document.body.innerText.includes('Pendiente de sincronizar')");
       assert.equal(await ev("[...document.querySelectorAll('textarea')].some(t=>t.value.includes('Recorrido Chrome real PDGLD-149'))"),true);
     }finally{await browser.command('Network.emulateNetworkConditions',{offline:false,latency:0,downloadThroughput:-1,uploadThroughput:-1});}
-    const operation=await ev("document.body.innerText.match(/Operación: ([a-f0-9-]{36})/)[1]");
-    await click('Consultar acuse en servidor');await wait("document.body.innerText.includes('Aún no hay acuse')");
-    await click('Reenviar misma operación');await wait("document.body.innerText.includes('Acuse recibido del servidor')");
+    await wait("document.body.innerText.includes('Acuse de borrador')&&!document.body.innerText.includes('Consultando acuse y sincronizando')");
+    await click('Sincronizar');await wait("!document.body.innerText.includes('Consultando acuse y sincronizando')");
+    const operation=await ev(`(${localRecord}).then(row=>row.lastReceipt.receipt.operationId)`);
     const recovered=await client.request(`/api/match-reports/${match}?operationId=${operation}`);
     assert.equal(recovered.status,200);assert.equal((await recovered.json()).status,'APPLIED');
 
@@ -172,9 +159,9 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
     assert.deepEqual(participationPeriods(reopened.report.lineups.find(r=>r.playerId===firstHalf),reopened.report.events,reopened.report.clock),[{periodNumber:1,entryMinute:0,exitMinute:12}]);
     await click('Cierre y firmas');
 
-    assert.equal(await ev("[...document.querySelectorAll('img[src*="+JSON.stringify('/signatures/')+"]')].filter(i=>i.getClientRects().length).length"),2);
+    assert.equal(await ev("[...document.querySelectorAll('img[alt^=Firma]')].filter(i=>i.getClientRects().length).length"),2);
 
-    const loaded=await ev("Promise.all([...document.querySelectorAll('img')].filter(i=>i.src.includes('/signatures/')&&i.getClientRects().length).map(i=>new Promise(r=>{if(i.complete)r(i.naturalWidth>0);else{i.onload=()=>r(true);i.onerror=()=>r(false)}})))");
+    const loaded=await ev("Promise.all([...document.querySelectorAll('img')].filter(i=>i.alt.startsWith('Firma')&&i.getClientRects().length).map(i=>new Promise(r=>{if(i.complete)r(i.naturalWidth>0);else{i.onload=()=>r(true);i.onerror=()=>r(false)}})))");
 
     assert.deepEqual(loaded,[true,true]);
 
@@ -182,8 +169,8 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
 
     await click('Resumen');assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Solicitar confirmación').disabled"),true);
 
-    assert.match(await ev("document.querySelector('section[aria-label=\"Resumen previo a confirmar\"]').textContent"),/Dora Sintético · Capitán en cancha/);
-    assert.match(await ev("document.querySelector('section[aria-label=\"Resumen previo a confirmar\"]').textContent"),/Alonso Sintético · Capitán inicial/);
+    assert.match(await ev("document.querySelector('section[aria-label=\"Resumen previo a confirmar\"]').textContent"),/Dora Navegador Sintético · Capitán en cancha/);
+    assert.match(await ev("document.querySelector('section[aria-label=\"Resumen previo a confirmar\"]').textContent"),/Alonso Navegador Sintético · Capitán inicial/);
     await shot('resumen-guardado-confirmacion-bloqueada');
 
     const result={suite:'PDGLD-149 Chrome real',postgres,session:'NextAuth',databaseRole:'Preview con RLS',fetchMocked:false,savedAndReopened:true,halfReservationAndTimesReopened:true,networkLossRecovery:true,deviceSignatures:2,privateImagesLoaded:true,themes:['light','dark'],widths:[390,1440],keyboardFocus:true,acceptance:'BLOCKED',blockers:['Cierre oficial e historial','Clasificación PDGLD-29','Expedientes disciplinarios']};

@@ -15,6 +15,8 @@ const nonce = randomBytes(8).toString("hex"), container = `pdgld147-${nonce}`, d
 const docker = (args: string[]) => execFileSync("docker", args, { encoding:"utf8",windowsHide:true,stdio:["ignore","pipe","pipe"] }).trim();
 let created = false; let app: ReturnType<typeof spawn>|undefined; let db: pg.Client|undefined;
 const serve = process.argv.includes("--serve");
+const automatedOffline = process.argv.includes("--verify-offline");
+const appPort = automatedOffline ? "3298" : process.argv.includes("--http") ? "3398" : "3198";
 const version=process.argv.find(a=>a.startsWith("--postgres="))?.split("=")[1]??"15";
 if(!["15","17"].includes(version))throw Error("INVALID_POSTGRES_VERSION");
 try {
@@ -24,7 +26,7 @@ try {
   const runtimePassword=randomBytes(24).toString("hex");
   const runtimeUrl=`postgresql://gestor_ligas_preview:${runtimePassword}@127.0.0.1:${port}/${database}`;
   const env={...childEnvironment(process.env),NODE_ENV:"development" as const,
-    DATABASE_URL:adminUrl,DIRECT_URL:adminUrl,NEXTAUTH_URL:"http://127.0.0.1:3198",NEXTAUTH_SECRET:randomBytes(48).toString("hex"),AUTH_TEST_RUN:"1",
+    DATABASE_URL:adminUrl,DIRECT_URL:adminUrl,NEXTAUTH_URL:`http://127.0.0.1:${appPort}`,NEXTAUTH_SECRET:randomBytes(48).toString("hex"),AUTH_TEST_RUN:"1",MATCH_REPORT_OFFLINE_TEST:automatedOffline ? "1" : "",
     VMX_API_KEY:"",ACCOUNT_EMAIL_ENABLED:"false",RESEND_API_KEY:"",SUPABASE_URL:"https://storage.example.test",SUPABASE_STORAGE_SERVER_KEY:"synthetic-only"};
   for(let n=0;;n++){try{docker(["exec",container,"pg_isready","-U","postgres"]);break;}catch{if(n===60)throw Error("LOCAL_DATABASE_NOT_READY");await new Promise(r=>setTimeout(r,250));}}
   const migrate=spawnSync(process.execPath,["node_modules/prisma/build/index.js","migrate","deploy"],{env,encoding:"utf8",windowsHide:true});

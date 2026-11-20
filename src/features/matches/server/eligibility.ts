@@ -1,7 +1,7 @@
 import "server-only";
 import { halfCrossingProblem, halfBlockerMessages, type ParticipationHalf } from "../participation-halves";
 import { draftSchema, type ReportDraft } from "@/features/match-reports/contract";
-import { matchClockSchema, type MatchClock } from "@/features/match-reports/match-clock";
+import { matchClockSchema, verifiedClockBoundaries, type MatchClock } from "@/features/match-reports/match-clock";
 import { participationPeriods } from "@/features/match-reports/tactics";
 import { lockParticipationPeople } from "./participation-lock";
 import { z } from "zod";
@@ -127,10 +127,10 @@ export async function evaluateAuthorizedMatchInTransaction(tx: Prisma.Transactio
         const otherHalf = otherRow?.participationHalf;
         const problem = halfCrossingProblem({ seasonId: match.season_id, clubId: target.clubId, categoryId: target.seasonCategoryId,
           half: ownRow?.participationHalf, startsAt: match.starts_at, endsAt: match.ends_at,
-          boundaries: clock?.boundaries, hasParticipation: (ownPeriods.length > 0 && !(ownRow?.participationHalf === 2 && clock?.phase === "BREAK" && ownPeriods.every(p => p.periodNumber === 2 && p.entryMinute === 0 && p.exitMinute === null))) || !!ownRow?.starter && !!clock?.boundaries?.firstStartedAt }, {
+          boundaries: verifiedClockBoundaries(clock), hasParticipation: (ownPeriods.length > 0 && !(ownRow?.participationHalf === 2 && clock?.phase === "BREAK" && ownPeriods.every(p => p.periodNumber === 2 && p.entryMinute === 0 && p.exitMinute === null))) || !!ownRow?.starter && !!clock?.boundaries?.firstStartedAt }, {
           seasonId: other.match_reports.matches.season_id, clubId: other.season_teams.club_id, categoryId: other.season_teams.season_category_id!,
           half: otherHalf, startsAt: other.match_reports.matches.starts_at, endsAt: other.match_reports.matches.ends_at,
-          boundaries: otherClock.success ? otherClock.data.boundaries : undefined, hasParticipation: (other.player_period_participations.length > 0 && !(otherHalf === 2 && otherClock.success && otherClock.data.phase === "BREAK" && other.player_period_participations.every(p => p.period_number === 2 && p.entry_minute === 0 && p.exit_minute === null))) || other.is_starter && !!(otherClock.success && otherClock.data.boundaries?.firstStartedAt),
+          boundaries: verifiedClockBoundaries(otherClock.success ? otherClock.data : null), hasParticipation: (other.player_period_participations.length > 0 && !(otherHalf === 2 && otherClock.success && otherClock.data.phase === "BREAK" && other.player_period_participations.every(p => p.period_number === 2 && p.entry_minute === 0 && p.exit_minute === null))) || other.is_starter && !!(otherClock.success && otherClock.data.boundaries?.firstStartedAt),
         });
         if (problem && !blockers.some(b => b.code === problem)) blockers.push({ code: problem, message: halfBlockerMessages[problem] });
         if (problem === "PARTICIPATION_HALF_REQUIRED" && otherHalf) otherHalves.push(otherHalf);

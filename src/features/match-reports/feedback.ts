@@ -1,9 +1,11 @@
 const messages: Record<string, string> = {
+  STALE_VERSION: "Cambió la versión del partido o de la cédula. Conservamos tu copia para comparar y revisar antes de continuar.",
+  CLOCK_TIME_CONFLICT: "La hora capturada está fuera del intervalo permitido o es anterior al periodo vigente. Conserva la copia para revisión.",
   PARTICIPATION_RETRY_REQUIRED: "Otra captura cambió al mismo tiempo. Conservamos tus datos; vuelve a guardar.",
   PARTICIPATION_HALF_REQUIRED: "Indica mitades distintas en las cédulas de horarios coincidentes.",
   PARTICIPATION_HALF_CONFLICT: "La captura contradice la mitad reservada o repite la del otro partido.",
   PARTICIPATION_CONTEXT_CONFLICT: "El traslado requiere categorías distintas del mismo club y temporada.",
-  PARTICIPATION_CLOCK_REQUIRED: "Faltan marcas reales del medio tiempo. No se puede certificar el traslado.",
+  PARTICIPATION_CLOCK_REQUIRED: "Traslado pendiente de revisión. Comisión debe contrastar el fin del primer tiempo y el inicio del segundo en ambas cédulas. Se requieren marcas comprobadas.",
   PARTICIPATION_REAL_TIME_CONFLICT: "Los tiempos reales se superponen: el otro primer tiempo terminó después de iniciar este segundo tiempo.",
   SECOND_HALF_STARTER: "Quien participa solo en el segundo tiempo debe iniciar en banca.",
   HALFTIME_ENTRY_REQUIRED: "El traslado de partido solo admite entrada al inicio del segundo tiempo, minuto relativo 0 y segundo 0.",

@@ -118,7 +118,7 @@ en esta máquina (cinco y tres contextos), sin escrituras.
 2. Abrir **Arbitraje → Mi disponibilidad** (`/referees/my-availability`) y elegir
    liga/temporada. Debe funcionar sin partidos asignados. Sin incorporación
    vigente debe explicar el vacío, sin mostrar datos de otros árbitros.
-3. Añadir intervalos disponible e indisponible. El motivo muestra ejemplos sin
+3. Añadir intervalos «Disponible» y «No disponible». El motivo muestra ejemplos sin
    prellenado. Las fechas se interpretan en la zona indicada de la liga.
    Confirmar y recargar: deben mantenerse los mismos registros.
 4. Como Comisión, consultar Disponibilidad en el padrón: debe mostrar los mismos
@@ -212,7 +212,7 @@ Estados iniciales de los ocho partidos; horarios en **America/Mexico_City**:
 | PR86-02 | 28/11/2026, 11:00–13:00 | Aprobada | Acceso efectivo para `arbitraje_arbitro` |
 | PR86-03 | 29/11/2026, 08:00–10:00 | Revocada | Conserva propuesta, aprobación y revocación en Historial; sin acceso |
 | PR86-04 | 29/11/2026, 11:00–13:00 | Pendiente | Árbitro inactivo |
-| PR86-05 | 30/11/2026, 08:00–10:00 | Pendiente | Intervalo de indisponibilidad |
+| PR86-05 | 30/11/2026, 08:00–10:00 | Pendiente | Intervalo «No disponible» |
 | PR86-06 | 28/11/2026, 11:00–13:00 | Pendiente | Traslape con PR86-02 en otra cancha y entre otros equipos |
 | PR86-07 | 30/11/2026, 11:00–13:00 | Pendiente | Otro equipo del club presentador pertenece al grupo, aunque no juega el encuentro |
 | PR86-08 | 01/12/2026, 08:00–10:00 | Pendiente | No hay disponibilidad declarada que cubra el partido |

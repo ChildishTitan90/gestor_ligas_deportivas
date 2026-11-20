@@ -6,6 +6,7 @@ import { signIn } from "next-auth/react";
 import { CircleAlert, Eye, EyeOff } from "lucide-react";
 import { loginSchema } from "@/features/auth/schemas";
 import { getLoginFeedback, type LoginFeedback } from "@/features/auth/login-feedback";
+import { observeLocalAccount } from "@/features/match-reports/offline/store.client";
 
 type FieldErrors = { email?: string; password?: string };
 
@@ -68,6 +69,7 @@ export function LoginForm() {
     let authenticated = false;
 
     try {
+      if ("indexedDB" in window) await observeLocalAccount(null).catch(() => undefined);
       const response = await signIn("credentials", {
         ...result.data,
         redirect: false,
