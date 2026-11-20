@@ -6,7 +6,7 @@ import { ActionLink } from "@/components/ui/action-link";
 import { FormDialog } from "@/components/ui/form-dialog";
 import { SelectField } from "@/components/ui/select-field";
 import { createReportClient, ReportClientError } from "../report-client";
-import { updateDraftLineup } from "../lineup-draft";
+import { updateDraftLineup, halfReservationData } from "../lineup-draft";
 import { capturedScore } from "../score";
 import { jerseyErrors, lineupSealIssues } from "../lineup-rules";
 import { advanceMatchClock, clockReading, type ClockAction } from "../match-clock";
@@ -56,6 +56,7 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
   const [onlineReport, setOnlineReport] = useState(data.report);
   const report = device?.report ?? onlineReport;
   const setReport = device?.setReport ?? setOnlineReport;
+  const lineupData = halfReservationData(data, report);
   const [savedReport, setSavedReport] = useState(data.report);
   const [stage, setStage] = useState(() => {
     if ((live && !data.match.status.captureAllowed) || ["confirmed", "stale", "uncertain"].includes(data.scenario) || offlinePreview === "receipt") return 4;
@@ -150,11 +151,12 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
   function lineup(playerId: string, changes: Partial<ReportLineup>) {
     if (sealed && Object.keys(changes).some(key => key !== "periods")) return;
     if (sealed) { edit(current => ({...current,lineups:current.lineups.map(row=>row.playerId===playerId?{...row,...changes}:row)})); return; }
-    edit(current => updateDraftLineup(data,current,playerId,changes));
+    edit(current => updateDraftLineup(lineupData,current,playerId,changes));
   }
 
   function tactics(teamId: string, value: TeamTactics, assignment?: SlotAssignment) {
     if (sealed) return;
+    value = { ...value, slots: value.slots.map(slot => report.lineups.some(row => row.playerId === slot.playerId && row.participationHalf === 2) ? { ...slot, playerId: null } : slot) };
     edit(current => ({ ...current, tactics: { ...current.tactics, [teamId]: value }, lineups: current.lineups.map(row => {
       if (!data.players.some(p => p.id === row.playerId && p.teamId === teamId)) return row;
       const starter = value.slots.some(s => s.playerId === row.playerId);
@@ -297,7 +299,7 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
             {state === "error" && operation && !(operation.kind === "confirm" && confirmationUnavailable) && <button type="button" className={secondaryButton} disabled={previewWithoutNetwork} onClick={() => runOperation(operation.kind, operation)}>{live ? "Reintentar misma operación" : "Reintentar misma operación simulada"}</button>}
             <h2 ref={panelHeading} tabIndex={-1} className="sr-only scroll-mt-40">{steps[stage]}</h2>
             {stage === 0 && sealed && <><div className="flex flex-wrap gap-2" aria-label="Modo de captura"><button type="button" aria-pressed={captureMode === "live"} className={captureMode === "live" ? primaryButton : secondaryButton} onClick={() => setCaptureMode("live")}>Captura en vivo</button><button type="button" aria-pressed={captureMode === "posterior"} className={captureMode === "posterior" ? primaryButton : secondaryButton} onClick={() => setCaptureMode("posterior")}>Captura posterior</button></div>{captureMode === "live" ? <ReportClock device={Boolean(device)} clock={report.clock ?? null} locked={locked} dialog={clockDialog} onDialog={setClockDialog} onAction={action => runOperation("clock", undefined, undefined, action)} /> : <ReportNotice>Usa Participación y Eventos para registrar posteriormente lo ocurrido. Los minutos se indican manualmente.</ReportNotice>}</>}
-            <div hidden={stage !== 0}><ReportLineups data={data} report={report} live={Boolean(live)} locked={locked || sealed} onLineup={lineup} onTactics={tactics} onPlayer={setActionPlayer} onCaptain={(teamId, playerId) => !sealed && edit(current => ({ ...current, captains: { ...current.captains, [teamId]: playerId } }))} /></div>
+            <div hidden={stage !== 0}><ReportLineups data={lineupData} report={report} live={Boolean(live)} locked={locked || sealed} onLineup={lineup} onTactics={tactics} onPlayer={setActionPlayer} onCaptain={(teamId, playerId) => !sealed && edit(current => ({ ...current, captains: { ...current.captains, [teamId]: playerId } }))} /></div>
             <div hidden={stage !== 1}><ReportParticipation data={data} report={report} live={Boolean(live)} locked={eventLocked} onPeriod={(playerId, index) => setPeriodEditor({ playerId, index })} onRemovePeriod={(playerId, index) => lineup(playerId, { periods: report.lineups.find(row => row.playerId === playerId)!.periods.filter((_, i) => i !== index) })} onChange={() => setEventEditor({ changeOnly: true })} onEditEvent={id => setEventEditor({ id })} onRemoveEvent={removeEvent} onMoveEvent={moveEvent} /></div>
             <div hidden={stage !== 2}><section aria-label="Eventos del partido"><SectionHeading number="03" title="Lo que ocurrió en el partido">{live ? "Eventos del catálogo vigente." : "Eventos del catálogo de ejemplo."} Equipo y jugador dependen del tipo; periodo y minuto son opcionales.</SectionHeading><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted">{report.events.length} eventos registrados · Orden del registro</p><button type="button" className={secondaryButton} disabled={eventLocked} onClick={() => setEventEditor({})}><Plus size={18} aria-hidden="true" /> {report.clock?.phase === "BREAK" ? "Registrar cambio" : "Registrar evento"}</button></div><ReportEvents data={data} report={report} live={Boolean(live)} locked={eventLocked || report.clock?.phase === "BREAK"} onEdit={id => setEventEditor({ id })} onRemove={removeEvent} onMove={moveEvent} /></section></div>
             <div hidden={stage !== 3}><ReportClosing data={data} report={report} live={Boolean(live)} locked={eventLocked} signatureEpoch={signatureEpoch} onScore={(side, value) => edit(current => ({ ...current, score: { ...current.score, [side]: value } }))} onRemarks={remarks => edit(current => ({ ...current, remarks }))} onIncidents={incidents => edit(current => ({ ...current, incidents }))} onSignature={signature} /></div>

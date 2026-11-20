@@ -18,7 +18,7 @@
   "scripts": {
     "test:match-report-offline": "node --conditions=react-server --import tsx scripts/match-reports-local.mts --serve --offline --verify-offline",
     "test:pdgld149": "node scripts/test-pdgld149.mjs",
-    "test:match-report-tactics": "node --import tsx --test src/features/match-reports/tactics.test.ts src/features/match-reports/lineup-clock.test.ts",
+    "test:match-report-tactics": "node --import tsx --test src/features/match-reports/tactics.test.ts src/features/match-reports/lineup-clock.test.ts src/features/matches/participation-halves.test.ts",
     "test:match-report-storage": "node --conditions=react-server --import tsx --test src/features/match-reports/server/signature-storage-profile.test.ts",
     "test:match-report-client": "node --import tsx --test src/features/match-reports/report-client.test.ts",
     "test:match-reports": "node --conditions=react-server --import tsx scripts/match-reports-local.mts --http",

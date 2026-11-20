@@ -6,6 +6,7 @@ import { clockActionSchema, type MatchClock } from "./match-clock";
 const id = z.uuid();
 export const draftSchema = z.strictObject({
   lineups: z.array(z.strictObject({ playerId: id, teamId: id, selected: z.boolean(), starter: z.boolean(),
+    participationHalf: z.union([z.literal(1), z.literal(2)]).optional(),
     matchJersey: z.number().int().nonnegative().nullable(), periods: participationTimesSchema })).max(100)
     .refine(rows => new Set(rows.map(r => r.playerId)).size === rows.length, "No repitas jugadores."),
   captains: z.record(id, id),

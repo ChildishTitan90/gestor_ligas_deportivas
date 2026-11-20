@@ -48,7 +48,8 @@ export async function verifyOfflineReportBrowser({ base, match, db, actorId }) {
     for (const [name, value] of account.cookies) await browser.command("Network.setCookie", { name, value, url: base });
     await page.command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await page.command("Page.navigate", { url: base + "/matches" });
-    await wait("document.body?.innerText.includes('Preparar para usar sin conexión')");
+    await wait("document.readyState==='complete'&&document.body?.innerText.includes('Preparar para usar sin conexión')");
+    await ev("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
     // Lose the snapshot response after the authorized server read. An incomplete
     // preparation must never expose the capture link or publish a local report.
     const interruptPreparation = event => {
@@ -303,12 +304,16 @@ export async function verifyOfflineReportBrowser({ base, match, db, actorId }) {
     // Independent editable draft: revoke its assignment after the browser has
     // saved an edit, then exercise the real sync rejection and visible lock.
     criterion = "revocation-during-capture";
-    const setupDraft={...structuredClone(intent.attempt.command.draft),events:[],signatures:{},score:{home:null,away:null},remarks:'Preparación sintética de revocación',incidents:''};
-    setupDraft.lineups.forEach(row=>{row.periods=[];});
-    const setup=await post({formatVersion:1,operationId:crypto.randomUUID(),matchId:future,kind:'lock-lineups',expectedMatchVersion:afterSchedule.data.match.version,expectedReportVersion:0,draft:setupDraft});
-    assert.equal(setup.status,200); const sealed=await setup.json();
-    const start=await post({formatVersion:1,operationId:crypto.randomUUID(),matchId:future,kind:'clock',clockAction:{type:'start',halfMinutes:45,breakMinutes:15},expectedMatchVersion:sealed.matchVersion,expectedReportVersion:sealed.reportVersion,draft:setupDraft});
-    assert.equal(start.status,200);
+    const reusedPlayers={...structuredClone(intent.attempt.command.draft),events:[],signatures:{},score:{home:null,away:null}};
+    reusedPlayers.lineups.forEach(row=>{row.periods=[];});
+    const sportingConflict=await post({formatVersion:1,operationId:crypto.randomUUID(),matchId:future,kind:'lock-lineups',expectedMatchVersion:afterSchedule.data.match.version,expectedReportVersion:0,draft:reusedPlayers});
+    assert.equal(sportingConflict.status,409);
+    assert.equal((await sportingConflict.json()).code,'PARTICIPATION_CLOCK_REQUIRED','El horario separado no sustituye el final real del partido anterior');
+    // No players are called up here: the first fixture is still in play.
+    // Revocation is tested independently of RF02.7's sporting restrictions.
+    const setupDraft={lineups:[],captains:{},events:[],signatures:{},score:{home:null,away:null},remarks:'Preparación sintética de revocación',incidents:''};
+    const setup=await post({formatVersion:1,operationId:crypto.randomUUID(),matchId:future,kind:'save',expectedMatchVersion:afterSchedule.data.match.version,expectedReportVersion:0,draft:setupDraft});
+    assert.equal(setup.status,200,(await setup.json()).code);
     const mainPage=page;
     const securityTarget=await page.command('Target.createTarget',{url:'about:blank'});
     const securityTargets=await (await fetch(`http://${endpoint.host}/json/list`)).json();
@@ -317,18 +322,24 @@ export async function verifyOfflineReportBrowser({ base, match, db, actorId }) {
     await page.command('Page.bringToFront');
     await page.command('Page.navigate',{url:base+`/matches/${future}/report`});
     await click('Aceptar y preparar'); await wait("document.querySelector('[data-report-workspace]')");
-    await click('Capturar cédula'); await click('Cierre y firmas');
-    await edit('Copia sintética tras revocación');
+    await click('Capturar cédula');
+    const formationId=`formation-${afterSchedule.data.match.home.id}`;
     const securedLocal=local.replace(JSON.stringify(match),JSON.stringify(future));
+    await ev(`document.getElementById(${JSON.stringify(formationId)}).click()`);
+    await wait("document.querySelector('[role=listbox]')");
+    await ev("[...document.querySelectorAll('[role=option]')].find(o=>o.textContent.trim()==='4-3-3').click()");
+    await wait(`(async()=>(await ${securedLocal}).data.report.tactics?.[${JSON.stringify(afterSchedule.data.match.home.id)}]?.formation==='4-3-3')()`);
+    await wait("document.querySelector('[aria-label=\"Guardado y sincronización\"]').innerText.includes('Guardado en este dispositivo')");
     const savedBeforeRevoke=await ev(securedLocal);
+    assert.equal(savedBeforeRevoke.data.report.tactics[afterSchedule.data.match.home.id].formation,'4-3-3');
     const futureAssignment=(await db.query("SELECT id FROM sports_management.referee_assignments WHERE match_id=$1 AND status='APPROVED'",[future])).rows[0].id;
     await db.query("UPDATE sports_management.referee_assignments SET status='REVOKED' WHERE id=$1",[futureAssignment]);
     await click('Sincronizar'); await wait("document.body.innerText.includes('El servidor rechazó la captura')");
     const denied=await ev(securedLocal);
     assert.equal(fingerprint(denied.data.report),fingerprint(savedBeforeRevoke.data.report));
     assert.equal(denied.pending[0].error,'FORBIDDEN');
-    assert.equal(await ev("document.querySelector('textarea').disabled"),true);
-    assert.notEqual((await db.query('SELECT remarks FROM sports_management.match_reports WHERE match_id=$1',[future])).rows[0].remarks,denied.data.report.remarks);
+    assert.equal(await ev(`document.getElementById(${JSON.stringify(formationId)}).disabled`),true);
+    assert.notEqual((await db.query('SELECT draft_data FROM sports_management.match_reports WHERE match_id=$1',[future])).rows[0].draft_data.draft.tactics?.[afterSchedule.data.match.home.id]?.formation,'4-3-3');
     page=mainPage;
     const counts = (await db.query("SELECT count(*)::int AS total,count(DISTINCT client_id)::int AS operations FROM sports_management.match_report_syncs WHERE user_id=$1", [actorId])).rows[0];
     assert.equal(counts.total, counts.operations);

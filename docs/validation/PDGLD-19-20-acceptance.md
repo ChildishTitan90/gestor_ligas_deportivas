@@ -81,6 +81,33 @@ Verificación posterior al ajuste, secuencial en Windows con Chrome real y Postg
 - ESLint de los tres archivos de prueba y `git diff --check`: pasaron. Ambas suites compilaron la aplicación de producción y completaron TypeScript.
 - Evidencia local: `.codex-attachments/pdgld149/pg17/checks.json`, su `browser.json` y `.codex-attachments/pdgld19-20/pg17/browser.json`. No se repitió PG15 en este seguimiento.
 
+## Integración con PDGLD-16 desde develop · 19 de noviembre
+
+Base incorporada: `origin/develop` en `821ac86` (PR #63). Los conflictos se resolvieron conservando ambos contratos:
+
+- `report-workspace.tsx`: estado durable del dispositivo y reloj offline, junto con `halfReservationData` y sus restricciones de alineación.
+- `feedback.ts`: mensajes de conflicto/fecha offline y mensajes de participación por mitades.
+- `server/service.ts`: una sola transición del reloj, antes de evaluar elegibilidad por mitades, usando el `occurredAt` original y sus límites de antigüedad/orden. Se mantienen bloqueo por persona, revalidación, transacción e idempotencia.
+
+La integración verifica que el inicio real de la primera mitad sea la hora capturada offline. El recorrido de navegador conserva las aserciones del PR #63 sobre reserva de primera mitad y salida al minuto 12 al guardar/reabrir. Espera un **nuevo ID de operación reconocido en IndexedDB** antes de consultar los periodos del servidor; el acuse anterior continúa visible mientras se guarda la revisión siguiente y no acredita ese nuevo guardado.
+
+El fixture de revocación offline usa un borrador previo sin convocados. Antes comprueba que intentar reutilizar a los jugadores del primer encuentro todavía en juego devuelve `PARTICIPATION_CLOCK_REQUIRED`: la separación del horario no demuestra que terminó la participación real. Así se conserva ese control deportivo y se prueba por separado la revocación visible, la copia local y la intención pendiente.
+
+Un intento intermedio de componentes falló al comprobar el foco en «Abrir cédula» en la vista previa sintética; pasó al repetir la suite aislada, sin retirar la aserción ni modificar el componente. No se considera diagnosticada esa intermitencia. La confirmación de CI remoto sigue pendiente de publicar el merge.
+
+Verificación final del merge, con datos sintéticos y PostgreSQL desechable:
+
+| Comando | Resultado |
+| --- | --- |
+| `npm run test:pdgld149 -- --postgres=15` y `--postgres=17` | Pasaron: 17 reglas/cliente, 20 componentes, HTTP, firmas y navegador en cada versión. Incluyen compilación de producción y TypeScript. |
+| `npm run test:match-report-offline -- --postgres=17` | Pasó: 25 criterios, 10 operaciones distintas y 10 acuses. La preparación de revocación usa un guardado previo en lugar de sello e inicio; por eso cambia el conteo del recorrido anterior. |
+| `npm run test:match-eligibility-integration -- --postgres=15` y `--postgres=17` | Pasaron: 21 pruebas en cada versión, incluidos bloqueos entre capturas, marcas reales y persistencia de mitad/tiempos. |
+| `npm run test:match-report-tactics` | Pasó: 21 pruebas. |
+| `npm run typecheck`, `npm run lint` y ESLint final de las pruebas ajustadas | Pasaron. |
+| `npm run test:ci` en Node 24 Linux, sin red y con el repo de solo lectura | Pasó: 94 pruebas. |
+
+En este seguimiento no se repitieron el recorrido offline PG15 ni la regresión completa `--regression`. La evidencia actual de cédula está en `.codex-attachments/pdgld149/pg15` y `pg17`; la offline en `.codex-attachments/pdgld19-20/pg17/browser.json`. No se generan imágenes de firmas.
+
 ## Demo de cinco minutos para el 20 o 23 de noviembre
 
 1. `npm run match-reports:offline`; abrir el listado real del puerto 3198 con la cuenta sintética del runner.

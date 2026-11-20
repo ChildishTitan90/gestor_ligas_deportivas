@@ -18,7 +18,7 @@ export function jerseyErrors(data: ReportDemoData, report: MatchReportPresentati
  * tampoco permite eludir el bloqueo ni produce conflictos artificiales. */
 export function lineupSnapshot(draft: ReportDraft) {
   return {
-    players: draft.lineups.filter(r => r.selected).map(r => ({ playerId: r.playerId, teamId: r.teamId, starter: r.starter, jersey: r.matchJersey })).sort((a, b) => a.playerId.localeCompare(b.playerId)),
+    players: draft.lineups.filter(r => r.selected).map(r => ({ playerId: r.playerId, teamId: r.teamId, starter: r.starter, jersey: r.matchJersey, ...(r.participationHalf ? { participationHalf: r.participationHalf } : {}) })).sort((a, b) => a.playerId.localeCompare(b.playerId)),
     captains: Object.entries(draft.captains).sort(([a], [b]) => a.localeCompare(b)),
     tactics: Object.entries(draft.tactics ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([teamId, t]) => ({ teamId, formation: t.formation, customFormation: t.formation === "CUSTOM" ? t.customFormation?.trim() ?? "" : "", slots: t.slots, kitSource: t.kitSource, kit: t.kit, keeperKit: keeperKit(t) })),
   };
