@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { advanceMatchClock } from "./match-clock";
 import { randomUUID } from "node:crypto";
 import { currentPitch, formationSlots, formations, participationPeriods, tacticSchema } from "./tactics";
 import { canonicalAffiliationSubmission, affiliationSubmissionSchema } from "@/features/clubs/affiliation-submission";
@@ -61,4 +62,21 @@ test("RGB validado, conversión nativa y huella de afiliación compatible con co
   const legacy = affiliationSubmissionSchema.parse({ submissionKey: randomUUID(), clubId: randomUUID(), seasonId: randomUUID(), clubName: "Club sintético", uniformColors: "Azul y blanco", categoryIds: [randomUUID()], officers: { PRESIDENT: person, SECRETARY: person, TREASURER: person } });
   assert.equal(Object.hasOwn(JSON.parse(canonicalAffiliationSubmission(legacy)), "uniformKits"), false);
   assert.notEqual(canonicalAffiliationSubmission(legacy), canonicalAffiliationSubmission({ ...legacy, uniformKits: defaultUniformKits }));
+});
+
+
+test("PDGLD-16: suplente de primera mitad conserva entrada y cierra salida al descanso real", () => {
+  const row: ReportLineup = { playerId: substitute, selected: true, starter: false,
+    matchJersey: 9, participationHalf: 1, periods: [] };
+  const entry = event("SUBSTITUTION", substitute, starter, 20);
+  const started = advanceMatchClock(null, { type: "start", halfMinutes: 45, breakMinutes: 15 }, "2026-11-19T18:00:00Z");
+  const rest = advanceMatchClock(started, { type: "end-half" }, "2026-11-19T18:48:00Z");
+  assert.deepEqual(participationPeriods(row, [entry], rest), [{ periodNumber: 1, entryMinute: 20, exitMinute: 48 }]);
+  assert.deepEqual(participationPeriods(row, [entry], started), [{ periodNumber: 1, entryMinute: 20, exitMinute: null }]);
+  assert.deepEqual(participationPeriods(row, [], rest), [], "La reserva no inventa participación de quien no entró");
+  const explicit = { ...row, periods: [{ periodNumber: 1, entryMinute: 20, exitMinute: 30 }] };
+  assert.deepEqual(participationPeriods(explicit, [], rest), explicit.periods, "No sobrescribe una salida anterior");
+  const exit = { ...event("SUBSTITUTION", third, substitute, 45), periodNumber: 2, periodMinute: 0, second: 0 };
+  assert.deepEqual(participationPeriods(row, [entry, exit], rest), [{ periodNumber: 1, entryMinute: 20, exitMinute: 48 }]);
+  assert.deepEqual(row.periods, [], "La proyección no modifica el borrador original");
 });

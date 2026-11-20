@@ -9,6 +9,8 @@ export const clockActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("start-second") }),
 ]);
 export const matchClockSchema = z.strictObject({
+  boundaries: z.strictObject({ firstStartedAt: z.iso.datetime().optional(), firstEndedAt: z.iso.datetime().optional(),
+    secondStartedAt: z.iso.datetime().optional(), secondEndedAt: z.iso.datetime().optional() }).optional(),
   phase: z.enum(["FIRST_HALF", "BREAK", "SECOND_HALF", "ENDED"]),
   phaseStartedAt: z.iso.datetime(), endedAt: z.iso.datetime().nullable(),
   halfMinutes: z.number().int().min(1).max(120), breakMinutes: z.number().int().min(1).max(120),
@@ -19,14 +21,14 @@ export type MatchClock = z.infer<typeof matchClockSchema>;
 export function advanceMatchClock(current: MatchClock | null, action: ClockAction, now: string): MatchClock {
   if (action.type === "start") {
     if (current) throw Error("CLOCK_ALREADY_STARTED");
-    return { phase: "FIRST_HALF", phaseStartedAt: now, endedAt: null, halfMinutes: action.halfMinutes, breakMinutes: action.breakMinutes, extraMinutes: 0, extraDeclared: false };
+    return { boundaries: { firstStartedAt: now }, phase: "FIRST_HALF", phaseStartedAt: now, endedAt: null, halfMinutes: action.halfMinutes, breakMinutes: action.breakMinutes, extraMinutes: 0, extraDeclared: false };
   }
   if (!current) throw Error("CLOCK_NOT_STARTED");
   const running = current.phase === "FIRST_HALF" || current.phase === "SECOND_HALF";
   if (action.type === "add-time" && running) return { ...current, extraMinutes: action.minutes, extraDeclared: true };
   if (action.type === "set-break" && current.phase === "BREAK") return { ...current, breakMinutes: action.minutes };
-  if (action.type === "start-second" && current.phase === "BREAK") return { ...current, phase: "SECOND_HALF", phaseStartedAt: now, extraMinutes: 0, extraDeclared: false };
-  if (action.type === "end-half" && running) return current.phase === "FIRST_HALF" ? { ...current, phase: "BREAK", phaseStartedAt: now, extraMinutes: 0, extraDeclared: false } : { ...current, phase: "ENDED", endedAt: now };
+  if (action.type === "start-second" && current.phase === "BREAK") return { ...current, boundaries: { ...current.boundaries, secondStartedAt: now }, phase: "SECOND_HALF", phaseStartedAt: now, extraMinutes: 0, extraDeclared: false };
+  if (action.type === "end-half" && running) return current.phase === "FIRST_HALF" ? { ...current, boundaries: { ...current.boundaries, firstEndedAt: now }, phase: "BREAK", phaseStartedAt: now, extraMinutes: 0, extraDeclared: false } : { ...current, boundaries: { ...current.boundaries, secondEndedAt: now }, phase: "ENDED", endedAt: now };
   throw Error("CLOCK_PHASE_CONFLICT");
 }
 export function clockReading(clock: MatchClock, now: number) {

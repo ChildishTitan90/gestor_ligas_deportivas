@@ -4,6 +4,7 @@ export type Blocker = { code: string; message: string };
 export type MatchPlayer = {
   registrationId: string; name: string; team: string; targetTeam: string; seasonTeamId: string;
   jerseyNumber: number | null; eligible: boolean; blockers: Blocker[];
+  halfRestriction?: 1 | 2;
   participation: { matchNumber: string; period: number; entry: number | null; exit: number | null }[];
 };
 export type LineupEvaluation = {
