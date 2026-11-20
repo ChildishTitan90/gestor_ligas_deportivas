@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Check, ClipboardCheck, ClipboardPenLine, FlaskCo
 import { ActionLink } from "@/components/ui/action-link";
 import { FormDialog } from "@/components/ui/form-dialog";
 import { SelectField } from "@/components/ui/select-field";
-import { createReportClient, ReportClientError } from "../report-client";
+import { createReportClient, ReportClientError, reportUuid } from "../report-client";
 import { updateDraftLineup, halfReservationData } from "../lineup-draft";
 import { capturedScore } from "../score";
 import { jerseyErrors, lineupSealIssues } from "../lineup-rules";
@@ -221,7 +221,7 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
     if (offlinePreview && ((kind === "save" && previewWithoutNetwork) || (kind === "confirm" && (previewWithoutNetwork || state !== "saved")))) return;
     if (invalidJerseys || (kind === "lock-lineups" && sealIssues.length) || busy.current || (locked && !(live && retry && state === "uncertain")) || (kind === "confirm" && issues.length > 0)) return;
     busy.current = true;
-    const next = retry ?? { id: crypto.randomUUID(), kind, expectedReportVersion: report.version, expectedMatchVersion: match.version, snapshot: structuredClone(snapshot ?? report), ...(clockAction ? { clockAction } : {}) };
+    const next = retry ?? { id: reportUuid(), kind, expectedReportVersion: report.version, expectedMatchVersion: match.version, snapshot: structuredClone(snapshot ?? report), ...(clockAction ? { clockAction } : {}) };
     if (offlinePreview && (kind === "clock" || kind === "lock-lineups")) {
       finishSuccess(next);
       busy.current = false;

@@ -10,6 +10,7 @@ import type { AssignmentPresentation, AssignmentStatus, PreviewState, RefereePre
 import { RefereeDialog } from "./referee-dialog";
 import { AssignmentDialog } from "./assignment-dialog";
 import {assignmentMatchesNeedingAttention,historyRefereeOptions} from "../assignment-presentation";
+import { useCurrentIntervals } from "./use-current-intervals";
 import { AvailabilityDialog } from "./availability-dialog";
 
 const secondary = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm font-semibold text-primary disabled:opacity-50";
@@ -42,6 +43,7 @@ type Activity = { id: string; assignmentId: string; matchId: string; refereeId: 
 export function RefereeWorkspace({ initialData, view, matchesHref, live }: { initialData: RefereePreviewData; view: RefereeView; matchesHref: string | null; live?: LiveRefereeControls }) {
   const [localData, setData] = useState(initialData);
   const data = live ? initialData : localData;
+  const intervals = useCurrentIntervals(data.availability, Boolean(live) && view === "availability");
   const [leagueId, setLeagueId] = useState(live?.leagueId ?? "");
   const [seasonId, setSeasonId] = useState(live?.seasonId ?? "");
   const [search, setSearch] = useState("");
@@ -188,11 +190,11 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
         {!currentReferee ? <p className={panel}>Selecciona un árbitro para consultar sus intervalos y conflictos.</p> : <>
           <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">Intervalos de {currentReferee.name}</h3>
             {live ? <button type="button" className={secondary} disabled={season.closed || !live.capabilities.update} onClick={()=>setAvailabilityEditor({})}>Añadir intervalo</button> : <button type="button" className={secondary} disabled={season.closed} onClick={() => { setData(previous => ({ ...previous, availability: previous.availability.filter(item => item.refereeId !== currentReferee.id) })); setNotice("Se retiraron los intervalos solo de la demo para mostrar disponibilidad sin confirmar. Reinicia la demostración para restaurarlos."); }}>Simular sin intervalos</button>}</div>
-          {!data.availability.some(item => item.refereeId === currentReferee.id) && <p className={panel}>Sin intervalos registrados. No se presume disponibilidad.</p>}
-          <ol className="space-y-3">{data.availability.filter(item => item.refereeId === currentReferee.id).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).map(item => <li key={item.id} className={`${panel} flex flex-wrap items-center justify-between gap-3`}>
-            <div><p className="text-sm font-semibold">{intervalLabel(item.startsAt, item.endsAt, timezone)}</p><p className="mt-1 text-xs text-muted">{timezone}{!live && " · Intervalo sintético"}</p></div><Badge tone={item.available ? "positive" : "danger"}>{item.available ? "Disponible" : "Indisponible"}</Badge>{live?.capabilities.update && <button type="button" className={secondary} onClick={()=>setAvailabilityEditor({id:item.id})}>Editar intervalo</button>}
+          {!intervals.some(item => item.refereeId === currentReferee.id) && <p className={panel}>Sin intervalos vigentes ni próximos. No se presume disponibilidad.</p>}
+          <ol className="space-y-3">{intervals.filter(item => item.refereeId === currentReferee.id).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).map(item => <li key={item.id} className={`${panel} flex flex-wrap items-center justify-between gap-3`}>
+            <div><p className="text-sm font-semibold">{intervalLabel(item.startsAt, item.endsAt, timezone)}</p><p className="mt-1 text-xs text-muted">{timezone}{!live && " · Intervalo sintético"}</p></div><Badge tone={item.available ? "positive" : "danger"}>{item.available ? "Disponible" : "No disponible"}</Badge>{live?.capabilities.update && <button type="button" className={secondary} onClick={()=>setAvailabilityEditor({id:item.id})}>Editar intervalo</button>}
           </li>)}</ol>
-          <div className={panel}><h3 className="font-semibold">Conflictos con propuestas y designaciones</h3><p className="mt-2 text-sm text-muted">Una indisponibilidad dentro de un intervalo disponible impide aprobar. También se muestran traslapes entre partidos.</p>
+          <div className={panel}><h3 className="font-semibold">Conflictos con propuestas y designaciones</h3><p className="mt-2 text-sm text-muted">«No disponible» tiene prioridad en el tramo que coincide con el partido. El intervalo disponible sigue vigente fuera de ese tramo.</p>
             <ul className="mt-4 space-y-3">{assignments.filter(item => item.refereeId === currentReferee.id && item.status !== "REVOKED").map(item => {
               const assessment = evaluate(item);
               return <li key={item.id} className="rounded-xl border border-border p-3 text-sm"><strong>{matches.find(match => match.id === item.matchId)?.number} · {assignmentLabels[item.status]}</strong>
@@ -228,7 +230,7 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
             <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs text-muted">{match.number} · {match.category} · Grupo {match.group}</p><h3 className="mt-1 font-semibold">{match.home} – {match.away}</h3></div><Badge tone={item.status === "APPROVED" ? "positive" : "neutral"}>{assignmentLabels[item.status]}</Badge></div>
             <p className="text-sm text-muted">{season.name}<br />{intervalLabel(match.startsAt, match.endsAt, timezone)} · {timezone}</p>
             <p className="font-semibold">{item.displayName ?? data.referees.find(referee => referee.id === item.refereeId)?.name} <span className="font-normal text-muted">· {clubFor(item.refereeId)?.name}</span></p>
-            <p className="text-sm">Disponibilidad: {assessment.availability === "COVERED" ? "cubre el horario" : assessment.availability === "UNAVAILABLE" ? "indisponible" : "sin confirmar"}</p>
+            <p className="text-sm">Disponibilidad: {assessment.availability === "COVERED" ? "cubre el horario" : assessment.availability === "UNAVAILABLE" ? "no disponible" : "sin confirmar"}</p>
             {item.status === "REVOKED" ? <p className="text-sm text-muted">Antecedente revocado; no ocupa el horario.</p> : assessment.blockers.length ? <ul className="list-disc space-y-1 pl-5 text-sm text-danger">{assessment.blockers.map((blocker, index) => <li key={`${blocker.code}-${index}`}>{blocker.message}</li>)}</ul> : <p className="text-sm text-positive">{live ? "Sin bloqueos actuales." : "Sin bloqueos en el ejemplo."}</p>}
             <div className="mt-auto flex flex-wrap gap-2"><button type="button" className={secondary} onClick={() => openReview(item)}>{item.status==="REVOKED"&&!item.historical&&!season.closed&&match.openForAssignments!==false&&(!live||live.capabilities.update)?"Actualizar designación":"Revisar"} {match.number} · {item.displayName ?? data.referees.find(referee => referee.id === item.refereeId)?.name}</button>
               <Link href={`${basePath}history`} className={secondary} onClick={() => { setHistoryRef("all"); setHistoryMatch(match.id); }}>Historial de {match.number}</Link></div>

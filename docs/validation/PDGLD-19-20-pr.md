@@ -6,9 +6,13 @@ PDGLD-19 / PDGLD-20: preparar cédulas, conservar captura offline y recuperar si
 
 ## Descripción
 
-Un corte de red durante la captura podía dejar la edición únicamente en memoria. Las rutas reales `/matches` y `/matches/[matchId]/report` ahora exigen preparar el partido y sus recursos, guardan cada revisión en IndexedDB desde la edición y recuperan intenciones persistidas con su UUID y contenido original. El acuse identifica solamente la revisión enviada y conserva ediciones posteriores.
+Un corte de red durante la captura podía dejar la edición únicamente en memoria. Las rutas reales `/matches` y `/matches/[matchId]/report` ofrecen preparar el partido y sus recursos, guardan cada revisión preparada en IndexedDB desde la edición y recuperan intenciones persistidas con su UUID y contenido original. El editor con conexión sigue disponible cuando falla o falta el soporte offline, incluido desarrollo. El acuse identifica solamente la revisión enviada y conserva ediciones posteriores.
 
-Se reutilizan ReportWorkspace, el shell y selectores compartidos, el contrato de versiones de PDGLD-18, `match_report_syncs`, autorización del servicio y endpoints privados de firmas. El Service Worker guarda recursos públicos; las copias privadas quedan separadas por cuenta/partido. No hay migraciones nuevas. La autorización local dura siete días con aviso previo; vencimiento de sesión permite reautenticación, y salida explícita/cambio de cuenta eliminan las copias conforme a la política documentada.
+Se reutilizan ReportWorkspace, el shell y selectores compartidos, el contrato de versiones de PDGLD-18, `match_report_syncs`, autorización del servicio y endpoints privados de firmas. El Service Worker guarda recursos públicos; las copias privadas quedan separadas por cuenta/partido. No hay migraciones nuevas. La autorización local dura siete días con aviso previo; vencimiento de sesión permite reautenticación, y el cambio de cuenta conserva y aísla las copias pendientes. La salida explícita elimina solo las copias del titular tras advertir sobre sus pendientes.
+
+Las marcas del reloj indican su origen. Una hora declarada por el dispositivo conserva el reloj de captura y exige revisión si el traslado entre encuentros depende de comprobarla. Las marcas anteriores sin origen también requieren esa revisión. La sincronización conserva la intención original.
+
+En disponibilidad arbitral se usa «No disponible». Su prioridad rige el tramo superpuesto y ambos intervalos conservan su registro. La agenda excluye los vencidos. La política acordada conserva doce meses los intervalos sin relación con partidos y mantiene los que respaldan una decisión. La implementación de la depuración queda pendiente de revisión.
 
 La rama también contiene la actualización de Next.js 16.4.3 a 16.4.6 de PDGLD-71, ya incorporada antes de esta etapa de pruebas.
 

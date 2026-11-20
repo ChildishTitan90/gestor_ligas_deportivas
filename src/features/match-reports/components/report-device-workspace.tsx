@@ -7,8 +7,8 @@ import { createReportClient, ReportClientError, type ReportOperation } from "../
 import type { MatchReportPresentation, ReportDemoData } from "../types";
 import { reportErrorMessage } from "../feedback";
 import { jerseyErrors } from "../lineup-rules";
-import { readLocalReport, writeLocalReport, subscribeReports, type LocalReport, authorizeLocalAccount } from "../offline/store.client";
-import { downloadOwnReport, prepareLocalReport } from "../offline/prepare.client";
+import { readLocalReport, writeLocalReport, subscribeReports, type LocalReport } from "../offline/store.client";
+import { prepareLocalReport } from "../offline/prepare.client";
 import { offlineSupport } from "../offline/resources.client";
 import { enqueueReport, synchronizeReport } from "../offline/sync.client";
 import { ReportWorkspace } from "./report-workspace";
@@ -22,31 +22,30 @@ export type ReportDeviceControls = {
   locked: boolean; notice: ReactNode; safelyStored: boolean;
 };
 
-export function ReportDeviceWorkspace({ actorId, initialData, restored }: { actorId: string; initialData?: ReportDemoData; restored?: LocalReport }) {
+export function ReportDeviceWorkspace({ actorId, initialData, restored, onlineRequested }: { actorId: string; initialData?: ReportDemoData; restored?: LocalReport; onlineRequested?: boolean }) {
   const [record, setRecord] = useState<LocalReport | null>(restored ?? null);
   const [consent, setConsent] = useState(false);
   const [problem, setProblem] = useState("");
-  const [unsupported, setUnsupported] = useState(false);
+  const [onlineOnly, setOnlineOnly] = useState(false);
   const [starting, setStarting] = useState(false);
   useEffect(() => {
     if (restored) return;
     let alive = true;
     void Promise.resolve().then(async () => {
-      if (!offlineSupport()) { if (alive) setUnsupported(true); return undefined; }
+      if (!offlineSupport()) { if (alive) setOnlineOnly(true); return undefined; }
       return readLocalReport(actorId, initialData!.match.id);
     }).then(value => {
       if (!alive) return;
       if (value?.prepared) setRecord(value);
+      else if (onlineRequested) setOnlineOnly(true);
       else setConsent(true);
     }).catch(() => { if (alive) setProblem("No se pudo abrir el almacenamiento. Libera espacio o habilita el almacenamiento del navegador y vuelve a preparar el partido."); });
     return () => { alive = false; };
-  }, [actorId, initialData, restored]);
+  }, [actorId, initialData, restored, onlineRequested]);
 
   async function begin() {
     setStarting(true); setProblem("");
     try {
-      await downloadOwnReport(actorId, initialData!.match.id);
-      await authorizeLocalAccount(actorId);
       const next = await prepareLocalReport(actorId, initialData!.match.id);
       setRecord(next); setConsent(false);
     } catch { setProblem("No se pudo habilitar el borrador local. Comprueba sesión, designación y espacio antes de reintentar."); }
@@ -54,12 +53,18 @@ export function ReportDeviceWorkspace({ actorId, initialData, restored }: { acto
   }
   if (record) return <DeviceCapture key={record.draftId} initial={record} serverReference={initialData} />;
   if (initialData && !initialData.match.status.captureAllowed) return <ReportWorkspace data={initialData} live={{ actorId }} />;
+  if (initialData && onlineOnly) return <>
+    <p role="status" className="mx-auto mb-4 max-w-6xl rounded-xl border border-border bg-surface p-4 text-sm">Solo con conexión. Pulsa Guardar y espera el acuse del servidor antes de salir. Los cambios pendientes quedan en esta pestaña.</p>
+    <ReportWorkspace data={initialData} live={{ actorId }} />
+  </>;
   return <section className="mx-auto max-w-3xl space-y-4 rounded-2xl border border-border bg-surface p-5">
     <h1 className="text-2xl font-semibold text-primary">Prepara el partido antes de capturar</h1>
     <p className="text-sm leading-6">El borrador se guardará desde la primera edición, incluidas las firmas. La autorización local dura siete días. Al cerrar sesión explícitamente se eliminarán las copias locales, con advertencia si hay pendientes. Una sesión vencida permite retomar tras identificarte con la misma cuenta.</p>
     <p className="text-sm leading-6 text-muted">Usa un dispositivo personal con bloqueo de pantalla. La copia contiene nombres, elegibilidad y captura del partido. El almacenamiento del navegador puede eliminarse por falta de espacio.</p>
-    {(problem || unsupported) && <p role="alert" className="text-sm text-danger">{problem || "Este navegador no reúne los requisitos offline. Usa un navegador compatible con HTTPS o localhost para preparar la cédula."}</p>}
-    <button className={primaryButton} type="button" disabled={!consent || starting || unsupported} onClick={() => void begin()}>{starting ? "Preparando partido y recursos…" : consent ? "Aceptar y preparar" : "Consultando copia local…"}</button>
+    {problem && <p role="alert" className="text-sm text-danger">{problem}</p>}
+    <div className="flex flex-wrap gap-2"><button className={primaryButton} type="button" disabled={(!consent && !problem) || starting} onClick={() => void begin()}>{starting ? "Preparando partido y recursos…" : consent || problem ? "Aceptar y preparar" : "Consultando copia local…"}</button>
+      {initialData && problem && <button className={secondaryButton} type="button" disabled={starting} onClick={() => setOnlineOnly(true)}>Capturar con conexión</button>}
+    </div>
   </section>;
 }
 
@@ -74,6 +79,7 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
   const [syncing, setSyncing] = useState(false);
   const [localOperation, setLocalOperation] = useState(false);
   const [error, setError] = useState(serverReference && (serverReference.match.version !== initial.data.match.version || serverReference.report.version !== initial.data.report.version || !serverReference.match.status.captureAllowed) ? "SERVER_REFERENCE_CHANGED" : "");
+  const [accountLocked, setAccountLocked] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [connected, setConnected] = useState(true);
   const [otherTab, setOtherTab] = useState<LocalReport | null>(null);
@@ -158,7 +164,8 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
     const unsubscribe = subscribeReports(() => {
       void readLocalReport(actorId, matchId).then(value => {
         if (!mounted.current) return;
-        if (!value) { setError("LOCAL_ACCOUNT_LOCKED"); return; }
+        setAccountLocked(!value);
+        if (!value) return;
         if (value.revision > current.current.revision || value.revision === current.current.revision && value.editId !== current.current.editId) setOtherTab(value);
         apply(value);
       }).catch(() => setError("LOCAL_READ_FAILED"));
@@ -210,6 +217,7 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
   const pending = record.revision > record.acknowledgedRevision || record.pending.length > 0;
   const locked = Boolean(localOperation || otherTab || rejected || expired || sessionExpired || error === "LOCAL_ACCOUNT_LOCKED" || error === "SERVER_REFERENCE_CHANGED");
   const receipt = record.lastReceipt;
+  if (accountLocked) return <p role="alert">La copia está bloqueada. Para retomarla, inicia sesión con la cuenta que preparó el partido.</p>;
   const notice = <section aria-label="Guardado y sincronización" className="space-y-3 rounded-2xl border border-border bg-surface p-4">
     <p className="text-sm font-semibold">{record.data.match.number} · Borrador {record.draftId.slice(0, 8)} · Revisión {record.revision}</p>
     <p role="status" aria-atomic="true" className="text-sm leading-6">{saving ? "Guardando en el dispositivo…" : localFailed ? `Falta guardar la revisión ${record.revision}. Sigue en memoria. Libera espacio y reintenta antes de salir.` : `Guardado en este dispositivo · Revisión ${savedRevision}.`} {pending && "Pendiente de sincronizar."} {connected ? "Con conexión." : "Sin conexión."}</p>

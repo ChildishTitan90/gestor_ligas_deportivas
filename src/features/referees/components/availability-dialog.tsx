@@ -12,8 +12,8 @@ export function AvailabilityDialog({ referee, interval, timezone, live, onClose 
     <form id="availability-form" className="space-y-4" onSubmit={async event=>{event.preventDefault();const startsAt=venueTimeToIso(start,timezone),endsAt=venueTimeToIso(end,timezone);if(!startsAt||!endsAt||endsAt<=startsAt){setError("Revisa el intervalo y la zona. El fin debe ser posterior y las horas deben existir sin ambigüedad.");return;}if(await live.mutate({kind:"availability",refereeId:referee.id,expectedVersion:referee.version,...(interval?{intervalId:interval.id}:{}),startsAt,endsAt,available}))onClose();}}>
       <fieldset disabled={live.pending||live.uncertain} className="space-y-4"><label className="block">Inicio<input required type="datetime-local" value={start} onChange={e=>setStart(e.target.value)} className="min-h-12 w-full rounded-xl border border-border bg-surface p-3" /></label>
       <label className="block">Fin<input required type="datetime-local" value={end} onChange={e=>setEnd(e.target.value)} className="min-h-12 w-full rounded-xl border border-border bg-surface p-3" /></label>
-      <label className="block">Tipo<SelectField value={available?"available":"unavailable"} onValueChange={v=>setAvailable(v==="available")} searchable={false} options={[{value:"available",label:"Disponible"},{value:"unavailable",label:"Indisponible"}]} /></label></fieldset>
-      {error&&<p role="alert" className="text-sm text-danger">{error}</p>}<OperationFields live={live} reasonPlaceholder={available?"Ej. Disponibilidad confirmada para este horario.":"Ej. Indisponibilidad por horario de trabajo o compromiso personal."}/>
+      <label className="block">Tipo<SelectField value={available?"available":"unavailable"} onValueChange={v=>setAvailable(v==="available")} searchable={false} options={[{value:"available",label:"Disponible"},{value:"unavailable",label:"No disponible"}]} /></label></fieldset>
+      {error&&<p role="alert" className="text-sm text-danger">{error}</p>}<OperationFields live={live} reasonPlaceholder={available?"Ej. Disponibilidad confirmada para este horario.":"Ej. Compromiso de trabajo durante ese horario."}/>
     </form>
   </FormDialog>;
 }

@@ -27,7 +27,7 @@ alineaciones, usa **OFFLINE-20**. Ambos aparecen en `/matches` y usan el flujo r
 
 1. Abre `http://127.0.0.1:3198/matches`. Pulsa **Preparar para usar sin
    conexión**, revisa la conservación local y acepta. Espera a **Disponible sin
-   conexión**. Una descarga incompleta mantiene oculto el acceso de captura.
+   conexión**. Si falla la descarga, prueba **Capturar con conexión**. En ese modo termina con **Guardar borrador** y espera el acuse del servidor.
 2. Abre la cédula real, entra a captura y, en **Cierre y firmas**, cambia una observación de ejemplo.
    Comprueba **Guardando en el dispositivo** y luego el número de revisión
    guardada, aun con internet.

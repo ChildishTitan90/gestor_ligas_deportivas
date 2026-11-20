@@ -7,7 +7,10 @@ import type { ReportDraft } from "../contract";
 import { ReportError } from "../contract";
 import { mutateReport, readReportOperation } from "./service";
 
-export { mutateReport as syncReport, readReportOperation as readSyncReceipt };
+export { readReportOperation as readSyncReceipt };
+export function syncReport(actorId: string, input: unknown) {
+  return mutateReport(actorId, input, "sync");
+}
 
 export async function prepareOwnReport(actorId: string, matchId: string) {
   return getPrisma().$transaction(async tx => {

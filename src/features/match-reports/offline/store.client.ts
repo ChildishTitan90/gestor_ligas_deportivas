@@ -16,7 +16,7 @@ export type LocalReport = {
   pending: PendingReport[];
   lastReceipt?: { draftId: string; revision: number; receipt: ReportReceipt };
 };
-type Account = { actorId: string; expiresAt: number };
+
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -51,58 +51,82 @@ export function announceReportChange() {
   channel.close();
 }
 export function subscribeReports(callback: () => void) {
-  const channel = new BroadcastChannel(channelName);
-  channel.onmessage = callback;
+  const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(channelName);
+  if (channel) channel.onmessage = callback;
   window.addEventListener(channelName, callback);
-  return () => { channel.close(); window.removeEventListener(channelName, callback); };
+  return () => { channel?.close(); window.removeEventListener(channelName, callback); };
 }
 export function activeOfflineAccount() {
-  return transact<Account | undefined>("readonly", (tx, result) => {
+  return transact<{ actorId: string; expiresAt: number } | undefined>("readonly", (tx, result) => {
     const request = tx.objectStore("account").get("active");
     request.onsuccess = () => result(request.result);
   });
 }
-export async function authorizeLocalAccount(actorId: string) {
-  await transact<void>("readwrite", tx => {
+// Lock the old partition during sign-in. Only a server-authenticated identity
+// reopens its own unexpired records. Neither transition edits the drafts.
+export async function observeLocalAccount(actorId: string | null) {
+  const changed = await transact<boolean>("readwrite", (tx, result) => {
     const accounts = tx.objectStore("account");
     const request = accounts.get("active");
     request.onsuccess = () => {
-      if (request.result?.actorId !== actorId) tx.objectStore("reports").clear();
-      accounts.put({ actorId, expiresAt: Date.now() + OFFLINE_TTL }, "active");
+      if ((request.result?.actorId ?? null) === actorId) return result(false);
+      if (actorId) accounts.put({ actorId, expiresAt: Date.now() + OFFLINE_TTL }, "active");
+      else accounts.delete("active");
+      result(true);
     };
   });
-  announceReportChange();
+  if (changed) announceReportChange();
 }
-export async function clearLocalReports() {
-  if (!("indexedDB" in window)) return;
-  await transact<void>("readwrite", tx => {
-    tx.objectStore("reports").clear();
-    tx.objectStore("account").clear();
+const accountRange = (actorId: string) => IDBKeyRange.bound([actorId], [actorId, []]);
+export async function clearLocalReports(actorId: string, discardPending: boolean) {
+  const cleared = await transact<boolean>("readwrite", (tx, result) => {
+    const accounts = tx.objectStore("account");
+    const active = accounts.get("active");
+    active.onsuccess = () => {
+      if (active.result?.actorId !== actorId) return result(true);
+      const store = tx.objectStore("reports"), range = accountRange(actorId);
+      const cursor = store.openCursor(range);
+      cursor.onsuccess = () => {
+        const entry = cursor.result;
+        if (entry && !discardPending) {
+          const row = entry.value as LocalReport;
+          if (row.pending.length || row.revision > row.acknowledgedRevision) return result(false);
+          entry.continue();
+          return;
+        }
+        store.delete(range);
+        accounts.delete("active");
+        result(true);
+      };
+    };
   });
-  announceReportChange();
+  if (cleared) announceReportChange();
+  return cleared;
 }
-export async function observeLocalAccount(actorId: string) {
-  const account = await activeOfflineAccount();
-  if (account && account.actorId !== actorId) await clearLocalReports();
-}
-export function readLocalReports() {
+export function readLocalReports(actorId?: string, matchId?: string) {
   return transact<LocalReport[]>("readonly", (tx, result) => {
     const account = tx.objectStore("account").get("active");
     account.onsuccess = () => {
-      const request = tx.objectStore("reports").getAll();
-      request.onsuccess = () => result((request.result as LocalReport[]).filter(row =>
-        row.actorId === account.result?.actorId && row.expiresAt > Date.now() && account.result.expiresAt > Date.now()));
+      if (!account.result || account.result.expiresAt <= Date.now() || actorId && account.result.actorId !== actorId) return result([]);
+      const request = tx.objectStore("reports").getAll(matchId ? [account.result.actorId, matchId] : accountRange(account.result.actorId));
+      request.onsuccess = () => result((request.result as LocalReport[]).filter(row => row.expiresAt > Date.now()));
     };
   });
 }
 export async function readLocalReport(actorId: string, matchId: string) {
-  return (await readLocalReports()).find(row => row.actorId === actorId && row.matchId === matchId);
+  return (await readLocalReports(actorId, matchId))[0];
 }
 /** Call only after reauthentication and authorization of this match. */
-export function readExpiredLocalReport(actorId: string, matchId: string) {
-  return transact<LocalReport | undefined>("readonly", (tx, result) => {
-    const request = tx.objectStore("reports").get([actorId, matchId]);
-    request.onsuccess = () => result(request.result);
+export function renewLocalReportAccess(actorId: string, matchId: string) {
+  return transact<LocalReport | undefined>("readwrite", (tx, result, fail) => {
+    const accounts = tx.objectStore("account");
+    const active = accounts.get("active");
+    active.onsuccess = () => {
+      if (active.result?.actorId !== actorId) return fail("LOCAL_ACCOUNT_LOCKED");
+      accounts.put({ actorId, expiresAt: Date.now() + OFFLINE_TTL }, "active");
+      const request = tx.objectStore("reports").get([actorId, matchId]);
+      request.onsuccess = () => result(request.result);
+    };
   });
 }
 /** Compare-and-swap in the same IDB transaction. Another tab never wins silently. */
@@ -145,16 +169,4 @@ export async function updateLocalReport(actorId: string, matchId: string, update
   });
   announceReportChange();
   return record;
-}
-export async function hasPendingLocalReports() {
-  // Expired copies still contain pending work and must be included in the
-  // explicit logout warning before deleting private data.
-  return transact<boolean>("readonly", (tx, result) => {
-    const account = tx.objectStore("account").get("active");
-    account.onsuccess = () => {
-      const reports = tx.objectStore("reports").getAll();
-      reports.onsuccess = () => result((reports.result as LocalReport[]).some(row =>
-        row.actorId === account.result?.actorId && (row.revision > row.acknowledgedRevision || row.pending.length > 0)));
-    };
-  });
 }

@@ -17,6 +17,7 @@ function harness(environment = 'development') {
   const messages = [];
   const redirects = [];
   let sessionActive = true;
+  let actorId = 'synthetic-user';
   const pendingPaths = new Set();
   let timerId = 0;
   let now = 1000;
@@ -67,13 +68,14 @@ function harness(environment = 'development') {
         init.signal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
       });
       return Promise.resolve({ ok: true, json: async () => path.endsWith('/csrf') ? { csrfToken: 'synthetic-csrf' } :
-        sessionActive ? { user: { id: 'synthetic-user', mustChangePassword: false }, expires: new Date(now + 60_000).toISOString() } : {} });
+        sessionActive ? { user: { id: actorId, mustChangePassword: false }, expires: new Date(now + 60_000).toISOString() } : {} });
     },
   };
   vm.runInNewContext(code, context);
   return {
     calls, timers, messages, document, window, pendingPaths, redirects,
     revokeSession() { sessionActive = false; },
+    changeAccount() { sessionActive = true; actorId = 'other-synthetic-user'; },
     render(path) {
       pathname = path; window.location.pathname = path; refIndex = 0; sandboxModule.exports.SessionActivity();
       // Orden del ciclo de efecto al cambiar dependencias: cleanup previo, setup nuevo.
@@ -159,6 +161,17 @@ test('vencer la sesión en captura permite reautenticar sin abandonar el borrado
     h.revokeSession(); h.window.emit('online'); await flush();
     assert.deepEqual(h.redirects, []);
     assert.equal(notices, 1);
+    h.unmount();
+  }
+});
+
+test('otra cuenta tras vencer la sesión retira la captura anterior de la pantalla', async () => {
+  for (const path of ['/matches/synthetic/report', '/offline/report']) {
+    const h = harness('production');
+    h.render(path); await flush();
+    h.revokeSession(); h.window.emit('online'); await flush();
+    h.changeAccount(); h.window.emit('online'); await flush();
+    assert.deepEqual(h.redirects, ['/matches']);
     h.unmount();
   }
 });

@@ -56,25 +56,28 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
     for(const team of [home,away]){
       await choose(`formation-${team}`,'4-4-2');
       await ev(`document.querySelector('[data-pitch="${team}"] [data-pitch-slot="0"]').click()`);
-      await choose('pitch-player',team===home?'Alonso Sintético':'Brenda Sintético');await click('Aplicar posición');
+      await choose('pitch-player',team===home?'Alonso Navegador Sintético':'Brenda Navegador Sintético');
+      await ev(`(()=>{const field=document.querySelector('#pitch-slot-form input[type=number]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,${JSON.stringify(team===home?'17':'18')});field.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+      await click('Aplicar posición');
       await wait("!document.querySelector('dialog[open]')");
     }
-    await ev("(()=>{const box=[...document.querySelectorAll('input[type=checkbox]')].find(i=>i.closest('label')?.textContent.includes('Dora Sintético'));box.closest('details').open=true;box.click();})()");
+    await ev("(()=>{const box=[...document.querySelectorAll('input[type=checkbox]')].find(i=>i.closest('label')?.textContent.includes('Dora Navegador Sintético'));box.closest('details').open=true;box.click();})()");
     // Convocar ahora ocupa el campo automáticamente. Este fixture mínimo deja
     // explícitamente al suplente en banca para probar la sustitución posterior.
     await ev(`document.querySelector('[data-pitch="${home}"] [data-pitch-slot="1"]').click()`);
     await choose('pitch-player','Posición sin asignar');await click('Aplicar posición');await wait("!document.querySelector('dialog[open]')");
-    const firstHalf=initial.players.find(p=>p.name==='Alonso Sintético').id;
+    const firstHalf=initial.players.find(p=>p.name==='Alonso Navegador Sintético').id;
     await choose(`half-${firstHalf}`,'Solo primer tiempo');
-    await choose(`captain-${home}`,'Alonso Sintético');await choose(`captain-${away}`,'Brenda Sintético');
+    await choose(`captain-${home}`,'Alonso Navegador Sintético');await choose(`captain-${away}`,'Brenda Navegador Sintético');
     await click('Continuar');await wait("document.querySelector('dialog[open] input[type=checkbox]')");
     await ev("document.querySelector('dialog[open] input[type=checkbox]').click()");await click('Confirmar y guardar alineaciones');
     await wait("!document.querySelector('dialog[open]') && document.body.innerText.includes('Acuse de borrador')");
     await click('Iniciar partido');await click('Confirmar inicio');await wait("!document.querySelector('dialog[open]') && document.body.innerText.includes('Primer tiempo')");
+    await wait(`(${localRecord}).then(row=>!row.pending.length&&row.lastReceipt?.receipt.clock?.phase==='FIRST_HALF')`);
     await click('Eventos');await click('Registrar evento');await choose('event-type','Cambio');await choose('event-team',initial.match.home.name);
-    await choose('event-player','Dora Sintético');await choose('event-outgoing','Alonso Sintético');await choose('event-replacement-captain','Dora Sintético');
+    await choose('event-player','Dora Navegador Sintético');await choose('event-outgoing','Alonso Navegador Sintético');await choose('event-replacement-captain','Dora Navegador Sintético');
     await number('period','1');await number('minute','12');await number('second','0');await click('Aplicar cambio');await wait("!document.querySelector('dialog[open]')");
-    await click('Registrar evento');await choose('event-type','Gol');await choose('event-team',initial.match.home.name);await choose('event-player','Dora Sintético');
+    await click('Registrar evento');await choose('event-type','Gol');await choose('event-team',initial.match.home.name);await choose('event-player','Dora Navegador Sintético');
     await number('period','1');await number('minute','15');await number('second','34');await click('Aplicar evento');await wait("!document.querySelector('dialog[open]')");
     await click('Alineaciones');
     for(const theme of ['light','dark'])for(const width of [390,1440]){
@@ -118,11 +121,12 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
 
     await click('Aplicar evento');await wait("!document.querySelector('dialog[open]')");
 
-    const previousReceipt=await ev(`(${localRecord}).then(row=>row.lastReceipt?.receipt.operationId)`);
+    await wait(`(${localRecord}).then(row=>row.data.report.events.some(event=>event.typeCode==='SERIOUS_INCIDENT'))`);
+    const revisionToSave=await ev(`(${localRecord}).then(row=>row.revision)`);
     await click('Guardar borrador');
-    // An earlier receipt remains visible while the next revision is saved.
-    // Wait for this operation's durable acknowledgement before reading SQL.
-    await wait(`(${localRecord}).then(row=>row.lastReceipt&&row.lastReceipt.receipt.operationId!==${JSON.stringify(previousReceipt)})`);
+    // An earlier clock receipt remains visible while edits are being saved.
+    // Require the revision containing the incident before reading SQL.
+    await wait(`(${localRecord}).then(row=>!row.pending.length&&row.acknowledgedRevision>=${revisionToSave})`);
     const persisted=await(await client.request(`/api/match-reports/${match}`)).json();
     const halfRow=persisted.report.lineups.find(r=>r.playerId===firstHalf);
     assert.equal(halfRow.participationHalf,1);
@@ -165,8 +169,8 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
 
     await click('Resumen');assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Solicitar confirmación').disabled"),true);
 
-    assert.match(await ev("document.querySelector('section[aria-label=\"Resumen previo a confirmar\"]').textContent"),/Dora Sintético · Capitán en cancha/);
-    assert.match(await ev("document.querySelector('section[aria-label=\"Resumen previo a confirmar\"]').textContent"),/Alonso Sintético · Capitán inicial/);
+    assert.match(await ev("document.querySelector('section[aria-label=\"Resumen previo a confirmar\"]').textContent"),/Dora Navegador Sintético · Capitán en cancha/);
+    assert.match(await ev("document.querySelector('section[aria-label=\"Resumen previo a confirmar\"]').textContent"),/Alonso Navegador Sintético · Capitán inicial/);
     await shot('resumen-guardado-confirmacion-bloqueada');
 
     const result={suite:'PDGLD-149 Chrome real',postgres,session:'NextAuth',databaseRole:'Preview con RLS',fetchMocked:false,savedAndReopened:true,halfReservationAndTimesReopened:true,networkLossRecovery:true,deviceSignatures:2,privateImagesLoaded:true,themes:['light','dark'],widths:[390,1440],keyboardFocus:true,acceptance:'BLOCKED',blockers:['Cierre oficial e historial','Clasificación PDGLD-29','Expedientes disciplinarios']};

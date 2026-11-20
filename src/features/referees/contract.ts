@@ -15,7 +15,7 @@ export const blockerMessages: Record<string, string> = {
   INVALID_PRESENTATION: "Falta una presentación válida por un club activo y afiliado en la temporada.",
   CLUB_IN_GROUP: "Un equipo del club que presenta al árbitro pertenece al grupo del encuentro, aunque no dispute este partido.",
   INVALID_TEAMS: "Los equipos deben estar inscritos y activos en la misma temporada, categoría y grupo.",
-  INVALID_TIME: "Falta un horario completo y válido.", UNAVAILABLE: "Existe una indisponibilidad en el horario del partido.",
+  INVALID_TIME: "Falta un horario completo y válido.", UNAVAILABLE: "El árbitro figura como no disponible durante el partido.",
   UNKNOWN_AVAILABILITY: "No hay disponibilidad que cubra todo el encuentro.", OVERLAP: "Se traslapa con otra designación aprobada.",
   DUPLICATE: "Ya existe una propuesta o designación no revocada para ese árbitro y partido.", SLOT_TAKEN: "El partido ya tiene árbitro principal aprobado.",
   IDENTITY_CHANGED: "Cambió la identidad desde la aprobación. Revoca y vuelve a proponer para revisarla.",

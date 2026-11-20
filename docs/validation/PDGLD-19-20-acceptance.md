@@ -27,11 +27,11 @@ El job existente de cédula ejecuta también el nuevo comando para cada versión
 | Criterio | Prueba | Resultado | Pendiente |
 |---|---|---|---|
 | Preparar solo partido autorizado y separar datos privados | `prepareOwnReport`, HTTP cuenta ajena; Chrome inspecciona Cache Storage | Pasó PG15/17 | Prueba física Android/iOS |
-| No habilitar captura con preparación incompleta | Chrome corta respuesta del snapshot autorizado; no fila local ni enlace de captura | Pasó PG15/17 | Corte durante descarga de cada tipo de recurso estático |
+| Preparación incompleta conserva la entrada con conexión | Chrome corta el snapshot autorizado, comprueba ausencia de copia y ofrece el editor con conexión | Ver nueva ejecución al final | Corte durante descarga de cada tipo de recurso estático |
 | Primera edición online sin Guardar, corte brusco, más captura | Chrome edita observación, inicia reloj y registra incidente sin red | Pasó PG15/17 | Ninguno en ese recorrido |
 | Cierre y reapertura offline de última revisión | Compara huella de todo el reporte: alineaciones, dorsales, capitanes, periodos, eventos, marcador, observaciones, firmas y reloj | Pasó PG15/17 | Desalojo del almacenamiento por SO real |
 | Sin espacio: memoria, aviso y reintento | Cuota real de Chrome, escritura rechazada, copia durable previa intacta, reintento al liberar cuota | Pasó PG15/17 | Dispositivo físico con disco lleno |
-| Cambio de cuenta elimina copias anteriores | Cambio de cookies autenticadas y navegación real; IndexedDB ya no devuelve la copia | Pasó PG15/17 | Revisión humana de la política de siete días y cierre explícito |
+| Cambio de cuenta conserva y aísla los pendientes | Cuenta ajena abre la página offline sin ver la cédula anterior. La reautenticación del titular recupera borrador e intención | Ver nueva ejecución al final | Prueba en dispositivo físico |
 
 ## PDGLD-20
 
@@ -123,6 +123,71 @@ Verificación posterior:
 - Windows/Chrome y PostgreSQL 17 desechable: `npm run test:match-report-offline -- --postgres=17` pasó (25 criterios, 10 operaciones distintas y 10 acuses).
 - ESLint de los archivos de prueba/runner modificados y `git diff --check`: pasaron. Los acuses y firmas siguen comprobándose; no se generan capturas de pantalla ni volcados de firmas.
 - En este seguimiento no se repitió PG15 ni el backend completo en Linux. La corrida remota debe repetirse tras publicar el ajuste.
+
+## Revisión de privacidad, reloj y disponibilidad del 19 de noviembre
+
+La política de intervalos queda acordada en `docs/architecture/refereeing.md`.
+Esta revisión filtra la agenda por fin exclusivo y conserva los antecedentes.
+La implementación de la depuración de doce meses queda pendiente.
+
+| Comportamiento | Evidencia ejecutada |
+|---|---|
+| Otra cuenta conserva y aísla el borrador anterior | Chrome real con cookies de dos cuentas, página offline y reautenticación del titular. Compara las huellas del contenido y de las intenciones pendientes |
+| Salir de la segunda cuenta conserva la captura del titular | Salida real desde el shell y comprobación de IndexedDB |
+| Salida del titular advierte sobre los pendientes | Chrome cancela el diálogo con sesión vencida y con sesión vigente. La misma intención permanece en IndexedDB |
+| Navegador sin Service Worker conserva la captura en línea | Chrome deshabilita Service Worker y randomUUID, abre el editor, guarda y comprueba la observación en PostgreSQL. Usa UUID criptográfico compatible |
+| Hora declarada conserva el reloj y exige revisión del traslado | Integración de elegibilidad en PG15/17 rechaza salida declarada, entrada declarada y marcas históricas sin origen. La separación horaria aparente por sí sola mantiene el bloqueo |
+| El acuse conserva el origen de la hora | Integración de cédula verifica replay idéntico, frontera del dispositivo y frontera posterior del servidor |
+| «No disponible» prevalece en el tramo coincidente | PostgreSQL conserva el bloqueo aunque se añada después otro intervalo disponible. Los partidos adyacentes siguen cubiertos |
+| El fin es exclusivo y la agenda se actualiza abierta | Lectura real justo antes, al terminar y quince años después. El registro permanece en la base. Chrome comprueba desaparición del intervalo sin recarga |
+
+Las regresiones de `test:pdgld149 -- --regression` aprobaron elegibilidad,
+designaciones, identidad histórica y firmas en PG15 y PG17. El recorrido offline
+aprobó en ambas versiones con once operaciones distintas y once acuses. Los
+componentes arbitrales aprobaron tres pruebas en Chrome. Las reglas de cédula,
+reloj y mitades aprobaron 22 pruebas, y el monitor de sesión aprobó ocho.
+ESLint y TypeScript aprobaron. Los 94 controles de CI aprobaron en Node 24 Linux,
+en contenedor sin red y con repositorio de solo lectura.
+
+La regresión principal detectó que su fixture reutilizaba jugadores de un
+encuentro HTTP sin marcas comprobadas para el traslado. El recorrido Chrome ahora
+usa personas sintéticas independientes y dorsales propios. La suite de
+elegibilidad conserva las aserciones del cruce y del rechazo por evidencia ausente.
+La prueba de navegador espera el acuse de inicio del reloj y después la revisión
+que contiene el incidente. Mantiene la comprobación de salida al minuto 12 en la
+base, evitando confundirla con un acuse anterior.
+La compilación de producción pasó durante ambas matrices offline. La revisión
+humana de un traslado conserva el bloqueo hasta contar con evidencia suficiente.
+
+La ejecución final completa del comando `test:pdgld149` aprobó en PG15 y PG17.
+Cada versión ejecutó 17 pruebas de reglas/cliente, 21 pruebas de componentes y
+la integración real HTTP/Chrome/PostgreSQL, con compilación de producción.
+Los resultados finales están en `.codex-attachments/pdgld149/pg15/checks.json`
+y `.codex-attachments/pdgld149/pg17/checks.json`.
+El estado `acceptance: BLOCKED` identifica las dependencias de cierre oficial
+que el propio runner comprueba.
+
+Comandos de esta revisión, todos aprobados en la ejecución final correspondiente.
+
+```powershell
+npm run test:pdgld149 -- --postgres=15
+npm run test:pdgld149 -- --postgres=17
+npm run test:pdgld149 -- --regression --postgres=15
+npm run test:pdgld149 -- --regression --postgres=17
+npm run test:match-report-offline -- --postgres=15
+npm run test:match-report-offline -- --postgres=17
+npm run test:referees:components
+npm run test:referee-availability-ui
+npm run test:match-report-tactics
+node --test src/features/auth/components/session-activity.test.mjs
+npm run typecheck
+npm run lint
+```
+
+La repetición final offline PG17 también ejercitó el aviso de salida con sesión
+vencida, la cancelación del aviso y el cierre de sesión de una segunda cuenta.
+PG15 validó el recorrido de cambio de cuenta y conservación del borrador.
+`test:ci` se ejecutó con el contenedor Linux de solo lectura descrito arriba.
 
 ## Demo de cinco minutos para el 20 o 23 de noviembre
 

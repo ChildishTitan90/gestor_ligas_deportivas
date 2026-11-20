@@ -1,6 +1,9 @@
 export function offlineSupport() {
-  return window.isSecureContext && "indexedDB" in window && "serviceWorker" in navigator &&
-    "locks" in navigator && "BroadcastChannel" in window;
+  try {
+    return process.env.NODE_ENV === "production" && window.isSecureContext &&
+      typeof window.indexedDB?.open === "function" && typeof navigator.serviceWorker?.register === "function" &&
+      typeof navigator.locks?.request === "function" && typeof BroadcastChannel === "function";
+  } catch { return false; }
 }
 export async function prepareReportResources() {
   if (!offlineSupport()) throw Error("OFFLINE_NOT_SUPPORTED");

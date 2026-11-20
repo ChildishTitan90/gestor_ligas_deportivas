@@ -1,12 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { halfCrossingProblem, type HalfContext } from "./participation-halves";
-import { advanceMatchClock } from "@/features/match-reports/match-clock";
+import { advanceMatchClock, verifiedClockBoundaries } from "@/features/match-reports/match-clock";
 import { halfReservationData, updateDraftLineup } from "@/features/match-reports/lineup-draft";
 import { createReportDemo } from "@/features/match-reports/demo-data";
 import { participationPeriods } from "@/features/match-reports/tactics";
 const first: HalfContext = {seasonId:"s",clubId:"c",categoryId:"a",half:1,startsAt:new Date("2026-11-18T18:00Z"),endsAt:new Date("2026-11-18T20:00Z"),hasParticipation:false};
 const second: HalfContext = {...first,categoryId:"b",half:2};
+test("hora declarada y reloj legado conservan su captura sin acreditar un traslado",()=>{
+ const start="2026-11-18T18:00:00Z", end="2026-11-18T18:43:00Z";
+ const declared=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},start);
+ const clock=advanceMatchClock(declared,{type:"end-half"},end,"server");
+ assert.deepEqual(clock.boundaries,{firstStartedAt:start,firstEndedAt:end});
+ assert.deepEqual(verifiedClockBoundaries(clock),{firstEndedAt:end});
+ assert.deepEqual(verifiedClockBoundaries({...clock,boundarySources:undefined}),{});
+ const adjusted=advanceMatchClock(clock,{type:"set-break",minutes:15},end,"server");
+ assert.equal(adjusted.boundarySources?.firstStartedAt,"device");
+});
 test("RF02.7: reserva complementaria, sin doble registro ni duración supuesta",()=>{
  assert.equal(halfCrossingProblem(first,second),null);
  assert.equal(halfCrossingProblem({...first,half:undefined},second),"PARTICIPATION_HALF_REQUIRED");

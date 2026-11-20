@@ -126,7 +126,7 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
   assert.match(await ev('document.body.textContent'), /Faltan 2 árbitros/);
   await view('assignments');
   assert.match(await ev('document.body.textContent'), /Árbitro inactivo/);
-  assert.match(await ev('document.body.textContent'), /indisponibilidad/);
+  assert.match(await ev('document.body.textContent'), /no disponible/i);
   assert.match(await ev('document.body.textContent'), /Traslape con D-102/);
   assert.match(await ev('document.body.textContent'), /Cedro C.*aunque ese equipo no dispute/);
   for (const name of ['Bruna', 'Ciro', 'Dara', 'Elio']) {
@@ -155,7 +155,7 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
   await pick('referee-season', 'Apertura');
   await view('availability'); await pick('availability-referee', 'Ciro');
   assert.match(await ev('document.body.textContent'), /10:00/); // UTC 16:00, zona de la liga.
-  assert.match(await ev('document.body.textContent'), /Indisponible/);
+  assert.match(await ev('document.body.textContent'), /No disponible/);
   await click('Simular sin intervalos');
   assert.match(await ev('document.body.textContent'), /No se presume disponibilidad/);
   assert.match(await ev('document.body.textContent'), /Falta confirmar disponibilidad/);

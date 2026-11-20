@@ -2,6 +2,16 @@ import type { ReportDemoData, MatchReportPresentation } from "./types";
 import type { ReportCommand, ReportDraft, ReportReceipt } from "./contract";
 import type { ClockAction } from "./match-clock";
 
+// A LAN development origin can supply secure random bytes without randomUUID.
+export function reportUuid(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join("-");
+}
+
 export class ReportClientError extends Error {
   constructor(public code: string, public status: number) { super(code); }
 }
@@ -18,7 +28,7 @@ export function prepareReportAttempt(data: ReportDemoData, op: ReportOperation):
   for (const teamId of [data.match.home.id, data.match.away.id]) {
     const signature = op.snapshot.signatures[teamId];
     if (signature?.fileId) draft.signatures[teamId] = signature.fileId;
-    else if (signature?.image.startsWith("data:image/png;base64,")) uploads.push({ teamId, captainId: signature.captainId, operationId: crypto.randomUUID(), image: signature.image });
+    else if (signature?.image.startsWith("data:image/png;base64,")) uploads.push({ teamId, captainId: signature.captainId, operationId: reportUuid(), image: signature.image });
     else if (signature?.image.startsWith(`${base}/signatures/`)) draft.signatures[teamId] = signature.image.split("/").at(-1)!;
   }
   return { command: { formatVersion: 1, operationId: op.id, matchId: data.match.id, kind: op.kind, ...(op.clockAction ? { clockAction: op.clockAction } : {}), ...(op.occurredAt ? { occurredAt: op.occurredAt } : {}), expectedMatchVersion: op.expectedMatchVersion, expectedReportVersion: op.expectedReportVersion, draft }, uploads };

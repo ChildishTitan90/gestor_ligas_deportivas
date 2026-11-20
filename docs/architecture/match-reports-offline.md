@@ -2,10 +2,8 @@
 
 ## Entradas y autorización
 
-`/matches` utiliza `MatchReportOfflineList`. Una cédula editable muestra
-**Preparar para usar sin conexión** y habilita **Abrir cédula** después del
-snapshot y de los recursos completos. Una cédula de solo lectura mantiene su
-consulta. La URL directa de captura también comprueba la preparación local.
+`/matches` utiliza `MatchReportOfflineList`. Una cédula editable ofrece **Preparar para usar sin conexión** cuando el navegador reúne las capacidades necesarias. **Abrir cédula** se habilita al completar snapshot y recursos. Si la preparación falla, se ofrece **Capturar con conexión**. Una cédula de solo lectura mantiene su
+consulta. En desarrollo, en navegadores sin las capacidades necesarias o si la preparación falla, **Capturar con conexión** abre el editor autorizado y envía el borrador al servidor. En ese modo la edición pendiente vive en la pestaña hasta recibir el acuse.
 
 `POST /api/v1/match-reports/prepare` reutiliza `reportAccess` y la evaluación
 de elegibilidad en la misma transacción. REFEREE necesita la designación efectiva
@@ -32,9 +30,9 @@ autorizada. Sus pendientes se conservan para revisión y no se purgan por vencim
 Las copias están separadas por UUID de cuenta y partido en
 `league-match-reports-v1`, almacén `reports`. `account` registra la cuenta
 activa y la caducidad local. No contiene credenciales, JWT, cookies ni documentos
-de identidad. El cambio de cuenta autenticado elimina las copias de la anterior.
+de identidad. Un cambio de cuenta bloquea el acceso de la aplicación a la partición anterior. Sus borradores, firmas, revisiones e intenciones permanecen en IndexedDB. Al identificarse su titular puede retomar las copias vigentes.
 El cierre de sesión explícito advierte si hay pendientes y elimina las copias
-locales antes de la salida. El vencimiento de sesión conserva el borrador y permite
+de esa cuenta antes de la salida. El vencimiento de sesión conserva el borrador y permite
 iniciar sesión en otra pestaña. Los otros tabs reciben la invalidación local y
 sus escrituras dejan de estar permitidas.
 
@@ -107,6 +105,17 @@ tiempo al reabrir. `occurredAt` es opcional para conservar compatibilidad con
 los clientes online. El servidor permite hasta siete días hacia atrás y un
 minuto de tolerancia futura, exige orden respecto del periodo vigente y reutiliza
 las transiciones de PDGLD-18. Una hora incompatible produce conflicto para revisión.
+
+Cada frontera conserva su origen en `boundarySources`. La hora enviada con
+`occurredAt` es una declaración del dispositivo, incluso si llega de inmediato.
+El reloj de captura conserva esa hora al reabrir. Para validar cruces entre dos
+partidos, el servicio solo usa las fronteras fechadas por el servidor al recibir
+la acción. Las marcas antiguas sin origen quedan sin verificar. Si falta una
+frontera necesaria, la operación devuelve `PARTICIPATION_CLOCK_REQUIRED` y
+conserva el borrador para revisión. Comisión contrasta la salida y la entrada de
+los dos encuentros, con su zona y origen en **Marcas de los tiempos**. Un reintento
+o un acuse tardío conserva el origen original. La revisión no habilita una
+excepción automática ni altera la alineación histórica.
 
 La confirmación se encola solo tras la decisión explícita del usuario.
 `getConfirmationEffects` sigue devolviendo `CONFIRMATION_DEPENDENCIES_PENDING`.

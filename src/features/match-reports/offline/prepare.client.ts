@@ -1,5 +1,5 @@
 import type { ReportDemoData } from "../types";
-import { OFFLINE_TTL, type LocalReport, readExpiredLocalReport, writeLocalReport, updateLocalReport } from "./store.client";
+import { OFFLINE_TTL, type LocalReport, renewLocalReportAccess, writeLocalReport, updateLocalReport } from "./store.client";
 import { prepareReportResources } from "./resources.client";
 
 export async function downloadOwnReport(actorId: string, matchId: string): Promise<ReportDemoData> {
@@ -37,7 +37,7 @@ export async function prepareLocalReport(actorId: string, matchId: string) {
   return initializeAuthorizedReport(actorId, data, true);
 }
 export async function initializeAuthorizedReport(actorId: string, data: ReportDemoData, prepared = false) {
-  const prior = await readExpiredLocalReport(actorId, data.match.id);
+  const prior = await renewLocalReportAccess(actorId, data.match.id);
   // Preparation must not replace any edits or intents from another tab.
   if (prior) {
     return updateLocalReport(actorId, data.match.id, record => ({ ...record, prepared: prepared || record.prepared, expiresAt: Date.now() + OFFLINE_TTL }));

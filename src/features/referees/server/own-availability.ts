@@ -40,12 +40,12 @@ export function getOwnAvailabilityWorkspaceForActor(actorId: string, leagueId = 
   return getPrisma().$transaction(tx => readOwnAvailabilityWorkspace(tx, actorId, leagueId, seasonId), { timeout: 20000 });
 }
 /** Entrada interna de lectura autorizada; no depende de tener partidos asignados. */
-export async function readOwnAvailabilityWorkspace(tx: Tx, actorId: string, leagueId = "", seasonId = ""): Promise<OwnAvailabilityWorkspace> {
+export async function readOwnAvailabilityWorkspace(tx: Tx, actorId: string, leagueId = "", seasonId = "", asOf = new Date()): Promise<OwnAvailabilityWorkspace> {
   const s = await scope(tx, actorId);
   const selected = s.contexts.find(c => c.leagueId === leagueId && c.seasonId === seasonId);
   if ((leagueId || seasonId) && !selected) throw new AuthorizationError();
   const blockedCode = s.referee && !s.referee.active ? "INACTIVE" : s.allContexts.some(c => !covers(s.grants, c, "READ") || !covers(s.grants, c, "UPDATE")) ? "SHARED_AVAILABILITY_SCOPE" : null;
-  const intervals = selected && s.referee ? await tx.referee_availability.findMany({ where: { referee_id: s.referee.id }, select: { id: true, referee_id: true, starts_at: true, ends_at: true, is_available: true }, orderBy: [{ starts_at: "asc" }, { id: "asc" }] }) : [];
+  const intervals = selected && s.referee ? await tx.referee_availability.findMany({ where: { referee_id: s.referee.id, ends_at: { gt: asOf } }, select: { id: true, referee_id: true, starts_at: true, ends_at: true, is_available: true }, orderBy: [{ starts_at: "asc" }, { id: "asc" }] }) : [];
   return { actorId, referee: s.referee, contexts: s.contexts, leagueId, seasonId, blockedCode,
     canUpdate: !!selected && !!s.referee?.active && !blockedCode,
     intervals: intervals.map(i => ({ id: i.id, refereeId: i.referee_id, startsAt: i.starts_at.toISOString(), endsAt: i.ends_at.toISOString(), available: i.is_available })) };

@@ -15,6 +15,7 @@ export function SessionActivity() {
   const [message, setMessage] = useState("");
   const wasAuthenticated = useRef(false);
   const lastSessionState = useRef<string | null | undefined>(undefined);
+  const lastActor = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     // Preview sintética local: no iniciar lecturas ni actividad de sesión.
@@ -66,6 +67,11 @@ export function SessionActivity() {
         // o vence la sesión pública; conservar al espectador en el portal.
         const reportCapture = window.location.pathname === "/offline/report" || /^\/matches\/[^/]+\/report$/.test(window.location.pathname);
         if (session?.user?.id && "indexedDB" in window) await observeLocalAccount(session.user.id).catch(() => undefined);
+        if (session?.user?.id) {
+          const switched = lastActor.current && lastActor.current !== session.user.id;
+          lastActor.current = session.user.id;
+          if (switched && reportCapture) { window.location.replace("/matches"); return; }
+        }
         if (changed && (sessionState !== null || publicPage) && !reportCapture) router.refresh();
         if (!session?.user?.id) {
           if (expiryTimer) clearTimeout(expiryTimer);

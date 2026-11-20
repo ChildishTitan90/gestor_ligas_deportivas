@@ -39,20 +39,25 @@ export async function runReportAcceptance(f: Fixture) {
     await db.query("UPDATE sports_management.referee_assignments SET status='APPROVED',approved_by=$2,approved_at=now(),approved_identity_version=1 WHERE id=$1", [assignment,actors.comision]);
     await db.query("UPDATE sports_management.season_categories SET eligibility_pending=false,player_policy=$2 WHERE id=$1", [sc,JSON.stringify({...syntheticPlayerPolicy(),registrationDays:[1,2,3,4,5,6,7]})]);
     for (const club of clubs.slice(1)) await db.query("INSERT INTO sports_management.club_affiliation_categories(affiliation_id,season_id,category_id,authorized_by,authorized_at) SELECT id,$2,$3,$4,now() FROM sports_management.club_affiliations WHERE club_id=$1 AND season_id=$2", [club,season,category,actors.comision]);
-    const registrations: string[] = [];
-    for (let index = 0; index < 4; index++) {
-      const prefix = ["SIAA000101HMNLRRA","SIEA000102HMNLRRA","SIOA000103HMNLRRA","SIOE000104HMNLRRA"][index];
-      const alphabet="0123456789ABCDEFGHIJKLMNÑOPQRSTUVWXYZ";
-      const curp=prefix+(10-[...prefix].reduce((total,char,n)=>total+alphabet.indexOf(char)*(18-n),0)%10)%10;
-      const dob=`2000-01-0${index+1}`;
-      const name=["Alonso","Brenda","Carlos","Dora"][index];
-      const id = await scalar("INSERT INTO sports_management.people(first_name,paternal_surname,birth_date,curp) VALUES($1,'Sintético',$2,$3) RETURNING id", [name,dob,curp]);
-      const registration = await scalar("INSERT INTO sports_management.player_registrations(person_id,season_id,season_team_id,reference_number,status,jersey_number) VALUES($1,$2,$3,$4,'ACTIVE',$5) RETURNING id", [id,season,teams[index === 1 ? 1 : 0],randomUUID(),index === 0 ? null : index+7]);
-      const raw={curp,firstName:name,paternalSurname:"Sintético",maternalSurname:"",birthDate:dob};
-      await db.query("INSERT INTO sports_management.player_curp_checks(operation_key,actor_id,person_id,registration_id,identity_version,fingerprint,status) VALUES($1,$2,$3,$4,1,$5,'PENDING')", [randomUUID(),actors.comision,id,registration,createHash("sha256").update(JSON.stringify([1,raw])).digest("hex")]);
-      await db.query("UPDATE sports_management.player_curp_checks SET status='VERIFIED',finished_at=now() WHERE registration_id=$1 AND status='PENDING'",[registration]);
-      registrations.push(registration);
+    async function createSyntheticRoster(browser = false) {
+      const registrations: string[] = [];
+      for (let index = 0; index < 4; index++) {
+        const day = index + (browser ? 5 : 1);
+        const prefix = ["SIAA","SIEA","SIOA","SIOE"][index] + `00010${day}HMNLRRA`;
+        const alphabet="0123456789ABCDEFGHIJKLMNÑOPQRSTUVWXYZ";
+        const curp=prefix+(10-[...prefix].reduce((total,char,n)=>total+alphabet.indexOf(char)*(18-n),0)%10)%10;
+        const dob=`2000-01-0${day}`;
+        const name=["Alonso","Brenda","Carlos","Dora"][index] + (browser ? " Navegador" : "");
+        const id = await scalar("INSERT INTO sports_management.people(first_name,paternal_surname,birth_date,curp) VALUES($1,'Sintético',$2,$3) RETURNING id", [name,dob,curp]);
+        const registration = await scalar("INSERT INTO sports_management.player_registrations(person_id,season_id,season_team_id,reference_number,status,jersey_number) VALUES($1,$2,$3,$4,'ACTIVE',$5) RETURNING id", [id,season,teams[index === 1 ? 1 : 0],randomUUID(),index === 0 ? null : index + (browser ? 27 : 7)]);
+        const raw={curp,firstName:name,paternalSurname:"Sintético",maternalSurname:"",birthDate:dob};
+        await db.query("INSERT INTO sports_management.player_curp_checks(operation_key,actor_id,person_id,registration_id,identity_version,fingerprint,status) VALUES($1,$2,$3,$4,1,$5,'PENDING')", [randomUUID(),actors.comision,id,registration,createHash("sha256").update(JSON.stringify([1,raw])).digest("hex")]);
+        await db.query("UPDATE sports_management.player_curp_checks SET status='VERIFIED',finished_at=now() WHERE registration_id=$1 AND status='PENDING'",[registration]);
+        registrations.push(registration);
+      }
+      return registrations;
     }
+    const registrations = await createSyntheticRoster();
     // Bloqueo auténtico por inscripción suspendida, sin inventar excepciones ni llamar al proveedor.
     await db.query("UPDATE sports_management.player_registrations SET status='INELIGIBLE' WHERE id=$1", [registrations[2]]);
     await db.query("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('IN_PROGRESS') WHERE id=$1", [match]);
@@ -179,14 +184,18 @@ export async function runReportAcceptance(f: Fixture) {
     const {mutateReportInTransaction:clockMutation}=await import("../../src/features/match-reports/server/service");
     await assert.rejects(getPrisma().$transaction(async tx=>{
       const clockStart={...command(1),kind:"clock" as const,occurredAt:new Date(Date.now()-120000).toISOString(),clockAction:{type:"start" as const,halfMinutes:45,breakMinutes:15}};
+      await assert.rejects(clockMutation(tx,actors.capturista,{...clockStart,occurredAt:undefined},"sync"),/CLOCK_TIME_CONFLICT/);
       await assert.rejects(clockMutation(tx,actors.capturista,{...clockStart,occurredAt:new Date(Date.now()+120000).toISOString()}),/CLOCK_TIME_CONFLICT/);
       await assert.rejects(clockMutation(tx,actors.capturista,{...clockStart,occurredAt:new Date(Date.now()-8*86400000).toISOString()}),/CLOCK_TIME_CONFLICT/);
       const started=await clockMutation(tx,actors.capturista,clockStart);assert.equal(started.clock?.phase,"FIRST_HALF");
       assert.equal(started.clock?.phaseStartedAt,clockStart.occurredAt);
+      assert.equal(started.clock?.boundarySources?.firstStartedAt,"device");
       assert.equal(started.clock?.boundaries?.firstStartedAt,clockStart.occurredAt,"La validación por mitades conserva el inicio capturado sin red");
       assert.deepEqual(await clockMutation(tx,actors.capturista,clockStart),started);
       const extra=await clockMutation(tx,actors.capturista,{...command(2),kind:"clock",clockAction:{type:"add-time",minutes:3}});assert.equal(extra.clock?.extraMinutes,3);
       const rest=await clockMutation(tx,actors.capturista,{...command(3),kind:"clock",clockAction:{type:"end-half"}});assert.equal(rest.clock?.phase,"BREAK");
+      assert.equal(rest.clock?.boundarySources?.firstEndedAt,"server");
+      assert.equal(rest.clock?.boundarySources?.firstStartedAt,"device");
       const blockedGoal=command(4);blockedGoal.draft.events[0].description="No se permite modificar goles durante el descanso";
       await assert.rejects(clockMutation(tx,actors.capturista,blockedGoal),/BREAK_SUBSTITUTIONS_ONLY/);
       const breakChange=command(4);Object.assign(breakChange.draft.events[1],{periodNumber:2,minute:45,second:0,periodMinute:0});
@@ -294,16 +303,9 @@ export async function runReportAcceptance(f: Fixture) {
       await verifyReportHttp(base,actors,command(3),draft.signatures[teams[0]]!,"data:image/png;base64,"+png.toString("base64"));
       if(process.argv.includes("--browser")){
         const {verifyRealMatchReportBrowser}=await import("../e2e/match-reports-real.mjs");
-        // El escenario HTTP anterior registró periodos sin reloj. Para reutilizar
-        // sus jugadores en otro partido, aportar evidencia sintética explícita
-        // de que terminó antes de iniciar el escenario Chrome (no inferirla del horario).
-        const {advanceMatchClock}=await import("../../src/features/match-reports/match-clock");
-        const endedAt=Date.now()-60_000;
-        let priorClock=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},new Date(endedAt-90*60_000).toISOString());
-        priorClock=advanceMatchClock(priorClock,{type:"end-half"},new Date(endedAt-50*60_000).toISOString());
-        priorClock=advanceMatchClock(priorClock,{type:"start-second"},new Date(endedAt-40*60_000).toISOString());
-        priorClock=advanceMatchClock(priorClock,{type:"end-half"},new Date(endedAt).toISOString());
-        await db.query("UPDATE sports_management.match_reports SET draft_data=jsonb_set(draft_data,'{clock}',$2::jsonb,true) WHERE match_id=$1",[match,JSON.stringify(priorClock)]);
+        // El recorrido de captura tiene personas independientes del escenario
+        // HTTP. Los cruces entre partidos se prueban en la suite de elegibilidad.
+        await createSyntheticRoster(true);
         const browserMatch=await scalar("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id) SELECT season_id,group_id,matchday_id,'BROWSER-149',home_team_id,away_team_id,venue_id,starts_at+interval '4 hours',ends_at+interval '4 hours',reserved_until+interval '4 hours',sports_management.get_match_status_id('CONFIRMED') FROM sports_management.matches WHERE id=$1 RETURNING id",[match]);
         await verifyRealMatchReportBrowser({base,match:browserMatch,postgres:process.argv.find(a=>a.startsWith('--postgres='))?.split('=')[1]??'15'});
       }

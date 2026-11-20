@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ManagementShell } from "@/components/layout/management-shell";
-import { readLocalReports, clearLocalReports, type LocalReport } from "../offline/store.client";
+import { observeLocalAccount, readLocalReports, clearLocalReports, subscribeReports, type LocalReport } from "../offline/store.client";
 import { ReportDeviceWorkspace } from "./report-device-workspace";
 import { primaryButton, secondaryButton } from "./report-shared";
 import { FormDialog } from "@/components/ui/form-dialog";
@@ -12,18 +12,37 @@ export function OfflineReportApp() {
   const [reports, setReports] = useState<LocalReport[] | null>(null);
   const [matchId, setMatchId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [erase, setErase] = useState(false);
+  const [eraseOwner, setEraseOwner] = useState<string | null>(null);
   useEffect(() => {
-    void readLocalReports().then(rows => {
-      setMatchId(new URL(location.href).searchParams.get("match")); setReports(rows);
-    }).catch(() => setError("No se pudo abrir el almacenamiento de este navegador."));
+    let active = true, generation = 0;
+    const refresh = async () => {
+      const revision = ++generation;
+      const rows = await readLocalReports();
+      if (active && generation === revision) {
+        setMatchId(new URL(location.href).searchParams.get("match")); setReports(rows);
+      }
+    };
+    const failed = () => { if (active) { setReports([]); setError("No se pudo abrir el almacenamiento de este navegador."); } };
+    let unsubscribe: (() => void) | undefined;
+    void (async () => {
+      if (navigator.onLine) {
+        const response = await fetch("/api/auth/session", { cache: "no-store", signal: AbortSignal.timeout(5000) }).catch(() => null);
+        if (response && !response.ok) throw Error("SESSION_UNAVAILABLE");
+        const session = response && await response.json();
+        if (active && session?.user?.id) await observeLocalAccount(session.user.id);
+      }
+      if (!active) return;
+      unsubscribe = subscribeReports(() => void refresh().catch(failed));
+      await refresh();
+    })().catch(failed);
+    return () => { active = false; unsubscribe?.(); };
   }, []);
   const selected = reports?.find(report => report.matchId === matchId);
   return <ManagementShell account={{ username: null, initials: "AR", roleNames: ["Cédulas en este dispositivo"] }}
     navigation={[{ label: "Arbitraje", items: [{ href: "/offline/report", label: "Mis partidos preparados", icon: "players" }] }]}>
     <div className="mx-auto max-w-6xl space-y-5">
       <p className="text-sm text-muted">Copia de trabajo del dispositivo · La sincronización vuelve a verificar tu cuenta y tu designación.</p>
-      {selected ? <ReportDeviceWorkspace actorId={selected.actorId} restored={selected} /> : <section className="space-y-4">
+      {selected ? <ReportDeviceWorkspace key={selected.draftId} actorId={selected.actorId} restored={selected} /> : <section className="space-y-4">
         <h1 className="text-2xl font-semibold text-primary">Mis cédulas en este dispositivo</h1>
         {error && <p role="alert">{error}</p>}
         {!reports && !error && <p role="status">Consultando borradores…</p>}
@@ -36,10 +55,10 @@ export function OfflineReportApp() {
         </article>)}
         <a className={secondaryButton} href="/matches">Consultar mis partidos con conexión</a>
       </section>}
-      <button className={secondaryButton} type="button" onClick={() => setErase(true)}>Eliminar copias de este dispositivo</button>
-      <FormDialog open={erase} title="Eliminar las copias locales" description="Se eliminarán también los borradores y operaciones pendientes de sincronizar de este navegador." onClose={() => setErase(false)}
-        footer={<button className={primaryButton} type="button" onClick={() => void clearLocalReports().then(() => {
-          setReports([]); setMatchId(null); setErase(false);
+      {reports?.length ? <button className={secondaryButton} type="button" onClick={() => setEraseOwner(reports[0].actorId)}>Eliminar las copias de mi cuenta</button> : null}
+      <FormDialog open={!!eraseOwner && reports?.[0]?.actorId === eraseOwner} title="Eliminar las copias locales" description="Se eliminarán los borradores de tu cuenta, incluidas las operaciones pendientes de sincronizar." onClose={() => setEraseOwner(null)}
+        footer={<button className={primaryButton} type="button" onClick={() => eraseOwner && void clearLocalReports(eraseOwner, true).then(() => {
+          setReports([]); setMatchId(null); setEraseOwner(null);
           if (navigator.onLine) router.replace("/login");
         }).catch(() => setError("No se pudieron eliminar las copias locales."))}>Eliminar copias locales</button>}>
         <p>Los acuses y borradores ya recibidos por el servidor permanecen en la base. Revisa tus pendientes antes de continuar.</p>
