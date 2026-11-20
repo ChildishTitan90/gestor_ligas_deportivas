@@ -299,6 +299,29 @@ Para revisar manualmente estas dos correcciones en PostgreSQL desechable:
    la revisión pendiente. La base conserva la otra observación hasta pulsar
    **Sincronizar**.
 
+## Arranque de Chrome en CI · corrida 44696159026
+
+El job de arbitraje PG17 falló antes de las aserciones de disponibilidad propia.
+El diagnóstico publicado registra CDP a los 18 170 ms y cinco lecturas de
+`/json/list` vencidas durante los siguientes 5 001 ms. No recibió una respuesta
+HTTP, por lo que no demuestra un error de disponibilidad, migraciones o base.
+El log no permite identificar por qué Chrome tardó en responder.
+
+`chrome-session.mjs` comparte ahora el presupuesto de arranque de 30 segundos
+entre publicación de CDP y descubrimiento de la página. Para esa publicación
+tardía quedan aproximadamente 11,83 segundos, en lugar del corte independiente
+de cinco. Cada lectura sigue limitada a un segundo. Se conservan la validación
+del endpoint y de la página propia, cancelación, diagnóstico sin datos privados
+y limpieza del proceso. No se reintenta la suite completa ni se retiran sus
+aserciones funcionales.
+
+Se añadieron regresiones deterministas de publicación tardía con cinco lecturas
+vencidas, agotamiento del presupuesto compartido y plazos inválidos. Las once
+pruebas de descubrimiento aprobaron antes de que Víctor pidiera detener las
+pruebas. Por esa instrucción no se ejecutaron el recorrido real de componentes,
+el harness de navegador ni lint en este seguimiento. La ejecución en Chromium
+Linux no llegó a iniciarse. La validación remota queda pendiente del CI.
+
 ## Demo de cinco minutos para el 20 o 23 de noviembre
 
 1. `npm run match-reports:offline`; abrir el listado real del puerto 3198 con la cuenta sintética del runner.
