@@ -135,12 +135,16 @@ async function audit(tx: Tx, userId: string, table: string, id: string, previous
 
 export async function saveVenue(input: unknown) {
   const actor = await requireOperationalUser();
+  return saveVenueForActor(actor.id, input);
+}
+
+export async function saveVenueForActor(actorId: string, input: unknown) {
   const parsed = venueSchema.safeParse(input);
   if (!parsed.success) throw new VenueInputError("INVALID_VENUE");
   const data = parsed.data;
   return getPrisma().$transaction(async tx => {
     await lockAuthorization(tx);
-    await assertPermission(tx, actor.id, {
+    await assertPermission(tx, actorId, {
       module: "venues", action: data.venueId ? "UPDATE" : "CREATE", context: { leagueId: data.leagueId },
     });
     if (data.ownerClubId && !await tx.clubs.findFirst({ where: { id: data.ownerClubId, league_id: data.leagueId }, select: { id: true } }))
@@ -154,7 +158,8 @@ export async function saveVenue(input: unknown) {
     if (data.venueId) {
       if (await lockVenue(tx, data.venueId) !== data.leagueId) throw new AuthorizationError();
       previous = await tx.venues.findUniqueOrThrow({ where: { id: data.venueId } });
-      if ((previous.owner_club_id !== (data.ownerClubId || null) || previous.is_league_sports_complex !== (data.kind === "complex")) &&
+      const regularizingOwner = !previous.is_league_sports_complex && !previous.owner_club_id && data.kind === "private" && !!data.ownerClubId;
+      if (!regularizingOwner && (previous.owner_club_id !== (data.ownerClubId || null) || previous.is_league_sports_complex !== (data.kind === "complex")) &&
           await tx.venue_loans.count({ where: { venue_id: previous.id } })) throw new VenueInputError("OWNER_HAS_LOANS");
     }
     const features = previous?.features;
@@ -163,7 +168,7 @@ export async function saveVenue(input: unknown) {
     const venue = previous
       ? await tx.venues.update({ where: { id: previous.id }, data: changes })
       : await tx.venues.create({ data: { ...changes, league_id: data.leagueId } });
-    await audit(tx, actor.id, "venues", venue.id, previous, venue);
+    await audit(tx, actorId, "venues", venue.id, previous, venue);
     return { leagueId: data.leagueId, venueId: venue.id };
   });
 }

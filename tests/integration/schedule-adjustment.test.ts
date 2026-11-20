@@ -5,7 +5,7 @@ import { hashPassword } from "../../src/server/auth/password";
 import test from "node:test";
 import { getPrisma } from "../../src/server/db/prisma";
 import { AuthorizationError } from "../../src/server/auth/authorization";
-import { changeProposalReviewForActor, saveScheduleAdjustmentForActor } from "../../src/features/scheduling/server/adjustment";
+import { changeProposalReviewForActor, saveScheduleAdjustmentForActor, validateAdjustment } from "../../src/features/scheduling/server/adjustment";
 
 assert.ok(process.env.DATABASE_URL, "Configura una base temporal para PDGLD-138");
 const target = new URL(process.env.DATABASE_URL);
@@ -124,6 +124,20 @@ test("el ajuste de borrador revalida la cancha y registra una sola escritura aud
     const reason = "Ajuste de horario de prueba";
     const request = { proposalId: proposal.id, matchId: match.id, expectedVersion: match.version,
       startsAt: "2026-11-14T11:00", venueId: venue.id, reason };
+    const rollbackSanction = new Error("ROLLBACK_SANCTION");
+    await assert.rejects(db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT set_config('app.user_id',${scheduler},true),set_config('app.reason','Sanción de prueba',true)`;
+      const sanctionType = await tx.sanction_types.findUniqueOrThrow({where:{code:"TIME"}});
+      const draftRule = await tx.competition_rules.create({data:{season_id:match.season_id,version_number:2}});
+      const sanctionArticle = await tx.regulation_articles.create({data:{competition_rule_id:draftRule.id,number:`S-${tag}`,description:"Prueba",sanction_type_id:sanctionType.id}});
+      const disciplinaryCase = await tx.disciplinary_cases.create({data:{season_id:match.season_id,reference_number:tag,opened_by:scheduler,description:"Prueba"}});
+      const ruling = await tx.disciplinary_rulings.create({data:{case_id:disciplinaryCase.id,version_number:1,decided_by:scheduler,decision:"Prueba",reason:"Prueba"}});
+      await tx.sanctions.create({data:{ruling_id:ruling.id,article_id:sanctionArticle.id,sanction_type_id:sanctionType.id,season_team_id:match.home_team_id,starts_at:at("11:30"),ends_at:at("12:30"),blocks_participation:true}});
+      assert.equal((await validateAdjustment(tx,scheduler,request)).code,"TEAM_SANCTION");
+      assert.equal((await validateAdjustment(tx,scheduler,{...request,startsAt:"2026-11-14T10:30"})).code,"VENUE_OPTIONS");
+      assert.equal((await validateAdjustment(tx,scheduler,{...request,startsAt:"2026-11-14T12:30"})).code,"VENUE_OPTIONS");
+      throw rollbackSanction;
+    }),error=>error===rollbackSanction);
     await assert.rejects(saveScheduleAdjustmentForActor(outsider, request), AuthorizationError);
     const review = { proposalId: proposal.id, expectedVersion: proposal.version, reason: "Revisión operativa de prueba" };
     assert.equal((await changeProposalReviewForActor(reviewer, { ...review, operation: "approve" })).code, "INVALID_PROPOSAL_TRANSITION");

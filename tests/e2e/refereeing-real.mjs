@@ -28,7 +28,7 @@ export async function verifyRealRefereeingBrowser({base,league,season,commission
       await ev(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
       assert.equal(await ev('document.documentElement.scrollWidth<=innerWidth'),true);
       await wait(`document.querySelector('dialog[open]')||(()=>{const b=${assignmentButton};b?.focus();b?.click();return false})()`);
-      assert.match(await ev(`document.querySelector('dialog').textContent`),/Asignar árbitro/);
+      assert.match(await ev(`document.querySelector('dialog[open]').textContent`),/Asignar árbitro/);
       await browser.command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
       await browser.command('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
       await wait(`!document.querySelector('dialog[open]')&&document.activeElement.textContent==='Asignar árbitro'`);assert.ok(await ev(`document.activeElement.textContent==='Asignar árbitro'`),'FOCUS_MUST_RETURN_TO_ASSIGNMENT_BUTTON');

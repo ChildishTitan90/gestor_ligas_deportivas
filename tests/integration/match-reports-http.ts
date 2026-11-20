@@ -20,7 +20,7 @@ export async function verifyReportHttp(base: string, actors: Record<string,strin
   const list = await own.request("/matches");assert.equal(list.status,200);const listing=await list.text();assert.match(listing,/PARTIDO|REAL-147/);assert.ok(!listing.includes("Demo · Cédula arbitral"));assert.ok(!listing.includes("FUERA-DE-AMBITO-"));
   const retired=await own.request("/matches/report-demo");if(retired.status===307)assert.equal(retired.headers.get("location"),"/matches");else{assert.equal(retired.status,200);assert.match(await retired.text(),/NEXT_REDIRECT[\s\S]*matches|http-equiv="refresh"/);}
   const page = await own.request(`/matches/${command.matchId}/report`);
-  assert.equal(page.status,200); assert.match(await page.text(),/Cédula online/);
+  assert.equal(page.status,200); assert.match(await page.text(),/Prepara el partido antes de capturar/);
   const wrongActor = await own.request(path,{method:"POST",headers:{origin:base,"content-type":"application/json","X-Expected-Actor-Id":actors.arbitro},body:JSON.stringify(command)});
   assert.equal(wrongActor.status,403);
   // Se corta la conexión después del COMMIT y antes de consumir el acuse.

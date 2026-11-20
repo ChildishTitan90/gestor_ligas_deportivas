@@ -8,11 +8,12 @@ import { loadHomeVenueOptions } from "@/features/venues/server/scheduling-option
 import { venueLocalTime, venueTimeToIso } from "@/features/venues/time";
 import { adjustmentInput, proposalReviewInput, saveAdjustmentInput, type AdjustmentInput } from "../adjustment";
 import { storedProposalSchema } from "../stored-proposal";
+import { participationBlocked } from "../constraints";
 import { validateScheduleProposalInTransaction, SchedulingError } from "./service";
 
 const calendarPolicy = z.object({ complexOnlyFinalRounds: z.number().int().nonnegative() });
 
-async function validateAdjustment(
+export async function validateAdjustment(
   tx: Prisma.TransactionClient, actorId: string, data: AdjustmentInput,
   action: "UPDATE" | "APPROVE" = "UPDATE", proposalStatus: "DRAFT" | "IN_REVIEW" = "DRAFT",
   savedStart?: Date,
@@ -79,14 +80,13 @@ async function validateAdjustment(
     where: { matchday_id: match.matchday_id, season_team_id: { in: teams } }, select: { id: true },
   });
   if (seasonBreak || bye) return { code: "SCHEDULE_BREAK" as const };
-  const sanction = await tx.sanctions.findFirst({
+  const sanctions = await tx.sanctions.findMany({
     where: {
-      season_team_id: { in: teams }, blocks_participation: true, starts_at: { lte: startsAt },
+      season_team_id: { in: teams }, blocks_participation: true,
       OR: [{ ends_at: null }, { ends_at: { gt: startsAt } }],
     },
-    select: { id: true },
+    select: { season_team_id: true, starts_at: true, ends_at: true },
   });
-  if (sanction) return { code: "TEAM_SANCTION" as const };
 
   const venues = await loadHomeVenueOptions(tx, actorId, {
     seasonId: match.season_id, matchdayId: match.matchday_id,
@@ -94,8 +94,10 @@ async function validateAdjustment(
     startsAt, complexOnlyFinalRounds: result.data.complexOnlyFinalRounds,
   });
   if (!venues.length) return { code: "NO_ELIGIBLE_VENUES" as const };
+  const eligible = venues.filter(venue => !participationBlocked(sanctions, teams, +startsAt, +venue.endsAt));
+  if (!eligible.length) return { code: "TEAM_SANCTION" as const };
 
-  const intervals = venues.map(venue =>
+  const intervals = eligible.map(venue =>
     Prisma.sql`(${venue.venueId}::uuid, ${venue.endsAt}::timestamptz, ${venue.reservedUntil}::timestamptz)`);
   const reservations = await tx.$queryRaw<{ venue_id: string }[]>`
     WITH candidate(venue_id, ends_at, reserved_until) AS (VALUES ${Prisma.join(intervals)})
@@ -124,7 +126,7 @@ async function validateAdjustment(
     )
   `;
   const occupied = new Set(reservations.map(reservation => reservation.venue_id));
-  const available = venues.filter(venue => !occupied.has(venue.venueId));
+  const available = eligible.filter(venue => !occupied.has(venue.venueId));
   if (!available.length) return { code: "NO_ELIGIBLE_VENUES" as const };
 
   return { code: "VENUE_OPTIONS" as const, venues: available, startsAt };

@@ -9,6 +9,7 @@ import { focusFormControl } from "@/components/ui/focus-form-control";
 import { participationTimesSchema } from "@/features/matches/eligibility";
 import type { MatchReportPresentation, ParticipationPeriod, ReportDemoData, ReportEvent } from "../types";
 import { inputClass, primaryButton } from "./report-shared";
+import { reportUuid } from "../report-client";
 import { clockReading, formatClock } from "../match-clock";
 
 const optionalNumber = (value: string) => value.trim() === "" ? null : Number(value);
@@ -90,7 +91,7 @@ export function EventDialog({ data, report, event: original, initial, live = fal
             : captainLeaves && !captainOptions.some(p => p.value === replacementCaptainId) ? ["replacementCaptain", "El capitán sale: selecciona al nuevo capitán entre quienes quedan en cancha."]
             : type.opensCase && !description.trim() ? ["description", "Describe lo ocurrido para su revisión."] : null;
     if (problem) { setError(problem[1]); focusFormControl(form.current, problem[0]); return; }
-    onSave({ id: original?.id ?? crypto.randomUUID(), typeCode, teamId: teamId || null, playerId: playerId || null, outgoingPlayerId: isChange ? outgoing : null,
+    onSave({ id: original?.id ?? reportUuid(), typeCode, teamId: teamId || null, playerId: playerId || null, outgoingPlayerId: isChange ? outgoing : null,
       periodNumber: optionalNumber(period), minute: optionalNumber(minute), ...(relativeMinute !== undefined ? {periodMinute:relativeMinute} : {}), ...(second !== "" ? { second: Number(second) } : {}), description: description.trim(), ...(captainLeaves ? { replacementCaptainId } : {}) });
   }
   return <FormDialog open title={original ? "Editar evento" : changeOnly || breakChange ? "Registrar cambio" : "Registrar evento"} description={breakChange ? "Cambio del descanso, registrado al inicio del segundo tiempo." : live ? "Evento del catálogo del partido. El tiempo es opcional; captura minutos y segundos." : "Catálogo sintético basado en los códigos existentes. El tiempo es opcional; captura minutos y segundos."} dirty={dirty} onClose={onClose} footer={<button type="submit" form="report-event-form" className={primaryButton}>Aplicar {isChange ? "cambio" : "evento"}</button>}>

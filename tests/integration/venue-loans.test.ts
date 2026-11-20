@@ -8,6 +8,7 @@ import { AuthorizationError } from "../../src/server/auth/authorization";
 import type { PrivateDocumentTransport } from "../../src/server/files/private-document-storage";
 import { decideVenueLoanForActor, previewVenueLoanLetterForActor, submitVenueLoanForActor } from "../../src/features/venues/server/loans";
 import { loadHomeVenueOptions } from "../../src/features/venues/server/scheduling-options";
+import { saveVenueForActor } from "../../src/features/venues/server/service";
 import { sendVenueLoan, type VenueLoanCapture, type VenueLoanRecoveryStore } from "../../src/features/venues/venue-loan-recovery.client";
 
 assert.ok(process.env.DATABASE_URL, "Configura una base PostgreSQL temporal para PDGLD-23");
@@ -222,6 +223,17 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
     await decide(rivalLoan.requestId, "APPROVED");
     assert.deepEqual(await options(), [privateVenue, complex]);
     assert.deepEqual(await options("11:00", 1, rival), [privateVenue, complex]);
+
+    // Una cancha histórica sin dueño puede regularizarse sin alterar sus préstamos.
+    await db.venues.update({where:{id:privateVenue},data:{owner_club_id:null}});
+    const history = await db.venue_loans.findMany({where:{venue_id:privateVenue},orderBy:{id:"asc"}});
+    const leagueId = season.league_id;
+    const venueInput = {leagueId,venueId:privateVenue,code:"PARTICULAR",name:"PARTICULAR",address:"Domicilio sintético",kind:"private",ownerClubId:away.club.id,features:"",duration:"60",buffer:"15"};
+    await assert.rejects(saveVenueForActor(home.delegate,venueInput),AuthorizationError);
+    await saveVenueForActor(scheduler,venueInput);
+    assert.equal((await db.venues.findUniqueOrThrow({where:{id:privateVenue}})).owner_club_id,away.club.id);
+    assert.deepEqual(await db.venue_loans.findMany({where:{venue_id:privateVenue},orderBy:{id:"asc"}}),history);
+    await assert.rejects(saveVenueForActor(scheduler,{...venueInput,ownerClubId:third.club.id}),{message:"OWNER_HAS_LOANS"});
   } finally {
     await db.$disconnect();
   }

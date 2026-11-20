@@ -97,7 +97,7 @@ try {
     stage = "referees-and-availability";
     const refs: Record<string,string> = {};
     for (const code of ["primary", "inactive", "unavailable", "uncovered"]) {
-      const person = code === "primary" ? { id: mainPerson.person_id } : await tx.people.create({ data: { first_name: `SINTÉTICO ${code === "inactive" ? "Inactivo" : code === "unavailable" ? "Indisponible" : "Sin cobertura"}`, paternal_surname: "PDGLD86" }, select: { id: true } });
+      const person = code === "primary" ? { id: mainPerson.person_id } : await tx.people.create({ data: { first_name: `SINTÉTICO ${code === "inactive" ? "Inactivo" : code === "unavailable" ? "No disponible" : "Sin cobertura"}`, paternal_surname: "PDGLD86" }, select: { id: true } });
       const referee = code === "primary" && knownReferee ? knownReferee : await tx.referees.create({ data: { person_id: person.id }, select: { id: true } }); refs[code] = referee.id;
       await ensurePresentingClub(tx, referee.id, clubs[0], seasonId);
       const version = await tx.referees.findUniqueOrThrow({ where: { id: referee.id }, select: { version: true } });
@@ -126,7 +126,7 @@ try {
     const inactive = await tx.referees.findUniqueOrThrow({ where: { id: refs.inactive }, select: { person_id: true, version: true } });
     await mutateRefereeingInTransaction(tx, commission, { kind: "register", operationKey: id("deactivate"), leagueId, seasonId, reason: `${prefix}: árbitro desactivado después de proponerlo`, personId: inactive.person_id, clubId: clubs[0], active: false, expectedVersion: inactive.version });
     const unavailable = await tx.referees.findUniqueOrThrow({ where: { id: refs.unavailable }, select: { version: true } });
-    await mutateRefereeingInTransaction(tx, commission, { kind: "availability", operationKey: id("blackout"), leagueId, seasonId, reason: `${prefix}: indisponibilidad declarada después de la propuesta`, refereeId: refs.unavailable, expectedVersion: unavailable.version, startsAt: "2026-11-30T14:00:00.000Z", endsAt: "2026-11-30T16:00:00.000Z", available: false });
+    await mutateRefereeingInTransaction(tx, commission, { kind: "availability", operationKey: id("blackout"), leagueId, seasonId, reason: `${prefix}: horario no disponible declarado después de la propuesta`, refereeId: refs.unavailable, expectedVersion: unavailable.version, startsAt: "2026-11-30T14:00:00.000Z", endsAt: "2026-11-30T16:00:00.000Z", available: false });
     const uncovered = await tx.referees.findUniqueOrThrow({ where: { id: refs.uncovered }, select: { version: true } });
     const initialInterval = await tx.referee_availability.findFirstOrThrow({ where: { referee_id: refs.uncovered }, select: { id: true } });
     await mutateRefereeingInTransaction(tx, commission, { kind: "availability", operationKey: id("uncovered"), leagueId, seasonId, reason: `${prefix}: disponibilidad movida fuera del partido propuesto`, refereeId: refs.uncovered, expectedVersion: uncovered.version, intervalId: initialInterval.id, startsAt: "2026-12-03T14:00:00.000Z", endsAt: "2026-12-03T16:00:00.000Z", available: true });
