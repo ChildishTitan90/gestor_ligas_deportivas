@@ -68,6 +68,19 @@ docker run --rm --network none --mount "type=bind,source=${PWD},target=/workspac
 
 El paso de designaciones de #207 se repitió. Se corrigió únicamente su selector de `dialog` a `dialog[open]`: el nuevo aviso de cierre de sesión también existe cerrado en el DOM. Las aserciones sobre asignación, foco y acceso permanecen. Esto no atribuye la falla original de #207 a esa misma causa.
 
+## Seguimiento de firmas en CI · 19 de noviembre
+
+La corrida `44556566670`, job `135674096894` (PG17), terminó esperando la vista previa de una firma en `tests/e2e/match-reports-real.mjs`. Reglas, componentes, compilación y HTTP habían pasado. La versión original también pasó en el intento local de Windows anterior al ajuste; no se reprodujo el timeout exacto de Linux.
+
+Las suites principal y offline ahora comparten `tests/e2e/report-signature-browser.mjs`. El gesto usa eventos nativos, espera el diseño tras `onBegin`, separa los movimientos para respetar el throttle de 16 ms, comprueba tinta y vista previa cargada, y espera la vinculación asíncrona de cada firma antes de dibujar la siguiente. Se sustituyen botones por posición por sus nombres visibles. Se conservan las comprobaciones de recuperación, firmas privadas, acuses y cierre oficial bloqueado. El cambio corrige esas esperas ausentes en la automatización; confirmar la resolución de la corrida requiere repetir CI en Linux.
+
+Verificación posterior al ajuste, secuencial en Windows con Chrome real y PostgreSQL desechable:
+
+- `npm run test:pdgld149 -- --postgres=17`: pasó (16 pruebas de reglas/cliente, 20 de componentes e integración HTTP/Chrome; dos firmas privadas guardadas, reabiertas y cargadas).
+- `npm run test:match-report-offline -- --postgres=17`: pasó (25 criterios, 11 operaciones distintas y 11 acuses; incluye firmas recuperadas sin red y subida interrumpida).
+- ESLint de los tres archivos de prueba y `git diff --check`: pasaron. Ambas suites compilaron la aplicación de producción y completaron TypeScript.
+- Evidencia local: `.codex-attachments/pdgld149/pg17/checks.json`, su `browser.json` y `.codex-attachments/pdgld19-20/pg17/browser.json`. No se repitió PG15 en este seguimiento.
+
 ## Demo de cinco minutos para el 20 o 23 de noviembre
 
 1. `npm run match-reports:offline`; abrir el listado real del puerto 3198 con la cuenta sintética del runner.

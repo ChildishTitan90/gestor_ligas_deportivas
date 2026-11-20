@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { writeFile, mkdir, rm } from "node:fs/promises";
 import { launchChrome } from "./chrome-session.mjs";
+import { captureReportCaptainSignatures } from "./report-signature-browser.mjs";
 import { Browser } from "../integration/auth.test.mjs";
 import { createHash } from "node:crypto";
 const fingerprint = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -86,31 +87,7 @@ export async function verifyOfflineReportBrowser({ base, match, db, actorId }) {
     await ev("(()=>{const t=document.querySelector('#report-event-form textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t,'Incidente sintético offline PDGLD20');t.dispatchEvent(new Event('input',{bubbles:true}));})()");
     await click('Aplicar evento'); await wait("!document.querySelector('dialog[open]')");
     await click('Cierre y firmas');
-    // Draw a synthetic stroke through real input events; never export its PNG.
-    for (let index = 0; index < 2; index++) {
-      await wait("document.querySelector('canvas')");
-      await page.command('Page.bringToFront');
-      await ev("document.querySelector('canvas').scrollIntoView({block:'center',behavior:'instant'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
-      let rect = await ev("(()=>{const r=document.querySelector('canvas').getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height}})()");
-      assert.equal(await ev("(()=>{const c=document.querySelector('canvas'),r=c.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===c})()"),true,'The real canvas receives the pointer');
-      const point = n => ({x:rect.x+rect.w*(.15+n*.06),y:rect.y+rect.h*(.45+(n%2)*.15)});
-      await page.command('Input.dispatchMouseEvent',{type:'mouseMoved',...point(0),button:'none',buttons:0});
-      await page.command('Input.dispatchMouseEvent',{type:'mousePressed',...point(0),button:'left',buttons:1,clickCount:1});
-      // onBegin updates the form. Let its layout settle, then keep the stroke
-      // on the canvas and respect signature_pad's 16 ms movement throttle.
-      await ev("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
-      rect=await ev("(()=>{const r=document.querySelector('canvas').getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height}})()");
-      for(let n=1;n<10;n++) {
-        await page.command('Input.dispatchMouseEvent',{type:'mouseMoved',...point(n),button:'left',buttons:1});
-        await new Promise(resolve=>setTimeout(resolve,20));
-      }
-      await page.command('Input.dispatchMouseEvent',{type:'mouseReleased',...point(9),button:'left',buttons:0,clickCount:1});
-      await new Promise(resolve=>setTimeout(resolve,100));
-      await wait("!document.querySelector('canvas').closest('fieldset').querySelector('button').disabled");
-      await click('Ver vista previa',"document.querySelector('canvas').closest('fieldset')");
-      await wait("document.querySelector('canvas').closest('fieldset').querySelector('img')");
-      await ev("[...document.querySelector('canvas').closest('fieldset').querySelectorAll('button')].find(b=>b.textContent.trim()==='Confirmar captura').click()");
-    }
+    await captureReportCaptainSignatures(page);
     await wait(`(async()=>Object.values((await ${local}).data.report.signatures).filter(Boolean).length===2)()`);
     const retained = await ev(local);
     assert.equal(retained.data.report.remarks, "PDGLD19 sin red, pestaña cerrada");

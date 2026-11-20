@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 
 import {launchChrome} from './chrome-session.mjs';
+import {captureReportCaptainSignatures} from './report-signature-browser.mjs';
 
 import {Browser} from '../integration/auth.test.mjs';
 
@@ -121,29 +122,7 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
 
     await wait("document.querySelectorAll('canvas').length===2");
 
-    for(let i=0;i<2;i++){
-
-      await ev(`document.querySelectorAll('canvas')[0].scrollIntoView({block:'center'})`);
-
-      const r=await ev(`(()=>{const r=document.querySelectorAll('canvas')[0].getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height}})()`);
-
-      const point=n=>({x:r.x+r.w*(.15+n*.06),y:r.y+r.h*(.45+(n%2)*.15)});
-
-      await browser.command('Input.dispatchMouseEvent',{type:'mousePressed',...point(0),button:'left',buttons:1,clickCount:1});
-
-      for(let n=1;n<10;n++)await browser.command('Input.dispatchMouseEvent',{type:'mouseMoved',...point(n),button:'left',buttons:1});
-
-      await browser.command('Input.dispatchMouseEvent',{type:'mouseReleased',...point(9),button:'left',buttons:0,clickCount:1});
-
-      await new Promise(r=>setTimeout(r,80));
-
-      await ev(`document.querySelectorAll('canvas')[0].closest('fieldset').querySelectorAll('button')[1].click()`);
-
-      await wait(`document.querySelectorAll('canvas')[0].closest('fieldset').querySelector('img')`);
-
-      await ev(`[...document.querySelectorAll('canvas')[0].closest('fieldset').querySelectorAll('button')].find(b=>b.textContent.trim()==='Confirmar captura').click()`);
-
-    }
+    await captureReportCaptainSignatures(browser);
 
     await browser.command('Network.enable');
     await browser.command('Network.emulateNetworkConditions',{offline:true,latency:0,downloadThroughput:-1,uploadThroughput:-1});

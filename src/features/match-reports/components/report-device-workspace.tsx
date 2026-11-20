@@ -236,7 +236,11 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
       <div className="grid gap-3 sm:grid-cols-2">{[{ label: "Mi captura", data: record.data }, { label: otherTab ? "Otra pestaña" : "Servidor", data: comparison }].map(item => <article key={item.label} className="min-w-0 rounded-xl border border-border p-3"><h3 className="font-semibold">{item.label} · v{item.data?.report.version}</h3><p className="text-sm">Marcador {item.data?.report.score.home ?? "–"} : {item.data?.report.score.away ?? "–"} · {item.data?.report.events.length} eventos</p><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs">{JSON.stringify(item.data?.report, null, 2)}</pre></article>)}</div>
     </FormDialog>
   </section>;
-  return <ReportWorkspace data={record.data} live={{ actorId }} device={{
+  // Authorized photo URLs belong only to the current online view. The durable
+  // snapshot and the public offline shell continue to exclude photographs.
+  const photoUrls = new Map(connected ? serverReference?.players.map(player => [player.id, player.photoUrl]) : []);
+  const viewData = { ...record.data, players: record.data.players.map(player => ({ ...player, photoUrl: photoUrls.get(player.id) ?? null })) };
+  return <ReportWorkspace data={viewData} live={{ actorId }} device={{
     report: record.data.report, match: record.data.match, confirmation: record.data.confirmation, setReport, run: (kind, action) => void run(kind, action),
     locked, notice, safelyStored: !otherTab && !saving && !localFailed && savedRevision === record.revision,
   }} />;
