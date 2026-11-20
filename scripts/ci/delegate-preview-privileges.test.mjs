@@ -44,3 +44,13 @@ test('PDGLD-32 y PDGLD-23 conservan juntos recuperación y préstamos de cancha'
   assert.deepEqual(runtimePrivileges.update.venue_loans,
     ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at']);
 });
+
+
+test('PDGLD-32: limpieza solo de cuotas, sin borrar recuperaciones ni cambiar sus hashes', () => {
+  assert.ok(runtimePrivileges.read.includes('password_recovery_budgets'));
+  assert.deepEqual(runtimePrivileges.insert.password_recovery_budgets, ['bucket_key','window_start','hits']);
+  assert.deepEqual(runtimePrivileges.update.password_recovery_budgets, ['window_start','hits']);
+  assert.ok(runtimePrivileges.remove.includes('password_recovery_budgets'));
+  assert.equal(runtimePrivileges.remove.includes('password_resets'), false);
+  assert.equal(runtimePrivileges.update.password_resets.includes('token_hash'), false);
+});
