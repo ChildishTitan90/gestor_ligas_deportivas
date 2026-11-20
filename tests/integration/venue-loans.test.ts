@@ -25,7 +25,7 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
     const first = date("2026-11-14");
     const last = date("2026-11-21");
     const at = (time: string) => date(`2026-11-14T${time}:00Z`);
-    const { season, day, home, away, president, scheduler, privateVenue, complex, rival } = await db.$transaction(async tx => {
+    const { season, day, home, away, third, president, scheduler, privateVenue, complex, rival } = await db.$transaction(async tx => {
       const league = await tx.leagues.create({ data: { name: tag, timezone: "UTC" } });
       const sport = await tx.sports.findUniqueOrThrow({ where: { code: "SOCCER" } });
       const season = await tx.seasons.create({ data: {
@@ -79,6 +79,7 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
 
       const home = await createClubTeam();
       const away = await createClubTeam();
+      const third = await createClubTeam();
       const president = await createActor("EXECUTIVE_PRESIDENT");
       const scheduler = await createActor("SCHEDULER");
       async function createVenue(code: string, isComplex: boolean, ownerClubId?: string) {
@@ -93,8 +94,8 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
       }
       const privateVenue = await createVenue("PARTICULAR", false, away.club.id);
       const complex = await createVenue("UNIDAD", true);
-      const rival = await createVenue("RIVAL", false);
-      return { season, day, home, away, president, scheduler, privateVenue, complex, rival };
+      const rival = await createVenue("RIVAL", false, third.club.id);
+      return { season, day, home, away, third, president, scheduler, privateVenue, complex, rival };
     });
     const options = (time = "11:00", finalRounds = 1, priorHomeVenueId?: string) =>
       db.$transaction(tx => loadHomeVenueOptions(tx, scheduler, {
@@ -175,9 +176,9 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
     assert.equal(await db.venue_loans.count({ where: { requested_by: home.delegate, venue_id: privateVenue } }), 1);
     assert.equal(files.size, 1);
     assert.deepEqual(await options(), [complex]);
-    await assert.rejects(previewVenueLoanLetterForActor(away.delegate, request.requestId, storage), AuthorizationError);
+    await assert.rejects(previewVenueLoanLetterForActor(scheduler, request.requestId, storage), AuthorizationError);
     assert.equal(signed, 0);
-    assert.deepEqual(await previewVenueLoanLetterForActor(president, request.requestId, storage), {
+    assert.deepEqual(await previewVenueLoanLetterForActor(away.delegate, request.requestId, storage), {
       downloadUrl: "https://example.test/carta", expiresInSeconds: 60, mimeType: "application/pdf",
     });
 
@@ -187,6 +188,12 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
     await assert.rejects(decideVenueLoanForActor(home.delegate, {
       requestId: request.requestId, status: "APPROVED", reason,
     }), AuthorizationError);
+    await assert.rejects(decide(request.requestId, "APPROVED"), AuthorizationError);
+    await decideVenueLoanForActor(away.delegate, { requestId: request.requestId, status: "APPROVED", reason: "Autoriza dueño" });
+    assert.deepEqual(await options(), [complex]);
+    assert.deepEqual(await previewVenueLoanLetterForActor(president, request.requestId, storage), {
+      downloadUrl: "https://example.test/carta", expiresInSeconds: 60, mimeType: "application/pdf",
+    });
     const outcomes = await Promise.allSettled([decide(request.requestId, "APPROVED"), decide(request.requestId, "REJECTED")]);
     const [winner] = outcomes.filter(result => result.status === "fulfilled");
     assert.equal(outcomes.filter(result => result.status === "fulfilled").length, 1);
@@ -197,6 +204,7 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
 
     const second = { ...request, requestId: randomUUID() };
     await submitVenueLoanForActor(home.delegate, second, file, storage);
+    await decideVenueLoanForActor(away.delegate, { requestId: second.requestId, status: "APPROVED", reason: "Autoriza dueño" });
     if (winner.value.status === "APPROVED") {
       await decide(second.requestId, "REJECTED");
     } else {
@@ -210,9 +218,10 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
 
     const rivalLoan = { ...request, requestId: randomUUID(), clubId: away.club.id, venueId: rival };
     await submitVenueLoanForActor(away.delegate, rivalLoan, file, storage);
+    await decideVenueLoanForActor(third.delegate, { requestId: rivalLoan.requestId, status: "APPROVED", reason: "Autoriza dueño" });
     await decide(rivalLoan.requestId, "APPROVED");
     assert.deepEqual(await options(), [privateVenue, complex]);
-    assert.deepEqual(await options("11:00", 1, rival), [privateVenue, complex, rival]);
+    assert.deepEqual(await options("11:00", 1, rival), [privateVenue, complex]);
   } finally {
     await db.$disconnect();
   }
