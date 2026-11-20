@@ -189,6 +189,41 @@ vencida, la cancelación del aviso y el cierre de sesión de una segunda cuenta.
 PG15 validó el recorrido de cambio de cuenta y conservación del borrador.
 `test:ci` se ejecutó con el contenedor Linux de solo lectura descrito arriba.
 
+## Seguimiento del fallo de CI en el cambio de cuenta
+
+La corrida [44684659304, job PG15](https://github.com/ChildishTitan90/gestor_ligas_deportivas/actions/runs/44684659304/job/136116030493)
+falló en `match-reports-offline.mjs:370`, al esperar el texto de ausencia de
+copias para la segunda cuenta. El log adjunto muestra preparación, recuperación
+offline y sincronización SQL completadas antes de esa consulta.
+
+La prueba lanzaba dos navegaciones consecutivas y evaluaba
+`document.body.innerText` durante la carga. Se reprodujo con Chrome real,
+sirviendo primero una cabecera HTML y manteniendo pendiente el cuerpo.
+La consulta original produjo `TypeError`; CDP devolvió `text: "Uncaught"`,
+que era el único detalle conservado por la conexión de esta suite.
+
+`match-report-browser-wait.mjs` comprueba la presencia del cuerpo antes de
+evaluar la condición y conserva los 450 intentos, la pausa de 100 ms y la
+propagación de errores de la expresión. El recorrido también espera que termine
+la navegación a `/matches` antes de abrir la copia offline. El recorrido comprueba
+privacidad, conservación, revisión, UUID y acuse.
+El diagnóstico identifica esa fase como `account-switch-and-restoration`.
+
+La regresión se añadió a `chrome-session.test.mjs`, ejecutado por
+`npm run test:browser-harness` en el job de aplicación. Falló con la espera
+original y pasó con la corregida. También comprueba que un `TypeError` deliberado
+con el documento listo se propague. El archivo completo aprobó sus siete pruebas
+en Chromium Linux, dentro de un contenedor sin red y con repositorio de solo
+lectura. La reproducción puntual también pasó en Chrome de Windows.
+
+Los recorridos completos `npm run test:match-report-offline -- --postgres=15`
+y `--postgres=17` aprobaron en Windows con Chrome real, NextAuth, Service Worker,
+IndexedDB y PostgreSQL desechable. Cada versión confirmó once operaciones
+distintas y once acuses, incluido el cambio de cuenta que falló en CI.
+`npm run lint`, `npm run typecheck` y `git diff --check` aprobaron.
+Ambos recorridos compilaron la aplicación de producción. La validación en
+Linux de este seguimiento corresponde al archivo de pruebas del navegador.
+
 ## Demo de cinco minutos para el 20 o 23 de noviembre
 
 1. `npm run match-reports:offline`; abrir el listado real del puerto 3198 con la cuenta sintética del runner.

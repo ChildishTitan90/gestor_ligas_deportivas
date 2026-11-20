@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { writeFile, mkdir, rm } from "node:fs/promises";
 import { launchChrome } from "./chrome-session.mjs";
 import { captureReportCaptainSignatures } from "./report-signature-browser.mjs";
+import { waitForReportBrowser } from "./match-report-browser-wait.mjs";
 import { Browser } from "../integration/auth.test.mjs";
 import { createHash } from "node:crypto";
 const fingerprint = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -23,13 +24,7 @@ export async function verifyOfflineReportBrowser({ base, match, db, actorId }) {
   let security;
   let criterion = "preparation";
   const ev = expression => page.evaluate(expression);
-  async function wait(expression) {
-    for (let attempt = 0; attempt < 450; attempt++) {
-      try { if (await ev(`Promise.resolve(${expression}).then(Boolean)`)) return; } catch (error) { if (!/context|navigat/i.test(String(error))) throw error; }
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    throw Error("OFFLINE_EXPECTATION " + expression);
-  }
+  const wait = expression => waitForReportBrowser(ev, expression);
   async function click(label, scope = "document") {
     await wait(`(${scope}) && [...${scope}.querySelectorAll('button,a')].some(b=>b.getClientRects().length&&!b.disabled&&(b.textContent.trim()===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)}))`);
     await ev(`[...${scope}.querySelectorAll('button,a')].find(b=>b.getClientRects().length&&!b.disabled&&(b.textContent.trim()===${JSON.stringify(label)}||b.getAttribute('aria-label')===${JSON.stringify(label)})).click()`);
@@ -363,9 +358,11 @@ export async function verifyOfflineReportBrowser({ base, match, db, actorId }) {
     page=mainPage;
     const counts = (await db.query("SELECT count(*)::int AS total,count(DISTINCT client_id)::int AS operations FROM sports_management.match_report_syncs WHERE user_id=$1", [actorId])).rows[0];
     assert.equal(counts.total, counts.operations);
+    criterion = "account-switch-and-restoration";
     await page.command('Network.clearBrowserCookies');
     for(const [name,value] of foreign.cookies) await page.command('Network.setCookie',{name,value,url:base});
     await page.command('Page.navigate',{url:base+'/matches'});
+    await wait("location.pathname==='/matches' && document.readyState==='complete'");
     await page.command("Page.navigate",{url:base+"/offline/report?match="+future});
     await wait("document.body.innerText.includes('No hay copias locales vigentes')");
     assert.equal(await ev("!!document.querySelector('[data-report-workspace]')"),false);
