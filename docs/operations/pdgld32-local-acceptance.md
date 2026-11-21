@@ -19,7 +19,7 @@ Se aplica al entorno local la política numérica aprobada por la persona usuari
    - `ACCOUNT_EMAIL_FROM`: remitente autorizado por esa cuenta/proveedor.
    - `RECOVERY_TEST_EMAIL`: buzón que controla la persona revisora.
    - `RECOVERY_MAILBOX_CONTROLLED=true`: confirmación de ese control.
-2. No se encontró configuración privada de Resend en la copia ni en las variables del proceso. La entrega histórica de PDGLD-119 no conserva una clave utilizable y no sustituye este envío. Si se usa el remitente de pruebas de Resend, respetar que solo admite destinatarios autorizados por el proveedor; no asumir otro remitente o dominio verificado.
+2. Durante la preparación inicial no había configuración privada de Resend. La persona usuaria la completó posteriormente para la aceptación real del 21/11/2026, sin versionar valores. La entrega histórica de PDGLD-119 no conserva una clave utilizable y no sustituye este envío. Si se usa el remitente de pruebas de Resend, respetar que solo admite destinatarios autorizados por el proveedor; no asumir otro remitente o dominio verificado.
 3. Importar `ca.pem` en el llavero de inicio de sesión y confiar manualmente para SSL en la CA **PDGLD-32 Local Test CA**, válida siete días. Su clave solo se guarda en la carpeta privada. Retirar esa confianza al terminar. No deshabilitar TLS ni usar flags para omitir errores del certificado. La comprobación con CA explícita de Node no sustituye la confianza del navegador.
 4. La contraseña inicial solo se consulta localmente en `.env-recovery-local/account.txt`. Al cambiarla mediante Computer Use, la persona usuaria introduce, confirma y envía la nueva contraseña; la política de esa herramienta exige entregar el control para cambios de credenciales.
 
@@ -34,7 +34,7 @@ Se aplica al entorno local la política numérica aprobada por la persona usuari
 
 El aislamiento se comprueba por ID, nombre, etiqueta aleatoria, montajes y mapeo exacto de puerto antes de acceder. Si el puerto está ocupado o una identidad no coincide, se detiene sin adoptar recursos ajenos. No usar `compose down`, reset o clean.
 
-## Recorrido pendiente con navegador y buzón reales
+## Recorrido de aceptación con navegador y buzón reales
 
 1. Verificar que Chrome acepta HTTPS sin intersticial. Iniciar sesión con la cuenta sintética y mantener esa sesión previa.
 2. Desde login solicitar un enlace para el buzón controlado; comprobar recepción en entrada/spam, asunto y hora sin copiar token, enlace completo ni destinatario en evidencias. ACCEPTED no prueba recepción.
@@ -44,3 +44,9 @@ El aislamiento se comprueba por ID, nombre, etiqueta aleatoria, montajes y mapeo
 6. Registrar por separado qué se observó en navegador, qué confirmó la persona en el buzón y qué cubrieron las suites automatizadas. El equipo debe aceptar esta evidencia local alternativa antes de cerrar la historia.
 
 No se cierra Jira ni se hace merge del PR automáticamente. La recuperación conserva su valor deshabilitado por defecto y no se modifican entornos productivos.
+
+## Resultado del recorrido del 21/11/2026
+
+Se completó el recorrido real con Chrome y correo recibido confirmado por la persona usuaria: HTTPS seguro, solicitud desde el formulario, cambio realizado por la persona, contraseña anterior rechazada, acceso con la nueva y enlace usado rechazado. La revocación de una sesión previa se comprobó por HTTP/base. Las cuentas existente/inexistente mostraron el mismo acuse en Chrome. Vencimiento/manipulación y límites 3 por hora, 5 solicitudes y 10 confirmaciones por ventana se verificaron mediante HTTP real con fixtures o identidades inexistentes, sin más correos. Global, concurrencia, rollback y FAILED/UNKNOWN conservan su evidencia automatizada de transporte simulado.
+
+Se dejó el proceso en modo `serve`, con correo y recuperación deshabilitados, sin borrar la base aislada ni las evidencias privadas. La CA permanece disponible para revisión; retirar su confianza cuando el equipo termine. El detalle verificable está en [la evidencia de PDGLD-32](../validation/pdgld32-public-recovery-review.md). El equipo todavía debe aceptar este entorno alternativo y revisar el PR; esto no acredita un despliegue ni cierra Jira.

@@ -116,7 +116,7 @@ async function start(enabled = true) {
   { env, stdio: ['ignore', 'pipe', 'pipe'] });
   // No volcar logs de peticiones, entorno, errores SQL ni mensajes privados.
   child.stdout.resume(); child.stderr.resume();
-  console.log(`Servidor de pruebas iniciado en ${origin}; correo ${enabled ? 'real habilitado solo en este proceso' : 'deshabilitado; falta configuración privada' }.`);
+  console.log(`Servidor de pruebas iniciado en ${origin}; correo ${enabled ? 'real habilitado solo en este proceso' : 'deshabilitado por el modo serve' }.`);
   const stop = () => child.kill('SIGTERM');
   process.once('SIGINT', stop); process.once('SIGTERM', stop);
   const code = await new Promise(resolve => child.once('exit', resolve));

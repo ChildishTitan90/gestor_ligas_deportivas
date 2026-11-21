@@ -1,5 +1,7 @@
 # PDGLD-32: corrección posterior a PR #61
 
+Historial cronológico. El resultado vigente está en **Aceptación real alternativa en Mac — 21/11/2026**: ejecución local con correo recibido y navegador real. Los pendientes iniciales de configuración se conservan como antecedente; siguen pendientes la aceptación del entorno alternativo por el equipo y la revisión humana del PR.
+
 Base: `edf0122` (develop, PR #61 integrado). Rama:
 `fix/PDGLD-32-politica-abuso`.
 
@@ -72,3 +74,45 @@ El estado saneado inicial confirmó 51 migraciones, 0 solicitudes, 0 sesiones y 
 Procedimiento y comandos: [aceptación HTTPS local](../operations/pdgld32-local-acceptance.md). La [preparación anterior de Preview](../operations/pdgld32-preview-acceptance.md) se conserva como antecedente sin ejecución remota.
 
 Comprobación HTTP adicional sobre HTTPS local con validación TLS: `/api/access` respondió 401 sin sesión; `/api/auth/recovery/request` respondió 503 con el proceso aún deshabilitado. No se emitió correo. Tras añadir el runner local y la regresión HTTPS, TypeScript y ESLint completo volvieron a pasar.
+
+## Aceptación real alternativa en Mac — 21/11/2026
+
+Código de aplicación ejecutado: `c99968043fd940362e1b3854e32a8fd94ba38974`, sobre develop `6139dba`. Su CI completo está [aprobado](https://github.com/ChildishTitan90/gestor_ligas_deportivas/actions/runs/44915440441), incluido `CI listo para integrar`; producción fue omitida. No se usó Vercel para esta aceptación.
+
+### Configuración ejecutada
+
+Se reutilizaron la CA y el servidor preparados, sin regenerar el certificado. macOS aprobó `security verify-cert`; Chrome mostró explícitamente **La conexión es segura** para `https://127.0.0.1:34432`. La CA se identifica como PDGLD-32 Local Test CA, huella SHA-256 `B0:25:0B:35:3A:ED:25:DD:18:C8:55:EB:CF:9C:B5:BB:23:74:D5:7D:36:6B:E1:01:E6:2D:84:B6:0A:FF:46:58`.
+
+La persona usuaria completó clave Resend, remitente, buzón y confirmación de control en el archivo privado. Solo se verificó su presencia y validez, sin incorporarlos a esta evidencia ni a Git. Se inició `recovery:local -- start`: Next.js en desarrollo/loopback, proveedor real existente y PostgreSQL 17 propio con RLS y rol limitado. El backend recibió exclusivamente la conexión de ejecución. La política aprobada se mantuvo: TTL 15 minutos, 3 solicitudes por destinatario/cuenta/hora, ventana 60 segundos, cuotas de origen 5/10 y globales 50/100. La fila de la solicitud confirmó TTL **900 segundos**. No se simularon cabeceras de Vercel.
+
+### Observación humana y navegador
+
+- Chrome abrió login y recuperación por HTTPS sin intersticial ni omitir validación TLS.
+- La persona escribió privadamente el buzón y el agente pulsó Solicitar enlace. Se registró una operación de recuperación para la cuenta sintética.
+- La persona confirmó recepción real del correo «Recupera tu contraseña — Liga Municipal». El agente no leyó el buzón ni infirió recepción de un ACCEPTED.
+- La persona abrió el enlace recibido e introdujo, confirmó y envió la nueva contraseña. Chrome mostró **Contraseña actualizada. Inicia sesión con la nueva contraseña.** El agente no conoció ni introdujo esa contraseña.
+- La persona probó la contraseña inicial del archivo privado. Chrome mostró **Datos de acceso incorrectos**; la base registró un fallo de login y la cuenta no estaba bloqueada.
+- La persona introdujo la contraseña nueva e inició sesión. Chrome mostró **Mi panel** y **Hola, @pdgld32_local** en `/access`. La cuenta sintética no recibió permisos administrativos adicionales.
+- La persona reabrió el enlace del mismo correo y envió otra vez el formulario con ambos campos completos. Chrome mostró **El enlace ya no es válido. Solicita uno nuevo.** La base conservó un solo cambio, versión 2, una operación consumida y la sesión nueva vigente.
+
+### Comprobaciones HTTP/base reales, distintas del navegador
+
+Antes del cambio se creó una sesión del fixture mediante NextAuth real, CSRF y HTTPS/TLS válidos; `/api/access` devolvió 200. Su cookie se guardó únicamente en el directorio privado. Tras el cambio, esa misma sesión devolvió **401**. La base registró exactamente un PASSWORD_CHANGED, versión de cuenta 2, un enlace consumido y cero sesiones no revocadas antes del nuevo login. Esta revocación se verificó por HTTP/base; no se presenta como una sesión anterior de Chrome.
+
+Un fixture separado y sin credencial utilizable aportó un token vencido. Vencido y manipulado devolvieron **400 INVALID_LINK** por el endpoint HTTPS real; no modificaron su contraseña ni generaron auditoría de cambio. No se envejeció artificialmente la solicitud real del buzón ni se esperó su caducidad para atribuirla al mensaje recibido.
+
+Una cuenta inexistente devolvió **202 REQUEST_RECEIVED**, JSON completo y `Cache-Control: no-store`. Siete solicitudes adicionales con identidades inexistentes/rotatorias conservaron ese mismo 202 genérico. El contador efectivo del origen local se detuvo en **5**; solo cinco identidades nuevas alcanzaron su presupuesto. La cuenta del buzón conservó una única operación de recuperación: no se emitieron correos adicionales por esa matriz.
+
+La concurrencia, el límite global y el de destinatario/token, FAILED/UNKNOWN y rollback se acreditan mediante las suites automatizadas de transporte simulado previamente aprobadas y el CI del mismo código. No se provocaron fallos del proveedor ni envíos masivos reales.
+
+Esta evidencia corresponde únicamente al entorno local alternativo. La aceptación del equipo/revisor de ese entorno sigue siendo necesaria. No se valida la configuración de un despliegue, no se hace merge y no se cierra Jira.
+
+El límite real de confirmación se comprobó con once tokens inexistentes por HTTPS: diez respuestas 400 INVALID_LINK y una 429 RATE_LIMITED; el contador efectivo se detuvo en 10. No se modificó ninguna contraseña ni se envió correo. Se esperó al cambio de ventana antes de la prueba humana de reutilización, sin borrar contadores ni modificar cuotas. La pestaña de la solicitud original terminó mostrando el acuse genérico; su estado Procesando fue transitorio.
+
+También se comprobó el límite horario por destinatario inexistente: cuatro solicitudes reales HTTPS conservaron 202 REQUEST_RECEIVED; su presupuesto se detuvo en 3 y no se creó una cuenta ni se envió correo.
+
+La comparación final en Chrome mostró literalmente el mismo acuse para el buzón de la cuenta y para una identidad sintética inexistente: **Si el correo está habilitado para recuperación, recibirás las instrucciones.** Se comprobó previamente en la base que esa identidad no existía. Tras reutilizar el enlace, permanecieron versión 2, una operación consumida, un PASSWORD_CHANGED y una sesión nueva vigente. No se añadió otra recuperación para el buzón real.
+
+Al terminar se detuvo el proceso con Resend habilitado y se volvió a `serve`, que deshabilita explícitamente correo y recuperación sin depender de que los secretos estén vacíos. La base propia y los archivos privados se conservaron para la revisión humana. Se corrigió únicamente el texto del runner para identificar ese modo en vez de atribuirlo incorrectamente a falta de configuración privada. No cambió la lógica de recuperación validada.
+
+Comprobación final del modo sin envío: el endpoint HTTPS de solicitud respondió **503 UNAVAILABLE**, aun conservando la configuración privada completa en su archivo. Tras registrar los resultados se repitieron política 5/5 y transporte simulado 7/7, ESLint del runner, comprobación sintáctica y diff de espacios. El código de aplicación, esquema y migraciones permanecen iguales a c999680; el único cambio ejecutable posterior es el mensaje diagnóstico del modo serve.
