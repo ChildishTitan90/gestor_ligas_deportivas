@@ -6,7 +6,7 @@ import {getPrisma} from "../../src/server/db/prisma";
 import {validatePrivateFileContent} from "../../src/server/files/private-file-validation";
 import {mutatePresentationWithCredential,createCredentialPreview,readCredentialForActor} from "../../src/features/referees/server/presentation-credentials";
 import {mutatePresentation,recoverPresentation} from "../../src/features/referees/server/presentations";
-import {getOwnAvailabilityWorkspaceForActor,mutateOwnAvailability} from "../../src/features/referees/server/own-availability";
+import {getOwnAvailabilityWorkspaceForActor,mutateOwnAvailability,readOwnAvailabilityWorkspace} from "../../src/features/referees/server/own-availability";
 import {getPermissionGrants} from "../../src/server/auth/authorization";
 import {provisionRefereeAccess,recoverRefereeAccess} from "../../src/features/accounts/server/referee-access";
 
@@ -17,6 +17,12 @@ export async function verifyRefereeingAdditions(c:{db:pg.Client;actors:Record<st
   const own=await getOwnAvailabilityWorkspaceForActor(c.actors.arbitro,c.league,c.season);assert.equal(own.canUpdate,true);
   const interval={kind:"availability",operationKey:randomUUID(),leagueId:c.league,seasonId:c.season,refereeId:c.referee,expectedVersion:own.referee!.version,startsAt:"2026-12-11T16:00:00Z",endsAt:"2026-12-11T18:00:00Z",available:true,reason:"Disponibilidad propia sintética"};
   const saved=await mutateOwnAvailability(c.actors.arbitro,interval);assert.deepEqual(await mutateOwnAvailability(c.actors.arbitro,interval),saved);
+  const intervalRow = await prisma.referee_availability.findFirstOrThrow({where:{referee_id:c.referee,starts_at:new Date(interval.startsAt),ends_at:new Date(interval.endsAt)},select:{id:true}});
+  for (const [time,visible] of [["2026-12-11T17:59:59.999Z",true],[interval.endsAt,false],["2041-12-11T18:00:00Z",false]] as const) {
+    const agenda = await prisma.$transaction(tx => readOwnAvailabilityWorkspace(tx,c.actors.arbitro,c.league,c.season,new Date(time)));
+    assert.equal(agenda.intervals.some(i => i.id === intervalRow.id),visible);
+  }
+  assert.ok(await prisma.referee_availability.findUnique({where:{id:intervalRow.id},select:{id:true}}));
   await assert.rejects(mutateOwnAvailability(c.actors.arbitro,{...interval,operationKey:randomUUID()}));
   await assert.rejects(mutateOwnAvailability(c.actors.arbitro,{...interval,refereeId:randomUUID(),operationKey:randomUUID()}));
   assert.equal((await prisma.$transaction(tx=>getPermissionGrants(tx,c.actors.comision,"users","CREATE"))).length,0);

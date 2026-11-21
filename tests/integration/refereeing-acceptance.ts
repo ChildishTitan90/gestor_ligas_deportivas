@@ -60,6 +60,13 @@ export async function verifyRefereeingAcceptance(c:Context){
   checks.push('grupo-unico-club-con-tercer-equipo-no-contendiente');
   for(const [id,code]of [[inactive,"INACTIVE"],[uncovered,"UNKNOWN_AVAILABILITY"]])assert.ok((await assess(match,id)).blockers.some(b=>b.code===code));
   const blocked=await newRef();await mutateRefereeing(actors.comision,cmd("availability",{refereeId:blocked,expectedVersion:await version(blocked),startsAt:"2026-12-06T16:00:00Z",endsAt:"2026-12-06T18:00:00Z",available:false}));assert.ok((await assess(match,blocked)).blockers.some(b=>b.code==="UNAVAILABLE"));
+  // Añadir disponibilidad más tarde tampoco sobrescribe la excepción.
+  await mutateRefereeing(actors.comision,cmd("availability",{refereeId:blocked,expectedVersion:await version(blocked),startsAt:"2026-12-06T14:00:00Z",endsAt:"2026-12-06T20:00:00Z",available:true}));
+  assert.equal((await assess(match,blocked)).availability,"UNAVAILABLE");
+  for(const [start,end] of [["14:00","16:00"],["18:00","20:00"]]){
+    const adjacent=await newMatch(`2026-12-06T${start}Z`,`2026-12-06T${end}Z`);
+    assert.equal((await assess(adjacent,blocked)).availability,"COVERED");
+  }
   await assert.rejects(mutateRefereeing(actors.programador,cmd("propose",{refereeId:inactive,matchId:match,expectedMatchVersion:1})),e=>e instanceof Error&&"code"in e&&e.code==="INACTIVE");
   const incomplete=await newMatch("2026-12-07T16:00Z","2026-12-07T18:00Z");await db.query("UPDATE sports_management.matches SET starts_at=NULL,ends_at=NULL,reserved_until=NULL,status_id=sports_management.get_match_status_id('UNSCHEDULED') WHERE id=$1",[incomplete]);assert.ok((await assess(incomplete,ref)).blockers.some(b=>b.code==="INVALID_TIME"));
   checks.push("actividad-disponibilidad-horario-incompleto");

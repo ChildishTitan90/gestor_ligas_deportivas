@@ -13,7 +13,7 @@ const steps=process.argv.includes('--regression')?[
   ['firmas',['--conditions=react-server','--import','tsx','--test','src/features/match-reports/server/signature-storage-profile.test.ts','src/features/clubs/server/signature-validation.test.ts','src/features/clubs/server/signature-binding.test.ts']],
 ]:[
   ['reglas-cliente',['--import','tsx','--test','src/features/match-reports/tactics.test.ts','src/features/match-reports/lineup-clock.test.ts','src/features/match-reports/report-client.test.ts']],
-  ['componentes-sinteticos',['--test','tests/e2e/match-report-demo.test.mjs']],
+  ['componentes-sinteticos',['--test','--test-concurrency=1','tests/e2e/match-report-demo.test.mjs','tests/e2e/report-signature-browser.test.mjs']],
   ['integracion-real',['--conditions=react-server','--import','tsx','scripts/match-reports-local.mts','--acceptance','--http','--browser',`--postgres=${major}`]],
 ];
 const results=[];

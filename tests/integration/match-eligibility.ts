@@ -235,17 +235,17 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
       const firstVenue=await tx.venues.create({data:{league_id:season.league_id,code:randomUUID(),name:"Cancha origen sintética",address:"Fixture",match_duration_minutes:120}});
       await tx.venue_availability.create({data:{venue_id:firstVenue.id,starts_at:new Date("2026-11-10T00:00Z"),ends_at:new Date("2026-11-16T00:00Z"),type:"AVAILABLE"}});
       const firstMatch=await tx.matches.create({data:{season_id:season.id,group_id:source.group_id,matchday_id:day.id,number:randomUUID(),home_team_id:source.id,away_team_id:rival.id,status_id:active.id,venue_id:firstVenue.id,starts_at:match.starts_at,ends_at:match.ends_at,reserved_until:match.ends_at}});
-      let firstClock=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},"2026-11-11T18:00:00Z");
-      firstClock=advanceMatchClock(firstClock,{type:"end-half"},"2026-11-11T18:43:00Z");
+      let firstClock=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},"2026-11-11T18:00:00Z","server");
+      firstClock=advanceMatchClock(firstClock,{type:"end-half"},"2026-11-11T18:43:00Z","server");
       const firstDraft=draftSchema.parse({lineups:[{playerId:reg.id,teamId:source.id,selected:true,starter:true,matchJersey:88,participationHalf:1,periods:[{periodNumber:1,entryMinute:0,exitMinute:43}]}],captains:{},events:[],score:{home:null,away:null},remarks:"",incidents:"",signatures:{}});
       const firstReport=await tx.match_reports.create({data:{match_id:firstMatch.id,client_id:randomUUID(),captured_by:actors.admin,source:"MOBILE",draft_data:{draft:firstDraft,clock:firstClock}}});
       await tx.lineups.create({data:{match_report_id:firstReport.id,registration_id:reg.id,season_team_id:source.id,is_starter:true,validated_by:actors.admin,player_period_participations:{create:{period_number:1,entry_minute:0,exit_minute:43}}}});
       await tx.matches.update({where:{id:match.id},data:{status_id:(await tx.match_statuses.findUniqueOrThrow({where:{code:"IN_PROGRESS"}})).id}});
       const current=await tx.matches.findUniqueOrThrow({where:{id:match.id}});
       const report=await tx.match_reports.findUniqueOrThrow({where:{match_id:match.id}});
-      let clock=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},"2026-11-11T18:00:00Z");
-      clock=advanceMatchClock(clock,{type:"end-half"},"2026-11-11T18:43:00Z");
-      clock=advanceMatchClock(clock,{type:"start-second"},"2026-11-11T18:55:00Z");
+      let clock=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},"2026-11-11T18:00:00Z","server");
+      clock=advanceMatchClock(clock,{type:"end-half"},"2026-11-11T18:43:00Z","server");
+      clock=advanceMatchClock(clock,{type:"start-second"},"2026-11-11T18:55:00Z","server");
       const draft=draftSchema.parse({...firstDraft,lineups:[{...firstDraft.lineups[0],teamId:team.id,starter:false,participationHalf:2,periods:[{periodNumber:2,entryMinute:0,exitMinute:null}]}]});
       await tx.match_reports.update({where:{id:report.id},data:{draft_data:{draft,clock}}});
       const command={formatVersion:1 as const,operationId:randomUUID(),kind:"save" as const,matchId:match.id,expectedMatchVersion:current.version,expectedReportVersion:report.version,draft};
@@ -259,6 +259,15 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
       const next={...command,operationId:randomUUID(),expectedReportVersion:saved.reportVersion};
       await assert.rejects(mutateReportInTransaction(tx,actors.admin,{...next,draft:{...draft,lineups:draft.lineups.map(r=>({...r,starter:true}))}}),/SECOND_HALF_STARTER/);
       await assert.rejects(mutateReportInTransaction(tx,actors.admin,{...next,draft:{...draft,lineups:draft.lineups.map(r=>({...r,periods:[{periodNumber:2,entryMinute:1,exitMinute:null}]}))}}),/HALFTIME_ENTRY_REQUIRED/);
+      // La misma separación horaria, declarada offline o sin origen histórico, exige revisión.
+      for (const boundarySources of [{...firstClock.boundarySources, firstEndedAt:"device"}, {}]) {
+        await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft,clock:{...firstClock,boundarySources}}}});
+        await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_CLOCK_REQUIRED/);
+      }
+      await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft,clock:firstClock}}});
+      await tx.match_reports.update({where:{id:report.id},data:{draft_data:{draft,clock:{...clock,boundarySources:{...clock.boundarySources,secondStartedAt:"device"}}}}});
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_CLOCK_REQUIRED/);
+      await tx.match_reports.update({where:{id:report.id},data:{draft_data:{draft,clock}}});
       const delayed={...firstClock,boundaries:{...firstClock.boundaries,firstEndedAt:"2026-11-11T18:56:00Z"}};
       await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft,clock:delayed}}});
       await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_REAL_TIME_CONFLICT/);

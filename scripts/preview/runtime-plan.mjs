@@ -15,8 +15,8 @@ const read = ['password_recovery_budgets', 'account_email_changes', 'password_re
 // y una política RLS para que _count no oculte referencias que impiden retirar filas.
 read.push('regulation_articles', 'sanction_types', 'team_withdrawals', 'billing_plans', 'club_team_changes', 'competition_rules', 'competition_rule_parameters',
   'competition_stages', 'imports', 'matchdays', 'match_results',
-  'match_statuses', 'official_documents', 'publications', 'season_awards', 'season_breaks',
-  'standing_versions', 'venue_loans', 'venues', 'venue_availability', 'venue_reservations', 'governing_bodies', 'positions', 'appointments');
+  'match_statuses', 'match_status_transitions', 'match_status_history', 'official_documents', 'publications', 'season_awards', 'season_breaks',
+  'standing_versions', 'venue_loans', 'venues', 'venue_availability', 'venue_reservations', 'home_venue_assignments', 'governing_bodies', 'positions', 'appointments');
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
@@ -37,13 +37,15 @@ const readColumns = {
   imports: ['id', 'season_id'],
   matchdays: ['id', 'season_id', 'number'], match_results: ['id', 'match_id'], match_statuses: ['id', 'code', 'reserves_resources'],
   official_documents: ['id', 'season_id'], publications: ['id', 'season_id'],
-  season_awards: ['id', 'season_category_id', 'season_id'], season_breaks: ['id', 'season_id'],
-  standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'reviewed_by', 'review_reason'],
+  season_awards: ['id', 'season_category_id', 'season_id'], season_breaks: ['id', 'season_id', 'starts_at', 'ends_at'],
+  standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'reviewed_by', 'review_reason', 'approved_by', 'approved_at', 'owner_decision_required', 'owner_decision', 'owner_reviewed_by', 'owner_reviewed_at', 'owner_review_reason'],
 };
 const insert = {
   password_recovery_budgets: ['bucket_key','window_start','hits'],
+  home_venue_assignments: ['season_team_id', 'venue_id', 'venue_loan_id', 'weekday', 'start_time', 'starts_at', 'ends_at'],
+  match_status_history: ['id', 'match_id', 'previous_status_id', 'new_status_id', 'user_id', 'reason', 'expected_version'],
   password_resets: ['id','user_id','token_hash','created_at','expires_at'],
-  venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status'],
+  venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'owner_decision_required'],
   regulation_articles: ['id','competition_rule_id','number','description','sanction_type_id','parameters','revision'],
   referee_presentation_credentials:['id','file_id','uploaded_by','operation_key','input_hash'],
   referee_presentations:['club_id','season_id','requester_id','operation_key','input_hash','person_id','first_name','paternal_surname','maternal_surname','reason'],
@@ -57,7 +59,7 @@ const insert = {
   governing_bodies: ['league_id', 'name'],
   positions: ['governing_body_id', 'name', 'role_id'],
   appointments: ['position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
-  venues: ['league_id', 'code', 'name', 'address', 'is_league_sports_complex', 'features', 'is_active', 'match_duration_minutes', 'buffer_minutes'],
+  venues: ['league_id', 'code', 'name', 'address', 'is_league_sports_complex', 'owner_club_id', 'features', 'is_active', 'match_duration_minutes', 'buffer_minutes'],
   venue_availability: ['venue_id', 'starts_at', 'ends_at', 'type', 'reason'],
   account_email_changes: ['id','user_id','actor_id','operation_key','input_hash','old_email','new_email','token_hash','expected_revision','user_version','reason','created_at','expires_at','status','confirmation_delivery','previous_notice_delivery','completion_notice_delivery'],
   player_category_levels:['season_category_id','season_id','pathway_code','level','configured_by'],
@@ -94,7 +96,8 @@ const insert = {
 };
 const update = {
   password_recovery_budgets: ['window_start','hits'],
-  venue_loans: ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at'],
+  matches: ['status_id', 'version', 'venue_id', 'starts_at', 'ends_at', 'reserved_until'],
+  venue_loans: ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at', 'owner_decision', 'owner_reviewed_by', 'owner_reviewed_at', 'owner_review_reason'],
   regulation_articles: ['number','description','sanction_type_id','parameters'],
   referee_presentations:['status','reviewed_by','reviewed_at','review_reason','review_key','review_hash','approved_person_id','referee_id','approved_identity'],
   people:['curp','first_name','paternal_surname','maternal_surname','birth_date'],
@@ -104,7 +107,7 @@ const update = {
   referee_availability:['starts_at','ends_at','is_available'],
   referee_assignments:['status','approved_by','approved_at','approved_identity_version','version'],
   appointments: ['ends_at'],
-  venues: ['code', 'name', 'address', 'is_league_sports_complex', 'features', 'is_active', 'match_duration_minutes', 'buffer_minutes'],
+  venues: ['code', 'name', 'address', 'is_league_sports_complex', 'owner_club_id', 'features', 'is_active', 'match_duration_minutes', 'buffer_minutes'],
   venue_availability: ['starts_at', 'ends_at', 'type', 'reason'],
   account_email_changes: ['status','used_at','confirmation_delivery','previous_notice_delivery','completion_notice_delivery'],
   password_resets: ['used_at'],
@@ -147,7 +150,13 @@ lock.push('referee_presentations');
 read.push('lineups','player_period_participations','match_report_syncs','event_types');
 // PDGLD-18: inicio coordinado con reloj y acuse. No se habilita cierre oficial.
 read.push('match_status_history');
-update.matches = ['status_id','version'];
+update.matches = ['status_id','version','venue_id','starts_at','ends_at','reserved_until'];
+update.schedule_proposals = ['status','version','parameters'];
+read.push('team_byes', 'team_reservations');
+readColumns.team_byes = ['id', 'matchday_id', 'season_team_id'];
+readColumns.team_reservations = ['match_id', 'season_team_id', 'time_range'];
+readColumns.season_breaks.push('starts_at', 'ends_at');
+readColumns.matchdays.push('start_date', 'end_date');
 insert.match_status_history = ['id','match_id','previous_status_id','new_status_id','user_id','reason','created_at'];
 readColumns.match_statuses.push('name');
 readColumns.matchdays.push('number');
@@ -159,6 +168,13 @@ insert.match_events = ['id','match_report_id','event_type_id','season_team_id','
 insert.match_report_syncs = ['id','client_id','match_report_id','user_id','base_version','status','private_payload','received_at'];
 remove.push('lineups','player_period_participations','match_events');
 lock.push('lineups','player_period_participations','match_report_syncs');
+// PDGLD-135: lecturas y escritura de propuestas; nunca publicación ni reservas.
+read.push('home_venue_assignments');
+readColumns.matchdays.push('start_date','end_date');
+readColumns.season_breaks.push('starts_at','ends_at','reason');
+readColumns.venue_loans.push('venue_id','club_id','status','approved_by','approved_at');
+export const schedulingLoanWindowColumns = Object.freeze(['requested_by','requested_windows']);
+insert.schedule_proposals = ['id','season_id','matchday_id','created_by','competition_rule_id','parameters','conflicts','created_at','status','version'];
 export const runtimePrivileges = Object.freeze({ read, readColumns, insert, update, remove, lock });
 const literal = value => `'${value.replaceAll("'", "''")}'`;
 const array = values => `ARRAY[${values.map(literal).join(',')}]::text[]`;
@@ -209,6 +225,12 @@ BEGIN
   -- No se cambia LOGIN, contraseña, atributos ni valores de conexión existentes.
   FOR spec IN SELECT * FROM (VALUES ${tables}) AS t(name,sel,ins,upd,del,locking) LOOP
     table_oid := format('sports_management.%I',spec.name)::regclass;
+    -- PDGLD-23 puede incorporarse después: conceder estas lecturas solo cuando
+    -- existan ambas columnas. La ausencia no habilita préstamos legados.
+    IF spec.name='venue_loans' AND (SELECT count(*) FROM pg_attribute
+      WHERE attrelid=table_oid AND attname=ANY(${array(schedulingLoanWindowColumns)}) AND NOT attisdropped)=2 THEN
+      spec.sel := spec.sel || ${array(schedulingLoanWindowColumns)};
+    END IF;
     -- Una operación autorizada al backend nunca autoriza la misma ACL a PUBLIC.
     IF EXISTS(SELECT 1 FROM pg_class c, LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
       WHERE c.oid=table_oid AND acl.grantee=0)

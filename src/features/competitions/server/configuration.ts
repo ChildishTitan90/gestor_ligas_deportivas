@@ -26,7 +26,10 @@ export async function getCompetitionConfiguration(seasonId: string) {
         competition_rule_parameters: { select: { parameter_key: true, parameter_value: true, requires_validation: true }, orderBy: { parameter_key: "asc" } } },
       orderBy: { version_number: "desc" },
     });
-    return { season: { id: season.id, name: season.name, leagueId: season.league_id, version: season.version, status: season.status, teamRegistrationClosed: registration[0]?.team_registration_closed_at != null },
+    const venues = await tx.venues.findMany({ where: { league_id: season.league_id },
+      select: { id: true, name: true, code: true, is_active: true }, orderBy: { name: "asc" } });
+    return { venues: venues.map(venue => ({ id: venue.id, name: venue.name, code: venue.code, active: venue.is_active })),
+      season: { id: season.id, name: season.name, leagueId: season.league_id, version: season.version, status: season.status, teamRegistrationClosed: registration[0]?.team_registration_closed_at != null },
       rules: rules.map(rule => ({ id: rule.id, version: rule.version_number, status: rule.status,
         createdAt: rule.created_at.toISOString(), parameters: rule.competition_rule_parameters.map(parameter => ({
           key: parameter.parameter_key, value: parameter.parameter_value, requiresValidation: parameter.requires_validation,
@@ -47,9 +50,14 @@ export async function createCompetitionRuleDraft(seasonId: string, input: unknow
     // el ámbito para evitar invertir FOR UPDATE/FOR SHARE entre escritores.
     await tx.$queryRaw`SELECT id FROM sports_management.seasons WHERE id = ${seasonId}::uuid FOR UPDATE`;
     await assertPermission(tx, actor.id, { module: "competitions", action: "UPDATE", context: { seasonId } });
-    const season = await tx.seasons.findUniqueOrThrow({ where: { id: seasonId }, select: { status: true, version: true } });
+    const season = await tx.seasons.findUniqueOrThrow({ where: { id: seasonId }, select: { status: true, version: true, league_id: true } });
     if (season.status === "CLOSED") throw new CompetitionError("SEASON_CLOSED", 409);
     if (season.version !== data.expectedSeasonVersion) throw new CompetitionError("STALE_CONFIGURATION", 409);
+    const venueIds = [...new Set(data.calendar.scheduling?.venueStages.flatMap(stage => stage.venueIds) ?? [])];
+    if (venueIds.length) {
+      const count = await tx.venues.count({ where: { id: { in: venueIds }, league_id: season.league_id, is_active: true } });
+      if (count !== venueIds.length) throw new CompetitionError("INVALID_SCHEDULING_VENUES");
+    }
     await tx.$queryRaw`SELECT set_config('app.user_id', ${actor.id}, true), set_config('app.reason', ${data.reason}, true)`;
     const last = await tx.competition_rules.aggregate({ where: { season_id: seasonId }, _max: { version_number: true } });
     const rule = await tx.competition_rules.create({ data: {

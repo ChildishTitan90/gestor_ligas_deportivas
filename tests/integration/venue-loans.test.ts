@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
@@ -7,6 +8,7 @@ import { AuthorizationError } from "../../src/server/auth/authorization";
 import type { PrivateDocumentTransport } from "../../src/server/files/private-document-storage";
 import { decideVenueLoanForActor, previewVenueLoanLetterForActor, submitVenueLoanForActor } from "../../src/features/venues/server/loans";
 import { loadHomeVenueOptions } from "../../src/features/venues/server/scheduling-options";
+import { saveVenueForActor } from "../../src/features/venues/server/service";
 import { sendVenueLoan, type VenueLoanCapture, type VenueLoanRecoveryStore } from "../../src/features/venues/venue-loan-recovery.client";
 
 assert.ok(process.env.DATABASE_URL, "Configura una base PostgreSQL temporal para PDGLD-23");
@@ -24,7 +26,7 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
     const first = date("2026-11-14");
     const last = date("2026-11-21");
     const at = (time: string) => date(`2026-11-14T${time}:00Z`);
-    const { season, day, home, away, president, scheduler, privateVenue, complex, rival } = await db.$transaction(async tx => {
+    const { season, day, home, away, third, president, scheduler, privateVenue, complex, rival } = await db.$transaction(async tx => {
       const league = await tx.leagues.create({ data: { name: tag, timezone: "UTC" } });
       const sport = await tx.sports.findUniqueOrThrow({ where: { code: "SOCCER" } });
       const season = await tx.seasons.create({ data: {
@@ -78,22 +80,23 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
 
       const home = await createClubTeam();
       const away = await createClubTeam();
+      const third = await createClubTeam();
       const president = await createActor("EXECUTIVE_PRESIDENT");
       const scheduler = await createActor("SCHEDULER");
-      async function createVenue(code: string, isComplex: boolean) {
+      async function createVenue(code: string, isComplex: boolean, ownerClubId?: string) {
         const venue = await tx.venues.create({ data: {
           league_id: league.id, code, name: code, address: "Domicilio sintético",
-          is_league_sports_complex: isComplex, match_duration_minutes: 60, buffer_minutes: 15,
+          owner_club_id: ownerClubId, is_league_sports_complex: isComplex, match_duration_minutes: 60, buffer_minutes: 15,
         } });
         await tx.venue_availability.create({ data: {
           venue_id: venue.id, type: "AVAILABLE", starts_at: at("10:00"), ends_at: at("15:00"),
         } });
         return venue.id;
       }
-      const privateVenue = await createVenue("PARTICULAR", false);
+      const privateVenue = await createVenue("PARTICULAR", false, away.club.id);
       const complex = await createVenue("UNIDAD", true);
-      const rival = await createVenue("RIVAL", false);
-      return { season, day, home, away, president, scheduler, privateVenue, complex, rival };
+      const rival = await createVenue("RIVAL", false, third.club.id);
+      return { season, day, home, away, third, president, scheduler, privateVenue, complex, rival };
     });
     const options = (time = "11:00", finalRounds = 1, priorHomeVenueId?: string) =>
       db.$transaction(tx => loadHomeVenueOptions(tx, scheduler, {
@@ -116,14 +119,15 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
         assert.ok(bytes);
         return bytes;
       },
-      async createDownloadUrl() {
+      async remove(key) { files.delete(key); },
+    async createDownloadUrl() {
         signed++;
         return { downloadUrl: "https://example.test/carta", expiresInSeconds: 60 };
       },
     };
     const pdf = await PDFDocument.create();
     pdf.addPage().drawText("Carta sintetica de prueba PDGLD-23");
-    const file = { bytes: await pdf.save(), mimeType: "application/pdf" };
+    const file = { bytes: await pdf.save(), mimeType: "application/pdf", signature: await sharp({ create: { width: 20, height: 20, channels: 3, background: "#000000" } }).png().toBuffer() };
     const request = {
       requestId: randomUUID(), seasonId: season.id, clubId: home.club.id, venueId: privateVenue,
       windows: [{ startsAt: at("11:00").toISOString(), endsAt: at("13:00").toISOString() }],
@@ -133,6 +137,7 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
       requestId: request.requestId, contextId: randomUUID(), venueId: privateVenue,
       windows: [{ id: randomUUID(), start: "2026-11-14T11:00", end: "2026-11-14T13:00" }],
       letter: new File([new Uint8Array(file.bytes)], "carta.pdf", { type: file.mimeType }),
+      signature: new File([new Uint8Array(file.signature)], "firma.png", { type: "image/png" }),
     };
     let saved: VenueLoanCapture | undefined;
     const recovery: VenueLoanRecoveryStore = {
@@ -156,7 +161,9 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
       assert.equal(letter.name, capture.letter.name);
       const bytes = new Uint8Array(await letter.arrayBuffer());
       assert.deepEqual(bytes, file.bytes);
-      return submitVenueLoanForActor(home.delegate, request, { bytes, mimeType: letter.type }, storage);
+      const signature = body.get("signature");
+      assert.ok(signature instanceof File);
+      return submitVenueLoanForActor(home.delegate, request, { bytes, mimeType: letter.type, signature: new Uint8Array(await signature.arrayBuffer()) }, storage);
     }
     assert.equal(await sendVenueLoan(recovery, capture, false, async body => {
       assert.equal((await saveOnServer(body)).status, "PENDING");
@@ -170,9 +177,9 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
     assert.equal(await db.venue_loans.count({ where: { requested_by: home.delegate, venue_id: privateVenue } }), 1);
     assert.equal(files.size, 1);
     assert.deepEqual(await options(), [complex]);
-    await assert.rejects(previewVenueLoanLetterForActor(away.delegate, request.requestId, storage), AuthorizationError);
+    await assert.rejects(previewVenueLoanLetterForActor(scheduler, request.requestId, storage), AuthorizationError);
     assert.equal(signed, 0);
-    assert.deepEqual(await previewVenueLoanLetterForActor(president, request.requestId, storage), {
+    assert.deepEqual(await previewVenueLoanLetterForActor(away.delegate, request.requestId, storage), {
       downloadUrl: "https://example.test/carta", expiresInSeconds: 60, mimeType: "application/pdf",
     });
 
@@ -182,6 +189,12 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
     await assert.rejects(decideVenueLoanForActor(home.delegate, {
       requestId: request.requestId, status: "APPROVED", reason,
     }), AuthorizationError);
+    await assert.rejects(decide(request.requestId, "APPROVED"), AuthorizationError);
+    await decideVenueLoanForActor(away.delegate, { requestId: request.requestId, status: "APPROVED", reason: "Autoriza dueño" });
+    assert.deepEqual(await options(), [complex]);
+    assert.deepEqual(await previewVenueLoanLetterForActor(president, request.requestId, storage), {
+      downloadUrl: "https://example.test/carta", expiresInSeconds: 60, mimeType: "application/pdf",
+    });
     const outcomes = await Promise.allSettled([decide(request.requestId, "APPROVED"), decide(request.requestId, "REJECTED")]);
     const [winner] = outcomes.filter(result => result.status === "fulfilled");
     assert.equal(outcomes.filter(result => result.status === "fulfilled").length, 1);
@@ -192,6 +205,7 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
 
     const second = { ...request, requestId: randomUUID() };
     await submitVenueLoanForActor(home.delegate, second, file, storage);
+    await decideVenueLoanForActor(away.delegate, { requestId: second.requestId, status: "APPROVED", reason: "Autoriza dueño" });
     if (winner.value.status === "APPROVED") {
       await decide(second.requestId, "REJECTED");
     } else {
@@ -205,9 +219,21 @@ test("préstamos privados, decisión concurrente y opciones de localía en Postg
 
     const rivalLoan = { ...request, requestId: randomUUID(), clubId: away.club.id, venueId: rival };
     await submitVenueLoanForActor(away.delegate, rivalLoan, file, storage);
+    await decideVenueLoanForActor(third.delegate, { requestId: rivalLoan.requestId, status: "APPROVED", reason: "Autoriza dueño" });
     await decide(rivalLoan.requestId, "APPROVED");
     assert.deepEqual(await options(), [privateVenue, complex]);
-    assert.deepEqual(await options("11:00", 1, rival), [privateVenue, complex, rival]);
+    assert.deepEqual(await options("11:00", 1, rival), [privateVenue, complex]);
+
+    // Una cancha histórica sin dueño puede regularizarse sin alterar sus préstamos.
+    await db.venues.update({where:{id:privateVenue},data:{owner_club_id:null}});
+    const history = await db.venue_loans.findMany({where:{venue_id:privateVenue},orderBy:{id:"asc"}});
+    const leagueId = season.league_id;
+    const venueInput = {leagueId,venueId:privateVenue,code:"PARTICULAR",name:"PARTICULAR",address:"Domicilio sintético",kind:"private",ownerClubId:away.club.id,features:"",duration:"60",buffer:"15"};
+    await assert.rejects(saveVenueForActor(home.delegate,venueInput),AuthorizationError);
+    await saveVenueForActor(scheduler,venueInput);
+    assert.equal((await db.venues.findUniqueOrThrow({where:{id:privateVenue}})).owner_club_id,away.club.id);
+    assert.deepEqual(await db.venue_loans.findMany({where:{venue_id:privateVenue},orderBy:{id:"asc"}}),history);
+    await assert.rejects(saveVenueForActor(scheduler,{...venueInput,ownerClubId:third.club.id}),{message:"OWNER_HAS_LOANS"});
   } finally {
     await db.$disconnect();
   }

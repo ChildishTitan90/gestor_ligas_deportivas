@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { assertChromeEndpoint, discoverChromePage } from './chrome-page-discovery.mjs';
+import { assertChromeEndpoint, CHROME_STARTUP_MS, discoverChromePage } from './chrome-page-discovery.mjs';
 export { assertChromeEndpoint } from './chrome-page-discovery.mjs';
 
 export function bounded(promise, ms, phase, signal) {
@@ -98,11 +98,14 @@ export async function launchChrome(origin, { profileDirectory, signal, commandTi
         const match = tail.match(/DevTools listening on (ws:\/\/[^\s]+)/);
         if (match) resolve(match[1]);
       });
-    }), 30000, 'Chrome: arranque', signal);
+    }), CHROME_STARTUP_MS, 'Chrome: arranque', signal);
     const base = assertChromeEndpoint(endpoint);
     cdpPublishedMs = Date.now() - startedAt;
     startupPhase = 'page-discovery';
     const page = await discoverChromePage({ browserEndpoint: endpoint, startUrl: origin, signal,
+      // Publishing CDP does not mean /json/list is ready. Share the remaining
+      // startup budget instead of cutting discovery short after five seconds.
+      timeoutMs: Math.max(0, CHROME_STARTUP_MS - (Date.now() - startedAt)),
       async readTargets(timeoutMs, abort) {
         const requestSignal = AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(abort ? [abort] : [])]);
         const response = await fetch(`http://${base.host}/json/list`, { signal: requestSignal });

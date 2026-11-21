@@ -49,6 +49,6 @@ export const halfBlockerMessages: Record<string, string> = {
   PARTICIPATION_CONTEXT_CONFLICT: "El cruce solo permite categorías distintas del mismo club y temporada.",
   PARTICIPATION_HALF_REQUIRED: "Para compartir horarios indica una mitad distinta en cada cédula. La reserva no autoriza entrar antes del medio tiempo.",
   PARTICIPATION_HALF_CONFLICT: "El jugador ya está reservado para la misma mitad en otro partido coincidente.",
-  PARTICIPATION_CLOCK_REQUIRED: "Faltan marcas reales suficientes para descartar participación simultánea y comprobar el traslado.",
+  PARTICIPATION_CLOCK_REQUIRED: "Traslado pendiente de revisión. Comisión debe contrastar las dos cédulas y comprobar las marcas de salida y entrada.",
   PARTICIPATION_REAL_TIME_CONFLICT: "El segundo tiempo comenzó antes de terminar el primero del otro partido; no se autoriza este traslado.",
 };
