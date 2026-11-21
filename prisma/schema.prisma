@@ -1954,7 +1954,7 @@ model standing_entries {
   group_id            String            @db.Uuid
   season_id           String            @db.Uuid
   season_team_id      String            @db.Uuid
-  rank                Int
+  rank                Int?
   played              Int
   won                 Int
   drawn               Int
@@ -1977,6 +1977,8 @@ model standing_entries {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model standing_versions {
+  input_fingerprint String?
+  calculation_data Json?
   id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   season_id           String             @db.Uuid
   group_id            String             @db.Uuid
@@ -1993,6 +1995,7 @@ model standing_versions {
   matchdays           matchdays          @relation(fields: [matchday_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
   users               users?             @relation(fields: [validated_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@index([group_id, matchday_id, competition_rule_id, input_fingerprint], map: "standing_versions_calculation_input_key")
   @@unique([group_id, matchday_id, version_number])
   @@unique([id, group_id, season_id])
   @@index([competition_rule_id, season_id], map: "fk_standing_versions_competition_rule_id_season_id_fkey")
