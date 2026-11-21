@@ -2544,3 +2544,12 @@ model referee_presentation_credentials {
  @@unique([uploaded_by,operation_key])
  @@schema("sports_management")
 }
+
+model password_recovery_budgets {
+  bucket_key   String   @id @db.VarChar(64)
+  window_start DateTime @db.Timestamptz(6)
+  hits         Int
+
+  @@index([window_start], map: "password_recovery_budgets_window_start_idx")
+  @@schema("sports_management")
+}
