@@ -45,6 +45,8 @@
     "test:player-identity-isolated": "node scripts/test-delegate-isolated.mjs --player-identity-correction",
     "test:player-identity-age-isolated": "node scripts/test-delegate-isolated.mjs --player-identity-age",
 
+    "recovery:local": "node --conditions=react-server --import tsx scripts/password-recovery-local.mjs",
+    "test:password-recovery-isolated": "node scripts/test-password-recovery-isolated.mjs",
     "test:password-recovery-integration": "node scripts/test-auth.mjs --preview-recovery",
     "test:password-recovery": "node --conditions=react-server --import tsx --test src/server/auth/password-recovery.test.ts src/server/auth/recovery-abuse.test.ts",
     "test:email-transport": "node --conditions=react-server --import tsx --test src/server/email/resend.test.ts",

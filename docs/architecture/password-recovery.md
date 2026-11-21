@@ -131,3 +131,7 @@ incertidumbre y revocación. El transporte es simulado. Los handlers se prueban
 con Request/Response reales y la base limitada; esto no acredita un recorrido
 Chrome ni entrega real de esta revisión en Preview. La habilitación y la
 validación del entorno de destino siguen pendientes.
+
+## Aceptación alternativa autorizada — 21/11/2026
+
+La continuación del PR #64 usa [HTTPS local y PostgreSQL aislado](../operations/pdgld32-local-acceptance.md) por instrucción humana, con el modo local ya existente y la política numérica aprobada en esa sesión. No habilita producción ni modifica el contrato de Resend. La entrega en buzón/navegador y la aceptación del equipo de este entorno alternativo se registran separadamente de las suites sintéticas.
