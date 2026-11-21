@@ -43,6 +43,9 @@ const readColumns = {
   standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'reviewed_by', 'review_reason', 'approved_by', 'approved_at', 'owner_decision_required', 'owner_decision', 'owner_reviewed_by', 'owner_reviewed_at', 'owner_review_reason'],
 };
 const insert = {
+  disciplinary_cases: ['id','season_id','reference_number','event_id','status','opened_by','created_at','description'],
+  matches: ['season_id','group_id','matchday_id','number','home_team_id','away_team_id','venue_id','starts_at','ends_at','reserved_until','status_id','schedule_proposal_id'],
+  team_byes: ['season_id','matchday_id','season_team_id'],
   home_venue_assignments: ['season_team_id', 'venue_id', 'venue_loan_id', 'weekday', 'start_time', 'starts_at', 'ends_at'],
   match_status_history: ['id', 'match_id', 'previous_status_id', 'new_status_id', 'user_id', 'reason', 'expected_version'],
   password_resets: ['id','user_id','token_hash','created_at','expires_at'],

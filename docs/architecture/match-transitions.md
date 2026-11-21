@@ -31,7 +31,53 @@ acciones disponibles según los permisos del actor y el estado del partido.
 | CONFIRMED | IN_PROGRESS | DATA_ENTRY con `match-reports:UPDATE` vigente en la liga | Registra lo observado en el encuentro o informado por el árbitro. |
 | IN_PROGRESS | SUSPENDED | DATA_ENTRY con los mismos controles | Requiere motivo; el catálogo actual libera reservas al suspender. |
 | SCHEDULED, CONFIRMED o SUSPENDED | CANCELED | EXECUTIVE_PRESIDENT o SUPERADMIN con `scheduling:APPROVE` y ámbito de liga | Requiere motivo. Se bloquea si existe cédula o resultado, hasta integrar su revisión. |
-| Cualquier otro par | — | Ninguna en este servicio inicial | Denegado. No interpreta la existencia de una fila en la matriz como implementación de sus efectos. |
+| SUSPENDED | UNDER_REVIEW | Comisión disciplinaria con `discipline:APPROVE` en la liga | Requiere motivo; conserva liberadas las reservas, sin cambiar el resultado. |
+| UNDER_REVIEW | CANCELED | Comisión disciplinaria con `discipline:APPROVE` en la liga | Conserva cédula y evidencias; se rechaza si existe resultado oficial. La decisión con marcador sigue pendiente. |
+| SCHEDULED, CONFIRMED o RESCHEDULED | UNSCHEDULED | Programador autorizado de la liga | Sin cédula ni resultado y sin designación arbitral aprobada. Conserva el partido, limpia cancha y horario y libera reservas; después permite reprogramarlo. |
+| Otros pares | — | Ninguna en este servicio genérico | Denegados; la presencia de un estado o una fila de matriz no demuestra que sus efectos estén implementados. Los servicios específicos de incomparecencia y reprogramación se describen abajo. |
+
+## Estado de la integración revisado el 20 de noviembre
+
+Esta matriz describe el código de la rama de trabajo, incluidos cambios locales aún sin commit. No acredita despliegue, CI remoto ni aceptación final de PDGLD-85 o PDGLD-132.
+
+| Estado o efecto | Situación actual | Trabajo o dependencia pendiente |
+| --- | --- | --- |
+| Borrador, programado y confirmado | La programación aprobada crea partidos `SCHEDULED`; la confirmación operativa exige una designación principal aprobada. El borrador no habilita captura de cédula. | Completar la regresión integrada y evidencia del recorrido real. La publicación pública sigue separada. |
+| En curso y suspendido | Se puede iniciar y suspender con autorización; suspender libera reservas. | Acordar e implementar qué resolución corresponde a un partido que ya comenzó. El flujo de reprogramación actual no mueve partidos `SUSPENDED` ni cédulas existentes. |
+| En revisión | La comisión puede pasar `SUSPENDED` a `UNDER_REVIEW` y resolverlo cancelándolo sin borrar la cédula. Se bloquea la cancelación si existe un resultado. | Falta la resolución con marcador y la corrección de resultados existentes. |
+| Reprogramado | Los partidos `SCHEDULED`, `CONFIRMED` o `RESCHEDULED` sin cédula ni resultado pueden reprogramarse; también el caso específico `NO_SHOW` con ambos equipos ausentes. Hay controles de reservas, autorización y versión. | La designación arbitral aprobada debe revocarse antes del movimiento. Quedan fuera incidentes con cédula existente y partidos suspendidos. La validación en la aplicación y CI remoto siguen pendientes. |
+| No presentado, un equipo | Se registra la incidencia en cédula y se muestra un 1–0 propuesto; no es resultado oficial. Existe un adaptador interno de confirmación probado con efectos simulados. | Integrar la confirmación real de cédula con clasificación de PDGLD-29 y receptor de expedientes, en una sola transacción; no habilitarla solo por existir el adaptador. |
+| No presentado, ambos equipos | Se registra la incidencia sin ganador; la comisión debe liberar la designación arbitral para poder reprogramar. | La corrección autorizada de una incidencia ya registrada aún no está disponible. |
+| Finalizado | Existe protección de edición directa y un adaptador interno de cierre de cédula. La confirmación real permanece bloqueada en `getConfirmationEffects()`. | Conectar cierre, resultado, clasificación PDGLD-29 y expedientes en una transacción idempotente. La corrección autorizada posterior corresponde a PDGLD-21. |
+| Cancelado | La autoridad puede cancelar desde programado, confirmado o suspendido si no existe cédula ni resultado; se conserva el historial. | La resolución o cancelación de un partido con evidencia requiere un procedimiento específico que no está habilitado. |
+| No programado | El programador puede dejar pendiente un partido sin cédula ni resultado desde `SCHEDULED`, `CONFIRMED` o `RESCHEDULED`. Se quitan cancha y horario y se liberan reservas; después se puede reprogramar. Para una propuesta aprobada se registra un nuevo PDF que identifica el horario y la cancha pendientes. | Revocar antes cualquier designación arbitral aprobada. No se usa este flujo para partidos con cédula o ya iniciados. |
+| Resuelto administrativamente | El código existe en el catálogo y hay una decisión funcional preliminar para la comisión. | Falta implementar la decisión oficial, su resultado o cancelación, permisos, auditoría y los efectos de clasificación y disciplina. PDGLD-27/28 continúan pendientes. |
+
+### Acuerdos para cédulas y disciplina
+
+- La **secretaría de la liga** autoriza la corrección de una cédula confirmada.
+  La corrección deberá conservar el motivo, la autoridad y las versiones anterior
+  y nueva, y recalcular en la misma transacción los efectos que correspondan.
+  La tabla existente `match_report_corrections` no implementa por sí sola este
+  procedimiento: faltan el servicio, los permisos, la pantalla y el adaptador
+  de recálculo de clasificación de PDGLD-29. La edición directa continúa bloqueada.
+- Las expulsiones directas, las expulsiones por segunda amarilla y los incidentes
+  graves registrados como evento por el árbitro originan expediente; una amarilla
+  aislada o las observaciones generales no lo originan. El expediente no impone
+  sanciones automáticamente. `openIncidentCases` prepara esos expedientes dentro
+  de la transacción y utiliza una referencia por evento para reintentos.
+- Este receptor aún **no está conectado** a la confirmación oficial. Se probó en
+  PostgreSQL 15 con el rol limitado Preview y RLS, reenvío y reversión; el plan
+  Preview añade las columnas necesarias para insertar. Antes de habilitarlo faltan
+  revisar los permisos y políticas del entorno de producción y probarlo en la
+  misma transacción que el cierre y la clasificación de PDGLD-29. Tampoco
+  resuelve el tratamiento de expedientes preexistentes al corregir una cédula;
+  ese procedimiento debe preservar su historial y sus decisiones.
+- **PDGLD-29 (Nick) pendiente:** integrar el recálculo de clasificación tanto
+  al cierre como a las correcciones, con reversión completa si algún efecto falla.
+  No habilitar ninguno de esos recorridos solo porque exista el receptor de expedientes.
+
+En Jira, al 20 de noviembre PDGLD-18 figura como «Hecho», aunque su criterio de confirmación incluye resultado y clasificación en una sola transacción. El código de esta rama mantiene ese cierre bloqueado: contrastar esa diferencia con Víctor y la versión integrada antes de darlo por cumplido. PDGLD-29 figura «En desarrollo»; PDGLD-21, PDGLD-27 y PDGLD-28 figuran «Por hacer». Los estados de Jira no sustituyen la validación del código integrado.
 
 La migración incorpora estas transiciones. No asigna usuarios, no añade
 permisos RBAC, no concede bypass a SUPERADMIN y no restaura concesiones revocadas.
@@ -58,8 +104,8 @@ La asignación técnica de los permisos de autoridad de liga y los contratos de
 designación, cédula y efectos deportivos aún requieren integración. El catálogo
 actual no concede al árbitro `scheduling:UPDATE`; no se debe interpretar el acuerdo
 como una concesión global ni permitir transiciones sin validar la designación.
-Quedan por integrar la resolución oficial de no presentación,
-revisión y resolución administrativa. La finalización cuenta con
+Quedan por integrar la resolución oficial de no presentación y la resolución
+administrativa con marcador; la cancelación sin resultado ya está conectada. La finalización cuenta con
 `finishConfirmedReportMatch(tx, context)` como adaptador interno: revalida permiso
 y ámbito, exige cédula en borrador, resultado procedente de ella, partido en curso
 y versión vigente, e inserta historial con la misma clave de operación. El servicio
@@ -69,6 +115,16 @@ FINALIZADO no se puede reabrir por esta entrada ni editar directamente en Postgr
 una corrección necesita su autorización y servicio propios.
 
 ## Integración pendiente con cédula y programación
+
+### Reprogramación de partidos operativos por imprevistos
+
+La pantalla de registro ofrece reprogramación al programador autorizado de la liga para partidos individuales en `SCHEDULED`, `CONFIRMED` y `RESCHEDULED` que aún no tengan cédula ni resultado. Se puede cambiar cancha, fecha u hora futura dentro de la temporada, con motivo y versión; el mismo partido conserva su número e historial. Una designación arbitral aprobada debe revocarse antes de mover el partido y la nueva confirmación requiere designación vigente. No se modifican partidos en curso o finalizados desde este flujo.
+
+El servidor revalida reglamento, autorización del club local, disponibilidad, descansos, sanciones y reservas de ambos equipos y de la cancha. PostgreSQL reemplaza las reservas dentro de la misma transacción y sus restricciones impiden cruces simultáneos. Cada cambio registra una versión y acuse idempotente. El caso existente de ambos equipos ausentes mantiene sus controles y evidencia propios.
+
+Al aprobar una propuesta generada, la liga revalida el calendario y crea los partidos operativos y sus reservas en la misma transacción. Una propuesta pendiente no reserva recursos ni publica partidos. Las propuestas que ya estaban aprobadas antes de esta integración pueden activarse explícitamente por una autoridad con permiso de aprobación: se revalidan los horarios y se rechaza la activación si ya existen partidos asociados.
+
+Después de cada reprogramación se registra una instantánea inmutable del calendario actualizado. La ventana de reprogramación ofrece su descarga como PDF; la versión 1 sigue siendo la propuesta original aprobada, y los cambios sucesivos producen versiones 2, 3 y posteriores. Las versiones guardan nombres, horario y cancha del momento del cambio. La descarga muestra la versión más reciente; no reemplaza el PDF original. Los permisos de consulta se verifican en el servidor.
 
 ### Revisión y resolución administrativa: decisión funcional
 
@@ -80,13 +136,12 @@ con marcador debe integrarse con clasificación y cualquier efecto disciplinario
 aplicable en la misma transacción, con control de versión y reenvío idempotente.
 Una cancelación no debe borrar la cédula, la evidencia ni un resultado existente.
 
-La comisión puede pasar un partido suspendido a revisión. Esta transición conserva
-libres la cancha y el horario, registra motivo e historial y no modifica resultados.
-La migración conserva la situación de reservas de un partido en revisión durante
-actualizaciones posteriores. La decisión final de marcador o cancelación aún no
-está implementada: el receptor de clasificación y el flujo de expedientes todavía
-no están integrados. Se requiere coordinación con cédula y resultados antes de
-habilitar la resolución en la interfaz.
+La comisión puede pasar un partido suspendido a revisión y resolverlo mediante cancelación
+si todavía no existe un resultado. La operación conserva cédula y evidencias, exige
+motivo y registra historial; no crea marcador ni actualiza clasificación. Si existe
+resultado, se rechaza hasta contar con un proceso de corrección de sus efectos.
+La decisión final con marcador aún no está implementada: el receptor de clasificación
+y el flujo de expedientes todavía no están integrados.
 
 ### Registro de incomparecencia desde la cédula
 
@@ -120,14 +175,11 @@ Se requieren revisión y planes de migración antes de aplicarla fuera de prueba
   conectar el adaptador interno de cierre cuando también estén listos clasificación
   y expedientes. Integrar la resolución oficial de la no presentación. La confirmación debe
   coordinar todos los efectos en una transacción; `transitionMatch` no finaliza partidos.
-- **PDGLD-21, Sergio:** definir la corrección autorizada de una cédula y la
-  conservación de sus versiones y efectos antes de admitir cambios posteriores
-  a `FINISHED`.
-- **PDGLD-24/25, Sergio y Karol:** acordar la reprogramación con el flujo de
-  programación, las reservas y la validación de disponibilidad de PDGLD-22.
-  Confirmar origen y destino, motivo y tratamiento del horario anterior antes
-  de implementar la transición. `transitionMatch` actualmente requiere que el
-  horario inicial ya exista y no mueve reservas a un nuevo horario.
+- **PDGLD-21, Sergio:** implementar la corrección autorizada por secretaría, con
+  versiones y efectos transaccionales, antes de admitir cambios posteriores a `FINISHED`.
+- **PDGLD-24/25, Sergio y Karol:** la aprobación crea partidos y reservas; el servicio específico de
+  reprogramación mueve sus reservas y registra la versión actualizada del PDF. `transitionMatch`
+  no crea partidos ni cambia sus horarios. La publicación pública sigue siendo un proceso separado.
 - **PDGLD-29, Nick:** acordar cómo la confirmación de cédula entrega resultados
   oficiales para actualizar la clasificación una sola vez.
 - **PDGLD-26/27/28, Sergio:** coordinar el catálogo y la revisión disciplinaria

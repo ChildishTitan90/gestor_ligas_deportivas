@@ -108,6 +108,16 @@ export async function runReportAcceptance(f: Fixture) {
       await tx.matches.update({where:{id:match},data:{version:{increment:1}}});
       assert.equal((await tx.$queryRaw<{match_id:string}[]>`SELECT match_id FROM sports_management.venue_reservations WHERE match_id=${match}::uuid`).length,0);
       assert.equal(await tx.match_status_history.count({where:{id:input.operationId}}),1);
+      const report=await tx.match_reports.create({data:{match_id:match,client_id:randomUUID(),captured_by:actors.capturista,source:"MOBILE"}});
+      const {cancelReviewedMatchInTransaction}=await import("../../src/features/matches/server/resolve-review");
+      const fresh=await tx.matches.findUniqueOrThrow({where:{id:match}});
+      const cancel={matchId:match,operationId:randomUUID(),expectedVersion:fresh.version,toStatus:"CANCELED",reason:"Cancelación resuelta por comisión"};
+      await assert.rejects(cancelReviewedMatchInTransaction(tx,actors.capturista,cancel),{code:"FORBIDDEN"});
+      assert.equal((await cancelReviewedMatchInTransaction(tx,actors.comision,cancel)).replayed,false);
+      assert.equal((await cancelReviewedMatchInTransaction(tx,actors.comision,cancel)).replayed,true);
+      assert.equal((await tx.matches.findUniqueOrThrow({where:{id:match},include:{match_statuses:true}})).match_statuses.code,"CANCELED");
+      assert.ok(await tx.match_reports.findUnique({where:{id:report.id}}));
+      assert.equal(await tx.match_results.count({where:{match_id:match}}),0);
       throw Error("REVIEW_ROLLBACK");
     },{timeout:30000}),/REVIEW_ROLLBACK/);
     const {mutateReportInTransaction:prepareLineups}=await import("../../src/features/match-reports/server/service");
@@ -191,6 +201,31 @@ export async function runReportAcceptance(f: Fixture) {
         throw Error("NO_SHOW_CONFIRM_ROLLBACK");
       },{timeout:30000}),/NO_SHOW_CONFIRM_ROLLBACK/);
     } finally {await admin.$disconnect();}
+    // Receptor disciplinario real, aislado dentro de una transacción revertida.
+    const {openIncidentCases}=await import("../../src/features/match-reports/server/incident-cases");
+    const casePrivileges=await getPrisma().$queryRaw<{can_insert:boolean}[]>`SELECT has_any_column_privilege(current_user,'sports_management.disciplinary_cases','INSERT') AS can_insert`;
+    assert.equal(casePrivileges[0].can_insert,true,"El perfil limitado debe poder registrar expedientes de cédula");
+    const caseAdmin=new PrismaClient({adapter:new PrismaPg({connectionString:f.env.DATABASE_URL!})});
+    const caseEventIds=Array.from({length:4},()=>randomUUID());
+    try {
+      await assert.rejects(getPrisma().$transaction(async tx=>{
+        await tx.$queryRaw`SELECT set_config('app.user_id',${actors.capturista},true),set_config('app.reason','Prueba sintética de expedientes',true)`;
+        const report=await tx.match_reports.create({data:{match_id:match,client_id:randomUUID(),captured_by:actors.capturista,source:"MOBILE"}});
+        const sport=await tx.seasons.findUniqueOrThrow({where:{id:season},select:{sport_id:true}});
+        const types=await tx.event_types.findMany({where:{sport_id:sport.sport_id,code:{in:["CAUTION","SENDING_OFF","SERIOUS_INCIDENT"]}}});
+        for(const [i,code] of ["CAUTION","CAUTION","SENDING_OFF","SERIOUS_INCIDENT"].entries()) {
+          const type=types.find(item=>item.code===code);assert.ok(type);
+          await tx.match_events.create({data:{id:caseEventIds[i],match_report_id:report.id,event_type_id:type.id,description:code==="SERIOUS_INCIDENT"?"Incidente sintético":""}});
+        }
+        const context={actorId:actors.capturista,matchId:match,reportId:report.id,operationId:randomUUID(),expectedMatchVersion:1,homeScore:0,awayScore:0,eventIds:caseEventIds,dismissals:[{eventId:caseEventIds[1],playerId:registrations[0],teamId:teams[0],reason:"SECOND_CAUTION" as const},{eventId:caseEventIds[2],playerId:registrations[1],teamId:teams[1],reason:"DIRECT_RED" as const}]};
+        await openIncidentCases(tx,context);await openIncidentCases(tx,context);
+        const cases=await tx.disciplinary_cases.findMany({where:{event_id:{in:caseEventIds}},select:{event_id:true}});
+        assert.deepEqual(new Set(cases.map(item=>item.event_id)),new Set(caseEventIds.slice(1)));
+        assert.equal(cases.length,3);
+        throw Error("INCIDENT_CASE_ROLLBACK");
+      },{timeout:30000}),/INCIDENT_CASE_ROLLBACK/);
+      assert.equal(await caseAdmin.disciplinary_cases.count({where:{event_id:{in:caseEventIds}}}),0);
+    } finally {await caseAdmin.$disconnect();}
     const pre=command(0);pre.kind="lock-lineups";pre.draft.events=[];pre.draft.score={home:null,away:null};pre.draft.lineups.forEach(r=>r.periods=[]);
     await assert.rejects(getPrisma().$transaction(async tx=>{const ack=await prepareLineups(tx,actors.capturista,pre);assert.equal(ack.status,"DRAFT");const start={...pre,kind:"clock" as const,operationId:randomUUID(),expectedReportVersion:1,clockAction:{type:"start" as const,halfMinutes:45,breakMinutes:15}};const started=await prepareLineups(tx,actors.capturista,start);assert.equal(started.matchVersion,page.match.version+1);assert.deepEqual(await prepareLineups(tx,actors.capturista,start),started);assert.equal(await tx.match_status_history.count({where:{id:start.operationId}}),1);throw Error("PREMATCH_ROLLBACK");},{timeout:30000}),/PREMATCH_ROLLBACK/);
     // Regresión del PR #63: banca reservada a primera mitad, entrada real y salida al descanso.

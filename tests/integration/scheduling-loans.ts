@@ -319,7 +319,7 @@ export async function verifySchedulingLoans(f: { actor: string; outsider: string
     assert.ok(venue.venue_availability.some(window =>
       +window.starts_at <= Date.parse(match.start) && Date.parse(match.reservedUntil) <= +window.ends_at));
   }
-  assert.equal(await db.matches.count(), 0);
+  assert.equal(await db.matches.count({where:{deleted_at:null}}), 0);
   await db.$transaction(async tx => {
     await tx.$queryRaw`SELECT set_config('app.user_id', ${f.actor}, true), set_config('app.reason', 'Regla sintetica de jornadas finales', true)`;
     const rule = await tx.competition_rules.create({ data: { season_id: f.season, version_number: 2 } });

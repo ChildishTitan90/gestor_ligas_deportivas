@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 import { assertPermission, AuthorizationError, getPermissionGrants, lockAuthorization } from "@/server/auth/authorization";
 import { transitionSchema } from "../schemas";
 import { assertReplay, assertTransition, MatchTransitionError, receiptDto, type TransitionReceipt } from "../transition-rules";
+import { captureUpdatedSchedule } from "@/features/scheduling/server/updated-schedule-pdf";
+import { storedProposalSchema } from "@/features/scheduling/stored-proposal";
 
 /** Interno: actorId procede de la sesión; el llamador proporciona una transacción. */
 export async function transitionMatchInTransaction(tx: Prisma.TransactionClient, actorId: string, raw: unknown) {
@@ -16,12 +18,14 @@ export async function transitionMatchInTransaction(tx: Prisma.TransactionClient,
   const action = input.toStatus === "CANCELED" || input.toStatus === "UNDER_REVIEW" ? "APPROVE" : "UPDATE";
   await getPermissionGrants(tx, actorId, permissionModule, action);
   // Mismo orden que cierre de temporada: temporada antes de partido.
-  const seasons = await tx.$queryRaw<{ id: string; status: string }[]>`
-    SELECT s.id, s.status FROM sports_management.seasons s
+  const seasons = await tx.$queryRaw<{ id: string; status: string; proposal_id:string|null }[]>`
+    SELECT s.id, s.status, m.schedule_proposal_id AS proposal_id FROM sports_management.seasons s
     JOIN sports_management.matches m ON m.season_id = s.id
     WHERE m.id = ${input.matchId}::uuid FOR SHARE OF s
   `;
   if (!seasons[0]) throw new AuthorizationError();
+  if (input.toStatus === "UNSCHEDULED" && seasons[0].proposal_id)
+    await tx.$queryRaw`SELECT id FROM sports_management.schedule_proposals WHERE id=${seasons[0].proposal_id}::uuid FOR UPDATE`;
   const matches = await tx.$queryRaw<{
     id: string; season_id: string; status_id: string; version: number; deleted_at: Date | null;
     venue_id: string | null; starts_at: Date | null; ends_at: Date | null; reserved_until: Date | null;
@@ -48,6 +52,7 @@ export async function transitionMatchInTransaction(tx: Prisma.TransactionClient,
     WHERE ((f.code = 'DRAFT' AND n.code = 'SCHEDULED') OR (f.code IN ('SCHEDULED','RESCHEDULED') AND n.code = 'CONFIRMED')
       OR (f.code = 'CONFIRMED' AND n.code = 'IN_PROGRESS') OR (f.code = 'IN_PROGRESS' AND n.code = 'SUSPENDED')
       OR (f.code = 'SUSPENDED' AND n.code = 'UNDER_REVIEW')
+      OR (f.code IN ('SCHEDULED','CONFIRMED','RESCHEDULED') AND n.code = 'UNSCHEDULED')
       OR (f.code IN ('SCHEDULED','CONFIRMED','SUSPENDED') AND n.code = 'CANCELED'))
       AND n.code = ${input.toStatus}
       AND t.role_id IN (${Prisma.join(grants.map(grant => grant.roleId))})
@@ -74,10 +79,12 @@ export async function transitionMatchInTransaction(tx: Prisma.TransactionClient,
     venueId: match.venue_id, startsAt: match.starts_at, endsAt: match.ends_at, reservedUntil: match.reserved_until,
   }, input);
   if (!allowed.some(row => row.from_code === status.code)) throw new AuthorizationError();
-  if (input.toStatus === "CANCELED") {
+  if (input.toStatus === "CANCELED" || input.toStatus === "UNSCHEDULED") {
     const report = await tx.match_reports.findUnique({ where: { match_id: match.id }, select: { id: true } });
     const result = await tx.match_results.findUnique({ where: { match_id: match.id }, select: { id: true } });
     if (report || result) throw new MatchTransitionError("MATCH_REPORT_EXISTS");
+    if (input.toStatus === "UNSCHEDULED" && await tx.referee_assignments.findFirst({where:{match_id:match.id,status:"APPROVED"},select:{id:true}}))
+      throw new MatchTransitionError("REFEREE_REASSIGN_REQUIRED");
   }
   if (input.toStatus === "CONFIRMED") {
     const referees = await tx.$queryRaw<{ id: string }[]>`
@@ -91,7 +98,13 @@ export async function transitionMatchInTransaction(tx: Prisma.TransactionClient,
   await tx.$queryRaw`SELECT set_config('app.user_id', ${actorId}, true),
     set_config('app.reason', ${input.reason}, true), set_config('app.correlation_id', ${input.operationId}, true)`;
   // El trigger existente audita y reserva cancha/equipos. Si falla, todo revierte.
-  await tx.matches.update({ where: { id: match.id }, data: { status_id: allowed[0].to_id, version: { increment: 1 } } });
+  await tx.matches.update({ where: { id: match.id }, data: { status_id: allowed[0].to_id, version: { increment: 1 },
+    ...(input.toStatus === "UNSCHEDULED" ? {venue_id:null,starts_at:null,ends_at:null,reserved_until:null} : {}) } });
+  if (input.toStatus === "UNSCHEDULED" && seasons[0].proposal_id) {
+    const proposal=await tx.schedule_proposals.findUnique({where:{id:seasons[0].proposal_id},select:{status:true,parameters:true}});
+    if(proposal?.status==="APPROVED" && storedProposalSchema.safeParse(proposal.parameters).success)
+      await captureUpdatedSchedule(tx,seasons[0].proposal_id,actorId,input.reason);
+  }
   const history = await tx.$queryRaw<{ created_at: Date }[]>`
     INSERT INTO sports_management.match_status_history
       (id, match_id, previous_status_id, new_status_id, user_id, reason, expected_version)
