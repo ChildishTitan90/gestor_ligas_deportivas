@@ -1,6 +1,6 @@
 # Evidencia de PDGLD-29 / PDGLD-150
 
-20 de noviembre de 2026. Implementación local revisable; sin commit, push, PR nuevo, merge, despliegue ni cambios de estado/comentarios en Jira.
+20 de noviembre de 2026. La evidencia inicial describe la implementación previa al commit. La actualización local y su revalidación se registran al final; sin push, PR, despliegue ni cambios en Jira.
 
 ## Aislamiento y base
 
@@ -47,3 +47,29 @@ No se ejecutó UI ni recorrido real de confirmación; no hay pantalla nueva en e
 El motor y la materialización independiente son utilizables por el servidor. La historia completa sigue pendiente de la pantalla PDGLD-151 y de la integración PDGLD-152. El cierre oficial de cédulas continúa bloqueado en el código existente: PDGLD-85 debe aportar la transición/historial, disciplina su receptor y PDGLD-18 debe confirmar la cédula antes del cálculo en la misma transacción SERIALIZABLE. El efecto derivado necesita autorización acorde al capturista/árbitro sin concederle edición general de competencia. No se reemplazó ese acuerdo por un bypass.
 
 PV-06 debe resolver significado/algoritmo/orden de gol average y empate definitivo, además de efectos retroactivos de bajas. Hasta entonces los subconjuntos no resolubles llevan rank null y no pueden validarse. Se requiere el PDF vigente completo del ERS para contrastar RF07–09: la única versión accesible en Drive fue preliminar e insuficiente. Detalle y enlaces en el documento de arquitectura.
+
+## Actualización local de base y revalidación
+
+20 de noviembre de 2026. Trabajo ejecutado únicamente en `/private/tmp/gestor-pdgld29`.
+
+- Inventario inicial: tres archivos modificados (workflow, package.json y esquema) y nueve archivos nuevos, todos de PDGLD-150. No había pantalla, navegación ni DTO de PDGLD-151. No se incluyeron credenciales, configuración local ni trabajo de PDGLD-32.
+- Commit de recuperación anterior al rebase: `ceae5b5965e2edc7240f12854c2feff4df098d91`.
+- La consulta remota no encontró publicada la rama PDGLD-29. Se reaplicó el único commit local con `git rebase develop`, sin conflictos. Commit reaplicado: `ed28f39f5cb9b06bc2cef679303e759f8f7e2db1`.
+- Base nueva: `6139dba88ed2b75a7b4f380dff7bf95db4263c0f`. Fetch antes del commit y al terminar confirmó ese mismo origin/develop. `git merge-base --is-ancestor develop HEAD` finalizó correctamente.
+- El diff contra develop conserva sus migraciones, programación, contratos offline y Next.js 16.4.6; solo incorpora los doce archivos del ticket. No se tocaron las ramas ni archivos de PDGLD-32. Sin push, PR ni cambios en Jira.
+
+El primer intento no encontró npm en PATH; se seleccionó el Node 24.22.0 instalado. La primera comprobación de tipos con el enlace heredado a node_modules del clon original falló por cliente Prisma desactualizado para programación; ese entorno tenía Next.js 16.4.3. Se retiró únicamente el enlace del worktree y se ejecutó `npm ci` según su lockfile, con dependencias propias y generación local del cliente Prisma 7.10.1. No se alteró el destino del enlace ni se instalaron paquetes en PDGLD-32. La caché temporal de esta instalación y los logs temporales de clasificación se eliminaron al terminar.
+
+Resultados con dependencias propias (Next.js 16.4.6):
+
+- `next typegen` y `npm run typecheck`: correctos.
+- `npm run lint`: correcto, proyecto completo.
+- `prisma validate`: correcto con conexión sintética, sin conexión a base real.
+- `npm run ci:guard-migrations`: migraciones anteriores intactas.
+- `npm run test:ci`: 96/96.
+- `npm run test:standings-integration`: PostgreSQL 15, 18/18.
+- `npm run test:standings-integration -- --postgres=17`: PostgreSQL 17, 18/18.
+- Ambos runners aplicaron las 51 migraciones, incluidas las dos nuevas de develop y la de clasificación, en contenedores desechables propios eliminados al finalizar. Datos sintéticos; sin bases existentes ni proveedores externos.
+- `git diff --check`: correcto.
+
+La revisión del contrato de PDGLD-152 está en el apartado final de `docs/architecture/standings-calculation.md`, con referencias a los archivos de confirmación, sincronización, contrato y cola. El nuevo transporte no aporta los receptores oficiales. PDGLD-151 queda lista para empezar sobre el motor conservado, pendiente de su pantalla y DTO; las decisiones reglamentarias sin resolver continúan representadas como posiciones pendientes y no se habilita validación oficial. No se ejecutó recorrido UI ni confirmación real, build de producción o CI remoto.
