@@ -1,5 +1,6 @@
 import { capturedScore } from "../score";
 import "server-only";
+import { lockParticipationPeople } from "@/features/matches/server/participation-lock";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { getPrisma } from "@/server/db/prisma";
@@ -22,16 +23,23 @@ import { participationTimesSchema } from "@/features/matches/eligibility";
 export const digest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const signatureBinding = (draft: ReportDraft): string => digest(unsignedDraft(draftSchema.parse(draft)));
 
-export async function mutateReport(actorId: string, input: unknown): Promise<ReportReceipt> {
+export async function mutateReport(actorId: string, input: unknown, transport: "online" | "sync" | "live" = "online"): Promise<ReportReceipt> {
+  const receivedAt = Date.now();
   const parsed = reportCommandSchema.safeParse(input);
   if (!parsed.success) throw new ReportError("INVALID_PAYLOAD", 400);
-  return getPrisma().$transaction(tx => mutateReportInTransaction(tx, actorId, parsed.data), { timeout: 30000 });
+  try { return await getPrisma().$transaction(tx => mutateReportInTransaction(tx, actorId, parsed.data, transport, receivedAt), { timeout: 30000 }); }
+  catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "P2034") throw new ReportError("PARTICIPATION_RETRY_REQUIRED");
+    throw error;
+  }
 }
 
-export async function mutateReportInTransaction(tx: Prisma.TransactionClient, actorId: string, command: ReportCommand): Promise<ReportReceipt> {
+export async function mutateReportInTransaction(tx: Prisma.TransactionClient, actorId: string, command: ReportCommand, transport: "online" | "sync" | "live" = "online", receivedAt = Date.now()): Promise<ReportReceipt> {
   const existing = await tx.match_reports.findUnique({ where: { match_id: command.matchId }, select: { id: true } });
   let match = await reportAccess(tx, actorId, command.matchId, existing ? "UPDATE" : "CREATE");
   if (!existing && await tx.match_reports.findUnique({ where: { match_id: match.id }, select: { id: true } })) await reportAccess(tx, actorId, match.id, "UPDATE");
+  const previousLineups = existing ? await tx.lineups.findMany({ where: { match_report_id: existing.id }, select: { registration_id: true } }) : [];
+  await lockParticipationPeople(tx, [...previousLineups.map(row => row.registration_id), ...command.draft.lineups.filter(row => row.selected).map(row => row.playerId)]);
   const hash = digest(command);
   const previous = await tx.match_report_syncs.findUnique({ where: { client_id: command.operationId } });
   if (previous) {
@@ -47,7 +55,6 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
   const storedClock = (current?.draft_data as { clock?: unknown } | undefined)?.clock;
   let clock: MatchClock | null = null;
   if (storedClock) { const parsed = matchClockSchema.safeParse(storedClock); if (!parsed.success) throw new ReportError("CLOCK_EVIDENCE_UNAVAILABLE"); clock = parsed.data; }
-  const evaluation = await evaluateAuthorizedMatchInTransaction(tx, match);
   const draft = command.draft;
   if ((command.kind === "record-no-show") !== Boolean(draft.noShow)) throw new ReportError("NO_SHOW_ACTION_REQUIRED",400);
   if (draft.noShow) {
@@ -58,7 +65,18 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
     if (draft.lineups.some(row=>row.selected&&absentIds.includes(row.teamId))) throw new ReportError("NO_SHOW_ABSENT_LINEUP",400);
     if (await tx.match_results.findUnique({where:{match_id:match.id},select:{id:true}})) throw new ReportError("NO_SHOW_RESULT_EXISTS");
   }
-  const breakProblem = breakEventError(clock, (current?.draft_data as { draft?: ReportDraft } | undefined)?.draft?.events ?? [], draft.events);
+  const previousClock = clock;
+  if (command.kind === "clock") {
+    if (!sealed) throw new ReportError("LINEUPS_NOT_LOCKED");
+    if (transport === "sync" && !command.occurredAt) throw new ReportError("CLOCK_TIME_CONFLICT");
+    const now = Date.now();
+    const occurredAt = transport === "live" ? receivedAt : command.occurredAt ? Date.parse(command.occurredAt) : receivedAt;
+    if (occurredAt > now + 60000 || occurredAt < now - 7 * 86400000 || clock && occurredAt < Date.parse(clock.phaseStartedAt)) throw new ReportError("CLOCK_TIME_CONFLICT");
+    try { clock = advanceMatchClock(clock, command.clockAction!, new Date(occurredAt).toISOString(), transport === "live" || !command.occurredAt ? "server" : "device"); }
+    catch (error) { throw new ReportError(error instanceof Error ? error.message : "CLOCK_PHASE_CONFLICT"); }
+  }
+  const evaluation = await evaluateAuthorizedMatchInTransaction(tx, match, { draft, clock });
+  const breakProblem = breakEventError(previousClock, (current?.draft_data as { draft?: ReportDraft } | undefined)?.draft?.events ?? [], draft.events);
   if (breakProblem) throw new ReportError(breakProblem, 400);
   for (const event of draft.events) {
     if (event.periodMinute !== undefined && (!clock || ![1, 2].includes(event.periodNumber ?? 0) || event.minute !== event.periodMinute + (event.periodNumber === 2 ? clock.halfMinutes : 0))) throw new ReportError("INVALID_EVENT_CLOCK_TIME", 400);
@@ -67,7 +85,25 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
   if (match.match_statuses.code === "CONFIRMED" && (draft.events.length || draft.lineups.some(r => r.periods.length) || draft.score.home !== null || draft.score.away !== null || Object.values(draft.signatures).some(Boolean))) throw new ReportError("PREMATCH_LINEUPS_ONLY", 400);
   for (const row of selected) {
     const player = evaluation.players.find(player => player.registrationId === row.playerId && player.seasonTeamId === row.teamId);
-    if (!player?.eligible) throw new ReportError("PLAYER_NOT_ELIGIBLE");
+    if (!player?.eligible) throw new ReportError(player?.blockers.find(b => b.code.startsWith("PARTICIPATION_"))?.code ?? "PLAYER_NOT_ELIGIBLE");
+    if (row.participationHalf === 2 && row.starter) throw new ReportError("SECOND_HALF_STARTER", 400);
+    if (row.participationHalf) {
+      const periods = participationPeriods(row, draft.events, clock);
+      const atBreakEntry = row.participationHalf === 2 && clock?.phase === "BREAK" && row.periods.length === 0 && draft.events.some(e => e.typeCode === "SUBSTITUTION" && e.playerId === row.playerId && e.periodNumber === 2 && e.periodMinute === 0 && e.second === 0);
+      if (periods.length && !(row.participationHalf === 1 ? clock?.boundaries?.firstStartedAt : clock?.boundaries?.secondStartedAt) && !atBreakEntry) throw new ReportError("PARTICIPATION_CLOCK_REQUIRED", 400);
+      if (periods.some(p => p.periodNumber !== row.participationHalf)) throw new ReportError("PARTICIPATION_HALF_CONFLICT", 400);
+      for (const event of draft.events.filter(e => e.playerId === row.playerId || e.outgoingPlayerId === row.playerId)) {
+        const boundaryExit = row.participationHalf === 1 && event.typeCode === "SUBSTITUTION" && event.outgoingPlayerId === row.playerId && event.periodNumber === 2 && event.periodMinute === 0;
+        if (!boundaryExit && event.periodNumber !== row.participationHalf) throw new ReportError("PARTICIPATION_HALF_CONFLICT", 400);
+        const boundaryEntry = row.participationHalf === 2 && event.typeCode === "SUBSTITUTION" && event.playerId === row.playerId;
+        if (boundaryEntry && (event.periodNumber !== 2 || event.periodMinute !== 0 || event.second !== 0)) throw new ReportError("HALFTIME_ENTRY_REQUIRED", 400);
+      }
+      if (row.participationHalf === 2 && periods.some(p => p.entryMinute !== 0)) throw new ReportError("HALFTIME_ENTRY_REQUIRED", 400);
+      if (command.clockAction?.type === "start-second" && row.participationHalf === 1) {
+        const slots = draft.tactics?.[row.teamId]?.slots ?? formationSlots("4-4-2").map((slot, index) => ({ ...slot, playerId: selected.filter(r => r.teamId === row.teamId && r.starter)[index]?.playerId ?? null }));
+        if (currentPitch(slots, draft.events, row.teamId).slots.some(slot => slot.playerId === row.playerId)) throw new ReportError("FIRST_HALF_PLAYER_MUST_LEAVE", 400);
+      }
+    }
     if (row.matchJersey === null) throw new ReportError("JERSEY_REQUIRED", 400);
   }
   for (const teamId of [match.home_team_id, match.away_team_id]) {
@@ -89,9 +125,6 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
     if (lineupSealIssues(preview, preview.report).length) throw new ReportError("LINEUPS_INCOMPLETE", 400);
   }
   if (command.kind === "clock") {
-    if (!sealed) throw new ReportError("LINEUPS_NOT_LOCKED");
-    try { clock = advanceMatchClock(clock, command.clockAction!, new Date().toISOString()); }
-    catch (error) { throw new ReportError(error instanceof Error ? error.message : "CLOCK_PHASE_CONFLICT"); }
     if (command.clockAction?.type === "start") {
       const started = await startReportMatchInTransaction(tx, actorId, match, command.operationId);
       if (started) match = { ...match, ...started };
@@ -143,7 +176,7 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
   for (const row of selected) {
     const lineup = await tx.lineups.create({ data: { match_report_id: report.id, registration_id: row.playerId, season_team_id: row.teamId, jersey_number: row.matchJersey, is_starter: row.starter, is_captain: draft.captains[row.teamId] === row.playerId, validated_by: actorId } });
     lineups.set(row.playerId, lineup.id);
-    const periods = participationTimesSchema.safeParse(participationPeriods(row, draft.events));
+    const periods = participationTimesSchema.safeParse(participationPeriods(row, draft.events, clock));
     if (!periods.success) throw new ReportError("INVALID_PARTICIPATION_TIMES", 400);
     if (periods.data.length) await tx.player_period_participations.createMany({ data: periods.data.map(p => ({ lineup_id: lineup.id, period_number: p.periodNumber, entry_minute: p.entryMinute, exit_minute: p.exitMinute })) });
   }

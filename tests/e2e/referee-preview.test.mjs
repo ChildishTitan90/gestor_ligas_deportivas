@@ -59,15 +59,24 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
   const wait = condition => ev(`(async()=>{for(let n=0;n<200;n++){if(window.fixtureError)throw Error(window.fixtureError);if(${condition})return;await new Promise(r=>setTimeout(r,15));}throw Error('No se cumple: '+${JSON.stringify(condition)});})()`);
   await wait(`document.querySelector('#referee-league')`);
   await ev(`window.clickText=(text,scope=document)=>{const el=[...scope.querySelectorAll('button,a')].find(el=>el.textContent.trim()===text);if(!el)throw Error('Falta control '+text);el.focus();el.click();};window.setInput=(id,value)=>{const el=document.getElementById(id);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));};`);
+  // Trusted pointer input grants the activation used by native dialog close
+  // watchers. HTMLElement.click() does not reproduce a user's Escape flow.
+  async function pointerClick(expression) {
+    await ev(`(${expression}).scrollIntoView({block:'center',behavior:'instant'})`);
+    await ev('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+    const point=await ev(`(()=>{const r=(${expression}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+    await browser.command('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',buttons:1,clickCount:1});
+    await browser.command('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',buttons:0,clickCount:1});
+    await ev('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+  }
   async function pick(id, label) {
-    await ev(`document.getElementById(${JSON.stringify(id)}).focus();document.getElementById(${JSON.stringify(id)}).click()`);
+    await pointerClick(`document.getElementById(${JSON.stringify(id)})`);
     await wait(`document.querySelector('[role="option"]')`);
-    await ev(`(()=>{const el=[...document.querySelectorAll('[role=option]')].find(el=>el.textContent.includes(${JSON.stringify(label)}));if(!el)throw Error('Falta opción '+${JSON.stringify(label)});el.click();})()`);
+    await pointerClick(`[...document.querySelectorAll('[role=option]')].find(el=>el.textContent.includes(${JSON.stringify(label)}))`);
     await wait(`!document.querySelector('[role="listbox"]')`);
   }
   async function click(text) {
-    await ev(`window.clickText(${JSON.stringify(text)})`);
-    await ev('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+    await pointerClick(`[...(document.querySelector('dialog[open]')??document).querySelectorAll('button,a')].find(el=>el.getClientRects().length&&!el.disabled&&el.textContent.trim()===${JSON.stringify(text)})`);
   }
   async function key(key, code = key, value = undefined) {
     await browser.command('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: value });
@@ -96,9 +105,9 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
   await pick('referee-club', 'Faro');
   assert.equal(await ev(`new FormData(document.getElementById('referee-preview-form')).get('personId')`), 'DEMO-P6');
   await key('Escape', 'Escape', 27);
-  await wait(`document.querySelector('dialog').textContent.includes('¿Descartar')`);
+  await wait(`document.querySelector('dialog[open]').textContent.includes('¿Descartar')`);
   await click('Seguir editando');
-  await wait(`!document.querySelector('dialog').textContent.includes('¿Descartar')`);
+  await wait(`!document.querySelector('dialog[open]').textContent.includes('¿Descartar')`);
   await click('Aplicar a la demo');
   await wait(`!document.querySelector('dialog[open]')`);
   assert.match(await ev('document.activeElement.textContent'), /Presentar árbitro/);
@@ -106,7 +115,7 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
   assert.equal(await ev('document.querySelectorAll("article").length'), 6);
   await click('Editar Fina');
   await pick('referee-active', 'Inactivo');
-  await key('Escape', 'Escape', 27); await wait(`document.querySelector('dialog').textContent.includes('¿Descartar')`);
+  await key('Escape', 'Escape', 27); await wait(`document.querySelector('dialog[open]').textContent.includes('¿Descartar')`);
   await click('Descartar cambios'); await wait(`!document.querySelector('dialog[open]')`);
   assert.equal(await ev('document.querySelectorAll("article").length'), 6);
 
@@ -117,16 +126,16 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
   assert.match(await ev('document.body.textContent'), /Faltan 2 árbitros/);
   await view('assignments');
   assert.match(await ev('document.body.textContent'), /Árbitro inactivo/);
-  assert.match(await ev('document.body.textContent'), /indisponibilidad/);
+  assert.match(await ev('document.body.textContent'), /no disponible/i);
   assert.match(await ev('document.body.textContent'), /Traslape con D-102/);
   assert.match(await ev('document.body.textContent'), /Cedro C.*aunque ese equipo no dispute/);
   for (const name of ['Bruna', 'Ciro', 'Dara', 'Elio']) {
     await click(`Revisar D-101 · ${name}`); await wait(`document.querySelector('dialog[open]')`);
-    assert.equal(await ev(`[...document.querySelectorAll('dialog button')].find(el=>el.textContent==='Simular aprobación').disabled`), true);
+    assert.equal(await ev(`[...document.querySelectorAll('dialog[open] button')].find(el=>el.textContent==='Simular aprobación').disabled`), true);
     await click('Cancelar'); await wait(`!document.querySelector('dialog[open]')`);
   }
   await click('Revisar D-101 · Alba'); await wait(`document.querySelector('dialog[open]')`);
-  assert.equal(await ev(`[...document.querySelectorAll('dialog button')].find(el=>el.textContent==='Simular aprobación').disabled`), false);
+  assert.equal(await ev(`[...document.querySelectorAll('dialog[open] button')].find(el=>el.textContent==='Simular aprobación').disabled`), false);
   await click('Simular aprobación'); await wait(`!document.querySelector('dialog[open]')`);
   assert.match(await ev('document.body.textContent'), /Aprobada solo en la simulación/);
   await click('Revisar D-101 · Alba'); await click('Simular revocación'); await wait(`!document.querySelector('dialog[open]')`);
@@ -146,14 +155,14 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
   await pick('referee-season', 'Apertura');
   await view('availability'); await pick('availability-referee', 'Ciro');
   assert.match(await ev('document.body.textContent'), /10:00/); // UTC 16:00, zona de la liga.
-  assert.match(await ev('document.body.textContent'), /Indisponible/);
+  assert.match(await ev('document.body.textContent'), /No disponible/);
   await click('Simular sin intervalos');
   assert.match(await ev('document.body.textContent'), /No se presume disponibilidad/);
   assert.match(await ev('document.body.textContent'), /Falta confirmar disponibilidad/);
   await view('assignments'); await click('Proponer designación · Demo');
   await pick('assignment-match', 'D-103'); await pick('assignment-referee', 'Alba');
-  assert.match(await ev('document.querySelector("dialog").textContent'), /Grupo único: todos/);
-  assert.equal(await ev(`[...document.querySelectorAll('dialog button')].find(el=>el.textContent==='Simular propuesta').disabled`), true);
+  assert.match(await ev('document.querySelector("dialog[open]").textContent'), /Grupo único: todos/);
+  assert.equal(await ev(`[...document.querySelectorAll('dialog[open] button')].find(el=>el.textContent==='Simular propuesta').disabled`), true);
   await click('Cancelar'); await click('Descartar cambios'); await wait(`!document.querySelector('dialog[open]')`);
 
   await view('register');
@@ -197,15 +206,15 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
     }
     await view('register'); await click('Presentar árbitro · Demo'); await pick('referee-person', 'Fina');
     await ev(`document.getElementById('referee-club').focus();document.getElementById('referee-club').click()`); await wait(`document.querySelector('[role=listbox]')`);
-    assert.equal(await ev(`document.querySelector('dialog').contains(document.querySelector('[role=listbox]'))`), true);
-    assert.equal(await ev(`(()=>{const r=document.querySelector('dialog').getBoundingClientRect();return r.width<=innerWidth&&r.height<=innerHeight})()`), true);
+    assert.equal(await ev(`document.querySelector('dialog[open]').contains(document.querySelector('[role=listbox]'))`), true);
+    assert.equal(await ev(`(()=>{const r=document.querySelector('dialog[open]').getBoundingClientRect();return r.width<=innerWidth&&r.height<=innerHeight})()`), true);
     if (process.env.REFEREE_SCREENSHOTS) {
       const shot = await browser.command('Page.captureScreenshot', { format: 'png' });
       await writeFile(`${resolve(process.env.REFEREE_SCREENSHOTS)}/dialog-${theme}-${width}.png`, Buffer.from(shot.data, 'base64'));
     }
     await key('Escape', 'Escape', 27); // Cierra lista, conserva el diálogo.
     assert.equal(await ev(`!!document.querySelector('dialog[open]')`), true);
-    await key('Escape', 'Escape', 27); await wait(`document.querySelector('dialog').textContent.includes('¿Descartar')`);
+    await key('Escape', 'Escape', 27); await wait(`document.querySelector('dialog[open]').textContent.includes('¿Descartar')`);
     await click('Descartar cambios'); await wait(`!document.querySelector('dialog[open]')`);
   }
   // El selector del historial conserva nombres y UUID en líneas separadas.
@@ -238,8 +247,8 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
     await ev(`window.renderLiveAssignments(${approve})`);
     await click(approve?'Asignar árbitro':'Proponer designación');
     await pick('assignment-match','D-101');await pick('assignment-referee','Alba');
-    await wait(`document.querySelector('dialog').textContent.includes('Sin bloqueos actuales')`);
-    assert.match(await ev(`document.querySelector('dialog textarea').placeholder`),approve?/Se asigna a este árbitro/:/Se propone a este árbitro/);
+    await wait(`document.querySelector('dialog[open]').textContent.includes('Sin bloqueos actuales')`);
+    assert.match(await ev(`document.querySelector('dialog[open] textarea').placeholder`),approve?/Se asigna a este árbitro/:/Se propone a este árbitro/);
     await click(approve?'Asignar y aprobar':'Enviar propuesta');await wait(`!document.querySelector('dialog[open]')`);
     assert.equal(await ev('window.assignmentCommands.at(-1).kind'),approve?'assign':'propose');
     assert.match(await ev('document.body.textContent'),approve?/Árbitro asignado y designación aprobada/:/Queda pendiente de aprobación/);
@@ -250,11 +259,11 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
     await browser.command('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<600});
     await ev(`document.documentElement.dataset.theme=${JSON.stringify(theme)};window.renderAssignmentFlow('renew',${approve})`);
     await click('Actualizar designación D-101 · Alba');
-    assert.match(await ev(`document.querySelector('dialog').textContent`),/Actualizar designación/);
+    assert.match(await ev(`document.querySelector('dialog[open]').textContent`),/Actualizar designación/);
     assert.equal(await ev(`document.getElementById('assignment-match').disabled`),true);
     assert.equal(await ev(`document.getElementById('assignment-referee').disabled`),false);
-    assert.match(await ev(`document.querySelector('dialog').textContent`),/Designación anterior: Revocada/);
-    await pick('assignment-referee','Dara');await wait(`document.querySelector('dialog').textContent.includes('Sin bloqueos actuales')`);
+    assert.match(await ev(`document.querySelector('dialog[open]').textContent`),/Designación anterior: Revocada/);
+    await pick('assignment-referee','Dara');await wait(`document.querySelector('dialog[open]').textContent.includes('Sin bloqueos actuales')`);
     await click(approve?'Actualizar y aprobar':'Enviar nueva propuesta');await wait(`!document.querySelector('dialog[open]')`);
     assert.deepEqual(await ev(`({kind:window.assignmentCommands[0].kind,matchId:window.assignmentCommands[0].matchId,refereeId:window.assignmentCommands[0].refereeId,version:window.assignmentCommands[0].expectedMatchVersion,hasOldId:'assignmentId' in window.assignmentCommands[0]})`),{kind:approve?'assign':'propose',matchId:'DEMO-M1',refereeId:'DEMO-R4',version:7,hasOldId:false});
     assert.equal(await ev(`document.querySelector('article').textContent.includes('Revocada')`),true);
@@ -264,9 +273,9 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
   await ev(`document.getElementById('assignment-match').click()`);await wait(`document.querySelector('[role=option]')`);
   assert.deepEqual(await ev(`[...document.querySelectorAll('[role=option]')].map(e=>e.textContent.match(/D-10[1-4]/)?.[0]).sort()`),['D-102','D-103']);
   await ev(`[...document.querySelectorAll('[role=option]')].find(e=>e.textContent.includes('D-102')).click()`);
-  await wait(`document.querySelector('dialog').textContent.includes('Revisar designación actual')`);
-  assert.equal(await ev(`[...document.querySelectorAll('dialog button')].find(b=>b.textContent==='Asignar y aprobar').disabled`),true);
+  await wait(`document.querySelector('dialog[open]').textContent.includes('Revisar designación actual')`);
+  assert.equal(await ev(`[...document.querySelectorAll('dialog[open] button')].find(b=>b.textContent==='Asignar y aprobar').disabled`),true);
   await click('Revisar designación actual');assert.equal(await ev(`document.getElementById('assignment-match').disabled`),true);
-  assert.match(await ev(`document.querySelector('dialog').textContent`),/Estado: Aprobada/);
+  assert.match(await ev(`document.querySelector('dialog[open]').textContent`),/Estado: Aprobada/);
 
 });

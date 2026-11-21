@@ -34,10 +34,16 @@ test("Las ultimas N jornadas solo admiten unidades deportivas", () => {
   assert.deepEqual(ids({ ...boundary, complexOnlyFinalRounds: 0 }, privateVenue), ["private"]);
 });
 
-test("La cancha rival requiere localia previa y prestamo aprobado", () => {
+test("La cancha de otro club requiere autorización para el club local", () => {
   const rival = { ...privateVenue, loans: [{ ...loan, clubId: "away" }] };
   assert.deepEqual(ids(context, rival), []);
-  assert.equal(homeVenueOptions({ ...context, priorHomeVenueId: rival.id }, [rival])[0]?.source, "RIVAL_LOAN");
+  assert.deepEqual(homeVenueOptions({ ...context, priorHomeVenueId: rival.id }, [rival]), []);
+});
+
+test("El club local puede usar su cancha sin solicitarse un préstamo", () => {
+  const own = { ...privateVenue, ownerClubId: "home", loans: [] };
+  assert.equal(homeVenueOptions(context, [own])[0]?.source, "OWN");
+  assert.deepEqual(ids(context, { ...own, ownerClubId: "away" }), []);
 });
 
 test("La reserva completa incluye la holgura y respeta los bloqueos", () => {

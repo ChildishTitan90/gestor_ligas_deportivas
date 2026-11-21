@@ -2,6 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import assert from 'node:assert/strict';
 
 export const CHROME_PAGE_DISCOVERY_MS = 5000;
+export const CHROME_STARTUP_MS = 30000;
 
 export function assertChromeEndpoint(endpoint) {
   const url = new URL(endpoint);
@@ -35,9 +36,11 @@ function pageEndpoint(page, browser) {
 /** El proceso propio arranca about:blank; su identidad no depende de que Next
  * termine la navegación. readTargets usa el presupuesto recibido para fetch. */
 export async function discoverChromePage({ browserEndpoint, startUrl, readTargets, signal,
+  timeoutMs = CHROME_PAGE_DISCOVERY_MS,
   now = Date.now, pause = (ms, abort) => sleep(ms, undefined, { signal: abort }) }) {
+  assert.ok(Number.isFinite(timeoutMs) && timeoutMs >= 0 && timeoutMs <= CHROME_STARTUP_MS);
   const browser = assertChromeEndpoint(browserEndpoint), expectedOrigin = new URL(startUrl).origin;
-  const started = now(), deadline = started + CHROME_PAGE_DISCOVERY_MS;
+  const started = now(), deadline = started + timeoutMs;
   const diagnostic = { attempts: 0, readTimeouts: 0, readFailures: 0, invalidLists: 0,
     lastHttpStatus: null, lastTargets: { pages: 0, blank: 0, startingOrigin: 0, other: 0 } };
   while (now() < deadline) {

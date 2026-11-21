@@ -1744,6 +1744,8 @@ model schedule_proposals {
   competition_rule_id String            @db.Uuid
   parameters          Json              @default("{}")
   conflicts           Json              @default("[]")
+  status              String            @default("DRAFT")
+  version             Int               @default(1)
   created_at          DateTime          @default(now()) @db.Timestamptz(6)
   matches             matches[]
   competition_rules   competition_rules @relation(fields: [competition_rule_id, season_id], references: [id, season_id], onDelete: NoAction, onUpdate: NoAction)
@@ -2129,6 +2131,7 @@ model user_roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
+  venue_loan_owner_reviews venue_loans[] @relation("VenueLoanOwnerReviewer")
   uploaded_referee_credentials referee_presentation_credentials[]
   submitted_referee_presentations referee_presentations[] @relation("presentation_requester")
   reviewed_referee_presentations referee_presentations[] @relation("presentation_reviewer")
@@ -2247,6 +2250,12 @@ model venue_loans {
   reviewed_by            String?                   @db.Uuid
   reviewed_at            DateTime?                 @db.Timestamptz(6)
   review_reason          String?
+  owner_decision_required Boolean                  @default(false)
+  owner_decision         String?
+  owner_reviewed_by      String?                  @db.Uuid
+  owner_reviewed_at      DateTime?                @db.Timestamptz(6)
+  owner_review_reason    String?
+  owner_reviewer         users? @relation("VenueLoanOwnerReviewer", fields: [owner_reviewed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   requester              users?                    @relation("VenueLoanRequester", fields: [requested_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   reviewer               users?                    @relation("VenueLoanReviewer", fields: [reviewed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
   home_venue_assignments home_venue_assignments[]

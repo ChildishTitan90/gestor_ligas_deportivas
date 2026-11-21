@@ -11,6 +11,8 @@ export type ReportPlayer = {
   usualJersey: number | null;
   eligible: boolean;
   blockers: { code: string; message: string }[];
+  halfReservation?: boolean;
+  halfRestriction?: 1 | 2;
   photoUrl?: string | null;
 };
 export type ParticipationPeriod = { periodNumber: number; entryMinute: number | null; exitMinute: number | null };
@@ -20,6 +22,7 @@ export type ReportLineup = {
   starter: boolean;
   matchJersey: number | null;
   periods: ParticipationPeriod[];
+  participationHalf?: 1 | 2;
 };
 export type ReportEventType = {
   code: string;
@@ -45,6 +48,7 @@ export type ReportEvent = {
 export type CaptainSignature = {
   captainId: string;
   image: string;
+  fileId?: string;
   source: "device" | "synthetic";
 };
 export type MatchReportPresentation = {

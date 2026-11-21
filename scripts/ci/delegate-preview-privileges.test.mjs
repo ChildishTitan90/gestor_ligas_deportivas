@@ -40,7 +40,7 @@ test('PDGLD-32 y PDGLD-23 conservan juntos recuperación y préstamos de cancha'
     ['id','user_id','token_hash','created_at','expires_at']);
   assert.deepEqual(runtimePrivileges.update.password_resets, ['used_at']);
   assert.deepEqual(runtimePrivileges.insert.venue_loans,
-    ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status']);
+    ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'owner_decision_required']);
   assert.deepEqual(runtimePrivileges.update.venue_loans,
-    ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at']);
+    ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at', 'owner_decision', 'owner_reviewed_by', 'owner_reviewed_at', 'owner_review_reason']);
 });

@@ -49,7 +49,7 @@ export async function getRefereeWorkspaceForActor(actorId: string, leagueId = ""
         const people = await tx.people.findMany({ where: personInRefereeingLeague(leagueId), select: { id: true, first_name: true, paternal_surname: true, maternal_surname: true, referees:{select:{version:true}} }, orderBy: [{ first_name: "asc" }, { id: "asc" }] });
         data.people = people.map(p => ({ id: p.id, label: [p.first_name, p.paternal_surname, p.maternal_surname].filter(Boolean).join(" "), reference: p.id.slice(0,8),version:p.referees?.version??0 }));
       }
-      const intervals = await tx.referee_availability.findMany({ where: { referee_id: { in: refs.map(r => r.id) } }, orderBy: { starts_at: "asc" } });
+      const intervals = await tx.referee_availability.findMany({ where: { referee_id: { in: refs.map(r => r.id) }, ends_at: { gt: new Date() } }, orderBy: { starts_at: "asc" } });
       data.availability = intervals.map(i => ({ id: i.id, refereeId: i.referee_id, startsAt: i.starts_at.toISOString(), endsAt: i.ends_at.toISOString(), available: i.is_available }));
     }
     const matches = await tx.$queryRaw<{id:string;number:string;version:number;category:string;group:string;group_id:string;home:string;away:string;venue:string;starts_at:Date|null;ends_at:Date|null;deleted_at:Date|null;status:string}[]>`

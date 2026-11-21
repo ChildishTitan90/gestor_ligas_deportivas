@@ -200,6 +200,12 @@ lecturas, propuesta/aprobación y triggers de integridad. Verifica:
 - Otra aprobación del mismo árbitro en horario coincidente, designación no
   revocada duplicada y puesto principal ya aprobado.
 
+En **Mi disponibilidad** y **Comisión → Disponibilidad**, la agenda consulta intervalos cuyo fin es posterior al momento de la consulta. Un horario que termina a las 12:00 desaparece de la agenda a las 12:00. Los antecedentes siguen en PostgreSQL. La validación de una designación usa el horario del partido, incluso al consultar un antecedente.
+
+Por ejemplo, con disponibilidad de 09:00 a 14:00 y **No disponible** de 11:00 a 12:00, se pueden cubrir partidos que terminen a las 11:00 o comiencen a las 12:00 dentro del horario disponible. Cualquier partido que ocupe parte de 11:00–12:00 queda bloqueado. Registrar una segunda franja conserva ambas filas. Editar un intervalo por su identificador sí cambia esa fila. Si la modificación invalidara una aprobación vigente, PostgreSQL revierte la operación.
+
+**Política de conservación acordada el 19 de noviembre de 2026.** Los intervalos sin relación con partidos se conservarán doce meses desde su fin. Los que respalden una decisión se conservarán con el antecedente correspondiente. La depuración queda pendiente de implementación y validación, conforme a la instrucción de documentar la política sin ejecutar borrados. Su selección deberá considerar propuestas, aprobaciones, revocaciones, reprogramaciones y revisiones abiertas. La identidad al cierre y el acuse de la designación por sí solos no documentan toda la cobertura horaria. El filtro de la agenda ya excluye intervalos vencidos y conserva sus registros en PostgreSQL.
+
 Se soporta el puesto MAIN del contrato actual. Propuestas pendientes no ocupan
 horarios ni conceden acceso; aprobar reserva el puesto. Nuevos puestos y políticas
 de relevo durante un partido requieren su contrato explícito.
@@ -313,7 +319,7 @@ El acuse inmutable referee_operations conserva actor, motivo, clave y versión.
 La recuperación GET revalida la identidad y lectura propias; el reintento
 conserva el contenido original. La UI reutiliza AvailabilityDialog, FormDialog,
 SelectField y temas/tokens. El motivo tiene ejemplos distintos para disponible
-e indisponible, sin prellenado. Mis partidos conserva su recorrido.
+y «No disponible», sin prellenado. Mis partidos conserva su recorrido.
 
 No crea tablas ni cambia RLS. Utiliza las ACL existentes de lectura,
 INSERT/UPDATE y bloqueo de disponibilidad/operaciones. El instalador privado

@@ -16,7 +16,14 @@ mala conexión no se presenta como alineación guardada. No ofrece captura offli
 El dorsal mostrado es habitual; la cédula debe conservar su propio dorsal del
 partido sin modificar verificaciones de identidad ni registros históricos.
 
-Chrome se probó con DTOs sintéticos y CSS real compilado, en claro/oscuro y anchos
-390/1440; se comprobó apertura de tiempos con Enter y ausencia de desbordamiento.
-Esto no es un recorrido autenticado de la cédula real. Su integración corresponde
-a PDGLD-18 y continúa pendiente, junto con aceptación humana del flujo.
+La cédula real de PDGLD-18 añade, dentro de convocados, el selector compartido
+«Participación por mitades» por jugador. Puede elegirse primera/segunda o sin
+reserva antes de sellar; una segunda mitad no ocupa un puesto titular. Una
+reserva pendiente se distingue de la habilitación deportiva y no supera sanciones.
+La selección queda inmutable con el sello y el servidor reevalúa reloj, contexto
+y periodos en cada guardado. El registro visible de tiempos usa la misma
+proyección persistida por el servicio, sin inventar minutos por convocatoria.
+
+La revisión visual sintética de la consulta sigue siendo diferente del recorrido
+autenticado de cédula. Véanse resultados actuales y límites en
+`docs/validation/PDGLD-16.md`.

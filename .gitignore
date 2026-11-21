@@ -16,6 +16,8 @@
 # next.js
 /.next/
 /.next-auth-tests/
+/.next-offline-tests/
+/.next-auth-tests-*/
 /.next-player-manual/
 /out/
 

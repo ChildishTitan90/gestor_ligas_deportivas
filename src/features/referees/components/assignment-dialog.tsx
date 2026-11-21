@@ -10,7 +10,7 @@ import {assignmentMatchesNeedingAttention} from "../assignment-presentation";
 
 export function Assessment({ assessment, live=false }: { assessment: ReturnType<typeof assessPreview>; live?:boolean }) {
   return <div className="space-y-2 text-sm" aria-live="polite">
-    <p className="font-semibold">Disponibilidad: {assessment.availability === "COVERED" ? "cubre el horario" : assessment.availability === "UNAVAILABLE" ? "indisponible" : "sin confirmar"}</p>
+    <p className="font-semibold">Disponibilidad: {assessment.availability === "COVERED" ? "cubre el horario" : assessment.availability === "UNAVAILABLE" ? "no disponible" : "sin confirmar"}</p>
     {assessment.blockers.length ? <div className="rounded-xl border border-danger bg-danger-surface p-4 text-danger">
       <p className="font-semibold">No se puede aprobar</p><ul className="mt-2 list-disc space-y-2 pl-5">{assessment.blockers.map((blocker, index) => <li key={`${blocker.code}-${index}`}>{blocker.message}</li>)}</ul>
     </div> : <p className="rounded-xl border border-positive bg-positive-surface p-3 text-positive">{live ? "Sin bloqueos actuales. Se comprobará otra vez al confirmar la operación." : "Sin bloqueos en el ejemplo. Requiere validación oficial del servidor antes de una aprobación real."}</p>}

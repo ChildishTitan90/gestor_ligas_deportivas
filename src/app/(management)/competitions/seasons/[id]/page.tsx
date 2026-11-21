@@ -1,3 +1,5 @@
+import { SchedulingPolicyFields } from "@/features/competitions/components/scheduling-policy-fields";
+import { schedulingPolicySchema } from "@/features/scheduling/schemas";
 import { RuleParameter } from "@/features/competitions/components/rule-parameter";
 import { TieBreakerFields } from "@/features/competitions/components/tie-breaker-fields";
 import { PlayerPolicyFields, PlayerPolicySummary } from "@/features/competitions/components/player-policy-fields";
@@ -37,6 +39,9 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
   const base = `/api/competitions/seasons/${id}`;
   const editable = season.status === "PLANNED" && capabilities.update;
   const latest = Object.fromEntries((rules[0]?.parameters ?? []).map(parameter => [parameter.key, parameter.value]));
+  const calendar = latest.calendar;
+  const previousScheduling = calendar && typeof calendar === "object" && !Array.isArray(calendar)
+    ? schedulingPolicySchema.safeParse(calendar.scheduling) : null;
   function previousNumber(group: string, key: string) {
     const value = latest[group];
     if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
@@ -68,10 +73,11 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
           defaultValue={previousNumber("calendar", "complexOnlyFinalRounds")} className={control} />
         <span id="complex-only-final-rounds-help" className="mt-1 block text-sm text-muted">Usa 0 para desactivar la restricción o deja el campo vacío si aún no se ha definido.</span>
       </label>
+      <SchedulingPolicyFields venues={data.venues} initial={previousScheduling?.success ? previousScheduling.data : undefined} />
       <p>El borrador conserva las versiones anteriores. Su creación no publica ni aprueba las reglas.</p>
     </ConfigurationForm>}
       {rules.map((rule, index) => <details key={rule.id} open={index === 0} className="rounded-2xl border border-border bg-surface p-5"><summary className="min-h-12 cursor-pointer font-semibold">Versión {rule.version} · {rule.status === "DRAFT" ? "Borrador" : rule.status === "APPROVED" ? "Aprobado" : rule.status}{index === 0 ? " · Última versión" : " · Historial"}</summary>
-        {rule.parameters.map(parameter => <RuleParameter key={parameter.key} parameter={parameter} />)}
+        {rule.parameters.map(parameter => <RuleParameter key={parameter.key} parameter={parameter} venueNames={Object.fromEntries(data.venues.map(venue => [venue.id, `${venue.name} · ${venue.code}`]))} />)}
         {season.status === "PLANNED" && capabilities.approve && rule.status === "DRAFT" && <ConfigurationForm key={`approve-${rule.id}-${season.version}`} modal title={`Aprobar reglamento versión ${rule.version}`} endpoint={`${base}/configuration/${rule.id}/approve`} version={season.version}>
           <p>Confirma que revisaste la convocatoria, puntuación, desempates y calendario de esta versión. La aprobación valida estos parámetros y los conserva en solo lectura; una corrección requerirá otra versión. Aprobar no inicia la competencia ni cambia el reglamento asociado a una categoría.</p>
           <Field name="confirm" label="Escribe APROBAR para confirmar la revisión" />

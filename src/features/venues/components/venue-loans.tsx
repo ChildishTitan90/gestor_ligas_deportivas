@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { DirectSignatureField } from "@/components/ui/direct-signature-field";
 import { FormDialog } from "@/components/ui/form-dialog";
 import { PrivateDocumentPreview } from "@/components/ui/private-document-preview";
 import { SelectField } from "@/components/ui/select-field";
@@ -28,6 +29,7 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
   const [requestId, setRequestId] = useState("");
   const [windows, setWindows] = useState<ReturnType<typeof emptyWindow>[]>([]);
   const [letter, setLetter] = useState<File | null>(null);
+  const [signature, setSignature] = useState<File | null>(null);
   const [decision, setDecision] = useState("");
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState(false);
@@ -58,6 +60,7 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
       setContextId(saved?.contextId ?? "");
       setVenueId(saved?.venueId ?? "");
       setLetter(saved?.letter ?? null);
+      setSignature(null);
       setRequestId(saved?.requestId ?? crypto.randomUUID());
       setWindows(saved?.windows ?? [emptyWindow()]);
       setMode("submit");
@@ -69,13 +72,73 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
     }
   }
 
+  async function cleanCancelledFiles() {
+    if (busy.current) return;
+    busy.current = true;
+    setPending(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/venue-loans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Expected-Actor-Id": workspace.actorId },
+        body: JSON.stringify({ kind: "cleanup" }),
+        signal: AbortSignal.timeout(45000),
+      });
+      if (!response.ok) throw new Error("CLEANUP_FAILED");
+      const result: unknown = await response.json();
+      if (!result || typeof result !== "object" || !("cleaned" in result) || !("failed" in result) ||
+        typeof result.cleaned !== "number" || typeof result.failed !== "number") throw new Error("CLEANUP_FAILED");
+      setNotice(`Se revisaron ${result.cleaned} registros. ${result.failed} no se pudieron procesar.`);
+    } catch {
+      setError("No se pudo completar la limpieza. Puedes volver a intentarlo.");
+    } finally {
+      setPending(false);
+      busy.current = false;
+    }
+  }
+
+  async function resolveLegacyCapture() {
+    if (!unconfirmed || unconfirmed.signature || busy.current) return;
+    busy.current = true;
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch("/api/venue-loans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Expected-Actor-Id": workspace.actorId },
+        body: JSON.stringify({ kind: "resolve-legacy", requestId: unconfirmed.requestId, contextId: unconfirmed.contextId }),
+        signal: AbortSignal.timeout(45000),
+      });
+      if (!response.ok) throw new Error("UNCONFIRMED");
+      const result = await response.json();
+      if (result.id !== unconfirmed.requestId || !["registered", "cancelled"].includes(result.outcome))
+        throw new Error("UNCONFIRMED");
+      await store.remove(unconfirmed.requestId);
+      setUnconfirmed(null);
+      if (result.outcome === "registered") {
+        setNotice("Solicitud registrada. Consulta su estado en el listado.");
+        setMode(null);
+        router.refresh();
+      } else {
+        setRequestId(crypto.randomUUID());
+        setSignature(null);
+        setNotice("La captura anterior se cerró. Confirma tu firma para enviar la solicitud.");
+      }
+    } catch {
+      setError("No se pudo comprobar la captura anterior. Vuelve a intentarlo.");
+    } finally {
+      setPending(false);
+      busy.current = false;
+    }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy.current) return;
 
     const isRequest = mode === "submit";
-    const capture = unconfirmed ?? (context && venueId && letter ? { contextId, venueId, requestId, windows, letter } : null);
-    if (isRequest && !capture) { setError("Elige club, temporada y cancha, y adjunta la carta."); return; }
+    if (isRequest && !unconfirmed && (!context || !venueId || !letter || !signature)) { setError("Elige club, temporada y cancha, adjunta la carta y confirma tu firma."); return; }
     if (!isRequest && (!selected || !decision)) { setError("Selecciona una decisión."); return; }
 
     busy.current = true;
@@ -91,7 +154,12 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
       signal: AbortSignal.timeout(45000),
     });
     try {
-      if (isRequest && capture) {
+      if (isRequest) {
+        let capture = unconfirmed;
+        if (!capture && context && letter && signature) {
+          capture = { contextId, venueId, requestId, windows, letter, signature };
+        }
+        if (!capture) return;
         const result = await sendVenueLoan(store, capture, Boolean(unconfirmed), send);
         if (result === "uncertain") {
           setUnconfirmed(capture);
@@ -106,6 +174,7 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
           return;
         }
         setLetter(null);
+        setSignature(null);
       } else {
         const response = await send(JSON.stringify({ kind: "decide", requestId: selected?.id, status: decision, reason }));
         if (!response.ok) {
@@ -136,6 +205,9 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
           {unconfirmed ? "Recuperar solicitud" : "Solicitar préstamo"}
         </button>}
     </header>
+    {workspace.canClean && <button type="button" className={secondary} disabled={pending} onClick={cleanCancelledFiles}>
+      {pending && !mode ? "Revisando archivos…" : "Limpiar archivos pendientes"}
+    </button>}
     {notice && <p role="status">{notice}</p>}
     {!mode && error && <p role="alert">{error}</p>}
     {!!workspace.rows.length && <div className="max-w-xs"><label htmlFor="loan-status" className="text-sm font-semibold">Estado</label>
@@ -146,6 +218,7 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
       <div className="flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">{row.venue}</h2>
         <span className="rounded-full border border-border px-3 py-1 text-sm">{labels[row.status] ?? row.status}</span></div>
       <p className="text-sm text-muted">{row.club} · {row.season}</p>
+      {row.stage && <p className="text-sm">{row.stage}</p>}
       <div className="space-y-1 text-sm">
         <h3 className="font-semibold">{row.status === "APPROVED" ? "Horarios aprobados" : "Horarios solicitados"}</h3>
         {row.windows.length > 0 ? <>
@@ -166,7 +239,8 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
       onClose={() => setMode(null)}>
       <form className="space-y-4" onSubmit={submit}>
         {mode === "submit" && unconfirmed && <p role="status">
-          Resultado sin confirmar. La carta y los horarios se conservan en este navegador.
+          {unconfirmed.signature ? "Resultado sin confirmar. La carta, la firma y los horarios se conservan en este navegador."
+            : "Esta captura anterior necesita comprobarse antes de volver a firmar."}
         </p>}
         <fieldset className="space-y-4" disabled={pending || (mode === "submit" && Boolean(unconfirmed))}>
           {mode === "submit" ? <>
@@ -185,6 +259,7 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
             <label className="block">Carta privada (PDF, PNG o JPEG; máximo 10 MB)<input className={field} type="file" required={!letter}
               accept="application/pdf,image/png,image/jpeg" onChange={e => setLetter(e.target.files?.[0] ?? null)} /></label>
             {letter && <p className="text-sm text-muted">Carta adjunta · {letter.name}</p>}
+            {!unconfirmed && <DirectSignatureField label="Firma del delegado" disabled={pending} onChange={setSignature} />}
           </> : <>
             <p className="text-sm text-muted">Horarios solicitados · {selected?.zone}</p>
             <ul className="list-disc pl-5 text-sm">{selected?.windows.map(window => <li key={window}>{window}</li>)}</ul>
@@ -195,7 +270,9 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
           </>}
         </fieldset>
         {error && <p role="alert">{error}</p>}
-        <button className={primary} disabled={pending}>{pending ? "Guardando…" : mode === "submit" ? (unconfirmed ? "Reintentar solicitud" : "Enviar solicitud") : "Guardar decisión"}</button>
+        {mode === "submit" && unconfirmed && !unconfirmed.signature
+          ? <button type="button" className={primary} disabled={pending} onClick={resolveLegacyCapture}>Comprobar captura anterior</button>
+          : <button className={primary} disabled={pending}>{pending ? "Guardando…" : mode === "submit" ? (unconfirmed ? "Reintentar solicitud" : "Enviar solicitud") : "Guardar decisión"}</button>}
       </form>
     </FormDialog>}
     {preview && request && <PrivateDocumentPreview actorId={workspace.actorId} request={request} onClose={() => setPreview(false)} />}

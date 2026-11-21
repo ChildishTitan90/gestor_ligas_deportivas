@@ -12,10 +12,11 @@ export const venueSchema = z.object({
   name: z.string().trim().min(1).max(160),
   address: z.string().trim().min(1).max(300),
   kind: z.enum(["complex", "private"]),
+  ownerClubId: z.union([venueIdSchema, z.literal("")]).default(""),
   features: z.string().trim().max(1000),
   duration: minutes(1),
   buffer: minutes(0),
-});
+}).refine(data => data.kind !== "complex" || !data.ownerClubId);
 
 export const intervalTypes = ["AVAILABLE", "BLOCK", "MAINTENANCE"] as const;
 export const intervalLabels = { AVAILABLE: "Disponibilidad", BLOCK: "Bloqueo", MAINTENANCE: "Mantenimiento" };

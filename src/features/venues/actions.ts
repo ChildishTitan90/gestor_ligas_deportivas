@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { AuthorizationError } from "@/server/auth/authorization";
 import { AuthAccessError } from "@/server/auth/session";
 import { venueIdSchema } from "./schemas";
-import { getVenueTimeZone, removeInterval, saveInterval, saveVenue, VenueInputError } from "./server/service";
+import { assignLeagueVenue, getVenueTimeZone, removeInterval, saveInterval, saveVenue, VenueInputError } from "./server/service";
 import { venueTimeToIso } from "./time";
 
 function venueUrl(league: unknown, venue: unknown, status: string, error = false) {
@@ -35,6 +35,13 @@ export async function saveVenueAction(form: FormData) {
     redirect(venueUrl(form.get("leagueId"), form.get("venueId"), errorCode(error), true));
   }
   redirect(venueUrl(result.leagueId, result.venueId, "venue"));
+}
+
+export async function assignLeagueVenueAction(form: FormData) {
+  let result: Awaited<ReturnType<typeof assignLeagueVenue>>;
+  try { result = await assignLeagueVenue(Object.fromEntries(form)); }
+  catch (error) { redirect(venueUrl(form.get("leagueId"), form.get("venueId"), errorCode(error), true)); }
+  redirect(venueUrl(result.leagueId, result.venueId, "assignment"));
 }
 
 export async function saveIntervalAction(form: FormData) {

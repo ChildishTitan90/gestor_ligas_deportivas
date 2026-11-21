@@ -22,13 +22,15 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
       import {ReportWorkspace} from './src/features/match-reports/components/report-workspace';
       import {ReportDemoList} from './src/features/match-reports/components/report-demo-list';
       import {MatchReportList} from './src/features/match-reports/components/match-report-list';
+      import {OfflinePreviewList} from './src/features/match-reports/components/offline-preview-list';
+      import {createOfflineCapturePreview} from './src/features/match-reports/offline-preview';
       import {createReportDemo} from './src/features/match-reports/demo-data';
       let revision=0; const root=createRoot(document.getElementById('root'));
       window.networkCalls=[]; window.fetch=(...args)=>{window.networkCalls.push(String(args[0]));if(window.fixtureConfirmationStatus)return Promise.resolve(Response.json({code:'CONFIRMATION_DEPENDENCIES_PENDING'},{status:window.fixtureConfirmationStatus}));throw Error('Red prohibida en demo de componentes');};
-      window.fixture={render(scenario='draft') {window.fixtureConfirmationStatus=0;const online=scenario.startsWith('online-');const data=createReportDemo(online?'confirmed':scenario==='no-show'?'empty':scenario);if(scenario==='no-show')data.match.status={code:'CONFIRMED',label:'Confirmado',captureAllowed:true};if(online){data.scenario='draft';data.report.status='DRAFT';data.report.confirmedAt=null;data.match.status={code:'IN_PROGRESS',label:'En curso',captureAllowed:true};data.confirmation={available:scenario==='online-rejected',message:'La confirmación final todavía no está disponible. Guarda el borrador para conservar esta captura y continuar después.'};}window.fixturePath=scenario.startsWith('real-')?'/matches':'/matches/report-demo/demo-018';flushSync(()=>root.render(<ManagementShell key={++revision}
+      window.fixture={render(scenario='draft') {window.fixtureConfirmationStatus=0;const online=scenario.startsWith('online-');const offline=scenario.startsWith('offline-preview-')?scenario.slice(16):null;const download=scenario.startsWith('offline-download-')?scenario.slice(17):null;const data=offline?createOfflineCapturePreview(offline):createReportDemo(online?'confirmed':scenario==='no-show'?'empty':scenario);if(scenario==='no-show')data.match.status={code:'CONFIRMED',label:'Confirmado',captureAllowed:true};if(online){data.scenario='draft';data.report.status='DRAFT';data.report.confirmedAt=null;data.match.status={code:'IN_PROGRESS',label:'En curso',captureAllowed:true};data.confirmation={available:scenario==='online-rejected',message:'La confirmación final todavía no está disponible. Guarda el borrador para conservar esta captura y continuar después.'};}window.fixturePath=scenario.startsWith('real-')?'/matches':'/matches/report-demo/demo-018';flushSync(()=>root.render(<ManagementShell key={++revision}
         account={{username:'demo.sintetica',initials:'DS',roleNames:['Cuenta de ejemplo']}}
         navigation={[{label:scenario.startsWith('real-')?'Arbitraje':'Arbitraje · Demo',items:[{href:scenario.startsWith('real-')?'/matches':'/matches/report-demo',label:scenario.startsWith('real-')?'Cédula arbitral':'Demo · Cédula arbitral',icon:'players'}]}]}>
-        {scenario==='real-empty'?<MatchReportList matches={[]}/>:scenario==='real-list'?<MatchReportList matches={[{id:'synthetic',number:'PARTIDO-7',status:'En curso',statusCode:'IN_PROGRESS',startsAt:'2026-12-05T16:00:00Z',season:'Apertura 2026',category:'Libre',group:'A',matchday:7,venue:'Cancha de prueba',home:'Deportivo Encinos',away:'Atlético Cantera'}]}/>:scenario==='list'?<ReportDemoList/>:<ReportWorkspace data={data} live={online?{actorId:'synthetic-actor'}:undefined}/>}
+        {scenario==='real-empty'?<MatchReportList matches={[]}/>:scenario==='real-list'?<MatchReportList matches={[{id:'synthetic',number:'PARTIDO-7',status:'En curso',statusCode:'IN_PROGRESS',startsAt:'2026-12-05T16:00:00Z',season:'Apertura 2026',category:'Libre',group:'A',matchday:7,venue:'Cancha de prueba',home:'Deportivo Encinos',away:'Atlético Cantera'}]}/>:scenario==='list'?<ReportDemoList/>:download?<OfflinePreviewList scenario={download}/>:<ReportWorkspace data={data} live={online?{actorId:'synthetic-actor'}:undefined} offlinePreview={offline??undefined}/>}
       </ManagementShell>));}}; window.fixture.render();
     ` },
     plugins: [{ name: "next-fixture", setup(plugin) {
@@ -458,6 +460,65 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
       assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Guardar borrador').disabled"),false);
     }
     await ev("window.networkCalls=[];window.fixtureConfirmationStatus=0");
+  });
+
+  await t.test("vista previa PDGLD-19/20: preparación, borrador sin red y recuperación", async () => {
+    const panel = 'document.querySelector("[aria-label=\\"Estado offline simulado\\"]")';
+    const status = text => wait(`${panel}.innerText.includes(${JSON.stringify(text)})`);
+    await browser.command("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await ev("document.documentElement.dataset.theme='dark';window.networkCalls=[]");
+    for (const [scenario, message] of [["incomplete", "Descarga incompleta"], ["space", "Espacio insuficiente"]]) {
+      await render(`offline-download-${scenario}`);
+      await click("Preparar para usar sin conexión");
+      assert.match(await visibleText(), /Descargando partido/);
+      await wait(`document.body.innerText.includes(${JSON.stringify(message + " · Simulación")})`);
+      assert.doesNotMatch(await visibleText(), /Disponible sin conexión · Simulación/);
+      await click("Reintentar descarga");
+      await wait("document.activeElement.textContent.trim()==='Abrir cédula'");
+      assert.match(await visibleText(), /Disponible sin conexión · Simulación/);
+    }
+
+    await render("offline-preview-offline");
+    await status("Sin conexión");
+    assert.equal(await ev(`(() => {
+      const nav = document.querySelector('nav[aria-label="Secciones de la cédula"]');
+      const step = nav.querySelector('[aria-current="step"]');
+      return step.getBoundingClientRect().right <= nav.getBoundingClientRect().right + 1;
+    })()`), true);
+    await click("Cierre y firmas");
+    await ev(`(()=>{const field=document.querySelector('textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,'Captura de prueba sin red');field.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await status("Guardando cambios en el dispositivo");
+    await status("Guardado en este dispositivo");
+    await click("Volver a la ficha del partido");
+    await wait("document.activeElement.textContent.trim()==='Retomar borrador de ejemplo'");
+    await click("Retomar borrador de ejemplo");
+    assert.equal(await ev("document.querySelector('textarea').value"), "Captura de prueba sin red");
+    await click("Simular regreso de red");
+    await status("Pendiente de sincronizar");
+    await click("Sincronizar borrador");
+    await status("Acuse de borrador recibido");
+    assert.match(await visibleText(), /Cédula: Borrador/);
+    assert.equal(await ev("document.documentElement.scrollWidth<=innerWidth"), true);
+
+    await render("offline-preview-storage");
+    await status("Espacio insuficiente para guardar");
+    await click("Reintentar guardado local");
+    await status("Guardado en este dispositivo");
+    await render("offline-preview-session");
+    await click("Simular inicio de sesión");
+    await status("Pendiente de sincronizar");
+    await render("offline-preview-conflict");
+    await click("Comparar versiones simuladas");
+    await wait("document.querySelector('dialog[open]').textContent.includes('Referencia simulada')");
+    await key("Escape");
+    await render("offline-preview-uncertain");
+    await click("Simular consulta: no aplicada");
+    await click("Reintentar misma operación simulada");
+    await status("Acuse de borrador recibido");
+    await render("offline-preview-confirmed");
+    await status("Confirmación oficial · Simulación");
+    assert.doesNotMatch(await visibleText(), /Acuse de borrador recibido/);
+    assert.deepEqual(await ev("window.networkCalls"), []);
   });
 
 });

@@ -28,7 +28,7 @@ export function assessPreview(data: RefereePreviewData, matchId: string, referee
   const intervals = data.availability.filter(item => item.refereeId === refereeId);
   const unavailable = intervals.some(item => !item.available && overlaps(item.startsAt, item.endsAt));
   const covered = intervals.some(item => item.available && item.startsAt <= match.startsAt && item.endsAt >= match.endsAt);
-  if (unavailable) blockers.push({ code: "UNAVAILABLE", message: "Existe un intervalo de indisponibilidad que coincide con el partido." });
+  if (unavailable) blockers.push({ code: "UNAVAILABLE", message: "El árbitro figura como no disponible durante el partido." });
   else if (!covered) blockers.push({ code: "UNKNOWN_AVAILABILITY", message: "No hay un intervalo disponible que cubra todo el partido. Falta confirmar disponibilidad." });
   for (const assignment of data.assignments) {
     if (assignment.id === assignmentId || assignment.refereeId !== refereeId || assignment.status === "REVOKED") continue;
