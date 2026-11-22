@@ -54,6 +54,8 @@ export function PasswordRecoveryForm({ reset }: { reset: boolean }) {
         setValidLink(false);
         setMessage(reset ? "Contraseña actualizada. Inicia sesión con la nueva contraseña."
           : "Si el correo está habilitado para recuperación, recibirás las instrucciones.");
+      } else if (code === "RATE_LIMITED") {
+        setMessage("Has realizado demasiados intentos. Inténtalo más tarde.");
       } else if (code === "INVALID_LINK") {
         token.current = null;
         setValidLink(false);

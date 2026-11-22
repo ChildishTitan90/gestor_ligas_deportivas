@@ -4,6 +4,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { getPrisma } from "@/server/db/prisma";
 import type { EmailTransport } from "@/server/email/transport";
+import { recoveryAbusePolicy } from "./recovery-abuse";
 import { lockAuthUser } from "./lock-user";
 import { hashPassword } from "./password";
 
@@ -16,10 +17,11 @@ export function recoveryPolicy(env: Record<string, string | undefined> = process
   const limit = env.PASSWORD_RECOVERY_MAX_PER_HOUR ?? "";
   if (env.PASSWORD_RECOVERY_ENABLED !== "true" || !/^[1-9][0-9]?$/.test(minutes) ||
       Number(minutes) > 60 || !/^[1-9][0-9]?$/.test(limit)) return null;
-  return { ttlMs: Number(minutes) * 60_000, maxPerHour: Number(limit) };
+  const abuse = recoveryAbusePolicy(env);
+  return abuse ? { ttlMs: Number(minutes) * 60_000, maxPerHour: Number(limit), abuse } : null;
 }
 
-export async function requestPasswordRecovery(email: string, transport: EmailTransport, policy: NonNullable<ReturnType<typeof recoveryPolicy>>) {
+export async function requestPasswordRecovery(email: string, transport: EmailTransport, policy: Pick<NonNullable<ReturnType<typeof recoveryPolicy>>, "ttlMs" | "maxPerHour">) {
   const token = randomBytes(32).toString("base64url");
   const message = await getPrisma().$transaction(async tx => {
     // El adaptador envía fechas UTC sin offset; fija la zona solo en esta transacción.
