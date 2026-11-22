@@ -1,8 +1,10 @@
 import { capturedScore } from "../score";
 import "server-only";
 import { lockParticipationPeople } from "@/features/matches/server/participation-lock";
+import { isDeepStrictEqual } from "node:util";
 import { createHash } from "node:crypto";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { isTransactionConflict } from "@/server/db/transaction-conflict";
 import { getPrisma } from "@/server/db/prisma";
 import { AuthorizationError, getPermissionGrants } from "@/server/auth/authorization";
 import { evaluateAuthorizedMatchInTransaction } from "@/features/matches/server/eligibility";
@@ -22,23 +24,36 @@ import { participationTimesSchema } from "@/features/matches/eligibility";
 export const digest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const signatureBinding = (draft: ReportDraft): string => digest(unsignedDraft(draftSchema.parse(draft)));
 
-export async function mutateReport(actorId: string, input: unknown, transport: "online" | "sync" | "live" = "online"): Promise<ReportReceipt> {
-  const receivedAt = Date.now();
-  const parsed = reportCommandSchema.safeParse(input);
-  if (!parsed.success) throw new ReportError("INVALID_PAYLOAD", 400);
-  try { return await getPrisma().$transaction(tx => mutateReportInTransaction(tx, actorId, parsed.data, transport, receivedAt), { timeout: 30000 }); }
-  catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "P2034") throw new ReportError("PARTICIPATION_RETRY_REQUIRED");
-    throw error;
-  }
+/** Server-only composition seam for future official adapters and isolated tests.
+ * HTTP/actions always use mutateReport with the blocking default provider. */
+export function createReportWriter(effectsProvider: typeof getConfirmationEffects) {
+  return async (actorId: string, input: unknown, transport: "online" | "sync" | "live" = "online"): Promise<ReportReceipt> => {
+    const receivedAt = Date.now();
+    const parsed = reportCommandSchema.safeParse(input);
+    if (!parsed.success) throw new ReportError("INVALID_PAYLOAD", 400);
+    for (let attempt = 0; ; attempt++) {
+      try { return await getPrisma().$transaction(tx => mutateReportInTransaction(tx, actorId, parsed.data, transport, receivedAt, effectsProvider), {
+        timeout: 30000, ...(parsed.data.kind === "confirm" ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } : {}),
+      }); }
+      catch (error) {
+        if (!isTransactionConflict(error)) throw error;
+        if (parsed.data.kind !== "confirm" || attempt >= 4) throw new ReportError("PARTICIPATION_RETRY_REQUIRED");
+        // Retry the whole transaction with the same command/hash/operation and time.
+        // Access and assignment are revalidated; no partial effects or external I/O.
+      }
+    }
+  };
 }
+export const mutateReport = createReportWriter(getConfirmationEffects);
 
-export async function mutateReportInTransaction(tx: Prisma.TransactionClient, actorId: string, command: ReportCommand, transport: "online" | "sync" | "live" = "online", receivedAt = Date.now()): Promise<ReportReceipt> {
+export async function mutateReportInTransaction(tx: Prisma.TransactionClient, actorId: string, command: ReportCommand, transport: "online" | "sync" | "live" = "online", receivedAt = Date.now(), effectsProvider = getConfirmationEffects): Promise<ReportReceipt> {
   const existing = await tx.match_reports.findUnique({ where: { match_id: command.matchId }, select: { id: true } });
   let match = await reportAccess(tx, actorId, command.matchId, existing ? "UPDATE" : "CREATE");
   if (!existing && await tx.match_reports.findUnique({ where: { match_id: match.id }, select: { id: true } })) await reportAccess(tx, actorId, match.id, "UPDATE");
   const previousLineups = existing ? await tx.lineups.findMany({ where: { match_report_id: existing.id }, select: { registration_id: true } }) : [];
-  await lockParticipationPeople(tx, [...previousLineups.map(row => row.registration_id), ...command.draft.lineups.filter(row => row.selected).map(row => row.playerId)]);
+  // Confirmation consumes already persisted evidence; it never changes participation.
+  // Capture retains READ COMMITTED and its person locks. Closure uses SERIALIZABLE.
+  if (command.kind !== "confirm") await lockParticipationPeople(tx, [...previousLineups.map(row => row.registration_id), ...command.draft.lineups.filter(row => row.selected).map(row => row.playerId)]);
   const hash = digest(command);
   const previous = await tx.match_report_syncs.findUnique({ where: { client_id: command.operationId } });
   if (previous) {
@@ -50,6 +65,10 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
   const current = await tx.match_reports.findUnique({ where: { match_id: match.id } });
   if (match.version !== command.expectedMatchVersion || (current?.version ?? 0) !== command.expectedReportVersion) throw new ReportError("STALE_VERSION");
   if (current && current.status !== "DRAFT") throw new ReportError("REPORT_LOCKED");
+  if (command.kind === "confirm") {
+    const saved = draftSchema.safeParse((current?.draft_data as { draft?: unknown } | undefined)?.draft);
+    if (!saved.success || !isDeepStrictEqual(saved.data, command.draft)) throw new ReportError("CONFIRMATION_REQUIRES_SAVED_DRAFT");
+  }
   const sealed = current ? await readLineupLock(tx, current.id) : null;
   const storedClock = (current?.draft_data as { clock?: unknown } | undefined)?.clock;
   let clock: MatchClock | null = null;
@@ -152,12 +171,13 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
   await validateSignatureReferences(tx, actorId, match, draft);
   if (command.kind === "confirm" && clock && clock.phase !== "ENDED") throw new ReportError("CLOCK_STILL_RUNNING");
   if (command.kind === "confirm" && ([match.home_team_id, match.away_team_id].some(id => !draft.captains[id] || !draft.signatures[id]) || draft.score.home === null || draft.score.away === null)) throw new ReportError("INCOMPLETE_REPORT", 400);
-  const effects = command.kind === "confirm" ? getConfirmationEffects() : null;
+  const effects = command.kind === "confirm" ? effectsProvider() : null;
   // Sin receptores efectivos no se escribe ningún efecto de confirmación, ni siquiera el borrador.
   await tx.$queryRaw`SELECT set_config('app.user_id',${actorId},true),set_config('app.reason','Captura online de cédula',true)`;
   const report = current
     ? await tx.match_reports.update({ where: { id: current.id }, data: { version: { increment: 1 }, home_captain_signature_file_id: draft.signatures[match.home_team_id] ?? null, away_captain_signature_file_id: draft.signatures[match.away_team_id] ?? null, remarks: draft.remarks } })
     : await tx.match_reports.create({ data: { match_id: match.id, client_id: command.operationId, captured_by: actorId, source: "MOBILE", remarks: draft.remarks, home_captain_signature_file_id: draft.signatures[match.home_team_id] ?? null, away_captain_signature_file_id: draft.signatures[match.away_team_id] ?? null } });
+  if (command.kind !== "confirm") {
   const old = await tx.lineups.findMany({ where: { match_report_id: report.id }, select: { id: true } });
   await tx.match_events.deleteMany({ where: { match_report_id: report.id } });
   await tx.player_period_participations.deleteMany({ where: { lineup_id: { in: old.map(row => row.id) } } });
@@ -176,13 +196,24 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
     INSERT INTO sports_management.match_events(id,match_report_id,event_type_id,season_team_id,lineup_id,outgoing_lineup_id,period_number,minute,second,description)
     VALUES (${event.id}::uuid,${report.id}::uuid,${catalogue.find(type => type.code === event.typeCode)!.id}::uuid,${event.teamId}::uuid,${event.playerId ? lineups.get(event.playerId) ?? null : null}::uuid,${event.outgoingPlayerId ? lineups.get(event.outgoingPlayerId) ?? null : null}::uuid,${event.periodNumber},${event.minute},${event.second ?? null}::smallint,${event.description})`;
 
+  }
+
   const presentation = await buildPresentation(tx, match, report, draft, evaluation);
   const lineupsLock = sealed?.lock ?? (command.kind === "lock-lineups" ? { operationId: command.operationId, lockedAt: new Date().toISOString() } : undefined);
   if (lineupsLock) presentation.report.lineupsLock = lineupsLock;
   if (clock) presentation.report.clock = clock;
-  await tx.match_reports.update({ where: { id: report.id }, data: { draft_data: { formatVersion: 1, draft, presentation, ...(clock ? { clock } : {}) } as unknown as Prisma.InputJsonValue } });
   const receipt: ReportReceipt = effects ? await applyConfirmationEffects(tx, { actorId, matchId: match.id, reportId: report.id, operationId: command.operationId, expectedMatchVersion: match.version, homeScore: draft.score.home!, awayScore: draft.score.away!, eventIds: draft.events.map(e => e.id), dismissals: dismissalEvents(draft.events).map(e => ({ eventId: e.id, playerId: e.playerId!, teamId: e.teamId!, reason: e.typeCode === "CAUTION" ? "SECOND_CAUTION" : "DIRECT_RED" })) }, effects)
     : { formatVersion: 1, operationId: command.operationId, matchId: match.id, reportId: report.id, reportVersion: report.version, matchVersion: match.version, status: "DRAFT", ...(lineupsLock ? { lineupsLock } : {}), ...(clock ? { clock } : {}) };
+  if (effects) {
+    const confirmed = await tx.match_reports.findUniqueOrThrow({ where: { id: report.id }, select: { confirmed_at: true } });
+    const finished = await tx.matches.findUniqueOrThrow({ where: { id: match.id }, select: { match_statuses: { select: { code: true, name: true } } } });
+    presentation.scenario = "confirmed";
+    presentation.report.status = "CONFIRMED";
+    presentation.report.confirmedAt = confirmed.confirmed_at!.toISOString();
+    presentation.match.version = receipt.matchVersion;
+    presentation.match.status = { code: finished.match_statuses.code, label: finished.match_statuses.name, captureAllowed: false };
+  }
+  await tx.match_reports.update({ where: { id: report.id }, data: { draft_data: { formatVersion: 1, draft, presentation, ...(clock ? { clock } : {}) } as unknown as Prisma.InputJsonValue } });
   await tx.match_report_syncs.create({ data: { client_id: command.operationId, match_report_id: report.id, user_id: actorId, base_version: command.expectedReportVersion, status: "APPLIED", private_payload: { hash, command, receipt } as unknown as Prisma.InputJsonValue } });
   return receipt;
 }

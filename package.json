@@ -126,6 +126,7 @@
     "test:age-exception-browser": "node --test tests/e2e/player-age-exception.test.mjs",
     "test:match-eligibility-integration": "node scripts/test-match-eligibility-isolated.mjs",
     "test:match-eligibility-browser": "node --test tests/e2e/match-eligibility.test.mjs",
+    "test:standings-confirmation": "node --conditions=react-server --import tsx scripts/match-reports-local.mts --standings-confirmation",
     "test:standings-workspace": "node scripts/test-standings-workspace.mjs",
     "test:standings": "node --import tsx --test src/features/standings/calculation.test.ts",
     "test:standings-integration": "node scripts/test-standings-isolated.mjs"

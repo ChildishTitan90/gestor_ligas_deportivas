@@ -322,6 +322,21 @@ export async function runReportAcceptance(f: Fixture) {
       if(app.pid&&process.platform==="win32")spawnSync("taskkill",["/PID",String(app.pid),"/T","/F"],{windowsHide:true,stdio:"ignore"});else app.kill();
       await new Promise<void>(resolve=>app!.exitCode!==null?resolve():app!.once("exit",()=>resolve()));app=undefined;
     }
+    if(process.argv.includes("--standings-confirmation")) {
+      const confirmationDraft = structuredClone(draft);
+      confirmationDraft.events.push(
+        {id:randomUUID(),typeCode:"CAUTION",teamId:teams[1],playerId:registrations[1],outgoingPlayerId:null,periodNumber:1,minute:6,description:"Amonestación sintética"},
+        {id:randomUUID(),typeCode:"SENDING_OFF",teamId:teams[0],playerId:registrations[0],outgoingPlayerId:null,periodNumber:1,minute:20,description:"Incidente sintético de jugador ya sustituido"},
+      );
+      confirmationDraft.signatures = {};
+      for(let index=0;index<2;index++) {
+        const signature = await uploadReportSignature(actors.capturista,{operationId:randomUUID(),matchId:match,teamId:teams[index],captainId:registrations[index===0?3:1],expectedMatchVersion:page.match.version,expectedReportVersion:3,draft:structuredClone(confirmationDraft),image:"data:image/png;base64,"+png.toString("base64")},storage);
+        confirmationDraft.signatures[teams[index]]=signature.fileId;
+      }
+      await mutateReport(actors.capturista,{...command(3),draft:structuredClone(confirmationDraft)});
+      const { verifyStandingConfirmation } = await import("./standings-confirmation");
+      await verifyStandingConfirmation({db,actors,rule:f.rule,group,season,teams,command:{...command(4),draft:confirmationDraft}});
+    }
     if(!f.serve){
       await db.query("UPDATE sports_management.referee_assignments SET status='REVOKED' WHERE id=$1",[assignment]);
       assert.deepEqual(await getCaptureMatches(actors.arbitro),[]);

@@ -2,6 +2,8 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { reportAccess } from '@/features/match-reports/server/access';
+import { isTransactionConflict } from '@/server/db/transaction-conflict';
 import { getPrisma } from '@/server/db/prisma';
 import { requireOperationalUser } from '@/server/auth/session';
 import { assertPermission, lockAuthorization } from '@/server/auth/authorization';
@@ -12,7 +14,7 @@ const requestSchema = z.strictObject({ groupId: z.uuid(), matchdayId: z.uuid() }
 const ruleSchema = z.strictObject({ points: z.strictObject({ win: z.number().int(), draw: z.number().int(), loss: z.number().int() }), tieBreakers: z.array(z.string().min(1)).min(1).refine(v => new Set(v).size === v.length) });
 type Tx = Prisma.TransactionClient;
 type Context = { seasonId: string; ruleId: string; number: number; seasonStatus: string };
-async function context(tx: Tx, actorId: string, input: unknown, write: boolean) {
+async function context(tx: Tx, actorId: string, input: unknown, write: boolean, derived = false) {
   const { groupId, matchdayId } = requestSchema.parse(input);
   await lockAuthorization(tx);
   const [scope] = await tx.$queryRaw<Context[]>`SELECT g.season_id AS "seasonId", c.competition_rule_id AS "ruleId", d.number, s.status AS "seasonStatus"
@@ -20,7 +22,7 @@ async function context(tx: Tx, actorId: string, input: unknown, write: boolean) 
     JOIN sports_management.seasons s ON s.id=g.season_id
     JOIN sports_management.matchdays d ON d.season_id=g.season_id AND d.id=${matchdayId}::uuid WHERE g.id=${groupId}::uuid`;
   if (!scope) throw Error('INVALID_STANDING_CONTEXT');
-  await assertPermission(tx, actorId, { module: 'competitions', action: write ? 'UPDATE' : 'READ', context: { seasonId: scope.seasonId } });
+  if (!derived) await assertPermission(tx, actorId, { module: 'competitions', action: write ? 'UPDATE' : 'READ', context: { seasonId: scope.seasonId } });
   if (write && scope.seasonStatus === 'CLOSED') throw Error('CLOSED_SEASON');
   return { ...scope, groupId, matchdayId };
 }
@@ -82,6 +84,10 @@ export async function calculateStandingsInTransaction(tx: Tx, actorId: string, i
   const [isolation] = await tx.$queryRaw<{ level: string }[]>`SELECT current_setting('transaction_isolation') AS level`;
   if (isolation.level !== 'serializable') throw Error('STANDINGS_SERIALIZABLE_REQUIRED');
   const scope = await context(tx, actorId, input, true);
+  return materializeStandings(tx, actorId, scope);
+}
+
+async function materializeStandings(tx: Tx, actorId: string, scope: Awaited<ReturnType<typeof context>>) {
   const { seasonId, groupId, matchdayId, ruleId } = scope;
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${groupId},29))::text`;
   const { data, fingerprint, rows } = await projectStandings(tx, scope);
@@ -96,6 +102,29 @@ export async function calculateStandingsInTransaction(tx: Tx, actorId: string, i
     VALUES(${version.id}::uuid,${groupId}::uuid,${seasonId}::uuid,${row.teamId}::uuid,${row.rank}::integer,${row.played},${row.won},${row.drawn},${row.lost},${row.scoreFor},${row.scoreAgainst},${row.points})`;
   return { ...version, reused: false, data };
 }
+/** Derived effect of an authorized confirmation, never a general competitions write.
+ * All scope and official evidence are read from this transaction, not the command.
+ * Reauthorizes capture (including effective referee assignment) after finalization. */
+export async function calculateConfirmedReportStandingsInTransaction(tx: Tx, actorId: string, reportId: string) {
+  const [isolation] = await tx.$queryRaw<{ level: string }[]>`SELECT current_setting('transaction_isolation') AS level`;
+  if (isolation.level !== 'serializable') throw Error('STANDINGS_SERIALIZABLE_REQUIRED');
+  const report = await tx.match_reports.findUniqueOrThrow({ where: { id: z.uuid().parse(reportId) }, select: { match_id: true, status: true, confirmed_at: true } });
+  const match = await reportAccess(tx, actorId, report.match_id, 'UPDATE');
+  const source = await tx.matches.findUniqueOrThrow({ where: { id: match.id }, select: { group_id: true, matchday_id: true } });
+  const result = await tx.match_results.findUnique({ where: { match_id: match.id }, select: { source: true, counts_in_standings: true } });
+  if (report.status !== 'CONFIRMED' || !report.confirmed_at || match.match_statuses.code !== 'FINISHED' || result?.source !== 'MATCH_REPORT' || !result.counts_in_standings) throw Error('CONFIRMED_RESULT_REQUIRED');
+  if (!source.group_id || !source.matchday_id) throw Error('INVALID_STANDING_CONTEXT');
+  const scope = await context(tx, actorId, { groupId: source.group_id, matchdayId: source.matchday_id }, true, true);
+  // Refresh existing later cuts too: late confirmation must not leave saved tables stale.
+  const later = await tx.$queryRaw<{ id: string }[]>`SELECT DISTINCT d.id,d.number FROM sports_management.standing_versions v
+    JOIN sports_management.matchdays d ON d.id=v.matchday_id AND d.season_id=v.season_id
+    WHERE v.group_id=${scope.groupId}::uuid AND d.number>${scope.number} ORDER BY d.number,d.id`;
+  const receipts = [await materializeStandings(tx, actorId, scope)];
+  for (const day of later) receipts.push(await materializeStandings(tx, actorId,
+    await context(tx, actorId, { groupId: scope.groupId, matchdayId: day.id }, true, true)));
+  return receipts;
+}
+
 export async function calculateGroupStandings(input: unknown) {
   const actor = await requireOperationalUser();
   return calculateForActor(actor.id, input);
@@ -105,14 +134,7 @@ export async function calculateForActor(actorId: string, input: unknown) {
   for (let attempt = 0; ; attempt++) {
     try { return await getPrisma().$transaction(tx => calculateStandingsInTransaction(tx, actorId, input), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20000 }); }
     catch (error) {
-      // Prisma 7 raw writes wrap SQLSTATE in DriverAdapterError.cause.
-      const driver = error instanceof Prisma.PrismaClientKnownRequestError
-        ? z.object({ cause: z.object({ originalCode: z.string().optional(), kind: z.string().optional() }) }).safeParse(error.meta?.driverAdapterError)
-        : null;
-      const conflict = driver?.success && (driver.data.cause.kind === 'TransactionWriteConflict' || ['40001', '40P01'].includes(driver.data.cause.originalCode ?? ''));
-      const retryable = error instanceof Prisma.PrismaClientKnownRequestError &&
-        (error.code === 'P2034' || (error.code === 'P2010' && (conflict || ['40001', '40P01'].includes(String(error.meta?.code)))));
-      if (attempt >= 4 || !retryable) throw error;
+      if (attempt >= 4 || !isTransactionConflict(error)) throw error;
     }
   }
 }
