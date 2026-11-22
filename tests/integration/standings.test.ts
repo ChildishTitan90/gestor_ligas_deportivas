@@ -46,7 +46,7 @@ test('clasificación transaccional sobre PostgreSQL desechable', async t => {
  const first=await match(1,0,1,'DEFAULT',1,0,1,'NO_SHOW');
  const defaultReport=await id("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'PAPER','CONFIRMED',now()) RETURNING id",[first,randomUUID(),actor]);
  await q("INSERT INTO sports_management.match_events(match_report_id,event_type_id,season_team_id) VALUES($1,(SELECT id FROM sports_management.event_types WHERE code='CAUTION'),$2)",[defaultReport,teams[0]]);
- await match(2,0,2,'DEFAULT',0,1,0,'NO_SHOW');
+ const resolvedDefault=await match(2,0,2,'DEFAULT',0,1,0,'FINISHED');
  const reported=await match(3,1,2,'MATCH_REPORT',3,2,null,'FINISHED');
  const report=await id("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'MOBILE','CONFIRMED',now()) RETURNING id",[reported,randomUUID(),actor]);
  for(const code of ['GOAL','CAUTION','CAUTION'])await q("INSERT INTO sports_management.match_events(match_report_id,event_type_id,season_team_id) VALUES($1,(SELECT id FROM sports_management.event_types WHERE code=$2),$3)",[report,code,teams[1]]);
@@ -57,12 +57,16 @@ test('clasificación transaccional sobre PostgreSQL desechable', async t => {
  await t.test('corte acumulado, default en ambas localías, DG generado y procedencia',async()=>{
  receipt=await calculateForActor(actor,input);
  const a=receipt.data.rows.find(r=>r.teamId===teams[0])!;assert.deepEqual([a.played,a.won,a.lost,a.scoreFor,a.scoreAgainst,a.points],[2,1,1,1,1,3]);
- assert.equal(receipt.data.results.length,2);assert.equal(receipt.data.events.length,1);assert.equal(receipt.data.events[0].resultSource,'DEFAULT');assert.equal(receipt.data.events[0].reportSource,'PAPER');assert.ok(receipt.data.statistics.every(s=>s.officialGoals===null));
+ assert.equal(receipt.data.results.length,2);
+ assert.equal(receipt.data.results.filter(r=>r.matchId===resolvedDefault&&r.source==='DEFAULT'&&r.status==='FINISHED').length,1);
+ const visitor=receipt.data.rows.find(r=>r.teamId===teams[2])!;assert.deepEqual([visitor.played,visitor.won,visitor.scoreFor,visitor.points],[1,1,1,3]);assert.equal(receipt.data.events.length,1);assert.equal(receipt.data.events[0].resultSource,'DEFAULT');assert.equal(receipt.data.events[0].reportSource,'PAPER');assert.ok(receipt.data.statistics.every(s=>s.officialGoals===null));
  const stored=await q('SELECT score_difference,score_for-score_against AS dg FROM sports_management.standing_entries WHERE standing_version_id=$1',[receipt.id]);assert.ok(stored.every(r=>r.score_difference===r.dg));
  });
  await t.test('reenvío y concurrencia reutilizan la misma versión',async()=>{
  const replies=await Promise.all(Array.from({length:3},()=>calculateForActor(actor,input)));
  assert.ok(replies.every(r=>r.id===receipt.id&&r.reused));
+ assert.ok(replies.every(r=>r.data.results.filter(result=>result.matchId===resolvedDefault).length===1));
+ assert.deepEqual(replies[0].data.rows,receipt.data.rows);
  assert.equal((await q('SELECT count(*)::int AS n FROM sports_management.standing_entries WHERE standing_version_id=$1',[receipt.id]))[0].n,3);
  });
  await t.test('empate sin resolver usa NULL conservando rango positivo único',async()=>{

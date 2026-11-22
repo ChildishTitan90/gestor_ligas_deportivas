@@ -35,10 +35,10 @@ const readColumns = {
   competition_rule_parameters: ['id', 'competition_rule_id', 'parameter_key', 'parameter_value', 'requires_validation', 'validated_by'],
   competition_stages: ['id', 'season_category_id', 'season_id'],
   imports: ['id', 'season_id'],
-  matchdays: ['id', 'season_id', 'number'], match_results: ['id', 'match_id'], match_statuses: ['id', 'code', 'reserves_resources'],
+  matchdays: ['id', 'season_id', 'number'], match_results: ['id', 'match_id', 'version', 'home_score', 'away_score', 'source', 'counts_in_standings', 'offending_team_id'], match_statuses: ['id', 'code', 'reserves_resources'],
   official_documents: ['id', 'season_id'], publications: ['id', 'season_id'],
   season_awards: ['id', 'season_category_id', 'season_id'], season_breaks: ['id', 'season_id', 'starts_at', 'ends_at'],
-  standing_versions: ['id', 'group_id'], venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'reviewed_by', 'review_reason', 'approved_by', 'approved_at', 'owner_decision_required', 'owner_decision', 'owner_reviewed_by', 'owner_reviewed_at', 'owner_review_reason'],
+  standing_versions: ['id', 'group_id', 'matchday_id', 'competition_rule_id', 'version_number', 'status', 'calculated_at', 'input_fingerprint'], venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'reviewed_by', 'review_reason', 'approved_by', 'approved_at', 'owner_decision_required', 'owner_decision', 'owner_reviewed_by', 'owner_reviewed_at', 'owner_review_reason'],
 };
 const insert = {
   password_recovery_budgets: ['bucket_key','window_start','hits'],

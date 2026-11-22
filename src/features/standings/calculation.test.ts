@@ -7,12 +7,18 @@ test('victoria, empate, derrota, DG y puntuación versionada',()=>{
  const rows = calculateStandings(['a','b'],[result(),result({matchId:'m2',homeScore:1,awayScore:1})],rule);
  assert.deepEqual(rows.map(r=>[r.teamId,r.played,r.won,r.drawn,r.lost,r.scoreFor,r.scoreAgainst,r.difference,r.points,r.rank]),[['a',2,1,1,0,3,2,1,7,1],['b',2,0,1,1,2,3,-1,1,2]]);
 });
-for(const offender of ['a','b'])test(`default infractor ${offender}, sin goleador`,()=>{
- const rows=calculateStandings(['a','b'],[result({source:'DEFAULT',status:'NO_SHOW',offender,homeScore:offender==='a'?0:1,awayScore:offender==='a'?1:0})],rule);
- assert.equal(rows[0].points,3);assert.equal(rows[0].scoreFor,1);assert.equal(rows[1].points,0);assert.equal(rows[1].scoreAgainst,1);
+for(const status of ['NO_SHOW', 'FINISHED', 'ADMINISTRATIVELY_RESOLVED']) for(const offender of ['a','b']) test(`default ${status}, infractor ${offender}, sin goleador`,()=>{
+ const rows=calculateStandings(['a','b'],[result({source:'DEFAULT',status,offender,reportStatus:null,homeScore:offender==='a'?0:1,awayScore:offender==='a'?1:0})],rule);
+ assert.deepEqual(rows.map(row=>[row.played,row.points,row.scoreFor,row.scoreAgainst]),[[1,3,1,0],[1,0,0,1]]);
 });
 test('no cuenta borrador, suspendido, cancelado, en revisión, ni exclusión explícita',()=>{
  for(const patch of [{counts:false},{status:'UNDER_REVIEW'},{status:'CANCELED'},{status:'SUSPENDED'},{reportStatus:'DRAFT'},{source:'ADMINISTRATIVE',status:'FINISHED'}]) assert.ok(calculateStandings(['a','b'],[result(patch)],rule).every(r=>r.played===0));
+});
+test('default sin resolución o excluido no suma partidos',()=>{
+ const valid = result({source:'DEFAULT',offender:'b',homeScore:1,awayScore:0,reportStatus:null});
+ for(const patch of [{status:'IN_PROGRESS'},{status:'CANCELED'},{counts:false}]) {
+  assert.ok(calculateStandings(['a','b'],[{...valid,...patch}],rule).every(r=>r.played===0));
+ }
 });
 test('criterio desconocido no se salta; no inventa gol average ni empate definitivo',()=>{
  const rows=calculateStandings(['a','b'],[result({homeScore:1,awayScore:1})],{...rule,tieBreakers:['GOL_AVERAGE','GOALS_FOR']});

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import pg from 'pg';
+import { PREVIEW_MARKER, PREVIEW_ROLE, provisionPreviewRuntime } from './preview/runtime-plan.mjs';
 import { randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
@@ -9,7 +11,9 @@ import { launchChrome } from '../tests/e2e/chrome-session.mjs';
 
 const root = resolve('.');
 const privateRoot = mkdtempSync(join(root, '.env-standings-ui-'));
-const container = `pdgld151-${randomBytes(12).toString('hex')}`;
+const nonce = randomBytes(8).toString('hex');
+const container = `pdgld151-${nonce}`;
+const database = `pdgld48_test_${nonce}`;
 const manifestPath = join(privateRoot, 'manifest.json');
 const origin = 'http://127.0.0.1:3193';
 const base = { ...childEnvironment(process.env), NEXTAUTH_URL: origin, NEXTAUTH_SECRET: randomBytes(48).toString('hex'),
@@ -85,7 +89,7 @@ try {
   await new Promise((resolve, reject) => { probe.once('error', reject); probe.listen(3193, '127.0.0.1', resolve); });
   await new Promise(resolve => probe.close(resolve));
   docker(['create', '--name', container, '--label', 'pdgld.ticket=PDGLD-151', '--env', 'POSTGRES_HOST_AUTH_METHOD=trust',
-    '--env', 'POSTGRES_DB=standings_ui_synthetic', '--publish', '127.0.0.1::5432', '--tmpfs', '/var/lib/postgresql/data:rw,nosuid,nodev', 'postgres:15-bookworm']);
+    '--env', `POSTGRES_DB=${database}`, '--publish', '127.0.0.1::5432', '--tmpfs', '/var/lib/postgresql/data:rw,nosuid,nodev', 'postgres:15-bookworm']);
   created = true; docker(['start', container]);
   const mapping = /^127\.0\.0\.1:(\d+)$/.exec(docker(['port', container, '5432/tcp'])); assert.ok(mapping);
   for (let n = 0; ; n++) {
@@ -94,18 +98,48 @@ try {
   }
   const inspected = JSON.parse(docker(['inspect', container]))[0];
   assert.deepEqual(inspected.HostConfig.Binds ?? [], []); assert.ok(inspected.Mounts.every(m => m.Type === 'tmpfs'));
-  url = `postgresql://postgres:synthetic@127.0.0.1:${mapping[1]}/standings_ui_synthetic`;
+  url = `postgresql://postgres:synthetic@127.0.0.1:${mapping[1]}/${database}`;
   const env = { ...base, DATABASE_URL: url, DIRECT_URL: url };
   run(['node_modules/prisma/build/index.js', 'migrate', 'deploy'], env);
   console.log(run(['--conditions=react-server', '--import', 'tsx', 'tests/integration/standings-workspace.ts'], env));
   fixture = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', '3193'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const runtimePassword = randomBytes(24).toString('hex');
+  const owner = new pg.Client({ connectionString: url });
+  await owner.connect();
+  try {
+    await owner.query(`COMMENT ON DATABASE "${database}" IS '${PREVIEW_MARKER}'`);
+    await provisionPreviewRuntime(owner);
+    await owner.query(`ALTER ROLE ${PREVIEW_ROLE} LOGIN PASSWORD '${runtimePassword}'`);
+  } finally {
+    await owner.end();
+  }
+  const runtimeUrl = new URL(url);
+  runtimeUrl.username = PREVIEW_ROLE;
+  runtimeUrl.password = runtimePassword;
+  const runtime = new pg.Client({ connectionString: runtimeUrl.href });
+  await runtime.connect();
+  try {
+    const { rows: [privileges] } = await runtime.query(`SELECT current_user AS role,
+      row_security_active('sports_management.match_results'::regclass) AS results_rls,
+      row_security_active('sports_management.standing_versions'::regclass) AS versions_rls,
+      has_column_privilege('sports_management.match_results','home_score','SELECT') AS can_read_score,
+      has_column_privilege('sports_management.standing_versions','input_fingerprint','SELECT') AS can_read_fingerprint,
+      has_column_privilege('sports_management.standing_versions','calculation_data','SELECT') AS can_read_snapshot,
+      has_column_privilege('sports_management.match_results','home_score','UPDATE') AS can_write_score,
+      has_column_privilege('sports_management.standing_versions','status','UPDATE') AS can_write_version`);
+    assert.deepEqual(privileges, { role: PREVIEW_ROLE, results_rls: true, versions_rls: true,
+      can_read_score: true, can_read_fingerprint: true, can_read_snapshot: false, can_write_score: false, can_write_version: false });
+  } finally {
+    await runtime.end();
+  }
+  const runtimeEnv = { ...env, DATABASE_URL: runtimeUrl.href, DIRECT_URL: runtimeUrl.href };
+  server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', '3193'], { env: runtimeEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   let diagnostic = ''; server.stdout.on('data', chunk => { diagnostic = (diagnostic + chunk).slice(-16000); }); server.stderr.on('data', chunk => { diagnostic = (diagnostic + chunk).slice(-16000); });
   serverExit = new Promise(resolve => server.once('exit', resolve));
   const start = Date.now();
   while (true) {
     if (server.exitCode !== null || Date.now() - start > 120000) {
-      console.error(diagnostic.replaceAll(url, '[conexión omitida]').replaceAll(base.NEXTAUTH_SECRET, '[privado]'));
+      console.error(diagnostic.replaceAll(url, '[conexión omitida]').replaceAll(runtimeUrl.href, '[conexión omitida]').replaceAll(base.NEXTAUTH_SECRET, '[privado]'));
       throw Error('Next.js no estuvo disponible.');
     }
     try { if ((await fetch(origin + '/api/auth/csrf', { signal: AbortSignal.timeout(5000) })).ok) break; } catch { /* Compilación inicial. */ }
@@ -150,7 +184,7 @@ try {
   assert.ok(!html.includes('Águilas') && !html.includes('calculation_data') && !html.includes('input_fingerprint'));
   await browser.command('Network.clearBrowserCookies'); await browser.command('Page.navigate', { url: origin + path(fixture.filters.groupId) });
   await wait(`location.pathname==='/login'`);
-  console.log('PDGLD-151: Chrome + NextAuth/HTTP/PostgreSQL reales: menú, totales, filtros, FormData, teclado, vacío, empate, jornada, ámbito ajeno y anónimo: aprobados.');
+  console.log('PDGLD-151: Chrome + NextAuth/HTTP/PostgreSQL reales con gestor_ligas_preview y RLS: menú, totales, filtros, FormData, teclado, vacío, empate, jornada, ámbito ajeno y anónimo: aprobados.');
   console.log('Claro/oscuro, escritorio/móvil: capturas sintéticas guardadas en docs/validation/pdgld151.');
 } finally {
   if (browser) await browser.close();

@@ -86,6 +86,11 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Clasificación sintética en PostgreSQL 15 y 17
         run: npm run test:standings-integration && npm run test:standings-integration -- --postgres=17
+      - name: Clasificación interna con el rol limitado de Preview en Chrome (PDGLD-151)
+        timeout-minutes: 5
+        run: npm run test:standings-workspace
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
       - name: Confirmación y clasificación transaccional con dependencias sintéticas (PDGLD-152)
         run: npm run test:standings-confirmation && npm run test:standings-confirmation -- --postgres=17
       - name: Revisar el código

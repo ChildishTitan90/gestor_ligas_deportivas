@@ -4,7 +4,7 @@ export type StandingRow = { teamId: string; played: number; won: number; drawn: 
 export function eligibleResult(r: ResultInput) {
   if (!r.counts) return false;
   return r.source === 'MATCH_REPORT' ? r.status === 'FINISHED' && r.reportStatus === 'CONFIRMED'
-    : r.source === 'DEFAULT' ? ['NO_SHOW', 'ADMINISTRATIVELY_RESOLVED'].includes(r.status)
+    : r.source === 'DEFAULT' ? ['NO_SHOW', 'FINISHED', 'ADMINISTRATIVELY_RESOLVED'].includes(r.status)
     : r.source === 'ADMINISTRATIVE' && r.status === 'ADMINISTRATIVELY_RESOLVED';
 }
 /** Rebuild from official inputs; never add deltas to a previous standing. */

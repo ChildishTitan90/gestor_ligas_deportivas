@@ -13,7 +13,7 @@ async function main() {
 assert.equal(process.env.STANDINGS_UI_ISOLATED, '1');
 const target = new URL(process.env.DATABASE_URL!);
 assert.equal(target.hostname, '127.0.0.1');
-assert.equal(target.pathname, '/standings_ui_synthetic');
+assert.match(target.pathname, /^\/pdgld48_test_[a-f0-9]{16}$/);
 const db = new pg.Client({ connectionString: target.href });
 const query = async (sql: string, args: unknown[] = []) => (await db.query(sql, args)).rows;
 const id = async (sql: string, args: unknown[] = []) => (await query(sql, args))[0].id as string;
@@ -60,7 +60,7 @@ try {
   const days: string[] = [];
   for (let n = 1; n <= 2; n++) days.push(await id("INSERT INTO sports_management.matchdays(season_id,number,start_date,end_date) VALUES($1,$2,'2026-02-01','2026-02-02') RETURNING id", [seasonId, n]));
   async function match(group: string, day: string, home: string, away: string, hs: number, as: number, source = 'MATCH_REPORT') {
-    const match = await id('INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,status_id) VALUES($1,$2,$3,$4,$5,$6,sports_management.get_match_status_id($7)) RETURNING id', [seasonId, group, day, randomUUID(), home, away, source === 'DEFAULT' ? 'NO_SHOW' : 'FINISHED']);
+    const match = await id("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,status_id) VALUES($1,$2,$3,$4,$5,$6,sports_management.get_match_status_id('FINISHED')) RETURNING id", [seasonId, group, day, randomUUID(), home, away]);
     await query('INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,offending_team_id,validated_by) VALUES($1,$2,$3,$4,$5,$6)', [match, hs, as, source, source === 'DEFAULT' ? away : null, admin]);
     if (source === 'MATCH_REPORT') await query("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'PAPER','CONFIRMED',now())", [match, randomUUID(), admin]);
     return match;

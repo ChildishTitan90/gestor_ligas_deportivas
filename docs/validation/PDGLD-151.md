@@ -53,3 +53,11 @@ Los fetch previo y posterior confirmaron origin/develop en `5b3ea851ae11d8b64d14
 `git merge-base --is-ancestor 5b3ea851ae11d8b64d14b8c95fba1dc792dace81 HEAD` confirma la ascendencia. `MIGRATION_BASE_SHA=5b3ea851ae11d8b64d14b8c95fba1dc792dace81 npm run ci:guard-migrations` pasó después del merge. El fallo anterior era consecuencia de comparar contra HEAD durante el merge aún abierto; quedó resuelto al finalizarlo, sin modificar el guard ni las migraciones compartidas. Las 52 migraciones se aplicaron realmente en PostgreSQL desechable.
 
 La comparación final con origin/develop conserva su recuperación y contratos; las diferencias restantes corresponden a PDGLD-150/151. El worktree y la rama de PDGLD-32 permanecen intactos en `6284027`. No se ejecutaron build de producción, CI remoto, despliegue ni validación manual humana. La evidencia de interfaz es automatizada en Chrome local con backend real. La confirmación de cédulas y los adaptadores oficiales quedan para PDGLD-152.
+
+## Revisión del PR #67
+
+El runner ahora prepara los datos sintéticos como propietario, aplica el plan real de Preview y conecta Next.js como `gestor_ligas_preview` con RLS activo. Antes de abrir Chrome comprueba el rol efectivo, el acceso a las columnas consultadas y la ausencia de acceso al snapshot interno o de escritura de resultados y versiones. El flujo mantiene los casos de Secretaría, otra liga y sesión anónima. El workflow ejecuta este recorrido sobre PostgreSQL desechable.
+
+El partido de incomparecencia del recorrido ahora usa `FINISHED` y origen `DEFAULT`, sin cédula asociada. Los totales esperados exigen contar el 1–0 y sus 3/0 puntos una vez. La suite transaccional de clasificación comprueba que reprocesar este mismo resultado conserva la versión y los totales. El reenvío de la operación del adaptador de PDGLD-85 queda para la integración de ambos trabajos.
+
+El plan agrega solo SELECT por columna a `match_results` y `standing_versions`. El entorno Preview compartido requiere aplicar el plan de provisión después de la migración de clasificación.
