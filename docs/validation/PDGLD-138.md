@@ -4,7 +4,7 @@
 
 Evidencia local de la rama `feat/PDGLD-25-integracion`, creada desde el avance
 guardado de PDGLD-85 (`b214fe4`), que incluye PDGLD-24 y la implementación de
-PDGLD-25. Las ampliaciones de pruebas aún están sin commit ni push. La rama
+PDGLD-25. Las ampliaciones de pruebas se guardaron localmente en `bc7d5e8`. La rama
 contiene trabajo de PDGLD-85; antes de abrir el PR debe decidirse cómo integrar
 esa dependencia y actualizarla con el `develop` vigente.
 
@@ -23,9 +23,10 @@ No se debe confundir aprobación operativa con publicación en el portal públic
 | Separación con publicación | Enviar, aprobar y activar una propuesta aprobada previamente no crean filas en `publications`. Esto no verifica por sí solo una futura consulta pública. |
 
 La suite `npm run test:scheduling:integration` pasó en PostgreSQL 15 y 17 con
-bases y datos sintéticos. La versión más reciente, con los casos ampliados de
-concurrencia, auditoría, devolución y ausencia de publicación, se ejecutó en
-PostgreSQL 15; estos últimos casos aún no se han repetido en PostgreSQL 17.
+bases y datos sintéticos, incluidos los casos ampliados de concurrencia,
+auditoría, devolución y ausencia de publicación. La ejecución en PostgreSQL 17
+se repitió el 21 de noviembre de 2026 con el código de la rama y las pruebas
+guardadas en `bc7d5e8`.
 El runner usa permisos SQL limitados en una parte de sus pruebas, pero no activa
 RLS; no confundir ese resultado con la prueba de Preview.
 

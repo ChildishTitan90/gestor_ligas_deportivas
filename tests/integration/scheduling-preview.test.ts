@@ -56,6 +56,7 @@ test("Preview con RLS genera y recupera una propuesta con préstamos aprobados",
     const edit={proposalId:input.operationId,expectedVersion:1,encounterIndex:0,venueId:matches[0].venueId,
       startsAt:matches[0].start,swapHomeAway:false,reason:"Ajuste sintético con RLS"};
     await assert.rejects(editStoredProposalForActor(fixture.outsider,edit),{message:"FORBIDDEN"});
+    await assert.rejects(editStoredProposalForActor(fixture.reviewer,edit),{message:"FORBIDDEN"});
     assert.equal((await editStoredProposalForActor(fixture.actor,edit)).code,"ADJUSTMENT_SAVED");
     assert.equal((await editStoredProposalForActor(fixture.actor,edit)).code,"STALE_PROPOSAL");
 
@@ -68,8 +69,11 @@ test("Preview con RLS genera y recupera una propuesta con préstamos aprobados",
     await assert.rejects(listSavedScheduleProposals(fixture.outsider, fixture.season, fixture.group_id), { message: "FORBIDDEN" });
     const retry = await generateScheduleForActor(fixture.actor, input);
     assert.ok(retry.ok && retry.replayed);
+    await assert.rejects(changeProposalReviewForActor(fixture.outsider,{proposalId:input.operationId,expectedVersion:2,operation:"submit",reason:"Intento sin permiso"}),{message:"FORBIDDEN"});
     const submitted=await changeProposalReviewForActor(fixture.actor,{proposalId:input.operationId,expectedVersion:2,operation:"submit",reason:"Enviar a revisión en prueba"});
     assert.equal(submitted.code,"PROPOSAL_UPDATED");
+    await assert.rejects(changeProposalReviewForActor(fixture.actor,{proposalId:input.operationId,expectedVersion:3,operation:"approve",reason:"Programador no aprueba"}),{message:"FORBIDDEN"});
+    await assert.rejects(changeProposalReviewForActor(fixture.outsider,{proposalId:input.operationId,expectedVersion:3,operation:"return",reason:"Intento sin permiso"}),{message:"FORBIDDEN"});
     const approved=await changeProposalReviewForActor(fixture.reviewer,{proposalId:input.operationId,expectedVersion:3,operation:"approve",reason:"Aprobación de prueba PDF"});
     assert.equal(approved.code,"PROPOSAL_UPDATED");
     const document=await PDFDocument.load(await approvedSchedulePdfForActor(fixture.actor,input.operationId));
