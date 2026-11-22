@@ -80,6 +80,10 @@ export async function verifyPreviewRuntime(client) {
     await client.query(`UPDATE sports_management.player_registrations SET status=status,identity_review_status=identity_review_status WHERE false`);
     await client.query(`INSERT INTO sports_management.player_status_history(registration_id,previous_status,new_status,user_id,reason,created_at) SELECT gen_random_uuid(),'INELIGIBLE','ACTIVE',gen_random_uuid(),'synthetic',now() WHERE false`);
     await client.query('SELECT id,registration_id,file_id,status FROM sports_management.player_documents LIMIT 0');
+    await client.query(`SELECT id,match_id,version,home_score,away_score,source,counts_in_standings,offending_team_id
+      FROM sports_management.match_results LIMIT 0`);
+    await client.query(`SELECT id,group_id,matchday_id,competition_rule_id,version_number,status,calculated_at,input_fingerprint
+      FROM sports_management.standing_versions LIMIT 0`);
     await client.query(`INSERT INTO sports_management.player_documents(registration_id,document_type_id,file_id,status)
       SELECT gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'PENDING' WHERE false`);
     await client.query(`INSERT INTO sports_management.audit_logs(id,user_id,action,table_name,entity_id)
@@ -103,7 +107,10 @@ export async function verifyPreviewRuntime(client) {
       'DELETE FROM sports_management.match_results',
       'SELECT * FROM sports_management.imports',
       'SELECT * FROM sports_management.official_documents',
-      'SELECT home_score FROM sports_management.match_results',
+      'SELECT validated_by FROM sports_management.match_results',
+      'SELECT calculation_data FROM sports_management.standing_versions',
+      'UPDATE sports_management.match_results SET home_score=home_score WHERE false',
+      'UPDATE sports_management.standing_versions SET status=status WHERE false',
       'TRUNCATE sports_management.groups',
       'CREATE TABLE sports_management.preview_forbidden(id uuid)',
       'UPDATE sports_management.teams SET club_id=club_id',
