@@ -24,15 +24,9 @@ async function context(tx: Tx, actorId: string, input: unknown, write: boolean) 
   if (write && scope.seasonStatus === 'CLOSED') throw Error('CLOSED_SEASON');
   return { ...scope, groupId, matchdayId };
 }
-/** Internal materialization only. Actor must be obtained on the server. Caller owns
- * one SERIALIZABLE transaction, including any official-result/status writes.
- * No nested transactions, network I/O, official validation or anonymous publication. */
-export async function calculateStandingsInTransaction(tx: Tx, actorId: string, input: unknown) {
-  const [isolation] = await tx.$queryRaw<{ level: string }[]>`SELECT current_setting('transaction_isolation') AS level`;
-  if (isolation.level !== 'serializable') throw Error('STANDINGS_SERIALIZABLE_REQUIRED');
-  const scope = await context(tx, actorId, input, true);
-  const { seasonId, groupId, matchdayId, ruleId } = scope;
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${groupId},29))::text`;
+/** Same engine and official-source policy for reads and materialization. No writes. */
+async function projectStandings(tx: Tx, scope: Awaited<ReturnType<typeof context>>) {
+  const { seasonId, groupId, ruleId } = scope;
   const [rule] = await tx.$queryRaw<{ status: string; approved: boolean }[]>`SELECT status, approved_at IS NOT NULL AND approved_by IS NOT NULL AS approved FROM sports_management.competition_rules WHERE id=${ruleId}::uuid AND season_id=${seasonId}::uuid`;
   const parameters = await tx.$queryRaw<{ key: string; value: unknown; pending: boolean; validated: boolean }[]>`SELECT parameter_key AS key, parameter_value AS value, requires_validation AS pending, validated_by IS NOT NULL AS validated FROM sports_management.competition_rule_parameters WHERE competition_rule_id=${ruleId}::uuid ORDER BY parameter_key`;
   if (rule?.status !== 'APPROVED' || !rule.approved || parameters.some(p => p.pending || !p.validated)) throw Error('RULES_NOT_APPROVED');
@@ -72,6 +66,25 @@ export async function calculateStandingsInTransaction(tx: Tx, actorId: string, i
   });
   const data = { formatVersion: 1, engineVersion: 1, ruleId, configuration, teamIds: teams.map(t => t.id), results, events: officialEvents, statistics, playerStatistics: eventStatistics(officialEvents), rows };
   const fingerprint = createHash('sha256').update(JSON.stringify(data)).digest('hex');
+  return { data, fingerprint, rows };
+}
+
+/** Internal read entry. The actor must come from the server; scope is reauthorized. */
+export async function projectStandingsForActorInTransaction(tx: Tx, actorId: string, input: unknown) {
+  const scope = await context(tx, actorId, input, false);
+  return projectStandings(tx, scope);
+}
+
+/** Internal materialization only. Actor must be obtained on the server. Caller owns
+ * one SERIALIZABLE transaction, including any official-result/status writes.
+ * No nested transactions, network I/O, official validation or anonymous publication. */
+export async function calculateStandingsInTransaction(tx: Tx, actorId: string, input: unknown) {
+  const [isolation] = await tx.$queryRaw<{ level: string }[]>`SELECT current_setting('transaction_isolation') AS level`;
+  if (isolation.level !== 'serializable') throw Error('STANDINGS_SERIALIZABLE_REQUIRED');
+  const scope = await context(tx, actorId, input, true);
+  const { seasonId, groupId, matchdayId, ruleId } = scope;
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${groupId},29))::text`;
+  const { data, fingerprint, rows } = await projectStandings(tx, scope);
   const existing = await tx.$queryRaw<{ id: string; version: number; fingerprint: string | null }[]>`SELECT id,version_number AS version,input_fingerprint AS fingerprint FROM sports_management.standing_versions WHERE group_id=${groupId}::uuid AND matchday_id=${matchdayId}::uuid AND competition_rule_id=${ruleId}::uuid ORDER BY version_number DESC LIMIT 1`;
   if (existing[0]?.fingerprint === fingerprint) return { id: existing[0].id, version: existing[0].version, reused: true, data };
   await tx.$executeRaw`SELECT set_config('app.user_id',${actorId},true)`;

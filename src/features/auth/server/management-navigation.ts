@@ -1,4 +1,5 @@
 import "server-only";
+import { canReadStandings } from "@/features/standings/server/queries";
 import { canReadCatalog } from "@/features/discipline/server/catalog";
 
 import type { ManagementNavigationGroup } from "@/components/layout/management-navigation";
@@ -54,7 +55,7 @@ async function navigationCapabilities(checks: (() => Promise<boolean>)[]) {
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
   await requireOperationalUser();
-  const [teams, capture, review, accounts, players, playerReview, seasons, leagues, participations, maintenance, accountMaintenance, matchEligibility, venues, governance, catalog, venueLoans, scheduling] = await navigationCapabilities([
+  const [teams, capture, review, accounts, players, playerReview, seasons, leagues, participations, maintenance, accountMaintenance, matchEligibility, venues, governance, catalog, venueLoans, scheduling, standings] = await navigationCapabilities([
     async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0,
     canAccessAffiliationCapture,
     async () => (await getAffiliationReviewLeagueOptions()).length > 0,
@@ -72,6 +73,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
     canReadCatalog,
     canAccessVenueLoans,
     canReadScheduleProposals,
+    canReadStandings,
   ]);
 
   const groups: ManagementNavigationGroup[] = [
@@ -101,6 +103,7 @@ const arbitration: ManagementNavigationGroup = { label: "Arbitraje", items: [] }
   if (venues) competitions.items.push({ href: "/venues", label: "Canchas y disponibilidad", icon: "overview" });
   if (await allowed(canGenerateSchedule)) competitions.items.push({ href: "/competitions/scheduling", label: "Generar calendario", icon: "overview" });
   if (scheduling) competitions.items.push({ href: "/scheduling/proposals", label: "Propuestas de programación", icon: "overview" });
+  if (standings) competitions.items.push({ href: "/standings", label: "Clasificación", icon: "overview" });
   if (competitions.items.length) groups.push(competitions);
   const administration: ManagementNavigationGroup = { label: "Administración", items: [] };
   if (accountMaintenance) administration.items.push({ href: "/accounts", label: "Administrar cuentas", icon: "accounts" });
