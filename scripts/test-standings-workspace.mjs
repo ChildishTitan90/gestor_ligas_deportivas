@@ -108,6 +108,14 @@ try {
   await owner.connect();
   try {
     await owner.query(`COMMENT ON DATABASE "${database}" IS '${PREVIEW_MARKER}'`);
+    // The disposable fixture must meet the same RLS baseline as Preview.
+    await owner.query(`DO $fixture$
+      DECLARE relation record;
+      BEGIN
+        FOR relation IN SELECT tablename FROM pg_tables WHERE schemaname = 'sports_management' LOOP
+          EXECUTE format('ALTER TABLE sports_management.%I ENABLE ROW LEVEL SECURITY', relation.tablename);
+        END LOOP;
+      END $fixture$`);
     await provisionPreviewRuntime(owner);
     await owner.query(`ALTER ROLE ${PREVIEW_ROLE} LOGIN PASSWORD '${runtimePassword}'`);
   } finally {
