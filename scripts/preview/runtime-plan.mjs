@@ -17,17 +17,19 @@ read.push('regulation_articles', 'sanction_types', 'team_withdrawals', 'billing_
   'competition_stages', 'imports', 'matchdays', 'match_results',
   'match_statuses', 'match_status_transitions', 'match_status_history', 'official_documents', 'publications', 'season_awards', 'season_breaks',
   'standing_versions', 'venue_loans', 'venues', 'venue_availability', 'venue_reservations', 'home_venue_assignments', 'governing_bodies', 'positions', 'appointments');
+read.push('disciplinary_rulings');
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
-  team_withdrawals: ['id', 'article_id'],
+  disciplinary_rulings: ['id', 'case_id'],
+  team_withdrawals: ['id', 'article_id', 'season_team_id'],
   guardian_consents:['registration_id','guardian_person_id'],
   season_person_identity_snapshots:['season_id','person_id','first_name','paternal_surname','maternal_surname','identity_version','season_version','captured_at','source'],
   season_identity_closures:['season_id','season_version','closed_at','captured_at','person_count','format_version'],
   appointments: ['id', 'position_id', 'person_id', 'starts_at', 'ends_at', 'request_id', 'request_hash'],
   venue_reservations: ['venue_id', 'match_id', 'time_range'],
   password_resets: ['id','user_id','token_hash','created_at','expires_at','used_at'],
-  sanctions:['id','article_id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
+  sanctions:['id','article_id','ruling_id','registration_id','season_team_id','blocks_participation','starts_at','ends_at'],
   billing_plans: ['id', 'season_id'], club_team_changes: ['id', 'season_id'],
   // update() de aprobación devuelve todos los escalares, incluido file_id.
   competition_rules: ['id', 'season_id', 'version_number', 'status', 'created_at', 'file_id', 'approved_by', 'approved_at'],

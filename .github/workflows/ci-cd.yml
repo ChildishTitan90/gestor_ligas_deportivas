@@ -54,6 +54,10 @@ jobs:
         run: node --import tsx --test src/features/venues/time.test.ts src/features/venues/home-venue.test.ts src/features/scheduling/stored-proposal.test.ts
       - name: Probar generación de calendario y restricciones (PDGLD-135)
         run: npm run test:scheduling
+      - name: Probar consulta y recorrido de bitácora (PDGLD-91)
+        run: npm run test:audit && npm run test:audit:browser
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
       - name: Probar interfaz de inscripción y actividad de sesión sin base
         run: npm run test:team-registration
       - name: Probar inscripción en Chrome con datos sintéticos
@@ -183,6 +187,10 @@ jobs:
         run: node --conditions=react-server --import tsx --test tests/integration/venue-loans.test.ts
       - name: Probar ajuste de borrador, auditoría y concurrencia (PDGLD-138)
         run: node --conditions=react-server --import tsx --test tests/integration/schedule-adjustment.test.ts
+      - name: Probar bitácora, permisos, privacidad e inmutabilidad por HTTP
+        run: npm run test:audit:integration
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
 
   refereeing:
     name: Arbitraje real PostgreSQL ${{ matrix.postgres }}
