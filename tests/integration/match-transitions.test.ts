@@ -152,7 +152,7 @@ test("PDGLD-132: servicio real, alcance, reenvío concurrente, historial y rollb
           if (path.startsWith("/matches/recording")) {
             assert.ok(html.includes(tag), "La sesión HTTP debe mostrar la temporada autorizada");
             if(path.includes("jornada=")) assert.match(html, /Iniciar partido/);
-            else assert.match(html, /Jornada 1/);
+            else assert.match(html, /Jornada\s*(?:<!--\s*-->)?\s*1/);
           }
         }
         const workspace = await runtime.$transaction(tx => getRecorderWorkspaceInTransaction(tx, refereeUser.id));

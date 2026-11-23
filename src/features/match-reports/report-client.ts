@@ -19,7 +19,9 @@ export type ReportOperation = { id: string; kind: "save" | "lock-lineups" | "clo
 export type ReportAttempt = { command: ReportCommand; uploads: { teamId: string; captainId: string; operationId: string; image: string }[] };
 export function prepareReportAttempt(data: ReportDemoData, op: ReportOperation): ReportAttempt {
   const base = `/api/match-reports/${data.match.id}`;
-  const draft: ReportDraft = { lineups: op.snapshot.lineups.map(row => {
+  const savedOrder = op.snapshot.persistedLineupOrder;
+  const lineups = savedOrder ? op.snapshot.lineups.filter(row => row.selected || savedOrder.includes(row.playerId)) : op.snapshot.lineups;
+  const draft: ReportDraft = { lineups: lineups.map(row => {
     const player = data.players.find(p => p.id === row.playerId);
     if (!player) throw new ReportClientError("EVENT_PLAYER_OUT_OF_SCOPE", 400);
     return { ...row, teamId: player.teamId };

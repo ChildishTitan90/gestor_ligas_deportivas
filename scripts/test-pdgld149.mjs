@@ -24,7 +24,7 @@ try{
     await log.close();results.push({name,code,milliseconds:Date.now()-started});assert.equal(code,0,`PDGLD149_${name}_FAILED`);
   }
 }finally{
-  const report={postgres:major,executedAt:new Date().toISOString(),results,notExecuted:steps.map(([name])=>name).filter(name=>!results.some(r=>r.name===name)),acceptance:'BLOCKED',blockers:['Finalización oficial con historial','Receptor real de clasificación PDGLD-29','Receptor mínimo de expedientes disciplinarios'],note:'Pasar estas comprobaciones no acepta PDGLD-18/147/149. No se sustituyen los efectos oficiales por mocks.'};
+  const report={postgres:major,executedAt:new Date().toISOString(),results,notExecuted:steps.map(([name])=>name).filter(name=>!results.some(r=>r.name===name)),acceptance:'NOT_EVALUATED',note:'Estas comprobaciones no sustituyen la aceptación de PDGLD-18/147/149. No se sustituyen los efectos oficiales por mocks.'};
   await writeFile(`${directory}/${process.argv.includes('--regression')?'regression':'checks'}.json`,JSON.stringify(report,null,2));
   console.log(JSON.stringify(report));
 }

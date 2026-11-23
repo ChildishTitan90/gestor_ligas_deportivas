@@ -262,7 +262,7 @@ window.runTest = async () => {
       return;
     }
     response.setHeader("Content-Type", "text/html; charset=utf-8");
-    response.end('<!doctype html><div id="root"></div><script>window.onerror = function(message) { window.fixtureError = String(message); };</script><script src="/bundle.js"></script>');
+    response.end('<!doctype html><div id="root"></div><script>window.fixtureErrors=[];window.addEventListener("error",event=>window.fixtureErrors.push(event.message));</script><script src="/bundle.js"></script>');
   });
   t.after(() => closeTestServer(server));
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -276,7 +276,7 @@ window.runTest = async () => {
   await browser.command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] });
   await browser.evaluate(`new Promise((resolve, reject) => {
     let attempts = 0;
-    const check = () => { if (typeof window.runTest === 'function') resolve(true); else if (++attempts >= 200) reject(new Error('La prueba no cargó: '+(window.fixtureError || 'sin detalle'))); else setTimeout(check, 25); };
+    const check = () => { if (typeof window.runTest === 'function') resolve(true); else if (++attempts >= 200) reject(new Error('La prueba no cargó: '+JSON.stringify(window.fixtureErrors))); else setTimeout(check, 25); };
     check();
   })`);
   await browser.evaluate(`document.documentElement.dataset.theme = "${theme}";

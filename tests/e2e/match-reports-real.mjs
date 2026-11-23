@@ -167,13 +167,18 @@ export async function verifyRealMatchReportBrowser({base,match,postgres}){
 
     await click('Eventos');assert.match(await ev('document.body.innerText'),/Incidente grave sintético PDGLD-149/);
 
-    await click('Resumen');assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Solicitar confirmación').disabled"),true);
+    await click('Resumen');assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Solicitar confirmación').disabled"),false);
 
     assert.match(await ev("document.querySelector('section[aria-label=\"Resumen previo a confirmar\"]').textContent"),/Dora Navegador Sintético · Capitán en cancha/);
     assert.match(await ev("document.querySelector('section[aria-label=\"Resumen previo a confirmar\"]').textContent"),/Alonso Navegador Sintético · Capitán inicial/);
-    await shot('resumen-guardado-confirmacion-bloqueada');
+    await click('Solicitar confirmación');await wait("document.querySelector('dialog[open] input[type=checkbox]')");
+    await ev("document.querySelector('dialog[open] input[type=checkbox]').click()");
+    await click('Confirmar cédula');
+    await wait("document.body.innerText.includes('Termina el segundo tiempo antes de solicitar el cierre')");
+    assert.equal((await (await client.request(`/api/match-reports/${match}`)).json()).report.status,'DRAFT');
+    await shot('resumen-guardado-reloj-en-curso');
 
-    const result={suite:'PDGLD-149 Chrome real',postgres,session:'NextAuth',databaseRole:'Preview con RLS',fetchMocked:false,savedAndReopened:true,halfReservationAndTimesReopened:true,networkLossRecovery:true,deviceSignatures:2,privateImagesLoaded:true,themes:['light','dark'],widths:[390,1440],keyboardFocus:true,acceptance:'BLOCKED',blockers:['Cierre oficial e historial','Clasificación PDGLD-29','Expedientes disciplinarios']};
+    const result={suite:'PDGLD-149 Chrome real',postgres,session:'NextAuth',databaseRole:'Preview con RLS',fetchMocked:false,savedAndReopened:true,halfReservationAndTimesReopened:true,networkLossRecovery:true,deviceSignatures:2,privateImagesLoaded:true,themes:['light','dark'],widths:[390,1440],keyboardFocus:true,clockStillRunningRejected:true,acceptance:'NOT_EVALUATED'};
 
     await writeFile(`${directory}/browser.json`,JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 

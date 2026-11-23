@@ -4,9 +4,10 @@ import { AuthorizationError } from "@/server/auth/authorization";
 import { ReportError } from "../contract";
 import { BinaryFileValidationError } from "@/server/files/private-file-validation";
 import { PrivateDocumentStorageError } from "@/server/files/private-document-storage";
+import { MatchTransitionError } from "@/features/matches/transition-rules";
 
 export function reportHttpError(error: unknown) {
-  if (error instanceof ReportError || error instanceof AuthAccessError || error instanceof AuthorizationError || error instanceof BinaryFileValidationError || error instanceof PrivateDocumentStorageError) return Response.json({ code: error.code }, { status: error.status, headers: { "Cache-Control": "no-store" } });
+  if (error instanceof ReportError || error instanceof MatchTransitionError || error instanceof AuthAccessError || error instanceof AuthorizationError || error instanceof BinaryFileValidationError || error instanceof PrivateDocumentStorageError) return Response.json({ code: error.code }, { status: error.status, headers: { "Cache-Control": "no-store" } });
   console.error("[match-reports] OPERATION_UNAVAILABLE");
   return Response.json({ code: "OPERATION_UNAVAILABLE" }, { status: 503 });
 }

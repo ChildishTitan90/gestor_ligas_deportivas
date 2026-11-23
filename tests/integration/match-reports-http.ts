@@ -28,7 +28,7 @@ export async function verifyReportHttp(base: string, actors: Record<string,strin
   assert.equal((await new Browser(base).request(photoPath)).status,401);
   assert.equal((await foreign.request(photoPath)).status,403);
   const readable=await referee.request(path);assert.equal(readable.status,200);
-  assert.equal((await readable.json()).confirmation.available,false);
+  assert.equal((await readable.json()).confirmation.available,true);
   const list = await own.request("/matches");assert.equal(list.status,200);const listing=await list.text();assert.match(listing,/PARTIDO|REAL-147/);assert.ok(!listing.includes("Demo · Cédula arbitral"));assert.ok(!listing.includes("FUERA-DE-AMBITO-"));
   const retired=await own.request("/matches/report-demo");if(retired.status===307)assert.equal(retired.headers.get("location"),"/matches");else{assert.equal(retired.status,200);assert.match(await retired.text(),/NEXT_REDIRECT[\s\S]*matches|http-equiv="refresh"/);}
   const page = await own.request(`/matches/${command.matchId}/report`);
@@ -47,7 +47,7 @@ export async function verifyReportHttp(base: string, actors: Record<string,strin
   assert.equal(replay.status,200);assert.deepEqual(await replay.json(),receipt);
   const {randomUUID}=await import("node:crypto");
   const confirmation=await own.request(path,{method:"POST",headers:{origin:base,"content-type":"application/json","X-Expected-Actor-Id":actors.capturista},body:JSON.stringify({...command,operationId:randomUUID(),kind:"confirm",expectedReportVersion:receipt.reportVersion})});
-  assert.equal(confirmation.status,409);assert.equal((await confirmation.json()).code,"CONFIRMATION_DEPENDENCIES_PENDING");
+  assert.equal(confirmation.status,409);assert.equal((await confirmation.json()).code,"STANDINGS_RULES_INCOMPLETE");
   const afterRejected=await own.request(path);const unchanged=await afterRejected.json();assert.equal(unchanged.report.version,receipt.reportVersion);assert.equal(unchanged.report.status,"DRAFT");assert.equal(unchanged.match.status.code,"IN_PROGRESS");
   const png=await referee.request(`${path}/signatures/${signatureId}`);assert.equal(png.status,200);assert.equal(png.headers.get("content-type"),"image/png");assert.match(png.headers.get("cache-control")!,/no-store/);
   assert.equal((await foreign.request(`${path}/signatures/${signatureId}`)).status,403);
