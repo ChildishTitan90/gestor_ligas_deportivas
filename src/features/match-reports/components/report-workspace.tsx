@@ -223,9 +223,10 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
     if (kind === "confirm" && confirmationUnavailable) return;
     if (report.noShow && kind !== "record-no-show") { setMessage("Registra la incomparecencia o selecciona Ninguno para continuar con la cédula normal."); return; }
     if (device) {
-      if (kind === "record-no-show") { setMessage("El registro de incomparecencia requiere conexión en esta versión."); return; }
+      if (kind === "record-no-show" && !navigator.onLine) { setMessage("Conéctate para registrar la incomparecencia. Tu captura permanece en este dispositivo."); setNoShowConfirm(false); return; }
       if (locked || invalidJerseys || kind === "lock-lineups" && sealIssues.length || kind === "confirm" && issues.length) return;
       device.run(kind, clockAction);
+      if (kind === "record-no-show") setNoShowConfirm(false);
       setLineupConfirm(false); setClockDialog(null); setConfirmOpen(false);
       return;
     }

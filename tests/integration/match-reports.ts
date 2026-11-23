@@ -580,6 +580,21 @@ export async function runReportAcceptance(f: Fixture) {
         await db.query("UPDATE sports_management.referee_assignments SET status='APPROVED',approved_by=$2,approved_at=now(),approved_identity_version=1 WHERE id=$1",[freshAssignment,actors.comision]);
         console.log(`Captura desde cero: ${base}/matches/${freshMatch}/report · partido OFFLINE-20 asignado al árbitro sintético.`);
       }
+      let preparedNoShowMatch: string | undefined;
+      if (production && process.argv.includes('--verify-offline')) {
+        const preparedVenue=await scalar("INSERT INTO sports_management.venues(league_id,code,name,address,match_duration_minutes) VALUES($1,$2,'Cancha de ausencia preparada','Sintético',120) RETURNING id",[league,randomUUID()]);
+        await db.query("INSERT INTO sports_management.venue_availability(venue_id,starts_at,ends_at,type) VALUES($1,'2026-12-05T14:00Z','2026-12-05T22:00Z','AVAILABLE')",[preparedVenue]);
+        const preparedTeams:string[]=[];
+        for(const club of clubs.slice(1,3)) {
+          const teamId=await scalar("INSERT INTO sports_management.teams(club_id,reference_number,name) VALUES($1,$2,'Equipo preparado') RETURNING id",[club,randomUUID()]);
+          const enrolled=await scalar("INSERT INTO sports_management.season_teams(season_id,team_id,club_id,season_category_id) VALUES($1,$2,$3,$4) RETURNING id",[season,teamId,club,sc]);
+          await db.query('UPDATE sports_management.season_teams SET group_id=$2 WHERE id=$1',[enrolled,group]);
+          preparedTeams.push(enrolled);
+        }
+        preparedNoShowMatch = await scalar("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id) SELECT season_id,group_id,matchday_id,'PREPARED-NO-SHOW',$2,$3,$4,starts_at+interval '2 hours',ends_at+interval '2 hours',reserved_until+interval '2 hours',sports_management.get_match_status_id('CONFIRMED') FROM sports_management.matches WHERE id=$1 RETURNING id",[match,...preparedTeams,preparedVenue]);
+        const noShowAssignment=await scalar("INSERT INTO sports_management.referee_assignments(match_id,referee_id,created_by) VALUES($1,$2,$3) RETURNING id",[preparedNoShowMatch,referee,actors.comision]);
+        await db.query("UPDATE sports_management.referee_assignments SET status='APPROVED',approved_by=$2,approved_at=now(),approved_identity_version=1 WHERE id=$1",[noShowAssignment,actors.comision]);
+      }
       const env: NodeJS.ProcessEnv={...f.env,NODE_ENV:production ? "production" : "development",DATABASE_URL:f.runtimeUrl,REPORT_SIGNATURE_LOCAL_DIRECTORY:directory};
       if (production) {
         const build = spawn(process.execPath,["node_modules/next/dist/bin/next","build"],{env:{...env,NODE_OPTIONS:"--use-system-ca"},stdio:"inherit",windowsHide:true});
@@ -596,6 +611,8 @@ export async function runReportAcceptance(f: Fixture) {
         }
         assert.ok(ready,"OFFLINE_SERVER_NOT_READY");
         const { verifyOfflineReportBrowser } = await import("../e2e/match-reports-offline.mjs");
+        const { verifyPreparedNoShowBrowser } = await import('../e2e/match-report-prepared-no-show.mjs');
+        await verifyPreparedNoShowBrowser({base,match:preparedNoShowMatch!,db,actorId:actors.arbitro});
         await verifyOfflineReportBrowser({base,match,db,actorId:actors.arbitro});
       }
       if (process.argv.includes("--verify-offline")) return;
