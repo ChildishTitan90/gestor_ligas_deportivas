@@ -15,6 +15,14 @@ perfil limitado de Preview, y `npm run test:scheduling:integration` en
 PostgreSQL 15 y 17 con bases temporales aisladas. Estas pruebas usan actores y datos
 sintéticos; no equivalen al CI de GitHub ni a un recorrido HTTP con RLS.
 
+Después se ejecutó `node scripts/test-scheduling-preview.mjs --browser` con
+PostgreSQL 15, RLS y el perfil limitado de Preview. El recorrido HTTP inició
+sesión con cuentas sintéticas, comprobó el acceso sin permiso, generó y recuperó
+una propuesta sin duplicarla y verificó una propuesta con horarios pendientes.
+La prueba usa también respuestas simuladas para dos mensajes de error. No cubre
+ajuste, envío o aprobación con sesiones distintas bajo RLS. La base y el
+contenedor temporales se eliminaron al terminar.
+
 ## Alcance de esta evidencia
 
 Revisión del trabajo guardado en `feat/PDGLD-25-integracion` hasta el commit
@@ -68,8 +76,8 @@ estaba integrado. La verificación posterior y su commit se indican arriba.
 
 - Verificar el CI de GitHub después de subir la rama. El workflow contiene la
   suite de integración, pero no hay resultado remoto para esta versión.
-- Completar la validación HTTP con RLS si el entorno de aceptación la requiere;
-  conservar por separado el alcance de las pruebas de servicio y de navegador.
+- Completar el recorrido HTTP con RLS para ajuste, envío y aprobación con sesiones
+  distintas; conservar separado el alcance de las pruebas de servicio y navegador.
 - Revisar la presentación visual, contraste, teclado y arrastre manual, y
   enlazar el PR y la evidencia final. El usuario indicó que ya probó la descarga
   y apertura del PDF; no se repitió esa descarga en el recorrido documentado.
