@@ -569,7 +569,7 @@ export async function runReportAcceptance(f: Fixture) {
       await assert.rejects(getReportPage(actors.arbitro,match));
       assert.ok(await getReportPage(actors.capturista,match),"DATA_ENTRY no utiliza la designación del árbitro");
     }
-    console.log("PDGLD-147 OK: PostgreSQL desechable, rol Preview/RLS, árbitro efectivo, DATA_ENTRY propio/ajeno, elegibilidad, dorsal histórico, periodos, marcador, firmas privadas/reintentos, versiones concurrentes, acuse, rollback y confirmación bloqueada sin efectos.");
+    console.log("PDGLD-147 OK: PostgreSQL desechable, rol Preview/RLS, árbitro efectivo, DATA_ENTRY propio/ajeno, elegibilidad, dorsal histórico, periodos, marcador, firmas privadas/reintentos, versiones concurrentes, acuse y rollback.");
     if(f.serve){
       const production = process.argv.includes("--offline");
       const base = f.env.NEXTAUTH_URL!;

@@ -284,7 +284,7 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
     try {
       const response = await fetch(`/api/match-reports/${match.id}/confirm-no-show`, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", "X-Expected-Actor-Id": live.actorId }, body: JSON.stringify({ matchId: match.id, reportId: report.id, operationId: noShowOperation.current, expectedMatchVersion: match.version, expectedReportVersion: report.version }) });
       const body = await response.json();
-      if (!response.ok) { setMessage(reportErrorMessage(body.code)); setNoShowOfficialOpen(false); return; }
+      if (!response.ok) { setMessage(response.status === 403 ? "Solo el árbitro asignado y autorizado puede confirmar esta incomparecencia." : reportErrorMessage(body.code)); setNoShowOfficialOpen(false); return; }
       window.location.reload();
     } catch { setMessage("No llegó el acuse. Puedes reintentar la misma confirmación sin duplicar el resultado."); setNoShowOfficialOpen(false); }
     finally { setNoShowOfficialPending(false); }

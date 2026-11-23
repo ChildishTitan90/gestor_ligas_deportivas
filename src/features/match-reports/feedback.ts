@@ -5,7 +5,6 @@ const messages: Record<string, string> = {
   NO_SHOW_CAPTURE_CONFLICT: "No se puede registrar la ausencia con reloj, eventos, tiempos, marcador o firmas de un partido iniciado.",
   NO_SHOW_ABSENT_LINEUP: "Retira de la convocatoria a los jugadores del equipo que indicaste como ausente.",
   NO_SHOW_RESULT_EXISTS: "El partido ya tiene un resultado registrado. Consulta a la autoridad de la liga.",
-  FORBIDDEN: "Solo el árbitro asignado y autorizado puede confirmar esta incomparecencia.",
   STALE_MATCH: "El partido cambió. Recarga la cédula antes de volver a confirmar.",
   STALE_REPORT: "La cédula cambió. Recárgala antes de volver a confirmar.",
   STALE_VERSION: "Cambió la versión del partido o de la cédula. Conservamos tu copia para comparar y revisar antes de continuar.",
