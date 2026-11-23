@@ -11,6 +11,7 @@ import { readLocalReport, updateLocalReport, writeLocalReport, subscribeReports,
 import { downloadOwnReport, prepareLocalReport } from "../offline/prepare.client";
 import { offlineSupport } from "../offline/resources.client";
 import { enqueueReport, synchronizeReport } from "../offline/sync.client";
+import { confirmPreparedNoShow } from "../offline/confirm-no-show.client";
 import { resolveReportConflict, type ResolutionChoice } from "../offline/resolve.client";
 import { ReportWorkspace } from "./report-workspace";
 import { primaryButton, secondaryButton } from "./report-shared";
@@ -20,6 +21,7 @@ export type ReportDeviceControls = {
   confirmation: ReportDemoData["confirmation"];
   setReport: Dispatch<SetStateAction<MatchReportPresentation>>;
   run(kind: ReportOperation["kind"], action?: ReportOperation["clockAction"]): void;
+  confirmNoShow(): Promise<void>; connected: boolean;
   locked: boolean; notice: ReactNode; safelyStored: boolean;
 };
 
@@ -79,7 +81,7 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [localOperation, setLocalOperation] = useState(false);
-  const mayHaveNoShowReceipt = serverReference?.match.status.code === "NO_SHOW" && initial.pending.some(item => item.operation.kind === "record-no-show" && item.operation.expectedMatchVersion + 1 === serverReference.match.version && item.operation.expectedReportVersion + 1 === serverReference.report.version);
+  const mayHaveNoShowReceipt = serverReference?.match.status.code === "NO_SHOW" && initial.pending.some(item => item.operation.kind === "record-no-show" && item.operation.expectedMatchVersion + 1 === serverReference.match.version && item.operation.expectedReportVersion + 1 === serverReference.report.version) || serverReference?.match.status.code === "FINISHED" && !!initial.noShowConfirmation && !initial.noShowConfirmation.receipt && initial.noShowConfirmation.expectedMatchVersion + 1 === serverReference.match.version && initial.noShowConfirmation.expectedReportVersion + 1 === serverReference.report.version;
   const [error, setError] = useState(serverReference && !mayHaveNoShowReceipt && (serverReference.match.version !== initial.data.match.version || serverReference.report.version !== initial.data.report.version || serverReference.match.status.code !== initial.data.match.status.code) ? "SERVER_REFERENCE_CHANGED" : "");
   const [accountLocked, setAccountLocked] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -105,7 +107,7 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
     const next = { ...incoming, revision: local.revision, editId: local.editId, data: {
       ...local.data, confirmation: incoming.data.confirmation, match: { ...local.data.match, version: incoming.data.match.version, status: incoming.data.match.status },
       report: { ...local.data.report, id: incoming.data.report.id, version: incoming.data.report.version, status: incoming.data.report.status,
-        lineupsLock: incoming.data.report.lineupsLock, clock: incoming.data.report.clock },
+        lineupsLock: incoming.data.report.lineupsLock, clock: incoming.data.report.clock, confirmedAt: incoming.data.report.confirmedAt, ...(incoming.data.report.status === "CONFIRMED" ? { score: incoming.data.report.score } : {}) },
     } };
     current.current = next;
     if (mounted.current) render(next);
@@ -144,6 +146,10 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
         if (!manual) { queuedLiveClocks.current.clear(); return; }
         local = await updateLocalReport(actorId, matchId, value => ({ ...value, reviewRequired: false }));
         apply(local);
+      }
+      if (local.noShowConfirmation && !local.noShowConfirmation.receipt) {
+        await confirmPreparedNoShow(actorId, matchId, apply);
+        setSessionExpired(false); setError(""); return;
       }
       if (!local.pending.length && Object.keys(jerseyErrors(local.data, local.data.report)).length) {
         setError("LOCAL_DRAFT_INCOMPLETE"); return;
@@ -231,6 +237,12 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
     } catch (failure) { setError(failure instanceof ReportClientError ? failure.code : "LOCAL_WRITE_FAILED"); }
     finally { operationBusy.current = false; setLocalOperation(false); }
   }
+  async function confirmNoShow() {
+    if (operationBusy.current || syncBusy.current) throw new ReportClientError("PARTICIPATION_RETRY_REQUIRED", 409);
+    operationBusy.current = true; setLocalOperation(true);
+    try { await writes.current; await confirmPreparedNoShow(actorId, matchId, apply); setError(""); }
+    finally { operationBusy.current = false; setLocalOperation(false); }
+  }
   async function retryLocal() {
     setSaving(true);
     try {
@@ -283,7 +295,7 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
   const localFailed = !saving && savedRevision !== record.revision;
   const pending = record.revision > record.acknowledgedRevision || record.pending.length > 0;
   const syncLocked = Boolean(resolving || localOperation || otherTab || rejected || expired || sessionExpired || error === "LOCAL_ACCOUNT_LOCKED" || error === "SERVER_REFERENCE_CHANGED");
-  const locked = syncLocked || record.pending.some(item => item.operation.kind === "record-no-show");
+  const locked = syncLocked || record.pending.some(item => item.operation.kind === "record-no-show") || Boolean(record.noShowConfirmation && !record.noShowConfirmation.receipt);
   const receipt = record.lastReceipt;
   if (accountLocked) return <p role="alert">La copia está bloqueada. Para retomarla, inicia sesión con la cuenta que preparó el partido.</p>;
   const notice = <section aria-label="Guardado y sincronización" className="space-y-3 rounded-2xl border border-border bg-surface p-4">
@@ -329,6 +341,6 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
   const viewData = { ...record.data, players: record.data.players.map(player => ({ ...player, photoUrl: photoUrls.get(player.id) ?? null })) };
   return <ReportWorkspace key={record.draftId} data={viewData} live={{ actorId }} device={{
     report: record.data.report, match: record.data.match, confirmation: record.data.confirmation, setReport, run: (kind, action) => void run(kind, action),
-    locked, notice, safelyStored: !otherTab && !saving && !localFailed && savedRevision === record.revision,
+    locked, notice, confirmNoShow, connected, safelyStored: !otherTab && !saving && !localFailed && savedRevision === record.revision,
   }} />;
 }

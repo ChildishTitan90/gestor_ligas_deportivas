@@ -42,6 +42,40 @@ export async function verifyPreparedNoShowBrowser({base,match,db,actorId}) {
     assert.equal(reopened.data.report.noShow.notes,stored.data.report.noShow.notes);
     assert.equal(reopened.data.match.status.code,'NO_SHOW');
     assert.equal(reopened.lastReceipt.receipt.operationId,stored.lastReceipt.receipt.operationId);
-    console.log('Cédula preparada: incomparecencia con conexión, acuse y reapertura local: OK');
+    const scope=(await db.query(`SELECT m.season_id,g.season_category_id,c.competition_rule_id,r.approved_by FROM sports_management.matches m JOIN sports_management.groups g ON g.id=m.group_id JOIN sports_management.season_categories c ON c.id=g.season_category_id JOIN sports_management.competition_rules r ON r.id=c.competition_rule_id WHERE m.id=$1`,[match])).rows[0];
+    const rule=(await db.query('INSERT INTO sports_management.competition_rules(season_id,version_number) SELECT $1,coalesce(max(version_number),0)+1 FROM sports_management.competition_rules WHERE season_id=$1 RETURNING id',[scope.season_id])).rows[0].id;
+    await db.query('INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by,requires_validation) SELECT $1,parameter_key,parameter_value,validated_by,false FROM sports_management.competition_rule_parameters WHERE competition_rule_id=$2',[rule,scope.competition_rule_id]);
+    for(const [key,value] of Object.entries({points:{win:3,draw:1,loss:0},tieBreakers:['GOAL_DIFFERENCE','GOALS_FOR']})) await db.query('INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by,requires_validation) VALUES($1,$2,$3,$4,false)',[rule,key,JSON.stringify(value),scope.approved_by]);
+    await db.query("UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=$2,approved_at=now() WHERE id=$1",[rule,scope.approved_by]);
+    await db.query('UPDATE sports_management.season_categories SET competition_rule_id=$2 WHERE id=$1',[scope.season_category_id,rule]);
+    // Simula un acuse perdido después del commit; al reabrir se reenvía la
+    // misma intención, sin duplicar resultado ni descartar el acuse anterior.
+    let lostAck=false;
+    const intercept=event=>{const message=JSON.parse(event.data);if(message.method==='Fetch.requestPaused'){lostAck=true;void browser.command('Fetch.failRequest',{requestId:message.params.requestId,errorReason:'ConnectionReset'});}};
+    browser.socket.addEventListener('message',intercept);
+    await browser.command('Fetch.enable',{patterns:[{urlPattern:'*/confirm-no-show',requestStage:'Response'}]});
+    await click('Confirmar resultado por incomparecencia');
+    await click('Confirmar resultado');
+    await wait(`(async()=>Boolean((await ${local})?.noShowConfirmation && !((await ${local}).noShowConfirmation.receipt)))()`);
+    await wait('document.body.innerText.includes("No llegó el acuse")');
+    assert.equal(lostAck,true);
+    await browser.command('Fetch.disable');browser.socket.removeEventListener('message',intercept);
+    await browser.command('Page.navigate',{url:`${base}/offline/report?match=${match}`});
+    await wait(`(async()=>{const r=await ${local};return r?.data.match.status.code==='FINISHED' && r.data.report.status==='CONFIRMED' && Boolean(r.noShowConfirmation?.receipt)})()`);
+    const confirmed=await ev(local);
+    assert.equal(confirmed.data.report.noShow.notes,stored.data.report.noShow.notes);
+    assert.equal(confirmed.lastReceipt.receipt.operationId,stored.lastReceipt.receipt.operationId,'conserva el acuse del registro');
+    assert.deepEqual(confirmed.data.report.score,{home:0,away:1});
+    const official=(await db.query("SELECT s.code,r.home_score,r.away_score,r.source,m.away_team_id FROM sports_management.matches m JOIN sports_management.match_statuses s ON s.id=m.status_id JOIN sports_management.match_results r ON r.match_id=m.id WHERE m.id=$1",[match])).rows[0];
+    assert.deepEqual([official.code,official.home_score,official.away_score,official.source],['FINISHED',0,1,'DEFAULT']);
+    assert.equal((await db.query('SELECT count(*)::int AS n FROM sports_management.standing_entries e JOIN sports_management.standing_versions v ON v.id=e.standing_version_id WHERE v.competition_rule_id=$1 AND e.season_team_id=$2 AND e.points=3',[rule,official.away_team_id])).rows[0].n,1);
+    await browser.command('Page.navigate',{url:`${base}/offline/report?match=${match}`});
+    await wait("document.querySelector('[data-report-workspace]') && document.body.innerText.includes('Finalizado')");
+    const final=await ev(local);
+    assert.equal(final.noShowConfirmation.receipt.matchVersion,confirmed.noShowConfirmation.receipt.matchVersion);
+    assert.equal(final.lastReceipt.receipt.operationId,stored.lastReceipt.receipt.operationId);
+    assert.equal((await db.query('SELECT count(*)::int AS n FROM sports_management.match_results WHERE match_id=$1',[match])).rows[0].n,1);
+    assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.match_report_syncs WHERE match_report_id=$1 AND private_payload->'command'->>'kind'='confirm-no-show'",[confirmed.data.report.id])).rows[0].n,1);
+    console.log('Cédula preparada: registro, cierre oficial, clasificación y reapertura sin duplicados: OK');
   } finally { await browser.close(); }
 }
