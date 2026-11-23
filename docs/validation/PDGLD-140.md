@@ -1,5 +1,20 @@
 # PDGLD-140 — Pruebas de ajustes y revisión de propuestas
 
+## Verificación de la integración posterior
+
+La rama incorporó `origin/develop` en el commit `a73ba7b`, incluida la PDGLD-85.
+Sobre esa versión pasaron `npm run typecheck`, las 23 pruebas de
+`npm run test:scheduling`, las dos pruebas de acciones y estados de propuesta,
+y los cuatro casos de `node --test tests/e2e/scheduling-proposals.test.mjs`
+en móvil y escritorio, con temas claro y oscuro. Las pruebas de pantalla usan
+respuestas simuladas; se ejecutaron con acceso a Chrome fuera de la restricción
+que impedía arrancarlo en el entorno inicial.
+
+También pasó `npm run test:scheduling:preview` en PostgreSQL 15 con RLS y el
+perfil limitado de Preview, y `npm run test:scheduling:integration` en
+PostgreSQL 15 y 17 con bases temporales aisladas. Estas pruebas usan actores y datos
+sintéticos; no equivalen al CI de GitHub ni a un recorrido HTTP con RLS.
+
 ## Alcance de esta evidencia
 
 Revisión del trabajo guardado en `feat/PDGLD-25-integracion` hasta el commit
@@ -46,19 +61,13 @@ así como `npm run typecheck` en la revisión de los cambios de interfaz. Estos
 resultados corresponden a las ejecuciones locales documentadas antes de
 integrar la versión final, no al CI de GitHub.
 
-La referencia descargada de `origin/develop` apunta a `7303aa8` (integración de
-PDGLD-29); ese commit todavía no está integrado en esta rama. Enlazar aquí el
-commit o PR resultante y registrar los resultados repetidos una vez que exista
-la versión final integrada; no sustituirlo por el identificador local previo.
+En la revisión original, `origin/develop` apuntaba a `7303aa8` y todavía no
+estaba integrado. La verificación posterior y su commit se indican arriba.
 
 ## Pendiente antes de cerrar
 
-- Integrar cuidadosamente los cambios actuales de `develop`, incluida la
-  PDGLD-29, resolviendo la dependencia con PDGLD-85 y sin perder el trabajo local.
-  Los resultados anteriores no verifican todavía esa versión combinada.
-- Repetir las pruebas pertinentes en la versión final y verificar el CI de
-  GitHub después de subir la rama. El workflow contiene la suite de integración,
-  pero no hay resultado remoto de CI para esta versión.
+- Verificar el CI de GitHub después de subir la rama. El workflow contiene la
+  suite de integración, pero no hay resultado remoto para esta versión.
 - Completar la validación HTTP con RLS si el entorno de aceptación la requiere;
   conservar por separado el alcance de las pruebas de servicio y de navegador.
 - Revisar la presentación visual, contraste, teclado y arrastre manual, y
