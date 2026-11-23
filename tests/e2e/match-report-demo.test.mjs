@@ -27,7 +27,7 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
       import {createReportDemo} from './src/features/match-reports/demo-data';
       let revision=0; const root=createRoot(document.getElementById('root'));
       window.networkCalls=[]; window.fetch=(...args)=>{window.networkCalls.push(String(args[0]));if(window.fixtureConfirmationStatus)return Promise.resolve(Response.json({code:'CONFIRMATION_DEPENDENCIES_PENDING'},{status:window.fixtureConfirmationStatus}));throw Error('Red prohibida en demo de componentes');};
-      window.fixture={render(scenario='draft') {window.fixtureConfirmationStatus=0;const online=scenario.startsWith('online-');const offline=scenario.startsWith('offline-preview-')?scenario.slice(16):null;const download=scenario.startsWith('offline-download-')?scenario.slice(17):null;const data=offline?createOfflineCapturePreview(offline):createReportDemo(online?'confirmed':scenario);if(online){data.scenario='draft';data.report.status='DRAFT';data.report.confirmedAt=null;data.match.status={code:'IN_PROGRESS',label:'En curso',captureAllowed:true};data.confirmation={available:scenario==='online-rejected',message:'La confirmación final todavía no está disponible. Guarda el borrador para conservar esta captura y continuar después.'};}window.fixturePath=scenario.startsWith('real-')?'/matches':'/matches/report-demo/demo-018';flushSync(()=>root.render(<ManagementShell key={++revision}
+      window.fixture={render(scenario='draft') {window.fixtureConfirmationStatus=0;const online=scenario.startsWith('online-');const offline=scenario.startsWith('offline-preview-')?scenario.slice(16):null;const download=scenario.startsWith('offline-download-')?scenario.slice(17):null;const data=offline?createOfflineCapturePreview(offline):createReportDemo(online?'confirmed':scenario==='no-show'?'empty':scenario);if(scenario==='no-show')data.match.status={code:'CONFIRMED',label:'Confirmado',captureAllowed:true};if(online){data.scenario='draft';data.report.status='DRAFT';data.report.confirmedAt=null;data.match.status={code:'IN_PROGRESS',label:'En curso',captureAllowed:true};data.confirmation={available:scenario==='online-rejected',message:'La confirmación final todavía no está disponible. Guarda el borrador para conservar esta captura y continuar después.'};}window.fixturePath=scenario.startsWith('real-')?'/matches':'/matches/report-demo/demo-018';flushSync(()=>root.render(<ManagementShell key={++revision}
         account={{username:'demo.sintetica',initials:'DS',roleNames:['Cuenta de ejemplo']}}
         navigation={[{label:scenario.startsWith('real-')?'Arbitraje':'Arbitraje · Demo',items:[{href:scenario.startsWith('real-')?'/matches':'/matches/report-demo',label:scenario.startsWith('real-')?'Cédula arbitral':'Demo · Cédula arbitral',icon:'players'}]}]}>
         {scenario==='real-empty'?<MatchReportList matches={[]}/>:scenario==='real-list'?<MatchReportList matches={[{id:'synthetic',number:'PARTIDO-7',status:'En curso',statusCode:'IN_PROGRESS',startsAt:'2026-12-05T16:00:00Z',season:'Apertura 2026',category:'Libre',group:'A',matchday:7,venue:'Cancha de prueba',home:'Deportivo Encinos',away:'Atlético Cantera'}]}/>:scenario==='list'?<ReportDemoList/>:download?<OfflinePreviewList scenario={download}/>:<ReportWorkspace data={data} live={online?{actorId:'synthetic-actor'}:undefined} offlinePreview={offline??undefined}/>}
@@ -68,6 +68,19 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
   };
   await wait("Boolean(window.fixture && document.querySelector('[data-report-workspace]'))");
   assert.equal(await ev(`document.querySelector('nav[aria-label="Gestión de la liga"] a[aria-current="page"]')?.getAttribute('href')`), "/matches/report-demo");
+
+  await t.test("incomparecencia: marcador propuesto y ausencia de ambos sin ganador", async () => {
+    await render("no-show"); await click("Capturar cédula");
+    await select("no-show-team","Atlético Cantera");
+    assert.match(await visibleText(),/Marcador propuesto: 1 – 0/);
+    await select("no-show-team","Ambos equipos");
+    assert.match(await visibleText(),/reprogramación, sin asignar ganador/);
+    await ev(`(()=>{const i=document.getElementById('no-show-notes');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(i,'Ningún equipo se presentó');i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await click("Registrar incomparecencia");
+    await wait("document.querySelector('dialog[open]')"); await click("Confirmar registro");
+    await wait("document.querySelector('[aria-label=\"Incomparecencia registrada\"]')?.getClientRects().length > 0");
+    assert.match(await visibleText(),/Pendiente de reprogramación; no se asignó ganador/);
+  });
 
   await t.test("partido, estados separados, alineación y dorsal independiente", async () => {
     await render("setup");

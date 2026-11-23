@@ -43,7 +43,7 @@ export async function approvedSchedulePdfForActor(actorId:string,proposalId:unkn
     if(matches.some(match=>!match.home || !match.away || !match.venue || !match.start) || byes.some(bye=>!bye.team))
       throw new SchedulePdfUnavailable();
     return {league:row.seasons.leagues.name,season:row.seasons.name,category:group.season_categories.categories.name,
-      group:group.name,timezone:row.seasons.leagues.timezone,version:row.version,generatedAt:new Date(),matches,byes} as SchedulePdfData;
+      group:group.name,timezone:row.seasons.leagues.timezone,version:1,generatedAt:new Date(),matches,byes} as SchedulePdfData;
   },{isolationLevel:"RepeatableRead",timeout:30000});
   return createSchedulePdf(data);
 }

@@ -31,6 +31,12 @@ try {
   await client.query(await readFile("tests/integration/scheduling-fixtures.sql", "utf8"));
   await client.query(`
     SELECT set_config('app.user_id',actor::text,false), set_config('app.reason','Fixture Preview sintetico',false) FROM public.scheduling_fixture;
+    INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only)
+      SELECT r.id,p.id,true FROM sports_management.roles r CROSS JOIN sports_management.permissions p
+      WHERE r.code='SCHEDULER' AND p.module='scheduling' AND p.action IN ('READ','UPDATE') ON CONFLICT DO NOTHING;
+    INSERT INTO sports_management.user_roles(user_id,role_id,league_id)
+      SELECT f.actor,r.id,s.league_id FROM public.scheduling_fixture f JOIN sports_management.seasons s ON s.id=f.season
+      CROSS JOIN sports_management.roles r WHERE r.code='SCHEDULER';
     UPDATE sports_management.venues SET is_league_sports_complex=false,
       owner_club_id=(SELECT id FROM sports_management.clubs ORDER BY id LIMIT 1);
     INSERT INTO sports_management.files(storage_key,original_name,mime_type,size_bytes,uploaded_by)

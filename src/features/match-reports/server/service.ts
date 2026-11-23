@@ -18,6 +18,7 @@ import { lineupSealIssues, lineupFingerprint } from "../lineup-rules";
 import { readLineupLock } from "./lineup-lock";
 import { advanceMatchClock, breakEventError, matchClockSchema, type MatchClock } from "../match-clock";
 import { startReportMatchInTransaction } from "@/features/matches/server/report-start";
+import { recordReportNoShowInTransaction } from "@/features/matches/server/report-no-show";
 import { invalidCaptainTransitions } from "../captaincy";
 import { participationTimesSchema } from "@/features/matches/eligibility";
 
@@ -74,6 +75,15 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
   let clock: MatchClock | null = null;
   if (storedClock) { const parsed = matchClockSchema.safeParse(storedClock); if (!parsed.success) throw new ReportError("CLOCK_EVIDENCE_UNAVAILABLE"); clock = parsed.data; }
   const draft = command.draft;
+  if ((command.kind === "record-no-show") !== Boolean(draft.noShow)) throw new ReportError("NO_SHOW_ACTION_REQUIRED",400);
+  if (draft.noShow) {
+    if (match.match_statuses.code !== "CONFIRMED" || sealed || clock) throw new ReportError("NO_SHOW_STATE_INVALID");
+    if (draft.events.length || draft.lineups.some(row=>row.periods.length) || draft.score.home !== null || draft.score.away !== null || Object.values(draft.signatures).some(Boolean))
+      throw new ReportError("NO_SHOW_CAPTURE_CONFLICT",400);
+    const absentIds=draft.noShow.absent === "BOTH" ? [match.home_team_id,match.away_team_id] : [draft.noShow.absent === "HOME" ? match.home_team_id : match.away_team_id];
+    if (draft.lineups.some(row=>row.selected&&absentIds.includes(row.teamId))) throw new ReportError("NO_SHOW_ABSENT_LINEUP",400);
+    if (await tx.match_results.findUnique({where:{match_id:match.id},select:{id:true}})) throw new ReportError("NO_SHOW_RESULT_EXISTS");
+  }
   const previousClock = clock;
   if (command.kind === "clock") {
     if (!sealed) throw new ReportError("LINEUPS_NOT_LOCKED");
@@ -196,8 +206,8 @@ export async function mutateReportInTransaction(tx: Prisma.TransactionClient, ac
     INSERT INTO sports_management.match_events(id,match_report_id,event_type_id,season_team_id,lineup_id,outgoing_lineup_id,period_number,minute,second,description)
     VALUES (${event.id}::uuid,${report.id}::uuid,${catalogue.find(type => type.code === event.typeCode)!.id}::uuid,${event.teamId}::uuid,${event.playerId ? lineups.get(event.playerId) ?? null : null}::uuid,${event.outgoingPlayerId ? lineups.get(event.outgoingPlayerId) ?? null : null}::uuid,${event.periodNumber},${event.minute},${event.second ?? null}::smallint,${event.description})`;
 
+  if (command.kind === "record-no-show") match = { ...match, ...await recordReportNoShowInTransaction(tx,actorId,match,command.operationId) };
   }
-
   const presentation = await buildPresentation(tx, match, report, draft, evaluation);
   const lineupsLock = sealed?.lock ?? (command.kind === "lock-lineups" ? { operationId: command.operationId, lockedAt: new Date().toISOString() } : undefined);
   if (lineupsLock) presentation.report.lineupsLock = lineupsLock;

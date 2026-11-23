@@ -29,12 +29,13 @@ import type { SlotAssignment } from "./report-tactics";
 import { PlayerActionsDialog } from "./player-actions-dialog";
 import { OfflinePreviewStatus, previewDraftLabel } from "./offline-preview-status";
 import type { ReportEvent } from "../types";
+import { proposedNoShowScore } from "../no-show";
 import type { ReportDeviceControls } from "./report-device-workspace";
 
 type OperationState = "idle" | "dirty" | "saving" | "saved" | "error" | "stale" | "uncertain" | "denied" | "device" | "session" | "storage";
 type ResponseMode = "success" | "error" | "stale" | "uncertain" | "denied";
 type DemoOperation = {
-  id: string; kind: "save" | "lock-lineups" | "clock" | "confirm"; clockAction?: ClockAction; expectedReportVersion: number; expectedMatchVersion: number;
+  id: string; kind: "save" | "lock-lineups" | "clock" | "confirm" | "record-no-show"; clockAction?: ClockAction; expectedReportVersion: number; expectedMatchVersion: number;
   snapshot: MatchReportPresentation;
 };
 const steps = ["Alineaciones", "Participación", "Eventos", "Cierre y firmas", "Resumen"];
@@ -84,6 +85,10 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
   const [clockDialog, setClockDialog] = useState<ClockDialog>(null);
   const [captureMode, setCaptureMode] = useState<"live" | "posterior">(live ? "live" : "posterior");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [noShowConfirm, setNoShowConfirm] = useState(false);
+  const [noShowOfficialOpen, setNoShowOfficialOpen] = useState(false);
+  const [noShowOfficialPending, setNoShowOfficialPending] = useState(false);
+  const noShowOperation = useRef<string | null>(null);
   const [accepted, setAccepted] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
@@ -136,6 +141,8 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
   }, [captureInMemory]);
 
   function move(next: number) {
+    if (report.noShow && !match.status.captureAllowed) { setStage(4); return; }
+    if (report.noShow) { setMessage("Registra la incomparecencia o selecciona Ninguno para continuar con la cédula normal."); return; }
     if (next > 0 && !sealed && !confirmed && match.status.captureAllowed) { setLineupAccepted(false); setLineupConfirm(true); return; }
     setStage(next);
     requestAnimationFrame(() => { panelHeading.current?.focus(); panelHeading.current?.scrollIntoView({ block: "start" }); });
@@ -207,14 +214,19 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
     if (!deviceOnly) setSavedReport(next);
     setState(deviceOnly ? (previewStorageFull ? "storage" : "device") : "saved"); setOperation(null);
     if (op.kind === "confirm") { setMatch(current => ({ ...current, status: { code: "FINISHED", label: "Finalizado", captureAllowed: false } })); move(4); }
+    if (op.kind === "record-no-show") { setMatch(current => ({ ...current, status: { code: "NO_SHOW", label: "No presentado", captureAllowed: false } })); setStage(4); }
+    if (op.kind === "record-no-show") setNoShowConfirm(false);
     if (live) { setMessage("Acuse recibido del servidor. Cédula v" + next.version + "."); return; }
     setMessage(offlinePreview ? "" : op.kind === "confirm" ? "Confirmación simulada recibida. Edición normal deshabilitada; no hay resultado oficial." : "Guardado simulado recibido. La copia solo vive en memoria y se pierde al salir o recargar.");
   }
   function runOperation(kind: DemoOperation["kind"], retry?: DemoOperation, snapshot?: MatchReportPresentation, clockAction?: ClockAction) {
     if (kind === "confirm" && confirmationUnavailable) return;
+    if (report.noShow && kind !== "record-no-show") { setMessage("Registra la incomparecencia o selecciona Ninguno para continuar con la cédula normal."); return; }
     if (device) {
+      if (kind === "record-no-show" && !navigator.onLine) { setMessage("Conéctate para registrar la incomparecencia. Tu captura permanece en este dispositivo."); setNoShowConfirm(false); return; }
       if (locked || invalidJerseys || kind === "lock-lineups" && sealIssues.length || kind === "confirm" && issues.length) return;
       device.run(kind, clockAction);
+      if (kind === "record-no-show") setNoShowConfirm(false);
       setLineupConfirm(false); setClockDialog(null); setConfirmOpen(false);
       return;
     }
@@ -266,6 +278,25 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
     setStage(-1);
     requestAnimationFrame(() => resumeButton.current?.focus());
   }
+  async function confirmNoShowOfficial() {
+    if (!live || noShowOfficialPending) return;
+    if (device) {
+      setNoShowOfficialPending(true);
+      try { await device.confirmNoShow(); setNoShowOfficialOpen(false); setMessage("Resultado confirmado. La copia y sus acuses permanecen en el dispositivo."); }
+      catch (error) { setNoShowOfficialOpen(false); setMessage(error instanceof ReportClientError && error.status < 500 ? (error.status === 403 ? "Solo el árbitro asignado y autorizado puede confirmar esta incomparecencia." : reportErrorMessage(error.code)) : "No llegó el acuse. Conéctate y vuelve a sincronizar; la intención original se conserva."); }
+      finally { setNoShowOfficialPending(false); }
+      return;
+    }
+    noShowOperation.current ??= reportUuid();
+    setNoShowOfficialPending(true);
+    try {
+      const response = await fetch(`/api/match-reports/${match.id}/confirm-no-show`, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", "X-Expected-Actor-Id": live.actorId }, body: JSON.stringify({ matchId: match.id, reportId: report.id, operationId: noShowOperation.current, expectedMatchVersion: match.version, expectedReportVersion: report.version }) });
+      const body = await response.json();
+      if (!response.ok) { setMessage(response.status === 403 ? "Solo el árbitro asignado y autorizado puede confirmar esta incomparecencia." : reportErrorMessage(body.code)); setNoShowOfficialOpen(false); return; }
+      window.location.reload();
+    } catch { setMessage("No llegó el acuse. Puedes reintentar la misma confirmación sin duplicar el resultado."); setNoShowOfficialOpen(false); }
+    finally { setNoShowOfficialPending(false); }
+  }
   function openCapture() {
     if (resumeStage !== null) setPreviewResumed(true);
     move(resumeStage ?? 0);
@@ -284,6 +315,8 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
   return <div className="space-y-5" data-report-workspace="">
     <div className="flex flex-wrap items-center justify-between gap-3">{device ? <a href="/offline/report" className={secondaryButton} onClick={event => { if (captureInMemory) { event.preventDefault(); setLeaveOpen(true); } }}><ArrowLeft size={17} aria-hidden="true" />Mis cédulas en este dispositivo</a> : <ActionLink href={backHref} variant="secondary" onClick={event => { if (captureInMemory) { event.preventDefault(); setLeaveOpen(true); } }}><ArrowLeft size={17} aria-hidden="true" /> {live ? "Mis partidos" : offlinePreview ? "Vista previa offline" : "Casos de demostración"}</ActionLink>}<span className="flex items-center gap-2 text-xs font-semibold text-muted">{live ? <ClipboardPenLine size={16} aria-hidden="true" /> : <FlaskConical size={16} aria-hidden="true" />} {device ? "Cédula arbitral" : live ? "Cédula online" : offlinePreview ? "PDGLD-19/20 · Vista previa offline" : "PDGLD-148 · Datos sintéticos"}</span></div>
     {live ? <ReportNotice>Guarda el avance de la cédula para continuar después. {device && "Cada edición se escribe en este dispositivo. "}{confirmationUnavailable && confirmationMessage}</ReportNotice> : offlinePreview ? <ReportNotice><strong>Vista previa offline · Datos sintéticos.</strong> La red, el guardado y los acuses son simulados. La captura vive en esta página y se pierde al recargar o salir. Usa únicamente datos y firmas de ejemplo.</ReportNotice> : <div className="rounded-xl border border-accent bg-surface px-4 py-3 text-sm leading-6"><strong>Demo sintética · Solo memoria.</strong> {stage < 0 ? "La sesión es real; el partido, su designación y las respuestas son simulados. Sin persistencia ni almacenamiento offline. " : "Se pierde al salir. "}No ingreses datos ni firmas reales.</div>}
+    {live && match.status.code === "NO_SHOW" && report.status === "DRAFT" && report.noShow && report.noShow.absent !== "BOTH" && <section className="space-y-3 rounded-2xl border border-border bg-surface p-5"><h2 className="font-semibold">Incomparecencia pendiente de confirmación</h2><p className="text-sm">El árbitro asignado puede confirmar el resultado {proposedNoShowScore(report.noShow)?.home} – {proposedNoShowScore(report.noShow)?.away} y actualizar la clasificación.</p>{device && !device.connected && <p className="text-sm">Conéctate para confirmar el resultado. La copia permanece en el dispositivo.</p>}<button type="button" className={primaryButton} disabled={Boolean(device && !device.connected)} onClick={() => setNoShowOfficialOpen(true)}>Confirmar resultado por incomparecencia</button></section>}
+    <FormDialog open={noShowOfficialOpen} title="Confirmar incomparecencia" description="El árbitro asignado debe revisar el resultado antes de confirmarlo." pending={noShowOfficialPending} onClose={() => setNoShowOfficialOpen(false)} footer={<button type="button" className={primaryButton} disabled={noShowOfficialPending} onClick={() => void confirmNoShowOfficial()}>{noShowOfficialPending ? "Confirmando…" : "Confirmar resultado"}</button>}><p>Se registrará el resultado {report.noShow && proposedNoShowScore(report.noShow)?.home} – {report.noShow && proposedNoShowScore(report.noShow)?.away} y se actualizará la clasificación.</p></FormDialog>
     {viewState === "denied" ? <section className="rounded-3xl border border-border bg-surface p-7 text-center"><LockKeyhole className="mx-auto mb-4 text-muted" size={32} aria-hidden="true" /><h1 className="text-2xl font-semibold text-primary">Acceso denegado</h1><p className="mx-auto mt-3 max-w-lg text-muted">La designación o el permiso para este partido no están vigentes en este caso sintético. Una sesión iniciada no autoriza por sí sola la captura.</p></section>
       : viewState === "loading" ? <section className="rounded-3xl border border-border bg-surface p-7" aria-busy="true"><h1 className="flex items-center gap-3 text-xl font-semibold"><LoaderCircle className="motion-safe:animate-spin" aria-hidden="true" /> Cargando partido y cédula…</h1><p role="status" className="mt-3 text-muted">Espera simulada. No hay una consulta de datos en curso.</p><div className="my-6 h-24 rounded-xl bg-soft" aria-hidden="true" /><button type="button" className={secondaryButton} onClick={() => setViewState("ready")}>Completar carga simulada</button></section>
         : viewState === "error" ? <section className="rounded-3xl border border-danger bg-danger-surface p-7"><h1 className="text-xl font-semibold text-danger">No se pudo consultar la cédula</h1><p role="alert" className="my-4 text-danger">Error sintético. No se puede afirmar que la información esté guardada.</p><button type="button" className={secondaryButton} onClick={() => setViewState("ready")}>Reintentar consulta simulada</button></section> : <>
@@ -299,7 +332,22 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
             {state === "error" && operation && !(operation.kind === "confirm" && confirmationUnavailable) && <button type="button" className={secondaryButton} disabled={previewWithoutNetwork} onClick={() => runOperation(operation.kind, operation)}>{live ? "Reintentar misma operación" : "Reintentar misma operación simulada"}</button>}
             <h2 ref={panelHeading} tabIndex={-1} className="sr-only scroll-mt-40">{steps[stage]}</h2>
             {stage === 0 && sealed && <><div className="flex flex-wrap gap-2" aria-label="Modo de captura"><button type="button" aria-pressed={captureMode === "live"} className={captureMode === "live" ? primaryButton : secondaryButton} onClick={() => setCaptureMode("live")}>Captura en vivo</button><button type="button" aria-pressed={captureMode === "posterior"} className={captureMode === "posterior" ? primaryButton : secondaryButton} onClick={() => setCaptureMode("posterior")}>Captura posterior</button></div>{captureMode === "live" ? <ReportClock device={Boolean(device)} clock={report.clock ?? null} locked={locked} dialog={clockDialog} onDialog={setClockDialog} onAction={action => runOperation("clock", undefined, undefined, action)} /> : <ReportNotice>Usa Participación y Eventos para registrar posteriormente lo ocurrido. Los minutos se indican manualmente.</ReportNotice>}</>}
-            <div hidden={stage !== 0}><ReportLineups data={lineupData} report={report} live={Boolean(live)} locked={locked || sealed} onLineup={lineup} onTactics={tactics} onPlayer={setActionPlayer} onCaptain={(teamId, playerId) => !sealed && edit(current => ({ ...current, captains: { ...current.captains, [teamId]: playerId } }))} /></div>
+            <div hidden={stage !== 0}>
+              {!sealed && match.status.code === "CONFIRMED" && <section className="mb-5 space-y-3 rounded-2xl border border-border bg-surface p-5" aria-label="Registrar incomparecencia">
+                <h3 className="font-semibold">¿Algún equipo no se presentó?</h3>
+                <label htmlFor="no-show-team" className="block text-sm font-medium">Equipo ausente</label>
+                <SelectField id="no-show-team" value={report.noShow?.absent ?? ""} disabled={locked} searchable={false} onValueChange={value=>edit(current=>{
+                  if(!value) { const {noShow,...rest}=current; void noShow; return rest; }
+                  return {...current,noShow:{absent:value as "HOME"|"AWAY"|"BOTH",notes:current.noShow?.notes ?? ""}};
+                })} options={[{value:"",label:"Ninguno"},{value:"HOME",label:match.home.name},{value:"AWAY",label:match.away.name},{value:"BOTH",label:"Ambos equipos"}]} />
+                {report.noShow && <><label htmlFor="no-show-notes" className="block text-sm font-medium">Observaciones</label>
+                  <textarea id="no-show-notes" className="w-full rounded-xl border border-border bg-background p-3" maxLength={2000} disabled={locked} value={report.noShow.notes} onChange={event=>edit(current=>({...current,noShow:{...current.noShow!,notes:event.target.value}}))} />
+                  <p className="text-sm text-muted">{report.noShow.absent === "BOTH" ? "Se registrará para reprogramación, sin asignar ganador." : `Marcador propuesto: ${proposedNoShowScore(report.noShow)!.home} – ${proposedNoShowScore(report.noShow)!.away}.` } El registro no confirma un resultado oficial.</p>
+                  <p className="text-sm text-muted">Retira de la convocatoria a los jugadores del equipo ausente antes de registrar la incidencia.</p>
+                  <button type="button" className={secondaryButton} disabled={locked || report.noShow.notes.trim().length<5} onClick={()=>setNoShowConfirm(true)}>Registrar incomparecencia</button></>}
+              </section>}
+              <ReportLineups data={lineupData} report={report} live={Boolean(live)} locked={locked || sealed} onLineup={lineup} onTactics={tactics} onPlayer={setActionPlayer} onCaptain={(teamId, playerId) => !sealed && edit(current => ({ ...current, captains: { ...current.captains, [teamId]: playerId } }))} />
+            </div>
             <div hidden={stage !== 1}><ReportParticipation data={data} report={report} live={Boolean(live)} locked={eventLocked} onPeriod={(playerId, index) => setPeriodEditor({ playerId, index })} onRemovePeriod={(playerId, index) => lineup(playerId, { periods: report.lineups.find(row => row.playerId === playerId)!.periods.filter((_, i) => i !== index) })} onChange={() => setEventEditor({ changeOnly: true })} onEditEvent={id => setEventEditor({ id })} onRemoveEvent={removeEvent} onMoveEvent={moveEvent} /></div>
             <div hidden={stage !== 2}><section aria-label="Eventos del partido"><SectionHeading number="03" title="Lo que ocurrió en el partido">{live ? "Eventos del catálogo vigente." : "Eventos del catálogo de ejemplo."} Equipo y jugador dependen del tipo; periodo y minuto son opcionales.</SectionHeading><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted">{report.events.length} eventos registrados · Orden del registro</p><button type="button" className={secondaryButton} disabled={eventLocked} onClick={() => setEventEditor({})}><Plus size={18} aria-hidden="true" /> {report.clock?.phase === "BREAK" ? "Registrar cambio" : "Registrar evento"}</button></div><ReportEvents data={data} report={report} live={Boolean(live)} locked={eventLocked || report.clock?.phase === "BREAK"} onEdit={id => setEventEditor({ id })} onRemove={removeEvent} onMove={moveEvent} /></section></div>
             <div hidden={stage !== 3}><ReportClosing data={data} report={report} live={Boolean(live)} locked={eventLocked} signatureEpoch={signatureEpoch} onScore={(side, value) => edit(current => ({ ...current, score: { ...current.score, [side]: value } }))} onRemarks={remarks => edit(current => ({ ...current, remarks }))} onIncidents={incidents => edit(current => ({ ...current, incidents }))} onSignature={signature} /></div>
@@ -311,6 +359,10 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
     {periodEditor && <PeriodDialog data={data} report={report} editing={periodEditor} onClose={() => setPeriodEditor(null)} onSave={(playerId, index, period) => { const rows = [...report.lineups.find(row => row.playerId === playerId)!.periods]; if (index === null) rows.push(period); else rows[index] = period; lineup(playerId, { periods: rows }); setPeriodEditor(null); }} />}
     {actionPlayer && data.players.some(p => p.id === actionPlayer) && <PlayerActionsDialog player={data.players.find(p => p.id === actionPlayer)!} data={data} report={report} tactics={teamTactics(data, report, data.players.find(p => p.id === actionPlayer)!.teamId)} breakOnly={report.clock?.phase === "BREAK"} locked={eventLocked || (captureMode === "live" && (!report.clock || report.clock.phase === "ENDED"))} onClose={() => setActionPlayer(null)} onAction={code => { const player = data.players.find(p => p.id === actionPlayer)!; const timing = captureMode === "live" && report.clock ? clockReading(report.clock, Date.now()) : null; setActionPlayer(null); setEventEditor({ changeOnly: code === "SUBSTITUTION", initial: { typeCode: code, teamId: player.teamId, ...(timing ? { minute: timing.minute, second: timing.second, periodNumber: timing.periodNumber, periodMinute: timing.periodMinute } : {}), ...(code === "SUBSTITUTION" && currentPitch(teamTactics(data, report, player.teamId).slots, report.events, player.teamId).slots.some(s => s.playerId === player.id) ? { outgoingPlayerId: player.id } : { playerId: player.id }) } }); }} />}
     {eventEditor && <EventDialog data={data} report={report} live={Boolean(live)} liveCapture={stage === 0 && captureMode === "live" || report.clock?.phase === "BREAK"} event={report.events.find(event => event.id === eventEditor.id)} initial={eventEditor.initial} changeOnly={eventEditor.changeOnly} onClose={() => setEventEditor(null)} onSave={saveEvent} />}
+    <FormDialog open={noShowConfirm} title="Registrar incomparecencia" description="Confirma lo observado antes de enviar el registro." pending={state === "saving"} onClose={()=>setNoShowConfirm(false)} footer={<button type="button" className={primaryButton} disabled={state === "saving"} onClick={()=>runOperation("record-no-show")}>Confirmar registro</button>}>
+      <p className="text-sm leading-6">{report.noShow?.absent === "BOTH" ? "Ambos equipos figurarán como ausentes y el caso quedará pendiente de reprogramación." : `El equipo ausente será ${report.noShow?.absent === "HOME" ? match.home.name : match.away.name}. El marcador mostrado será una propuesta pendiente de resolución.`}</p>
+      <p className="mt-3 text-sm text-muted">El partido pasará a no presentado y la cédula quedará en consulta. Esta acción no crea un resultado oficial.</p>
+    </FormDialog>
     <FormDialog open={lineupConfirm} title="Guardar once inicial" description="Revisa la convocatoria, posiciones, dorsales, capitanes y uniformes de ambos equipos." pending={state === "saving"} onClose={() => setLineupConfirm(false)} footer={<button type="button" className={primaryButton} disabled={!lineupAccepted || sealIssues.length > 0 || locked} onClick={() => runOperation("lock-lineups")}>Confirmar y guardar alineaciones</button>}>
       <p className="text-sm leading-6">{offlinePreview ? "Al guardar las alineaciones en esta simulación," : "Después del acuse"} no podrás editar el once inicial, la convocatoria, los dorsales, capitanes ni uniformes. Los cambios durante el partido se registrarán como eventos.</p>
       <ul className="my-4 space-y-2 text-sm">{[match.home, match.away].map(team => { const count = teamTactics(data, report, team.id).slots.filter(slot => slot.playerId).length; return <li key={team.id}>{team.name}: {count} titulares · {11 - count} posiciones sin asignar.</li>; })}</ul>

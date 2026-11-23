@@ -2,7 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { createReportDemo } from "./demo-data";
-import { createReportClient } from "./report-client";
+import { createReportClient, prepareReportAttempt } from "./report-client";
+
+test("la operación conserva la incomparecencia al preparar el envío", () => {
+  const data = createReportDemo();
+  data.report.noShow = { absent: "BOTH", notes: "Ambos equipos ausentes" };
+  const attempt = prepareReportAttempt(data, { id: randomUUID(), kind: "record-no-show", expectedReportVersion: 1,
+    expectedMatchVersion: 2, snapshot: data.report });
+  assert.equal(attempt.command.kind, "record-no-show");
+  assert.deepEqual(attempt.command.draft.noShow, data.report.noShow);
+});
 
 test("reloj preparado: primer envío conectado y recuperación conservan UUID y contenido", async t => {
   const data = createReportDemo();

@@ -5,11 +5,15 @@ import { randomUUID } from "node:crypto";
 import { getPrisma } from "../../src/server/db/prisma";
 import { generateScheduleForActor } from "../../src/features/scheduling/server/service";
 import { editStoredProposalForActor, editStoredProposalInTransaction } from "../../src/features/scheduling/server/stored-proposal-edit";
-import { changeProposalReviewForActor } from "../../src/features/scheduling/server/adjustment";
+import { changeProposalReviewForActor, activatePreviouslyApprovedProposalForActor } from "../../src/features/scheduling/server/adjustment";
 import { readStoredProposalForActor } from "../../src/features/scheduling/server/stored-proposal";
 import { storedProposalSchema } from "../../src/features/scheduling/stored-proposal";
 import { saveTeamSwapInTransaction } from "../../src/features/scheduling/server/team-swap";
 import { proposeTeamSwap } from "../../src/features/scheduling/team-swap";
+import { rescheduleAbsentMatchInTransaction } from "../../src/features/matches/server/reschedule";
+import { updatedSchedulePdfForActor } from "../../src/features/scheduling/server/updated-schedule-pdf";
+import { venueLocalTime } from "../../src/features/venues/time";
+import { transitionMatchInTransaction } from "../../src/features/matches/server/transition";
 
 /** Propuesta real de PDGLD-24 + validador compartido, sin sustituir restricciones. */
 export async function verifySharedProposalEditing(f: {actor:string;outsider:string;season:string;category:string;group_id:string}) {
@@ -138,9 +142,72 @@ export async function verifySharedProposalEditing(f: {actor:string;outsider:stri
     assert.ok(pdf.getPageCount()>0);
     assert.equal(pdf.getTitle(),"Programación de jornadas");
     await assert.rejects(approvedSchedulePdfForActor(f.outsider,id),{message:"FORBIDDEN"});
-    assert.equal(await db.matches.count(),beforeMatches);
-    assert.equal(await db.venue_reservations.count(),beforeReservations);
+    assert.equal(await db.matches.count(),beforeMatches+proposal.matches.length);
+    assert.equal(await db.venue_reservations.count(),beforeReservations+proposal.matches.length);
+    assert.equal(await db.matches.count({where:{schedule_proposal_id:id,match_statuses:{code:"SCHEDULED"}}}),proposal.matches.length);
+    const operational=await db.matches.findMany({where:{schedule_proposal_id:id},select:{id:true,version:true,venue_id:true,starts_at:true,ends_at:true,reserved_until:true,home_team_id:true,away_team_id:true}});
+    const match=operational.find(m=>m.starts_at?.toISOString().startsWith("2030-01-06"));
+    assert.ok(match);
+    const candidates=venues.flatMap(venue=>[0,1,2].map(hour=>({venueId:venue.id,start:Date.parse("2030-01-06T15:00:00Z")+hour*120*60000})));
+    const slot=candidates.find(candidate=>candidate.start!==match.starts_at!.getTime() && operational.every(other=>other.id===match.id || !other.starts_at || !other.ends_at || !other.reserved_until ||
+      !((other.venue_id===candidate.venueId && candidate.start<+other.reserved_until && +other.starts_at<candidate.start+120*60000) ||
+      ([other.home_team_id,other.away_team_id].some(team=>[match.home_team_id,match.away_team_id].includes(team)) && candidate.start<+other.ends_at && +other.starts_at<candidate.start+90*60000))));
+    assert.ok(slot,"Debe haber horario libre para la reprogramación");
+    await db.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT set_config('app.user_id',${f.actor},true),set_config('app.reason','Preparar programador sintético',true)`;
+      const scheduler=await tx.roles.findUniqueOrThrow({where:{code:"SCHEDULER"}});
+      for(const action of ["READ","UPDATE"] as const) {
+        const permission=await tx.permissions.findUniqueOrThrow({where:{module_action:{module:"scheduling",action}}});
+        await tx.role_permissions.createMany({data:[{role_id:scheduler.id,permission_id:permission.id,context_only:true}],skipDuplicates:true});
+      }
+      const season=await tx.seasons.findUniqueOrThrow({where:{id:f.season}});
+      await tx.user_roles.create({data:{user_id:f.actor,role_id:scheduler.id,league_id:season.league_id}});
+    });
+    const change={matchId:match.id,operationId:randomUUID(),expectedVersion:match.version,venueId:slot.venueId,
+      startsAtLocal:venueLocalTime(new Date(slot.start),"America/Mexico_City").slice(0,16),reason:"Cambio por lluvia de prueba"};
+    const moved=await db.$transaction(tx=>rescheduleAbsentMatchInTransaction(tx,f.actor,change),{isolationLevel:"Serializable",timeout:30000});
+    assert.equal(moved.pdfVersion,2);
+    assert.equal((await db.$transaction(tx=>rescheduleAbsentMatchInTransaction(tx,f.actor,change),{isolationLevel:"Serializable",timeout:30000})).pdfVersion,2);
+    const version2=await db.audit_logs.findFirstOrThrow({where:{table_name:"schedule_proposals",entity_id:id,action:"SCHEDULE_VERSION"},select:{id:true,new_data:true}});
+    const current=await db.matches.findMany({where:{schedule_proposal_id:id},select:{id:true,venue_id:true,starts_at:true,ends_at:true,reserved_until:true,home_team_id:true,away_team_id:true}});
+    const nextSlot=candidates.find(candidate=>(candidate.start!==slot.start || candidate.venueId!==slot.venueId) && current.every(other=>other.id===match.id || !other.starts_at || !other.ends_at || !other.reserved_until ||
+      !((other.venue_id===candidate.venueId && candidate.start<+other.reserved_until && +other.starts_at<candidate.start+120*60000) ||
+      ([other.home_team_id,other.away_team_id].some(team=>[match.home_team_id,match.away_team_id].includes(team)) && candidate.start<+other.ends_at && +other.starts_at<candidate.start+90*60000))));
+    assert.ok(nextSlot);
+    const secondMove={...change,operationId:randomUUID(),expectedVersion:moved.appliedVersion,venueId:nextSlot.venueId,startsAtLocal:venueLocalTime(new Date(nextSlot.start),"America/Mexico_City").slice(0,16)};
+    assert.equal((await db.$transaction(tx=>rescheduleAbsentMatchInTransaction(tx,f.actor,secondMove),{isolationLevel:"Serializable",timeout:30000})).pdfVersion,3);
+    assert.deepEqual((await db.audit_logs.findUniqueOrThrow({where:{id:version2.id},select:{new_data:true}})).new_data,version2.new_data);
+    const pending={matchId:match.id,operationId:randomUUID(),expectedVersion:moved.appliedVersion+1,toStatus:"UNSCHEDULED",reason:"Espera una cancha disponible"};
+    await db.$transaction(tx=>transitionMatchInTransaction(tx,f.actor,pending),{isolationLevel:"Serializable",timeout:30000});
+    const versions=await db.audit_logs.findMany({where:{table_name:"schedule_proposals",entity_id:id,action:"SCHEDULE_VERSION"},select:{new_data:true}});
+    const version4=versions.map(v=>v.new_data as {version:number;matches:{start:string|null}[]}).find(v=>v.version===4);
+    assert.ok(version4?.matches.some(m=>m.start===null),"El PDF actualizado conserva el partido pendiente");
+    const updated=await PDFDocument.load(await updatedSchedulePdfForActor(f.actor,id));
+    assert.equal(updated.getSubject(),"Programación actualizada");
+    await assert.rejects(updatedSchedulePdfForActor(f.outsider,id),{message:"FORBIDDEN"});
   } finally {
+    await db.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT set_config('app.user_id',${f.actor},true),set_config('app.reason','Limpieza de datos sintéticos',true)`;
+      await tx.matches.updateMany({where:{schedule_proposal_id:id},data:{deleted_at:new Date(),schedule_proposal_id:null}});
+    });
     await db.schedule_proposals.delete({where:{id}});
+  }
+  // Una aprobación anterior a la integración necesita activarse una sola vez.
+  const legacyId=randomUUID(), legacy=storedProposalSchema.parse(generated.proposal);
+  await db.schedule_proposals.create({data:{id:legacyId,season_id:f.season,matchday_id:legacy.matches[0].matchdayId,
+    competition_rule_id:legacy.ruleId,created_by:f.actor,status:"APPROVED",parameters:JSON.parse(JSON.stringify(legacy))}});
+  try {
+    const [reviewer]=await db.$queryRaw<{reviewer:string}[]>`SELECT reviewer FROM public.scheduling_fixture`;
+    const activation={proposalId:legacyId,expectedVersion:1,reason:"Activar aprobación anterior"};
+    await assert.rejects(activatePreviouslyApprovedProposalForActor(f.outsider,activation),{message:"FORBIDDEN"});
+    assert.equal((await activatePreviouslyApprovedProposalForActor(reviewer.reviewer,activation)).code,"SCHEDULE_ACTIVATED");
+    assert.equal(await db.matches.count({where:{schedule_proposal_id:legacyId}}),legacy.matches.length);
+    assert.equal((await activatePreviouslyApprovedProposalForActor(reviewer.reviewer,activation)).code,"PROPOSAL_ALREADY_MATERIALIZED");
+  } finally {
+    await db.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT set_config('app.user_id',${f.actor},true),set_config('app.reason','Limpieza de datos sintéticos',true)`;
+      await tx.matches.updateMany({where:{schedule_proposal_id:legacyId},data:{deleted_at:new Date(),schedule_proposal_id:null}});
+    });
+    await db.schedule_proposals.delete({where:{id:legacyId}});
   }
 }

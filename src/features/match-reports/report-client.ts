@@ -15,15 +15,17 @@ export function reportUuid(): string {
 export class ReportClientError extends Error {
   constructor(public code: string, public status: number) { super(code); }
 }
-export type ReportOperation = { id: string; kind: "save" | "lock-lineups" | "clock" | "confirm"; clockAction?: ClockAction; occurredAt?: string; expectedReportVersion: number; expectedMatchVersion: number; snapshot: MatchReportPresentation };
+export type ReportOperation = { id: string; kind: "save" | "lock-lineups" | "clock" | "confirm" | "record-no-show"; clockAction?: ClockAction; occurredAt?: string; expectedReportVersion: number; expectedMatchVersion: number; snapshot: MatchReportPresentation };
 export type ReportAttempt = { command: ReportCommand; uploads: { teamId: string; captainId: string; operationId: string; image: string }[] };
 export function prepareReportAttempt(data: ReportDemoData, op: ReportOperation): ReportAttempt {
   const base = `/api/match-reports/${data.match.id}`;
-  const draft: ReportDraft = { lineups: op.snapshot.lineups.map(row => {
+  const savedOrder = op.snapshot.persistedLineupOrder;
+  const lineups = savedOrder ? op.snapshot.lineups.filter(row => row.selected || savedOrder.includes(row.playerId)) : op.snapshot.lineups;
+  const draft: ReportDraft = { lineups: lineups.map(row => {
     const player = data.players.find(p => p.id === row.playerId);
     if (!player) throw new ReportClientError("EVENT_PLAYER_OUT_OF_SCOPE", 400);
     return { ...row, teamId: player.teamId };
-  }), captains: op.snapshot.captains, events: op.snapshot.events, score: op.snapshot.score, remarks: op.snapshot.remarks, incidents: op.snapshot.incidents, signatures: {}, ...(op.snapshot.tactics ? { tactics: op.snapshot.tactics } : {}) };
+  }), captains: op.snapshot.captains, events: op.snapshot.events, score: op.snapshot.score, remarks: op.snapshot.remarks, incidents: op.snapshot.incidents, signatures: {}, ...(op.snapshot.tactics ? { tactics: op.snapshot.tactics } : {}), ...(op.snapshot.noShow ? { noShow: op.snapshot.noShow } : {}) };
   const uploads: ReportAttempt["uploads"] = [];
   for (const teamId of [data.match.home.id, data.match.away.id]) {
     const signature = op.snapshot.signatures[teamId];

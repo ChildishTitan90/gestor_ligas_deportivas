@@ -8,7 +8,7 @@ for (const width of [390, 1440]) for (const theme of ["light", "dark"]) {
 test(`PDGLD-139: ajuste recuperable y revisión · ${width}px · ${theme}`, { timeout: 60_000 }, async t => {
   const bundle = await build({
     bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic",
-    define: { "process.env.NODE_ENV": '"development"' },
+    define: { "process.env.NODE_ENV": '"development"', "process.env": '{}' },
     stdin: { loader: "tsx", resolveDir: process.cwd(), contents: `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -252,7 +252,7 @@ window.runTest = async () => {
       return;
     }
     response.setHeader("Content-Type", "text/html; charset=utf-8");
-    response.end('<!doctype html><div id="root"></div><script src="/bundle.js"></script>');
+    response.end('<!doctype html><div id="root"></div><script>window.fixtureErrors=[];window.addEventListener("error",event=>window.fixtureErrors.push(event.message));</script><script src="/bundle.js"></script>');
   });
   t.after(() => closeTestServer(server));
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -264,6 +264,8 @@ window.runTest = async () => {
     width, height: 900, deviceScaleFactor: 1, mobile: width < 600,
   });
   await browser.command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] });
+  const fixtureErrors = await browser.evaluate('window.fixtureErrors');
+  assert.equal(await browser.evaluate('typeof window.runTest'), 'function', `No cargó el módulo de prueba: ${JSON.stringify(fixtureErrors)}`);
   await browser.evaluate(`document.documentElement.dataset.theme = "${theme}";
     window.testDone = window.runTest(); true`);
   assert.equal(await waitForTestDone(browser), true);

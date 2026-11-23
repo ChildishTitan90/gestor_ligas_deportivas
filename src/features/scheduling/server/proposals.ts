@@ -97,6 +97,8 @@ export async function listScheduleProposals() {
       generated,
       canEdit,
       canReview,
+      operationalCount:proposal.matches.length,
+      canActivate: open && proposal.status === "APPROVED" && stored.success && proposal.matches.length === 0 && approvals.some(grant => grantCoversContext(grant, scope)),
       // El vínculo al UUID de la propuesta no garantiza temporada ni jornada en PostgreSQL.
       matches: proposal.matches.filter(match =>
         match.season_id === proposal.season_id && match.matchday_id === proposal.matchday_id),

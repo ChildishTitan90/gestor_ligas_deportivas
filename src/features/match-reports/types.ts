@@ -2,6 +2,7 @@
 import type { UniformKits } from "@/features/clubs/uniform-kits";
 import type { TeamTactics } from "./tactics";
 import type { MatchClock } from "./match-clock";
+import type { NoShow } from "./no-show";
 export type ReportTeam = { id: string; name: string; shortName: string; initials: string; uniformKits?: UniformKits | null };
 export type ReportPlayer = {
   id: string;
@@ -56,6 +57,7 @@ export type MatchReportPresentation = {
   version: number;
   status: "DRAFT" | "CONFIRMED";
   lineups: ReportLineup[];
+  persistedLineupOrder?: string[];
   captains: Record<string, string>;
   events: ReportEvent[];
   score: { home: number | null; away: number | null };
@@ -66,6 +68,7 @@ export type MatchReportPresentation = {
   tactics?: Record<string, TeamTactics>;
   lineupsLock?: { operationId: string; lockedAt: string } | null;
   clock?: MatchClock | null;
+  noShow?: NoShow;
 };
 export type ReportMatchPresentation = {
   id: string;

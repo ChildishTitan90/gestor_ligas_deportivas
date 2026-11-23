@@ -185,8 +185,10 @@ export async function recordParticipationInTransaction(tx: Prisma.TransactionCli
   // Se conserva hasta COMMIT/ROLLBACK de la transacción del consumidor.
   await lockAuthorization(tx);
   await lockSeasonIdentityHistory(tx);
-  const locked = await tx.$queryRaw<{ version: number }[]>`
-    SELECT version FROM sports_management.matches WHERE id=${data.matchId}::uuid FOR SHARE`;
+  const locked = await tx.$queryRaw<{ version: number; status_code: string }[]>`
+    SELECT m.version, s.code AS status_code FROM sports_management.matches m
+    JOIN sports_management.match_statuses s ON s.id=m.status_id
+    WHERE m.id=${data.matchId}::uuid FOR SHARE OF m`;
   await authorizeMatch(tx, actorId, data.matchId);
   await assertPermission(tx,actorId,{module:"match-reports",action:"UPDATE",context:{matchId:data.matchId}});
   if (!registration) throw new AuthorizationError();
@@ -196,6 +198,7 @@ export async function recordParticipationInTransaction(tx: Prisma.TransactionCli
   if (declared.success && declared.data.lineups.some(row => row.selected && row.playerId === registration?.registration_id && row.participationHalf)) throw Error("PARTICIPATION_USE_REPORT");
   const evaluation = await evaluateMatchInTransaction(tx, actorId, data.matchId);
   await assertPermission(tx,actorId,{module:"match-reports",action:"UPDATE",context:{matchId:data.matchId}});
+  if (locked[0]?.status_code === "FINISHED") throw Error("MATCH_FINISHED");
   if (evaluation.historical || locked[0]?.version !== data.expectedMatchVersion || evaluation.version !== data.expectedMatchVersion) throw Error("STALE_MATCH");
   const lineup = await tx.lineups.findUnique({ where: { id: data.lineupId }, select: {
     registration_id: true, season_team_id: true, match_report_id: true,

@@ -8,6 +8,9 @@ import { changeProposalReviewForActor } from "../../src/features/scheduling/serv
 import { listSavedScheduleProposals } from "../../src/features/scheduling/server/saved-proposals";
 import { getPrisma } from "../../src/server/db/prisma";
 import { generateScheduleForActor, validateScheduleProposalInTransaction, previewStoredVenueOptionsForActor } from "../../src/features/scheduling/server/service";
+import { rescheduleAbsentMatchInTransaction } from "../../src/features/matches/server/reschedule";
+import { updatedSchedulePdfForActor } from "../../src/features/scheduling/server/updated-schedule-pdf";
+import { venueLocalTime } from "../../src/features/venues/time";
 
 test("Preview con RLS genera y recupera una propuesta con préstamos aprobados", async () => {
   const fixture = JSON.parse(process.env.SCHEDULING_PREVIEW_FIXTURE!);
@@ -39,6 +42,7 @@ test("Preview con RLS genera y recupera una propuesta con préstamos aprobados",
 
     await assert.rejects(approvedSchedulePdfForActor(fixture.actor,input.operationId),SchedulePdfUnavailable);
     await assert.rejects(approvedSchedulePdfForActor(fixture.outsider,input.operationId),{message:"FORBIDDEN"});
+
     const saved = await listSavedScheduleProposals(fixture.actor, fixture.season, fixture.group_id);
     assert.equal(saved.length, 1);
     assert.equal(saved[0].id, input.operationId);
@@ -52,6 +56,21 @@ test("Preview con RLS genera y recupera una propuesta con préstamos aprobados",
     const document=await PDFDocument.load(await approvedSchedulePdfForActor(fixture.actor,input.operationId));
     assert.ok(document.getPageCount()>1);
     await assert.rejects(approvedSchedulePdfForActor(fixture.outsider,input.operationId),{message:"FORBIDDEN"});
+    const created=await db.matches.findMany({where:{schedule_proposal_id:input.operationId},select:{id:true,version:true,starts_at:true,ends_at:true,reserved_until:true,venue_id:true,home_team_id:true,away_team_id:true}});
+    assert.equal(created.length,190);
+    const match=created.find(m=>m.starts_at?.toISOString().startsWith("2030-01-06")); assert.ok(match);
+    const venues=await db.venues.findMany({select:{id:true}});
+    const slots=venues.flatMap(venue=>[0,1,2].map(hour=>({venueId:venue.id,start:Date.parse("2030-01-06T15:00:00Z")+hour*120*60000})));
+    const free=slots.find(slot=>slot.start!==match.starts_at!.getTime() && created.every(other=>other.id===match.id || !other.starts_at || !other.ends_at || !other.reserved_until ||
+      !((other.venue_id===slot.venueId && slot.start<+other.reserved_until && +other.starts_at<slot.start+120*60000) ||
+      ([other.home_team_id,other.away_team_id].some(id=>[match.home_team_id,match.away_team_id].includes(id)) && slot.start<+other.ends_at && +other.starts_at<slot.start+90*60000))));
+    assert.ok(free);
+    const move={matchId:match.id,operationId:randomUUID(),expectedVersion:match.version,venueId:free.venueId,
+      startsAtLocal:venueLocalTime(new Date(free.start),"America/Mexico_City").slice(0,16),reason:"Cambio sintético por lluvia"};
+    const moved=await db.$transaction(tx=>rescheduleAbsentMatchInTransaction(tx,fixture.actor,move),{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:30000});
+    assert.equal(moved.pdfVersion,2);
+    assert.equal((await PDFDocument.load(await updatedSchedulePdfForActor(fixture.actor,input.operationId))).getSubject(),"Programación actualizada");
+    await assert.rejects(updatedSchedulePdfForActor(fixture.outsider,input.operationId),{message:"FORBIDDEN"});
 
   } finally {
     await db.$disconnect();

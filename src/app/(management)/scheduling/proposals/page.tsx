@@ -5,6 +5,8 @@ import { ProgressSteps } from "@/features/scheduling/components/progress-steps";
 import { AdjustmentPreview } from "@/features/scheduling/components/adjustment-preview";
 import { listScheduleProposals } from "@/features/scheduling/server/proposals";
 import { AuthorizationError } from "@/server/auth/authorization";
+import { ActivateApproved } from "@/features/scheduling/components/activate-approved";
+import Link from "next/link";
 
 export const metadata = { title: "Propuestas de programación" };
 
@@ -29,9 +31,11 @@ export default async function ScheduleProposalsPage() {
       <p className="text-sm text-muted">Competencias</p>
       <h1 className="text-3xl font-semibold">Propuestas de programación</h1>
     </header>
-    {proposals.length === 0 && <p className="rounded-2xl border border-border bg-surface p-5 text-muted">
-      Todavía no hay propuestas en las ligas a las que tienes acceso.
-    </p>}
+    {proposals.length === 0 && <div className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+      <p>No hay propuestas guardadas en las ligas a las que tienes acceso.</p>
+      <p className="text-sm text-muted">Primero genera una propuesta para la temporada y el grupo. Después podrás volver aquí para consultar y ajustar las jornadas.</p>
+      <Link href="/competitions/scheduling" className="inline-flex min-h-12 items-center rounded-xl border border-border px-4 font-semibold text-primary">Ir a generar calendario</Link>
+    </div>}
     {proposals.map(proposal => {
       const league = proposal.seasons.leagues;
       const format = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short", timeZone: league.timezone });
@@ -45,17 +49,21 @@ export default async function ScheduleProposalsPage() {
         {(["DRAFT", "IN_REVIEW", "APPROVED"].includes(proposal.status)) && <div className="mt-4"><ProgressSteps label="Estado de la propuesta" current={proposal.status === "DRAFT" ? 0 : proposal.status === "IN_REVIEW" ? 1 : 2} steps={[
           {label:"Borrador",detail:"Prepara y ajusta los encuentros."},
           {label:"En revisión",detail:"La propuesta espera una decisión."},
-          {label:"Aprobada",detail:"Lista para el proceso posterior."},
+          {label:"Aprobada",detail:"La programación autorizada queda lista para operar."},
         ]} /></div>}
         {proposal.status === "APPROVED" && proposal.generated && <p className="mt-4"><a
           href={`/api/scheduling/proposals/${proposal.id}/pdf`} download
           className="primary-action inline-flex min-h-12 items-center rounded-xl px-4 py-2 text-sm font-semibold">Descargar programación en PDF</a></p>}
+        {proposal.canActivate && <ActivateApproved proposalId={proposal.id} version={proposal.version} />}
+        {proposal.status === "APPROVED" && proposal.generated && proposal.operationalCount !== proposal.generated.matches.length && !proposal.canActivate && <p role="status" className="mt-4 text-sm text-muted">Esta propuesta no tiene todos sus partidos operativos registrados. La autoridad de la liga debe revisar su activación.</p>}
         {proposal.generated && <section className="mt-4 space-y-3" aria-label="Encuentros propuestos">
           <p className="text-sm text-muted">Versión de temporada {proposal.generated.seasonVersion}</p>
           <TeamSwapBoard key={`${proposal.id}:${proposal.version}`} matches={proposal.generated.matches} byes={proposal.generated.byes}
             actorId={actorId} proposalId={proposal.id} version={proposal.version} canEdit={proposal.canEdit} timeZone={league.timezone}
             venues={league.venues.map(venue=>({value:venue.id,label:venue.name}))} />
-          <p className="text-sm text-muted">Los ajustes y el envío a revisión revalidan el calendario completo. La propuesta no reserva canchas ni publica partidos.</p>
+          <p className="text-sm text-muted">{proposal.status === "APPROVED"
+            ? "Esta es la propuesta original aprobada. Los cambios posteriores se consultan desde el registro de partidos."
+            : "Los ajustes y el envío a revisión revalidan el calendario completo. Mientras no se apruebe, la propuesta no reserva canchas."}</p>
         </section>}
         {!proposal.generated && (proposal.matches.length ? <ul className="mt-4 divide-y divide-border">
           {proposal.matches.map(match => <li key={match.id} className="space-y-1 py-3">

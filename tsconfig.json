@@ -44,7 +44,13 @@
     ".next-auth-tests-3193/types/**/*.ts",
     ".next-auth-tests-3193/dev/types/**/*.ts",
     ".next-auth-tests-3398/types/**/*.ts",
-    ".next-auth-tests-3398/dev/types/**/*.ts"
+    ".next-auth-tests-3398/dev/types/**/*.ts",
+    ".next-auth-tests-3198/types/**/*.ts",
+    ".next-auth-tests-3198/dev/types/**/*.ts",
+    ".next-auth-tests-3299/types/**/*.ts",
+    ".next-auth-tests-3299/dev/types/**/*.ts",
+    ".next-auth-tests-51213/types/**/*.ts",
+    ".next-auth-tests-51213/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

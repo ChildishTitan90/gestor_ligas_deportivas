@@ -8,6 +8,8 @@ export async function enqueueReport(actorId: string, matchId: string, kind: Repo
   return updateLocalReport(actorId, matchId, record => {
     if (expectedEditId && record.editId !== expectedEditId) throw Error("LOCAL_REVISION_CONFLICT");
     if (kind === "confirm" && !record.data.confirmation?.available) throw new ReportClientError("CONFIRMATION_DEPENDENCIES_PENDING", 409);
+    if (kind === "record-no-show" && !navigator.onLine) throw new ReportClientError("NO_SHOW_CONNECTION_REQUIRED", 409);
+    if (record.pending.some(item => item.operation.kind === "record-no-show")) throw new ReportClientError("NO_SHOW_PENDING", 409);
     if (record.pending.some(item => item.error)) throw Error("PENDING_REVIEW_REQUIRED");
     const operation: ReportOperation = {
       id: crypto.randomUUID(), kind, ...(clockAction ? { clockAction, occurredAt: new Date().toISOString() } : {}),
@@ -55,9 +57,9 @@ async function acknowledge(actorId: string, matchId: string, item: PendingReport
     }
     // Never replace report content with an older sent snapshot.
     return {
-      ...record, data: { ...record.data, report, match: { ...record.data.match, version: receipt.matchVersion } },
+      ...record, data: { ...record.data, report, match: { ...record.data.match, version: receipt.matchVersion, ...(item.operation.kind === "record-no-show" ? { status: { code: "NO_SHOW", label: "No presentado", captureAllowed: false } } : {}) } },
       pending: record.pending.filter(pending => pending.operation.id !== receipt.operationId),
-      serverMatchStatus: item.operation.clockAction?.type === "start" ? "IN_PROGRESS" : record.serverMatchStatus,
+      serverMatchStatus: item.operation.kind === "record-no-show" ? "NO_SHOW" : item.operation.clockAction?.type === "start" ? "IN_PROGRESS" : record.serverMatchStatus,
       acknowledgedRevision: Math.max(record.acknowledgedRevision, item.revision),
       lastReceipt: { draftId: item.draftId, revision: item.revision, receipt },
     };

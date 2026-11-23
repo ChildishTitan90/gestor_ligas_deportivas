@@ -12,6 +12,26 @@ import { participationBlocked } from "../constraints";
 import { validateScheduleProposalInTransaction, SchedulingError } from "./service";
 
 const calendarPolicy = z.object({ complexOnlyFinalRounds: z.number().int().nonnegative() });
+type ApprovedMatch = {round:number;matchdayId:string;home:string;away:string;venueId:string|null;start:string|null;end:string|null;reservedUntil:string|null};
+type ApprovedBye = {round:number;teamId:string;matchdayId:string};
+
+async function createOperationalMatches(tx:Prisma.TransactionClient,proposalId:string,seasonId:string,groupId:string,matches:ApprovedMatch[],byes:ApprovedBye[]) {
+  if(await tx.matches.count({where:{schedule_proposal_id:proposalId}})) throw new SchedulingError("PROPOSAL_ALREADY_MATERIALIZED");
+  if(matches.some(match=>!match.venueId || !match.start || !match.end || !match.reservedUntil)) throw new SchedulingError("INCOMPLETE_PROPOSAL_MATCH");
+  const scheduled=await tx.match_statuses.findUniqueOrThrow({where:{code:"SCHEDULED"},select:{id:true}});
+  const rows=matches.map((match,index)=>Prisma.sql`(${seasonId}::uuid,${groupId}::uuid,${match.matchdayId}::uuid,
+    ${`${proposalId}-${index+1}`},${match.home}::uuid,${match.away}::uuid,${match.venueId!}::uuid,
+    ${new Date(match.start!)}::timestamptz,${new Date(match.end!)}::timestamptz,${new Date(match.reservedUntil!)}::timestamptz,
+    ${scheduled.id}::uuid,${proposalId}::uuid)`);
+  await tx.$executeRaw`INSERT INTO sports_management.matches
+    (season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id,schedule_proposal_id)
+    VALUES ${Prisma.join(rows)}`;
+  if(byes.length) {
+    const values=byes.map(bye=>Prisma.sql`(${seasonId}::uuid,${bye.matchdayId}::uuid,${bye.teamId}::uuid)`);
+    await tx.$executeRaw`INSERT INTO sports_management.team_byes (season_id,matchday_id,season_team_id)
+      VALUES ${Prisma.join(values)} ON CONFLICT (matchday_id,season_team_id) DO NOTHING`;
+  }
+}
 
 export async function validateAdjustment(
   tx: Prisma.TransactionClient, actorId: string, data: AdjustmentInput,
@@ -205,6 +225,39 @@ async function lockProposal(tx: Prisma.TransactionClient, proposalId: string) {
   await tx.$queryRaw`SELECT id FROM sports_management.schedule_proposals WHERE id = ${proposalId}::uuid FOR UPDATE`;
 }
 
+/** Recupera propuestas aprobadas antes de que la aprobación creara partidos. */
+export async function activatePreviouslyApprovedProposalForActor(actorId:string,input:unknown) {
+  const data=z.strictObject({proposalId:z.uuid(),expectedVersion:z.number().int().positive(),reason:z.string().trim().min(8).max(500)}).parse(input);
+  try {
+    return await getPrisma().$transaction(async tx=>{
+      await lockAuthorization(tx);
+      const lookup=await tx.schedule_proposals.findUnique({where:{id:data.proposalId},select:{season_id:true}});
+      if(!lookup)throw new AuthorizationError();
+      await tx.$queryRaw`SELECT id FROM sports_management.seasons WHERE id=${lookup.season_id}::uuid FOR UPDATE`;
+      await lockProposal(tx,data.proposalId);
+      const row=await tx.schedule_proposals.findUniqueOrThrow({where:{id:data.proposalId},select:{season_id:true,status:true,version:true,parameters:true,seasons:{select:{status:true}}}});
+      const grants=await assertPermission(tx,actorId,{module:"scheduling",action:"APPROVE",context:{seasonId:row.season_id}});
+      if(!grants.some(g=>!g.clubId))throw new AuthorizationError();
+      if(row.version!==data.expectedVersion)return {code:"STALE_PROPOSAL" as const};
+      if(row.status!=="APPROVED" || row.seasons.status==="CLOSED")return {code:"INVALID_PROPOSAL_TRANSITION" as const};
+      const stored=storedProposalSchema.safeParse(row.parameters);
+      if(!stored.success)return {code:"INVALID_PROPOSAL" as const};
+      if(await tx.matches.count({where:{schedule_proposal_id:data.proposalId}}))return {code:"PROPOSAL_ALREADY_MATERIALIZED" as const};
+      const checked=await validateScheduleProposalInTransaction(tx,actorId,{proposalId:data.proposalId,expectedSeasonVersion:stored.data.seasonVersion,
+        matches:stored.data.matches.map(({round,matchdayId,home,away,venueId,start})=>({round,matchdayId,home,away,venueId,start}))},"APPROVE");
+      if(!checked.ok)return {code:checked.code,conflicts:checked.conflicts};
+      await tx.$queryRaw`SELECT set_config('app.user_id',${actorId},true),set_config('app.reason',${data.reason},true)`;
+      await createOperationalMatches(tx,data.proposalId,row.season_id,stored.data.groupId,checked.matches,checked.byes);
+      await tx.audit_logs.create({data:{user_id:actorId,table_name:"schedule_proposals",entity_id:data.proposalId,action:"ACTIVATE_APPROVED_SCHEDULE",reason:data.reason}});
+      return {code:"SCHEDULE_ACTIVATED" as const};
+    },{isolationLevel:"Serializable",maxWait:10000,timeout:30000});
+  } catch(error) {
+    if(error instanceof SchedulingError)return {code:error.code};
+    if(isConcurrentAdjustment(error))return {code:"PROPOSAL_CONFLICT" as const};
+    throw error;
+  }
+}
+
 export async function changeProposalReview(input: unknown) {
   const actor = await requireOperationalUser();
   return changeProposalReviewForActor(actor.id, input);
@@ -245,6 +298,8 @@ export async function changeProposalReviewForActor(actorId: string, input: unkno
       if (generated.success && data.operation === "approve" && generated.data.matches.some(match => !match.venueId))
         return { code: "INCOMPLETE_PROPOSAL_MATCH" as const };
       let normalized: Prisma.InputJsonValue | undefined;
+      let approvedMatches: ApprovedMatch[] | undefined;
+      let approvedByes: ApprovedBye[] = [];
       if (generated.success && data.operation !== "return") {
         const result = await validateScheduleProposalInTransaction(tx, actorId, {
           proposalId: data.proposalId, expectedSeasonVersion: generated.data.seasonVersion,
@@ -252,6 +307,7 @@ export async function changeProposalReviewForActor(actorId: string, input: unkno
             ({ round, matchdayId, home, away, venueId, start })),
         }, action);
         if (!result.ok) return { code: result.code, conflicts: result.conflicts };
+        if (data.operation === "approve") { approvedMatches=result.matches; approvedByes=result.byes; }
         normalized = { ...generated.data,
           matches: result.matches.map((match, index) => ({ ...generated.data.matches[index], ...match })),
           byes: result.byes,
@@ -286,6 +342,7 @@ export async function changeProposalReviewForActor(actorId: string, input: unkno
       }
 
       await tx.$queryRaw`SELECT set_config('app.user_id', ${actorId}, true), set_config('app.reason', ${data.reason}, true)`;
+      if (approvedMatches && generated.success) await createOperationalMatches(tx,data.proposalId,proposal.season_id,generated.data.groupId,approvedMatches,approvedByes);
       const updated = await tx.schedule_proposals.update({
         where: { id: data.proposalId }, data: { status: nextStatus, version: { increment: 1 }, ...(normalized ? { parameters: normalized } : {}) },
         select: { version: true },

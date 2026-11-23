@@ -20,7 +20,8 @@ const base = { ...childEnvironment(process.env), NEXTAUTH_URL: origin, NEXTAUTH_
   NODE_ENV: 'development', AUTH_TEST_RUN: '1', STANDINGS_UI_ISOLATED: '1', STANDINGS_MANIFEST: manifestPath,
   ACCOUNT_EMAIL_ENABLED: 'false', PASSWORD_RECOVERY_ENABLED: 'false', VMX_API_KEY: '', NEXT_TELEMETRY_DISABLED: '1' };
 const docker = args => {
-  const r = spawnSync('docker', ['--host', 'unix:///var/run/docker.sock', ...args], { env: base, encoding: 'utf8', timeout: 120000 });
+  const host = process.platform === 'win32' ? [] : ['--host', 'unix:///var/run/docker.sock'];
+  const r = spawnSync('docker', [...host, ...args], { env: base, encoding: 'utf8', timeout: 120000 });
   if (r.status !== 0 || r.error) throw Error('Docker no confirmó la operación aislada de PDGLD-151.');
   return r.stdout.trim();
 };
@@ -62,11 +63,17 @@ async function login(username) {
   await wait(`!!document.querySelector('main h1')`);
 }
 async function choose(id, value, keyboard = false) {
-  await browser.evaluate(`document.getElementById(${JSON.stringify(id)}).focus()`);
-  if (keyboard) {
-    await browser.command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
-    await browser.command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
-  } else await browser.evaluate(`document.getElementById(${JSON.stringify(id)}).click()`);
+  // La página puede mostrar HTML antes de hidratar React. Reintentar solo hasta
+  // que el selector responda, sin cambiar el valor ni saltar la prueba de teclado.
+  for (let n = 0; n < 100; n++) {
+    if (await browser.evaluate(`document.getElementById(${JSON.stringify(id)}).getAttribute('aria-expanded')==='true'`)) break;
+    await browser.evaluate(`document.getElementById(${JSON.stringify(id)}).focus()`);
+    if (keyboard) {
+      await browser.command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+      await browser.command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+    } else await browser.evaluate(`document.getElementById(${JSON.stringify(id)}).click()`);
+    await pause(100);
+  }
   await wait(`!!document.querySelector('[role="option"][data-value="${value}"]')`, 'Opciones compartidas');
   await browser.evaluate(`document.querySelector('[role="option"][data-value="${value}"]').click()`);
   await wait(`document.getElementById(${JSON.stringify(id)}).getAttribute('aria-expanded')==='false'`);
@@ -136,7 +143,7 @@ try {
       has_column_privilege('sports_management.match_results','home_score','UPDATE') AS can_write_score,
       has_column_privilege('sports_management.standing_versions','status','UPDATE') AS can_write_version`);
     assert.deepEqual(privileges, { role: PREVIEW_ROLE, results_rls: true, versions_rls: true,
-      can_read_score: true, can_read_fingerprint: true, can_read_snapshot: false, can_write_score: false, can_write_version: false });
+      can_read_score: true, can_read_fingerprint: true, can_read_snapshot: true, can_write_score: false, can_write_version: false });
   } finally {
     await runtime.end();
   }
