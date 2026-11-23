@@ -57,6 +57,7 @@ export type MatchReportPresentation = {
   version: number;
   status: "DRAFT" | "CONFIRMED";
   lineups: ReportLineup[];
+  persistedLineupOrder?: string[];
   captains: Record<string, string>;
   events: ReportEvent[];
   score: { home: number | null; away: number | null };

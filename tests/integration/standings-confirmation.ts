@@ -16,16 +16,12 @@ export async function verifyStandingConfirmation(f: { db: Client; actors: Record
   const { db, actors, group, season, teams } = f;
   assert.match(db.database!, /^pdgld48_test_[a-f0-9]+$/);
   const q = async (sql: string, args: unknown[] = []) => (await db.query(sql, args)).rows;
-  // Fixture-only ACL additions, NOT a production/Preview grant plan. Official closure
-  // is still blocked and its final minimum-privilege plan belongs to the adapters.
-  await q('GRANT SELECT ON sports_management.match_results,sports_management.standing_versions,sports_management.standing_entries TO gestor_ligas_preview');
-  await q('GRANT INSERT ON sports_management.match_results,sports_management.standing_versions,sports_management.standing_entries,sports_management.disciplinary_cases TO gestor_ligas_preview');
-  await q('GRANT UPDATE(status,confirmed_at) ON sports_management.match_reports TO gestor_ligas_preview');
-  for (const table of ['match_results','standing_versions','standing_entries','disciplinary_cases']) {
-    await q(`ALTER TABLE sports_management.${table} ENABLE ROW LEVEL SECURITY`);
-    await q(`CREATE POLICY pdgld152_synthetic_insert ON sports_management.${table} FOR INSERT TO gestor_ligas_preview WITH CHECK (true)`);
-    if (table === 'standing_entries') await q(`CREATE POLICY pdgld152_synthetic_read ON sports_management.${table} FOR SELECT TO gestor_ligas_preview USING (true)`);
-  }
+  // Exercise the actual Preview provisioner; no extra grants or RLS policies.
+  const actualPrivileges = (await q(`SELECT
+    has_column_privilege('gestor_ligas_preview','sports_management.match_results','match_id','INSERT') result_insert,
+    has_column_privilege('gestor_ligas_preview','sports_management.match_reports','confirmed_at','UPDATE') report_confirm,
+    has_column_privilege('gestor_ligas_preview','sports_management.standing_versions','group_id','INSERT') standing_insert`))[0];
+  assert.deepEqual(actualPrivileges,{result_insert:true,report_confirm:true,standing_insert:true});
   const rule = (await q('INSERT INTO sports_management.competition_rules(season_id,version_number) SELECT $1,max(version_number)+1 FROM sports_management.competition_rules WHERE season_id=$1 RETURNING id',[season]))[0].id;
   for (const [key,value] of Object.entries({ points: { win:3, draw:1, loss:0 }, tieBreakers:['GOAL_DIFFERENCE','GOALS_FOR'] })) {
     await q('INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by) VALUES($1,$2,$3,$4) ON CONFLICT(competition_rule_id,parameter_key) DO UPDATE SET parameter_value=excluded.parameter_value,validated_by=excluded.validated_by,requires_validation=false', [rule,key,JSON.stringify(value),actors.lector]);
@@ -56,11 +52,9 @@ export async function verifyStandingConfirmation(f: { db: Client; actors: Record
     (SELECT count(*)::int FROM sports_management.audit_logs) audits`,[f.command.matchId]);
   const command = { ...structuredClone(f.command), kind:'confirm' as const, operationId:randomUUID() };
   const adapters: ConfirmationEffects = { finishMatch:finishConfirmedReportMatch, openIncidentCases };
-  assert.equal(getConfirmationAvailability().available,false);
+  assert.equal(getConfirmationAvailability().available,true);
   assert.ok(!confirmationBlockers.some(b=>b.includes('PDGLD-29')));
   const before = await snapshot();
-  await assert.rejects(mutateReport(actors.capturista,command),/CONFIRMATION_DEPENDENCIES_PENDING/);
-  assert.deepEqual(await snapshot(),before,'default official writer remains blocked without effects');
   await assert.rejects(getPrisma().$transaction(tx=>calculateConfirmedReportStandingsInTransaction(tx,actors.capturista,(before[0].report as {id:string}).id)),/STANDINGS_SERIALIZABLE_REQUIRED/);
   await assert.rejects(createReportWriter(()=>adapters)(actors.capturista,{...command,draft:{...command.draft,incidents:'Cambio no guardado'}}),/CONFIRMATION_REQUIRES_SAVED_DRAFT/);
   assert.deepEqual(await snapshot(),before);
@@ -74,7 +68,7 @@ export async function verifyStandingConfirmation(f: { db: Client; actors: Record
   await assert.rejects(fault(actors.capturista,command),/PDGLD152_CONTROLLED_ROLLBACK/);
   assert.deepEqual(await snapshot(),before,'rollback restores report/events/lineups/result/match/history/table/incident/audit/receipt');
   assert.equal((await readReportOperation(actors.capturista,command.matchId,command.operationId)).status,'UNKNOWN');
-  const writer = createReportWriter(()=>adapters);
+  const writer = mutateReport;
   await assert.rejects(writer(actors.capturistaAjeno,command),/FORBIDDEN/);
   // Race the SAME operation before any successful commit; all replies must agree.
   const replies = await Promise.all(Array.from({length:3},()=>writer(actors.capturista,command,'sync')));
@@ -108,5 +102,5 @@ export async function verifyStandingConfirmation(f: { db: Client; actors: Record
   await assert.rejects(writer(actors.capturista,{...command,draft:{...command.draft,remarks:'otra intención'}}),/OPERATION_KEY_REUSED/);
   await assert.rejects(writer(actors.capturista,{...command,operationId:randomUUID()}),/MATCH_STATE_BLOCKED/);
   assert.deepEqual(await snapshot(),after,'replay and rejected corrections do not duplicate statistics or any effects');
-  console.log('PDGLD-152/85: receptores reales inyectados en escritor de prueba; clasificación, concurrencia, reenvío y rollback comprobados; cierre público sigue bloqueado.');
+  console.log('PDGLD-152/85: cierre oficial, clasificación, concurrencia, reenvío y rollback comprobados con Preview.');
 }

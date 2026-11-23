@@ -152,7 +152,13 @@ read.push('guardian_consents');
 read.push('referee_presentation_credentials');
 lock.push('referee_presentations');
 // PDGLD-147: solamente captura privada; sin escritura en resultados, clasificación o estados.
-read.push('lineups','player_period_participations','match_report_syncs','event_types');
+read.push('lineups','player_period_participations','match_report_syncs','event_types','standing_entries');
+readColumns.standing_entries = ['id','standing_version_id','season_team_id','points','rank','score_for'];
+readColumns.standing_versions.push('season_id','calculation_data');
+readColumns.match_results.push('validated_by');
+insert.match_results = ['match_id','home_score','away_score','source','validated_by','offending_team_id','reason','counts_in_standings','validated_at','version'];
+insert.standing_versions = ['season_id','group_id','matchday_id','competition_rule_id','version_number','input_fingerprint','calculation_data'];
+insert.standing_entries = ['standing_version_id','group_id','season_id','season_team_id','rank','played','won','drawn','lost','score_for','score_against','points'];
 // PDGLD-18: inicio coordinado con reloj y acuse. No se habilita cierre oficial.
 insert.match_status_history.push('created_at');
 update.matches = ['status_id','version','venue_id','starts_at','ends_at','reserved_until'];
@@ -165,7 +171,7 @@ readColumns.matchdays.push('start_date', 'end_date');
 readColumns.match_statuses.push('name');
 readColumns.matchdays.push('number');
 insert.match_reports = ['id','match_id','client_id','captured_by','source','status','version','remarks','home_captain_signature_file_id','away_captain_signature_file_id','draft_data','created_at'];
-update.match_reports = ['version','remarks','home_captain_signature_file_id','away_captain_signature_file_id','draft_data'];
+update.match_reports = ['version','remarks','home_captain_signature_file_id','away_captain_signature_file_id','draft_data','status','confirmed_at'];
 insert.lineups = ['id','match_report_id','registration_id','season_team_id','jersey_number','is_captain','is_starter','validated_by'];
 insert.player_period_participations = ['id','lineup_id','period_number','entry_minute','exit_minute'];
 insert.match_events = ['id','match_report_id','event_type_id','season_team_id','lineup_id','outgoing_lineup_id','period_number','minute','second','description'];

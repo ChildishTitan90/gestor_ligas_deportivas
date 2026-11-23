@@ -1,9 +1,13 @@
 const messages: Record<string, string> = {
+  STANDINGS_RULES_INCOMPLETE: "La liga debe aprobar la puntuación y los criterios de desempate antes de confirmar la cédula. El borrador permanece guardado.",
   NO_SHOW_ACTION_REQUIRED: "Usa Registrar incomparecencia para enviar esta captura; o retira la selección para continuar con la cédula normal.",
   NO_SHOW_STATE_INVALID: "La incomparecencia solo puede registrarse antes de iniciar el partido y bloquear las alineaciones.",
   NO_SHOW_CAPTURE_CONFLICT: "No se puede registrar la ausencia con reloj, eventos, tiempos, marcador o firmas de un partido iniciado.",
   NO_SHOW_ABSENT_LINEUP: "Retira de la convocatoria a los jugadores del equipo que indicaste como ausente.",
   NO_SHOW_RESULT_EXISTS: "El partido ya tiene un resultado registrado. Consulta a la autoridad de la liga.",
+  FORBIDDEN: "Solo el árbitro asignado y autorizado puede confirmar esta incomparecencia.",
+  STALE_MATCH: "El partido cambió. Recarga la cédula antes de volver a confirmar.",
+  STALE_REPORT: "La cédula cambió. Recárgala antes de volver a confirmar.",
   STALE_VERSION: "Cambió la versión del partido o de la cédula. Conservamos tu copia para comparar y revisar antes de continuar.",
   CLOCK_TIME_CONFLICT: "La hora capturada está fuera del intervalo permitido o es anterior al periodo vigente. Conserva la copia para revisión.",
   PARTICIPATION_RETRY_REQUIRED: "Otra captura cambió al mismo tiempo. Conservamos tus datos; vuelve a guardar.",

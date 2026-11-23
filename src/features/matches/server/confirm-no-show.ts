@@ -7,7 +7,8 @@ import { assertOwnRefereeAssignment } from "@/server/auth/authorization-domain";
 import { reportAccess } from "@/features/match-reports/server/access";
 import { draftSchema } from "@/features/match-reports/contract";
 import { proposedNoShowScore } from "@/features/match-reports/no-show";
-import type { ConfirmationContext, ConfirmationEffects } from "@/features/match-reports/server/confirmation-effects";
+import type { ConfirmationEffects } from "@/features/match-reports/server/confirmation-effects";
+import { calculateConfirmedNoShowStandingsInTransaction } from "@/features/standings/server/service";
 import { MatchTransitionError } from "../transition-rules";
 
 const schema=z.strictObject({matchId:z.uuid(),reportId:z.uuid(),operationId:z.uuid(),
@@ -15,7 +16,7 @@ const schema=z.strictObject({matchId:z.uuid(),reportId:z.uuid(),operationId:z.uu
 
 /** Receptor interno. El llamador debe aportar efectos reales y compartir la
  * transacción; no habilitar la entrada pública sin clasificación integrada. */
-export async function confirmNoShowInTransaction(tx:Prisma.TransactionClient,actorId:string,raw:unknown,effects:Pick<ConfirmationEffects,"openIncidentCases"> & {updateStandings(tx:Prisma.TransactionClient,context:ConfirmationContext):Promise<void>}) {
+export async function confirmNoShowInTransaction(tx:Prisma.TransactionClient,actorId:string,raw:unknown,effects:Pick<ConfirmationEffects,"openIncidentCases">) {
   const parsed=schema.safeParse(raw);
   if(!parsed.success) throw new MatchTransitionError("INVALID_CONFIRMATION",400);
   const input=parsed.data, hash=createHash("sha256").update(JSON.stringify(input)).digest("hex");
@@ -49,21 +50,20 @@ export async function confirmNoShowInTransaction(tx:Prisma.TransactionClient,act
   if(!permitted) throw new AuthorizationError();
   await tx.$queryRaw`SELECT set_config('app.user_id',${actorId},true),set_config('app.reason','Confirmación de incomparecencia por árbitro',true),set_config('app.correlation_id',${input.operationId},true)`;
   await tx.match_results.create({data:{match_id:match.id,home_score:score.home,away_score:score.away,source:"DEFAULT",
-    offending_team_id:draft.data.noShow.absent==="HOME"?match.home_team_id:match.away_team_id,validated_by:actorId,reason:"Incomparecencia confirmada por árbitro"}});
+    offending_team_id:draft.data.noShow.absent==="HOME"?match.home_team_id:match.away_team_id,validated_by:actorId,reason:"Incomparecencia confirmada por árbitro"},select:{id:true}});
   const updated=await tx.matches.updateMany({where:{id:match.id,version:match.version,status_id:match.status_id,deleted_at:null},data:{status_id:finished.id,version:{increment:1}}});
   if(updated.count!==1) throw new MatchTransitionError("STALE_MATCH");
   await tx.match_status_history.create({data:{id:input.operationId,match_id:match.id,previous_status_id:match.status_id,new_status_id:finished.id,
     user_id:actorId,reason:"Confirmación de incomparecencia por árbitro",expected_version:input.expectedMatchVersion}});
-  await effects.updateStandings(tx,{actorId,matchId:match.id,reportId:report.id,operationId:input.operationId,
-    expectedMatchVersion:input.expectedMatchVersion,homeScore:score.home,awayScore:score.away,eventIds:[],dismissals:[]});
-  await effects.openIncidentCases(tx,{actorId,matchId:match.id,reportId:report.id,operationId:input.operationId,
-    expectedMatchVersion:input.expectedMatchVersion,homeScore:score.home,awayScore:score.away,eventIds:[],dismissals:[]});
   const confirmedAt=new Date();
   const presentation=stored.presentation ? {...stored.presentation,
-    report:{...(stored.presentation.report as object),status:"CONFIRMED",version:report.version+1,confirmedAt:confirmedAt.toISOString()},
+    report:{...(stored.presentation.report as object),status:"CONFIRMED",version:report.version+1,confirmedAt:confirmedAt.toISOString(),score},
     match:{...(stored.presentation.match as object),version:match.version+1,status:{code:"FINISHED",label:"Finalizado",captureAllowed:false}}} : undefined;
   await tx.match_reports.update({where:{id:report.id},data:{status:"CONFIRMED",confirmed_at:confirmedAt,version:{increment:1},
     draft_data:{...stored,...(presentation?{presentation}:{})} as Prisma.InputJsonValue}});
+  await calculateConfirmedNoShowStandingsInTransaction(tx,actorId,report.id);
+  await effects.openIncidentCases(tx,{actorId,matchId:match.id,reportId:report.id,operationId:input.operationId,
+    expectedMatchVersion:input.expectedMatchVersion,homeScore:score.home,awayScore:score.away,eventIds:[],dismissals:[]});
   const receipt={matchId:match.id,reportId:report.id,matchVersion:match.version+1,reportVersion:report.version+1};
   await tx.match_report_syncs.create({data:{client_id:input.operationId,match_report_id:report.id,user_id:actorId,
     base_version:input.expectedReportVersion,status:"APPLIED",private_payload:{hash,receipt,command:{kind:"confirm-no-show",...input}}}});

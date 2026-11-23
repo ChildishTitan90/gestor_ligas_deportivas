@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { reportAccess } from '@/features/match-reports/server/access';
+import { draftSchema } from '@/features/match-reports/contract';
+import { proposedNoShowScore } from '@/features/match-reports/no-show';
 import { isTransactionConflict } from '@/server/db/transaction-conflict';
 import { getPrisma } from '@/server/db/prisma';
 import { requireOperationalUser } from '@/server/auth/session';
@@ -33,7 +35,9 @@ async function projectStandings(tx: Tx, scope: Awaited<ReturnType<typeof context
   const parameters = await tx.$queryRaw<{ key: string; value: unknown; pending: boolean; validated: boolean }[]>`SELECT parameter_key AS key, parameter_value AS value, requires_validation AS pending, validated_by IS NOT NULL AS validated FROM sports_management.competition_rule_parameters WHERE competition_rule_id=${ruleId}::uuid ORDER BY parameter_key`;
   if (rule?.status !== 'APPROVED' || !rule.approved || parameters.some(p => p.pending || !p.validated)) throw Error('RULES_NOT_APPROVED');
   const values = Object.fromEntries(parameters.map(p => [p.key, p.value]));
-  const configuration = ruleSchema.parse({ points: values.points, tieBreakers: values.tieBreakers });
+  const parsedRules = ruleSchema.safeParse({ points: values.points, tieBreakers: values.tieBreakers });
+  if (!parsedRules.success) throw Error('RULES_NOT_APPROVED');
+  const configuration = parsedRules.data;
   const teams = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM sports_management.season_teams WHERE group_id=${groupId}::uuid AND season_id=${seasonId}::uuid ORDER BY id`;
   const results = await tx.$queryRaw<ResultInput[]>`SELECT r.id, m.id AS "matchId", r.version, m.home_team_id AS home, m.away_team_id AS away,
     r.home_score AS "homeScore", r.away_score AS "awayScore", r.source, ms.code AS status, r.counts_in_standings AS counts,
@@ -105,14 +109,21 @@ async function materializeStandings(tx: Tx, actorId: string, scope: Awaited<Retu
 /** Derived effect of an authorized confirmation, never a general competitions write.
  * All scope and official evidence are read from this transaction, not the command.
  * Reauthorizes capture (including effective referee assignment) after finalization. */
-export async function calculateConfirmedReportStandingsInTransaction(tx: Tx, actorId: string, reportId: string) {
+async function calculateConfirmedStandingsInTransaction(tx: Tx, actorId: string, reportId: string, expectedSource: 'MATCH_REPORT' | 'DEFAULT') {
   const [isolation] = await tx.$queryRaw<{ level: string }[]>`SELECT current_setting('transaction_isolation') AS level`;
   if (isolation.level !== 'serializable') throw Error('STANDINGS_SERIALIZABLE_REQUIRED');
-  const report = await tx.match_reports.findUniqueOrThrow({ where: { id: z.uuid().parse(reportId) }, select: { match_id: true, status: true, confirmed_at: true } });
+  const report = await tx.match_reports.findUniqueOrThrow({ where: { id: z.uuid().parse(reportId) }, select: { match_id: true, status: true, confirmed_at: true, draft_data: true } });
   const match = await reportAccess(tx, actorId, report.match_id, 'UPDATE');
   const source = await tx.matches.findUniqueOrThrow({ where: { id: match.id }, select: { group_id: true, matchday_id: true } });
-  const result = await tx.match_results.findUnique({ where: { match_id: match.id }, select: { source: true, counts_in_standings: true } });
-  if (report.status !== 'CONFIRMED' || !report.confirmed_at || match.match_statuses.code !== 'FINISHED' || result?.source !== 'MATCH_REPORT' || !result.counts_in_standings) throw Error('CONFIRMED_RESULT_REQUIRED');
+  const result = await tx.match_results.findUnique({ where: { match_id: match.id }, select: { source: true, counts_in_standings: true, home_score: true, away_score: true, offending_team_id: true } });
+  if (report.status !== 'CONFIRMED' || !report.confirmed_at || match.match_statuses.code !== 'FINISHED' || result?.source !== expectedSource || !result.counts_in_standings) throw Error('CONFIRMED_RESULT_REQUIRED');
+  if (expectedSource === 'DEFAULT') {
+    const draft = draftSchema.safeParse((report.draft_data as { draft?: unknown } | null)?.draft);
+    if (!draft.success || !draft.data.noShow || draft.data.noShow.absent === 'BOTH') throw Error('CONFIRMED_RESULT_REQUIRED');
+    const score = proposedNoShowScore(draft.data.noShow);
+    const offender = draft.data.noShow.absent === 'HOME' ? match.home_team_id : match.away_team_id;
+    if (!score || result.home_score !== score.home || result.away_score !== score.away || result.offending_team_id !== offender) throw Error('CONFIRMED_RESULT_REQUIRED');
+  }
   if (!source.group_id || !source.matchday_id) throw Error('INVALID_STANDING_CONTEXT');
   const scope = await context(tx, actorId, { groupId: source.group_id, matchdayId: source.matchday_id }, true, true);
   // Refresh existing later cuts too: late confirmation must not leave saved tables stale.
@@ -123,6 +134,14 @@ export async function calculateConfirmedReportStandingsInTransaction(tx: Tx, act
   for (const day of later) receipts.push(await materializeStandings(tx, actorId,
     await context(tx, actorId, { groupId: scope.groupId, matchdayId: day.id }, true, true)));
   return receipts;
+}
+
+export async function calculateConfirmedReportStandingsInTransaction(tx: Tx, actorId: string, reportId: string) {
+  return calculateConfirmedStandingsInTransaction(tx, actorId, reportId, 'MATCH_REPORT');
+}
+
+export async function calculateConfirmedNoShowStandingsInTransaction(tx: Tx, actorId: string, reportId: string) {
+  return calculateConfirmedStandingsInTransaction(tx, actorId, reportId, 'DEFAULT');
 }
 
 export async function calculateGroupStandings(input: unknown) {
