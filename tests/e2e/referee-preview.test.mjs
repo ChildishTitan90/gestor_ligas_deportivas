@@ -76,7 +76,7 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
     await wait(`!document.querySelector('[role="listbox"]')`);
   }
   async function click(text) {
-    await pointerClick(`[...(document.querySelector('dialog[open]')??document).querySelectorAll('button,a')].find(el=>el.getClientRects().length&&!el.disabled&&el.textContent.trim()===${JSON.stringify(text)})`);
+    await pointerClick(`[...(document.querySelector('dialog[open]')??document).querySelectorAll('button,a')].find(el=>el.getClientRects().length&&!el.disabled&&(el.getAttribute('aria-label')??el.textContent.trim())===${JSON.stringify(text)})`);
   }
   async function key(key, code = key, value = undefined) {
     await browser.command('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: value });
@@ -121,8 +121,10 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
 
   await click('Reiniciar demostración');
   await view('quota');
-  assert.match(await ev('document.body.textContent'), /ceil\(5\/4\) = 2/);
-  assert.match(await ev('document.body.textContent'), /ceil\(9\/4\) = 3/);
+  assert.deepEqual(await ev(`['Brisas', 'Roble'].map(club => {
+    const row = [...document.querySelectorAll('article')].find(item => item.querySelector('h3').textContent.includes(club));
+    return [...row.querySelectorAll('dd')].map(cell => Number(cell.textContent));
+  })`), [[5, 3, 2, 0], [9, 1, 3, 2]]);
   assert.match(await ev('document.body.textContent'), /Faltan 2 árbitros/);
   await view('assignments');
   assert.match(await ev('document.body.textContent'), /Árbitro inactivo/);
@@ -197,6 +199,19 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
       await view(name);
       if (name === 'availability') await pick('availability-referee', 'Ciro');
       assert.equal(await ev('document.documentElement.scrollWidth<=innerWidth'), true, `${theme}/${width}/${name} sin desbordamiento`);
+      if (['register', 'quota', 'assignments'].includes(name)) {
+        assert.equal(await ev(`(() => {
+          const items = [...document.querySelectorAll('article')].map(item => item.getBoundingClientRect());
+          return items.length > 1 && items.slice(1).every((item, index) =>
+            Math.abs(item.left - items[index].left) < 1 && item.top >= items[index].bottom);
+        })()`), true, `${theme}/${width}/${name} presenta un registro por renglón`);
+      }
+      if (name === 'assignments' && width === 1440) {
+        assert.equal(await ev(`(() => {
+          const positions = [...document.querySelectorAll('article')].map(item => item.children[1].getBoundingClientRect().left);
+          return positions.every(left => Math.abs(left - positions[0]) < 1);
+        })()`), true, `${theme} alinea árbitros aunque cambie la longitud de la acción`);
+      }
       if (process.env.REFEREE_SCREENSHOTS) {
         await ev('window.scrollTo(0,0);new Promise(resolve=>requestAnimationFrame(resolve))');
         const directory = resolve(process.env.REFEREE_SCREENSHOTS); await mkdir(directory, { recursive: true });
@@ -231,11 +246,11 @@ test('PDGLD-142: padrón, conflictos, cuotas, historial, foco y temas con fixtur
   for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
     await browser.command('Emulation.setDeviceMetricsOverride', { width, height: 1000, deviceScaleFactor: 1, mobile: width < 600 });
     await ev(`document.documentElement.dataset.theme=${JSON.stringify(theme)};window.renderLiveRegister()`);
-    assert.deepEqual(await ev(`[...document.querySelector('article').querySelectorAll('button,a')].map(el=>el.textContent.trim())`), ['Acceso de árbitro', 'Editar Alba', 'Historial de Alba']);
+    assert.deepEqual(await ev(`[...document.querySelector('article').querySelectorAll('button,a')].map(el=>el.getAttribute('aria-label'))`), ['Acceso de árbitro para Alba', 'Editar Alba', 'Historial de Alba']);
     assert.equal(await ev(`(()=>{const [access,edit]=document.querySelector('article').querySelectorAll('a,button');return access.getBoundingClientRect().top<=edit.getBoundingClientRect().top})()`), true);
     await ev(`document.querySelector('article a').focus()`);
     await key('Tab', 'Tab', 9);
-    assert.equal(await ev('document.activeElement.textContent.trim()'), 'Editar Alba');
+    assert.equal(await ev(`document.activeElement.getAttribute('aria-label')`), 'Editar Alba');
     assert.equal(await ev('document.documentElement.scrollWidth<=innerWidth'), true);
   }
   await ev(`window.renderLiveRegister(false)`);
