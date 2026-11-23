@@ -15,6 +15,7 @@ const messages: Record<string, string> = {
   SECOND_HALF_STARTER: "Quien participa solo en el segundo tiempo debe iniciar en banca.",
   HALFTIME_ENTRY_REQUIRED: "El traslado de partido solo admite entrada al inicio del segundo tiempo, minuto relativo 0 y segundo 0.",
   FIRST_HALF_PLAYER_MUST_LEAVE: "Retira mediante un cambio de descanso a quien reservó solo el primer tiempo, antes de iniciar el segundo.",
+  CONFIRMATION_REQUIRES_SAVED_DRAFT: "Guarda primero los cambios y las firmas, espera su acuse y vuelve a solicitar la confirmación.",
   CONFIRMATION_DEPENDENCIES_PENDING: "La confirmación final todavía no está disponible. Guarda el borrador para conservar esta captura y continuar después.",
   BREAK_SUBSTITUTIONS_ONLY: "Durante el descanso solo puedes registrar cambios de jugadores. Los demás eventos se capturan con el tiempo en juego o posteriormente.",
   BREAK_SUBSTITUTION_TIME: "Los cambios del descanso se registran al inicio del segundo tiempo, con segundos en 00.",

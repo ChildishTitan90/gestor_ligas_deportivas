@@ -7,7 +7,7 @@ import { assertOwnRefereeAssignment } from "@/server/auth/authorization-domain";
 import { reportAccess } from "@/features/match-reports/server/access";
 import { draftSchema } from "@/features/match-reports/contract";
 import { proposedNoShowScore } from "@/features/match-reports/no-show";
-import type { ConfirmationEffects } from "@/features/match-reports/server/confirmation-effects";
+import type { ConfirmationContext, ConfirmationEffects } from "@/features/match-reports/server/confirmation-effects";
 import { MatchTransitionError } from "../transition-rules";
 
 const schema=z.strictObject({matchId:z.uuid(),reportId:z.uuid(),operationId:z.uuid(),
@@ -15,7 +15,7 @@ const schema=z.strictObject({matchId:z.uuid(),reportId:z.uuid(),operationId:z.uu
 
 /** Receptor interno. El llamador debe aportar efectos reales y compartir la
  * transacción; no habilitar la entrada pública sin clasificación integrada. */
-export async function confirmNoShowInTransaction(tx:Prisma.TransactionClient,actorId:string,raw:unknown,effects:Pick<ConfirmationEffects,"updateStandings"|"openIncidentCases">) {
+export async function confirmNoShowInTransaction(tx:Prisma.TransactionClient,actorId:string,raw:unknown,effects:Pick<ConfirmationEffects,"openIncidentCases"> & {updateStandings(tx:Prisma.TransactionClient,context:ConfirmationContext):Promise<void>}) {
   const parsed=schema.safeParse(raw);
   if(!parsed.success) throw new MatchTransitionError("INVALID_CONFIRMATION",400);
   const input=parsed.data, hash=createHash("sha256").update(JSON.stringify(input)).digest("hex");
