@@ -134,12 +134,15 @@ export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient,
     assert.equal((await player()).participation.length,2);
     const finished = await db.match_statuses.findUniqueOrThrow({where:{code:"FINISHED"}});
     const beforeTimes = await db.player_period_participations.findMany({where:{lineup_id:lineup.id},orderBy:{id:"asc"}});
-    await audit(tx=>tx.matches.update({where:{id:match.id},data:{status_id:finished.id,starts_at:null,ends_at:null,reserved_until:null}}));
-    try {
-      await assert.rejects(db.$transaction(tx=>recordParticipationInTransaction(tx,user.id,{...input,expectedReportVersion:2,periods:[]})),/MATCH_FINISHED/);
-      assert.equal((await db.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,2);
-      assert.deepEqual(await db.player_period_participations.findMany({where:{lineup_id:lineup.id},orderBy:{id:"asc"}}),beforeTimes);
-    } finally { await audit(tx=>tx.matches.update({where:{id:match.id},data:{status_id:match.status_id,starts_at:match.starts_at,ends_at:match.ends_at,reserved_until:match.reserved_until}})); }
+    // El partido finalizado es inmutable. La prueba se revierte en vez de
+    // intentar devolverlo a un estado anterior mediante una actualización.
+    await assert.rejects(audit(async tx=>{
+      await tx.matches.update({where:{id:match.id},data:{status_id:finished.id,starts_at:null,ends_at:null,reserved_until:null}});
+      await assert.rejects(recordParticipationInTransaction(tx,user.id,{...input,expectedReportVersion:2,periods:[]}),/MATCH_FINISHED/);
+      assert.equal((await tx.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,2);
+      assert.deepEqual(await tx.player_period_participations.findMany({where:{lineup_id:lineup.id},orderBy:{id:"asc"}}),beforeTimes);
+      throw Error("FINISHED_TEST_ROLLBACK");
+    }),/FINISHED_TEST_ROLLBACK/);
     await assert.rejects(db.$transaction(tx=>recordParticipationInTransaction(tx,user.id,{...input,expectedReportVersion:2,periods:[{periodNumber:1,entryMinute:40,exitMinute:10}]})));
   });
   await t.test("PDGLD-16: reprogramación concurrente conserva tiempos y devuelve STALE_MATCH", async () => {
