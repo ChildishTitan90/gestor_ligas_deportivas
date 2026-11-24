@@ -47,7 +47,8 @@ test("PDGLD-121: bajas, reactivación, concurrencia, ámbito e historial", async
       assert.ok(html.includes("Administrar clubes y equipos"));
       assert.ok(html.includes(club.reference_number));
       assert.ok(!html.includes(other.reference_number));
-      assert.ok(html.includes("Tiene referencias o historial"));
+      assert.match(html, /historial bloquean la eliminación/i);
+      assert.ok(!html.includes("Eliminar definitivamente"));
       const teamsPage = await browser.request("/clubs?kind=team");
       const teamsHtml = await teamsPage.text();
       assert.ok(teamsHtml.includes(team.reference_number));

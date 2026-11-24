@@ -7,7 +7,7 @@ export function ManagementPageHeader({ title, description, back, context = [] }:
   back: { href: string; label: string };
   context?: readonly { label: string; value: string }[];
 }) {
-  return <header className="space-y-3">
+  return <div className="space-y-3">
     <nav aria-label="Volver en gestión">
       <Link href={back.href} className="inline-flex min-h-11 items-center gap-1 rounded-lg text-sm font-semibold text-primary underline-offset-4 hover:underline">
         <ChevronLeft aria-hidden="true" size={18} />{back.label}
@@ -20,5 +20,5 @@ export function ManagementPageHeader({ title, description, back, context = [] }:
         <dt className="text-xs text-muted">{label}</dt><dd className="wrap-anywhere font-medium text-primary">{value}</dd>
       </div>)}
     </dl>}
-  </header>;
+  </div>;
 }
