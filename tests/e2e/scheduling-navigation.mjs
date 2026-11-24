@@ -270,12 +270,10 @@ try {
   await wait("document.querySelector('dialog[open] textarea')",'Segunda solicitud');
   await browser.evaluate("(()=>{const el=document.querySelector('dialog[open] textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,'Grupo sin horarios');el.dispatchEvent(new Event('input',{bubbles:true}));})()");
   await clickButton('Generar');
-  await wait("document.querySelector('summary')?.textContent.startsWith('Ver encuentros sin horario viable')",'Conflictos de disponibilidad');
-  assert.match(await browser.evaluate("document.querySelector('[role=alert]')?.innerText ?? ''"),/Revisa la disponibilidad y los bloqueos/);
-  await browser.evaluate("document.querySelector('summary').click()");
-  assert.match(await browser.evaluate("document.querySelector('details[open] li').innerText"),/Jornada 1.*Local: Equipo.*Visitante: Equipo/);
-  assert.match(await browser.evaluate("document.querySelector('details[open]').innerText"),/No se encontró una apertura con tiempo suficiente/);
-  assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'1');
+  await wait("document.body.innerText.includes('No se encontró disponibilidad suficiente para la jornada')",'Propuesta con horarios pendientes');
+  await browser.evaluate("if (!document.querySelector('summary').parentElement.open) document.querySelector('summary').click()");
+  assert.match(await browser.evaluate("document.querySelector('details[open]').innerText"),/No se encontró disponibilidad suficiente para la jornada/);
+  assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'2');
   // Respuestas simuladas para verificar cómo se explican los otros resultados.
   for (const [code,message] of [['NO_SOLUTION','no se pudo acomodar'],['SEARCH_LIMIT','no significa que sea imposible']]) {
     await run(code=>{
@@ -298,7 +296,7 @@ try {
     if(code==='NO_SOLUTION') assert.match(alert,/No se encontró una combinación para acomodar el calendario completo/);
     else assert.ok(alert.includes(message));
   }
-  assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'1');
+  assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'2');
   console.log('Chrome: propuesta con canchas compartidas aprobadas, recuperación sin duplicado y conflictos verificados.');
 } finally {
   try {await browser?.close();} finally {

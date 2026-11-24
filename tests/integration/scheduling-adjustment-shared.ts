@@ -26,6 +26,7 @@ export async function verifySharedProposalEditing(f: {actor:string;outsider:stri
   const id = generated.proposalId;
   const beforeMatches = await db.matches.count();
   const beforeReservations = await db.venue_reservations.count();
+  const beforePublications = await db.publications.count();
   try {
     const row = await db.schedule_proposals.findUniqueOrThrow({where:{id}});
     await assert.rejects(approvedSchedulePdfForActor(f.actor,id),SchedulePdfUnavailable);
@@ -52,8 +53,17 @@ export async function verifySharedProposalEditing(f: {actor:string;outsider:stri
         if(entry.changed) {assert.equal(changed.matches[index].venueId,null);assert.equal(changed.matches[index].start,null);}
         else assert.deepEqual(changed.matches[index],proposal.matches[index]);
       });
+      const changedIndex=expected.findIndex(entry=>entry.changed);
+      const oldSlot=proposal.matches[changedIndex];
+      assert.ok(oldSlot.venueId && oldSlot.start && oldSlot.reservedUntil);
+      await tx.$queryRaw`SELECT set_config('app.user_id',${f.actor},true),set_config('app.reason','Bloqueo después de intercambiar equipos',true)`;
+      await tx.venue_availability.create({data:{venue_id:oldSlot.venueId,starts_at:new Date(oldSlot.start),ends_at:new Date(oldSlot.reservedUntil),type:"BLOCK",reason:"Cancha bloqueada tras intercambio"}});
+      const changedBlocked=await editStoredProposalInTransaction(tx,f.actor,{proposalId:id,expectedVersion:row.version+1,encounterIndex:changedIndex,venueId:oldSlot.venueId,startsAt:oldSlot.start,reason:"Intentar asignar una cancha bloqueada"});
+      assert.equal(changedBlocked.code,"INVALID_SCHEDULE");
+      assert.ok("conflicts" in changedBlocked && changedBlocked.conflicts?.some(conflict=>conflict.code==="VENUE_BLOCK"),"El nuevo enfrentamiento debe revalidar la cancha");
+      assert.equal((await tx.schedule_proposals.findUniqueOrThrow({where:{id}})).version,row.version+1);
       assert.equal((await saveTeamSwapInTransaction(tx,f.actor,swap)).code,"STALE_PROPOSAL");
-      assert.equal(await tx.audit_logs.count({where:{entity_id:id,action:"UPDATE",reason:swap.reason}}),1);
+      assert.equal(await tx.audit_logs.count({where:{entity_id:id,action:"UPDATE",reason:swap.reason,user_id:f.actor}}),1);
       throw rollbackSwap;
     },{isolationLevel:"Serializable",timeout:30000}),error=>error===rollbackSwap);
     const original = proposal.matches[0];
@@ -68,6 +78,15 @@ export async function verifySharedProposalEditing(f: {actor:string;outsider:stri
       end:new Date(free.start+90*60000).toISOString(),reservedUntil:new Date(free.start+120*60000).toISOString()};
     const input = { proposalId:id, expectedVersion:1, encounterIndex:0, venueId:first.venueId,
       startsAt:first.start, swapHomeAway:true, reason:"Intercambio de localía validado" };
+    const occupied=proposal.matches.find((match,index)=>index!==0 && match.venueId && match.start);
+    assert.ok(occupied?.venueId && occupied.start);
+    const overlap=await editStoredProposalForActor(f.actor,{...input,venueId:occupied.venueId,startsAt:occupied.start,swapHomeAway:false,reason:"Intentar usar cancha ya ocupada"});
+    assert.equal(overlap.code,"INVALID_SCHEDULE");
+    assert.ok("conflicts" in overlap && overlap.conflicts?.some(conflict=>conflict.code==="SLOT_CONFLICT"));
+    const outside=await editStoredProposalForActor(f.actor,{...input,startsAt:"2030-01-06T03:00:00.000Z",swapHomeAway:false,reason:"Intentar horario fuera de disponibilidad"});
+    assert.equal(outside.code,"INVALID_SCHEDULE");
+    assert.ok("conflicts" in outside && outside.conflicts?.some(conflict=>conflict.code==="NO_OPENING"));
+    assert.equal((await db.schedule_proposals.findUniqueOrThrow({where:{id}})).version,1,"Los horarios rechazados no deben modificar la propuesta");
     // La lectura autorizada incluye autor y calendario completo.
     const detail = await readStoredProposalForActor(f.actor, {proposalId:id});
     assert.equal(detail.code,"PROPOSAL_DETAIL");
@@ -92,7 +111,7 @@ export async function verifySharedProposalEditing(f: {actor:string;outsider:stri
     assert.equal(edited.matches[0].reservedUntil,first.reservedUntil);
     assert.equal(edited.requestHash,proposal.requestHash);
     assert.deepEqual(edited.byes,proposal.byes);
-    assert.equal(await db.audit_logs.count({where:{entity_id:id,reason:input.reason,action:"UPDATE"}}),1);
+    assert.equal(await db.audit_logs.count({where:{entity_id:id,reason:input.reason,action:"UPDATE",user_id:f.actor}}),1);
 
     const rollback = Error("ROLLBACK_BLOQUEO_PDGLD25");
     await assert.rejects(db.$transaction(async tx => {
@@ -122,28 +141,64 @@ export async function verifySharedProposalEditing(f: {actor:string;outsider:stri
       });
     }
 
-    const concurrent = await Promise.all([0,1].map(()=>editStoredProposalForActor(f.actor,{...input,expectedVersion:2,swapHomeAway:false})));
+    const edits=[{...input,expectedVersion:2,swapHomeAway:false,reason:"Primer ajuste simultáneo"},
+      {...input,expectedVersion:2,swapHomeAway:true,reason:"Segundo ajuste simultáneo"}];
+    const concurrent = await Promise.all(edits.map(edit=>editStoredProposalForActor(f.actor,edit)));
     assert.equal(concurrent.filter(result=>result.code==="ADJUSTMENT_SAVED").length,1);
     assert.ok(concurrent.some(result=>["STALE_PROPOSAL","ADJUSTMENT_CONFLICT"].includes(result.code)));
-    assert.equal((await db.schedule_proposals.findUniqueOrThrow({where:{id}})).version,3);
+    const winner=edits[concurrent.findIndex(result=>result.code==="ADJUSTMENT_SAVED")];
+    const afterConcurrent=await db.schedule_proposals.findUniqueOrThrow({where:{id}});
+    assert.equal(afterConcurrent.version,3);
+    const afterConcurrentMatch=storedProposalSchema.parse(afterConcurrent.parameters).matches[0];
+    assert.equal(afterConcurrentMatch.home,winner.swapHomeAway?first.home:first.away);
+    assert.equal(await db.audit_logs.count({where:{entity_id:id,user_id:f.actor,reason:winner.reason,action:"UPDATE"}}),1);
+    assert.equal(await db.audit_logs.count({where:{entity_id:id,reason:edits.find(edit=>edit!==winner)!.reason,action:"UPDATE"}}),0);
     assert.equal((await changeProposalReviewForActor(f.actor,{proposalId:id,expectedVersion:2,operation:"submit",reason:"Envío con versión antigua"})).code,"STALE_PROPOSAL");
     const sent = await changeProposalReviewForActor(f.actor,{proposalId:id,expectedVersion:3,operation:"submit",reason:"Calendario revalidado para revisión"});
     assert.equal(sent.code,"PROPOSAL_UPDATED");
     const reviewed = await db.schedule_proposals.findUniqueOrThrow({where:{id}});
     assert.equal(reviewed.status,"IN_REVIEW");
     assert.equal(reviewed.version,4);
+    assert.equal(await db.audit_logs.count({where:{entity_id:id,user_id:f.actor,reason:"Calendario revalidado para revisión",action:"UPDATE"}}),1);
+    assert.equal(await db.matches.count(),beforeMatches,"Enviar a revisión no debe crear partidos");
+    assert.equal(await db.venue_reservations.count(),beforeReservations,"Enviar a revisión no debe reservar canchas");
+    assert.equal(await db.publications.count(),beforePublications,"Enviar a revisión no debe publicar contenido");
     assert.equal((await editStoredProposalForActor(f.actor,{...input,expectedVersion:4})).code,"INVALID_PROPOSAL_TRANSITION");
     const [reviewer] = await db.$queryRaw<{reviewer:string}[]>`SELECT reviewer FROM public.scheduling_fixture`;
     await assert.rejects(changeProposalReviewForActor(f.actor,{proposalId:id,expectedVersion:4,operation:"approve",reason:"No debe aprobar el programador"}),{message:"FORBIDDEN"});
-    const approved = await changeProposalReviewForActor(reviewer.reviewer,{proposalId:id,expectedVersion:4,operation:"approve",reason:"Revisión con permiso exclusivo de aprobación"});
+    const returned=await changeProposalReviewForActor(reviewer.reviewer,{proposalId:id,expectedVersion:4,operation:"return",reason:"Corregir propuesta antes de aprobar"});
+    assert.equal(returned.code,"PROPOSAL_UPDATED");
+    assert.equal(await db.audit_logs.count({where:{entity_id:id,user_id:reviewer.reviewer,reason:"Corregir propuesta antes de aprobar",action:"UPDATE"}}),1);
+    assert.equal((await changeProposalReviewForActor(f.actor,{proposalId:id,expectedVersion:5,operation:"submit",reason:"Enviar nuevamente a revisión"})).code,"PROPOSAL_UPDATED");
+    assert.equal(await db.audit_logs.count({where:{entity_id:id,user_id:f.actor,reason:"Enviar nuevamente a revisión",action:"UPDATE"}}),1);
+    // Provoca un fallo después de insertar un partido para comprobar el rollback de toda la aprobación.
+    await db.$executeRawUnsafe(`CREATE FUNCTION public.test_pdgld138_approval_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF (SELECT count(*) FROM sports_management.matches WHERE schedule_proposal_id = NEW.schedule_proposal_id) >= 1 THEN RAISE EXCEPTION 'PDGLD138_TEST_FAILURE'; END IF; RETURN NEW; END $$`);
+    await db.$executeRawUnsafe(`CREATE TRIGGER test_pdgld138_approval_failure BEFORE INSERT ON sports_management.matches FOR EACH ROW EXECUTE FUNCTION public.test_pdgld138_approval_failure()`);
+    try {
+      await assert.rejects(changeProposalReviewForActor(reviewer.reviewer,{proposalId:id,expectedVersion:6,operation:"approve",reason:"Simular fallo durante la aprobación"}), /PDGLD138_TEST_FAILURE/);
+      assert.equal(await db.matches.count(),beforeMatches,"El fallo debe revertir los partidos insertados");
+      assert.equal(await db.venue_reservations.count(),beforeReservations,"El fallo debe revertir las reservas");
+      const afterFailure=await db.schedule_proposals.findUniqueOrThrow({where:{id}});
+      assert.equal(afterFailure.status,"IN_REVIEW");
+      assert.equal(afterFailure.version,6);
+    } finally {
+      await db.$executeRawUnsafe(`DROP TRIGGER test_pdgld138_approval_failure ON sports_management.matches`);
+      await db.$executeRawUnsafe(`DROP FUNCTION public.test_pdgld138_approval_failure()`);
+    }
+    const approved = await changeProposalReviewForActor(reviewer.reviewer,{proposalId:id,expectedVersion:6,operation:"approve",reason:"Revisión con permiso exclusivo de aprobación"});
     assert.equal(approved.code,"PROPOSAL_UPDATED");
     assert.equal((await db.schedule_proposals.findUniqueOrThrow({where:{id}})).status,"APPROVED");
+    assert.equal(await db.audit_logs.count({where:{entity_id:id,user_id:reviewer.reviewer,reason:"Revisión con permiso exclusivo de aprobación",action:"UPDATE"}}),1);
     const pdf=await PDFDocument.load(await approvedSchedulePdfForActor(f.actor,id));
     assert.ok(pdf.getPageCount()>0);
     assert.equal(pdf.getTitle(),"Programación de jornadas");
     await assert.rejects(approvedSchedulePdfForActor(f.outsider,id),{message:"FORBIDDEN"});
     assert.equal(await db.matches.count(),beforeMatches+proposal.matches.length);
     assert.equal(await db.venue_reservations.count(),beforeReservations+proposal.matches.length);
+    assert.equal(await db.publications.count(),beforePublications,"Aprobar operativamente no debe publicar contenido");
+    assert.equal((await changeProposalReviewForActor(reviewer.reviewer,{proposalId:id,expectedVersion:6,operation:"approve",reason:"Revisión con permiso exclusivo de aprobación"})).code,"STALE_PROPOSAL");
+    assert.equal(await db.matches.count(),beforeMatches+proposal.matches.length,"Repetir la aprobación no debe duplicar partidos");
+    assert.equal(await db.venue_reservations.count(),beforeReservations+proposal.matches.length,"Repetir la aprobación no debe duplicar reservas");
     assert.equal(await db.matches.count({where:{schedule_proposal_id:id,match_statuses:{code:"SCHEDULED"}}}),proposal.matches.length);
     const operational=await db.matches.findMany({where:{schedule_proposal_id:id},select:{id:true,version:true,venue_id:true,starts_at:true,ends_at:true,reserved_until:true,home_team_id:true,away_team_id:true}});
     const match=operational.find(m=>m.starts_at?.toISOString().startsWith("2030-01-06"));
@@ -201,6 +256,7 @@ export async function verifySharedProposalEditing(f: {actor:string;outsider:stri
     const activation={proposalId:legacyId,expectedVersion:1,reason:"Activar aprobación anterior"};
     await assert.rejects(activatePreviouslyApprovedProposalForActor(f.outsider,activation),{message:"FORBIDDEN"});
     assert.equal((await activatePreviouslyApprovedProposalForActor(reviewer.reviewer,activation)).code,"SCHEDULE_ACTIVATED");
+    assert.equal(await db.publications.count(),beforePublications,"Activar una propuesta aprobada no debe publicar contenido");
     assert.equal(await db.matches.count({where:{schedule_proposal_id:legacyId}}),legacy.matches.length);
     assert.equal((await activatePreviouslyApprovedProposalForActor(reviewer.reviewer,activation)).code,"PROPOSAL_ALREADY_MATERIALIZED");
   } finally {
