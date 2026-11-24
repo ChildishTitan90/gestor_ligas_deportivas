@@ -10,6 +10,7 @@ import { createReviewController, type ReviewController } from "../affiliation-re
 import { AffiliationReviewList } from "./affiliation-review-list";
 import { AffiliationReviewFilters } from "./affiliation-review-filters";
 import { emptyReviewFilters, filterReviewItems, type ReviewFilters } from "../affiliation-review-filters";
+import { useAffiliationLeaveWarning } from "../use-affiliation-leave-warning";
 
 const buttonClass = "min-h-12 rounded-xl border border-border bg-surface px-5 py-3 text-sm font-semibold text-primary hover:bg-background disabled:opacity-50";
 const historyLabels = {
@@ -30,30 +31,29 @@ const errors = {
 };
 
 type LeagueOption = { id: string; name: string };
-export function AffiliationReviewWorkspace({ leagues }: { leagues: LeagueOption[] }) {
+export function AffiliationReviewWorkspace({ leagues, initialLeague }: { leagues: LeagueOption[]; initialLeague?: string }) {
   const [controller] = useState(() => createReviewController(createReviewApi()));
-  return <AffiliationReviewView controller={controller} leagues={leagues} />;
+  return <AffiliationReviewView controller={controller} leagues={leagues} initialLeague={initialLeague} />;
 }
 
 /** Las pruebas inyectan su controlador; la página real solo usa el adaptador HTTP. */
-export function AffiliationReviewView({ controller, leagues = [] }: { controller: ReviewController; leagues?: LeagueOption[] }) {
+export function AffiliationReviewView({ controller, leagues = [], initialLeague }: { controller: ReviewController; leagues?: LeagueOption[]; initialLeague?: string }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const prefix = useId();
   const [filters, setFilters] = useState<ReviewFilters>({ ...emptyReviewFilters });
   const [reviewDialog, setReviewDialog] = useState<"corrections" | "approval" | null>(null);
   const observationsRef = useRef<HTMLTextAreaElement>(null);
   const { detail } = state;
+  const detailLeague = leagues.find(league => league.id === detail?.leagueId);
   const detailHeading = useRef<HTMLHeadingElement>(null);
+  const resultsSection = useRef<HTMLElement>(null);
+  const resultsHeading = useRef<HTMLHeadingElement>(null);
+  const detailTrigger = useRef<HTMLButtonElement>(null);
   const approveButton = useRef<HTMLButtonElement>(null);
   const firstCategory = useRef<HTMLInputElement>(null);
   useEffect(() => { if (detail) detailHeading.current?.focus(); }, [detail]);
   useEffect(() => { if (state.categoryError) firstCategory.current?.focus(); }, [state.categoryError]);
-  useEffect(() => {
-    if (!state.pendingReview) return;
-    function warn(event: BeforeUnloadEvent) { event.preventDefault(); event.returnValue = ""; }
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [state.pendingReview]);
+  useAffiliationLeaveWarning(state.pendingReview ? "La revisión aún no tiene un resultado confirmado. ¿Salir de la bandeja?" : null);
   useEffect(() => {
     if (!state.download) return;
     const timeout = setTimeout(controller.clearDownload, Math.max(0, state.download.expiresAt - Date.now()));
@@ -76,12 +76,26 @@ export function AffiliationReviewView({ controller, leagues = [] }: { controller
   const canReview = detail?.status === "PENDING" && !state.error && !busy;
   const results = filterReviewItems(state.items, filters);
   const approving = reviewDialog === "approval" || state.confirming;
+  function returnToResults() {
+    const affiliationId = detail?.id;
+    controller.closeDetail();
+    requestAnimationFrame(() => {
+      const trigger = detailTrigger.current;
+      if (trigger?.isConnected && trigger.getClientRects().length) {
+        trigger.focus();
+        return;
+      }
+      const matchingTrigger = [...(resultsSection.current?.querySelectorAll<HTMLButtonElement>("[data-affiliation-review-id]") ?? [])]
+        .find(button => button.dataset.affiliationReviewId === affiliationId && button.getClientRects().length);
+      (matchingTrigger ?? resultsHeading.current)?.focus();
+    });
+  }
   async function resolvePending(retry = false) {
     if (retry) await controller.retryReview(); else await controller.reconcile();
     if (!controller.getSnapshot().pendingReview) setReviewDialog(null);
   }
   return <div className="mt-6 space-y-6">
-    <AffiliationReviewFilters leagues={leagues} items={state.items} sourceLeague={state.leagueId} sourceStatus={state.status} busy={busy || !!state.pendingReview} onQuery={(league, status, nextFilters) => {
+    <AffiliationReviewFilters leagues={leagues} initialLeague={initialLeague} items={state.items} sourceLeague={state.leagueId} sourceStatus={state.status} busy={busy || !!state.pendingReview} onQuery={(league, status, nextFilters) => {
       setFilters(nextFilters); void controller.load(league, status);
     }} />
     {state.fieldError && <p id={`${prefix}-field-error`} role="alert" className="text-danger">{state.fieldError}</p>}
@@ -94,10 +108,10 @@ export function AffiliationReviewView({ controller, leagues = [] }: { controller
         <button type="button" disabled={busy} onClick={() => void controller.load(state.leagueId, state.status)} className={`${buttonClass} mt-3`}>Volver a consultar</button>}
     </div>}
     {state.loading && <p role="status">Cargando solicitudes…</p>}
-    {!state.loading && !state.error && state.loaded && <section aria-label="Resultados de afiliaciones" className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold text-primary">{state.status === "APPROVED" ? "Afiliaciones aprobadas" : "Solicitudes pendientes"}</h2>
+    {!state.loading && !state.error && state.loaded && <section ref={resultsSection} aria-label="Resultados de afiliaciones" className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3"><h2 ref={resultsHeading} tabIndex={-1} className="scroll-mt-28 text-lg font-semibold text-primary">{state.status === "APPROVED" ? "Afiliaciones aprobadas" : "Solicitudes pendientes"}</h2>
         <p role="status" className="text-sm text-muted">{results.total} {results.total === 1 ? "resultado" : "resultados"} en esta consulta</p></div>
-      <AffiliationReviewList disabled={busy || !!state.pendingReview} status={state.status} onSelect={id => void controller.open(id)}
+      <AffiliationReviewList disabled={busy || !!state.pendingReview} status={state.status} onSelect={(id, trigger) => { detailTrigger.current = trigger; void controller.open(id); }}
       items={results.items.map(item => ({
         ...item, detailHref: "#affiliation-detail",
       }))} />
@@ -110,8 +124,15 @@ export function AffiliationReviewView({ controller, leagues = [] }: { controller
     {state.detailLoading && <p role="status">Cargando detalle…</p>}
     {detail && <section id="affiliation-detail" aria-labelledby={`${prefix}-detail-title`} aria-busy={state.submitting}
       className="space-y-5 rounded-3xl border border-border bg-surface p-5 sm:p-7">
-      <h2 ref={detailHeading} id={`${prefix}-detail-title`} tabIndex={-1} className="text-xl font-semibold text-primary">{detail.clubName} · {detail.referenceNumber}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 ref={detailHeading} id={`${prefix}-detail-title`} tabIndex={-1} className="scroll-mt-28 wrap-anywhere text-xl font-semibold text-primary">{detail.clubName} · {detail.referenceNumber}</h2>
+        <button type="button" disabled={busy || !!state.pendingReview} onClick={returnToResults} className={buttonClass}>Volver a resultados</button>
+      </div>
+      <p className="rounded-lg bg-soft p-3 text-sm leading-6">{detail.status === "APPROVED" ? "La aprobación ya está registrada. El club puede consultar el resultado en su seguimiento."
+        : detail.reviewPhase === "CORRECTIONS_REQUESTED" ? "El siguiente paso corresponde al club. La revisión se reanudará cuando reenvíe las correcciones."
+          : detail.allowedActions.length ? "Secretaría tiene el siguiente paso. Revisa los requisitos antes de decidir." : "Tu cuenta puede consultar esta solicitud. La decisión corresponde al personal autorizado."}</p>
       <dl className="grid gap-4 text-sm sm:grid-cols-2">
+        {detailLeague && <div><dt className="text-muted">Liga</dt><dd>{detailLeague.name}</dd></div>}
         <div><dt className="text-muted">Temporada</dt><dd>{detail.seasonName}</dd></div>
         <div><dt className="text-muted">Estado de aprobación</dt><dd>{{ PENDING: "Pendiente", APPROVED: "Aprobada" }[detail.status]}</dd></div>
         <div><dt className="text-muted">Fase de revisión</dt><dd>{detail.reviewPhase === "AWAITING_REVIEW" ? "Pendiente de revisión" : detail.reviewPhase === "CORRECTIONS_REQUESTED" ? "Correcciones solicitadas" : "No aplica"}</dd></div>
@@ -125,11 +146,15 @@ export function AffiliationReviewView({ controller, leagues = [] }: { controller
         <h3 id={`${prefix}-officers-title`} className="font-semibold">Directivos y firmas privadas</h3>
         <ul className="space-y-3">
           {detail.officers.map(officer => <li key={officer.office} className="space-y-2 rounded-xl border border-border p-3 text-sm">
-            <p className="font-medium">{officeNames[officer.office]}</p>
-            <p>{[officer.firstName, officer.paternalSurname, officer.maternalSurname].filter(Boolean).join(" ")}</p>
-            {officer.signatureFileId ? <button type="button" className={buttonClass} disabled={busy || state.confirming || !!state.error}
-              onClick={() => void controller.signature(officer.signatureFileId!)}>Consultar firma de {officeNames[officer.office].toLowerCase()}</button> :
-              <p>Sin firma registrada.</p>}
+            <div className="flex flex-col items-start gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
+              <div className="min-w-0 space-y-2 wrap-anywhere">
+                <p className="font-medium">{officeNames[officer.office]}</p>
+                <p>{[officer.firstName, officer.paternalSurname, officer.maternalSurname].filter(Boolean).join(" ")}</p>
+              </div>
+              {officer.signatureFileId ? <button type="button" className={`${buttonClass} md:shrink-0`} disabled={busy || state.confirming || !!state.error}
+                onClick={() => void controller.signature(officer.signatureFileId!)}>Consultar firma de {officeNames[officer.office].toLowerCase()}</button> :
+                <p>Sin firma registrada.</p>}
+            </div>
             {state.download && state.download.fileId === officer.signatureFileId && <div className="space-y-2">
               <p>Enlace temporal disponible durante un máximo de 60 segundos.</p>
               <SignatureReviewPreview

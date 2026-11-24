@@ -44,7 +44,10 @@ export function createTeamRegistrationFormController(initialOptions: TeamRegistr
     let draft = { ...state.draft, [field]: value };
     if (field === "clubId") draft = { ...emptyDraft(), clubId: value };
     if (field === "seasonId") draft = { ...emptyDraft(), clubId: draft.clubId, seasonId: value };
-    if (field === "teamMode") draft = { ...draft, teamId: "", teamName: "", categoryId: "", groupId: "" };
+    if (field === "teamMode") {
+      const { club } = registrationChoices(options, draft);
+      draft = { ...draft, teamId: "", teamName: value === "new" ? club?.name ?? "" : "", categoryId: "", groupId: "" };
+    }
     if (field === "teamId") draft = { ...draft, categoryId: "", groupId: "" };
     if (field === "categoryId") draft.groupId = "";
     publish({ draft: reconcile(options, draft), errors: {}, message: "" });

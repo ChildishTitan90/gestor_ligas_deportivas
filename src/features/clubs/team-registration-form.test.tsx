@@ -116,6 +116,7 @@ test("captura existente entrega identidad y ámbito sin nombre nuevo ni estado",
 test("captura nueva exige nombre, muestra errores asociados y entrega solo nombre recortado", async () => {
   const { controller, calls } = setup(); chooseScope(controller);
   controller.change("teamMode", "new");
+  assert.equal(controller.getSnapshot().draft.teamName, options.clubs[0].name);
   assert.match(render(controller), /Crear equipo/);
   chooseGroup(controller);
   controller.change("teamName", "   "); await controller.submit();

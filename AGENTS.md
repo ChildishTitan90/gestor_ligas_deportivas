@@ -191,6 +191,12 @@ Consultar y revisar la skill pertinente antes de aplicarla; una referencia en es
 - `docs/revision-entorno.md`: validaciones realizadas y dependencias pendientes.
 - Next.js: `node_modules/next/dist/docs/01-app/01-getting-started/02-project-structure.md`, `01-app/02-guides/data-security.md`, `01-app/02-guides/authentication.md` y `01-app/02-guides/progressive-web-apps.md`.
 
+## Invariantes de orientación y continuidad
+
+- Cada recorrido identifica su ubicación, objetivo y contexto autorizado. Representar con pasos las etapas que la persona puede completar y mostrar por separado el estado oficial y el próximo responsable del trámite.
+- Explicar requisitos y bloqueos antes de enviar. La acción principal nombra su efecto real. Distinguir captura en pantalla, guardado local, acuse del servidor, resultado incierto, corrección y conflicto según el contrato vigente. Advertir antes de descartar datos y conservar la intención original para reintentos permitidos.
+- Aplicar los cambios compartidos deliberadamente dentro del recorrido revisado. Reutilizar tokens, temas, layout y controles vigentes. Verificar pantallas consumidoras, teclado, foco, ambos temas y móvil/escritorio. Registrar por separado evidencia renderizada, pruebas simuladas y recorridos con sesión y backend aislados.
+
 ## Selectores desplegables compartidos
 
 - Usar `components/ui/select-field.tsx` (`SelectField`) para seleccionar valores en formularios, filtros, paneles y demostraciones. No añadir `<select>`, `<datalist>`, menús del sistema ni otra implementación particular por pantalla. El menú de cuenta conserva su componente y semántica propios.
