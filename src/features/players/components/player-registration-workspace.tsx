@@ -5,9 +5,9 @@ import { SelectField } from "@/components/ui/select-field";
 import { FormDialog } from "@/components/ui/form-dialog";
 import { focusFormControl } from "@/components/ui/focus-form-control";
 import { registerPlayerSchema, jerseyNumberFromField } from "../schemas";
-import { playerRequest, PlayerRequestError, playerListSchema, playerResultSchema } from "../player-client";
+import { curpStateSchema, playerRequest, PlayerRequestError, playerListSchema, playerResultSchema } from "../player-client";
 import {describeAdmissionRule} from "../age-exception";
-import { playerErrorMessages } from "../player-feedback";
+import { curpStatusLabels, playerErrorMessages } from "../player-feedback";
 import type { PlayerListItem, PlayerTeamOption } from "../types";
 import { CurpVerificationPanel } from "./curp-verification-panel";
 import Link from "next/link";
@@ -63,8 +63,17 @@ export function PlayerRegistrationWorkspace({ actorId, teams, initialPlayers=[],
       const parsed = playerResultSchema.safeParse(await playerRequest(actorId, "/api/player-registrations", pending.current, fetcher));
       if (!parsed.success) throw new PlayerRequestError("UNCONFIRMED", true);
       setPhase("confirmed"); setSelectedRecord(parsed.data.registrationId); setRefresh(value => value + 1);
-      setMessage(parsed.data.ageExceptionPending?"Captura recibida sin habilitación. Abre el expediente, carga la carta de excepción y presenta la petición a Secretaría.":parsed.data.status==="ACTIVE"?"Jugador registrado y activo. Puedes abrir su expediente para completar los documentos.":parsed.data.identityReviewStatus === "REQUIRED" ? "Registro recibido. Requiere revisión de identidad por Secretaría antes de aprobarse."
-        : parsed.data.curpVerification==="VERIFIED"?"CURP verificada. Completa los requisitos de su categoría en el expediente.":"Jugador registrado. La verificación de CURP sigue pendiente; consulta su estado sin volver a registrar al jugador.");
+      if (parsed.data.ageExceptionPending) {
+        setMessage("Captura recibida sin habilitación. Abre el expediente, carga la carta de excepción y presenta la petición a Secretaría.");
+      } else {
+        const curp = curpStateSchema.shape.status.safeParse(parsed.data.curpVerification);
+        const result = curp.success ? curpStatusLabels[curp.data]
+          : parsed.data.curpVerification === "USAGE_LIMIT_REACHED" ? "Se alcanzó el límite de consultas de CURP. Consulta su estado desde el listado."
+          : "Consulta el estado de la CURP desde el listado.";
+        const registration = parsed.data.status === "ACTIVE" ? "Jugador registrado y activo." : "Jugador registrado.";
+        const review = parsed.data.identityReviewStatus === "REQUIRED" ? " Secretaría debe revisar la identidad antes de aprobar el registro." : "";
+        setMessage(`${registration} ${result}${review}`);
+      }
     } catch (error) {
       if (error instanceof PlayerRequestError && !error.uncertain) {
         pending.current = null; setPhase("editing"); setMessage((playerErrorMessages[error.code] ?? "No se pudo registrar. Revisa los datos e intenta nuevamente.")+(error.rule?" "+describeAdmissionRule(error.rule):""));

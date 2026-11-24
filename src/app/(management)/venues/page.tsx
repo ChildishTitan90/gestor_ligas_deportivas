@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ManagementPageHeader } from "@/components/layout/management-page-header";
 import { SelectField } from "@/components/ui/select-field";
 import { AuthorizationError } from "@/server/auth/authorization";
 import { AuthAccessError } from "@/server/auth/session";
@@ -91,11 +92,13 @@ export default async function VenuesPage({ searchParams }: {
   const date = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short", timeZone: league.timezone });
   const status = ({ venue: "Cancha guardada.", interval: "Intervalo guardado.", removed: "Intervalo retirado.", assignment: "Asignación guardada. La disponibilidad se vuelve a comprobar al programar cada partido." } as Record<string, string>)[params.saved ?? ""];
   return <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6">
-    <h1 className="text-2xl font-semibold">Canchas y disponibilidad</h1>
+    <ManagementPageHeader title="Canchas y disponibilidad" description="Consulta el catálogo y los horarios de uso y bloqueo por cancha."
+      back={{ href: "/access", label: "Volver al panel" }}
+      context={[{ label: "Liga", value: league.name }, { label: "Zona horaria", value: league.timezone }]} />
     {params.error && <p role="alert">{errorMessages[params.error] ?? errorMessages.UNAVAILABLE}</p>}
     {status && <p role="status">{status}</p>}
     <form className="flex flex-wrap items-end gap-3" action="/venues">
-      <label className="min-w-48">Liga<SelectField name="league" defaultValue={league.id}
+      <label className="w-full max-w-xs">Liga<SelectField name="league" defaultValue={league.id}
         options={data.leagues.map(item => ({ value: item.id, label: item.name }))} /></label>
       <button type="submit" className="min-h-11 rounded-xl border border-border px-4">Ver canchas</button>
     </form>
@@ -109,15 +112,16 @@ export default async function VenuesPage({ searchParams }: {
       <h2 className="text-xl font-semibold">Catálogo de canchas</h2>
       {data.venues.length ? <ul className="grid gap-2 sm:grid-cols-2">
         {data.venues.map(item => <li key={item.id}>
-          <Link href={`/venues?league=${league.id}&venue=${item.id}`} aria-current={item.id === venue?.id ? "page" : undefined}
-            className="block rounded-xl border border-border px-3 py-2 underline">
+          <Link href={`/venues?league=${league.id}&venue=${item.id}#venue-details`} aria-current={item.id === venue?.id ? "page" : undefined}
+            className="flex min-h-11 items-center rounded-xl border border-border px-3 py-2 underline aria-[current=page]:border-accent aria-[current=page]:bg-soft aria-[current=page]:font-semibold">
             {item.name} · {item.code}{item.is_active ? "" : " · Inactiva"}
           </Link>
         </li>)}
       </ul> : <p>Esta liga todavía no tiene canchas registradas.</p>}
     </section>
 
-    {venue && <section className={card}>
+    {!venue && data.venues.length > 0 && <p className="text-sm text-muted">Selecciona una cancha para consultar sus intervalos.</p>}
+    {venue && <section id="venue-details" className={`${card} scroll-mt-24`}>
       <h2 className="text-xl font-semibold">{venue.name}</h2>
       <p>{venue.address} · {venue.is_league_sports_complex ? "Unidad deportiva" : "Particular"}</p>
       <p>Club dueño: {data.clubs.find(club => club.id === venue.owner_club_id)?.name ?? (venue.owner_club_id ? "No disponible" : "Sin dueño registrado")}</p>
@@ -143,7 +147,7 @@ export default async function VenuesPage({ searchParams }: {
       </details>}
 
       <h3 className="text-lg font-semibold">Disponibilidad y bloqueos</h3>
-      <p>Zona horaria de la liga: {league.timezone}</p>
+      <p className="text-sm text-muted">Los intervalos definen cuándo puede usarse la cancha. La reserva se confirma al programar un partido.</p>
       {data.canUpdate && <details open={!venue.venue_availability.length}>
         <summary className="mb-3 cursor-pointer font-semibold">Agregar disponibilidad o bloqueo</summary>
         <IntervalForm league={league} venueId={venue.id} />

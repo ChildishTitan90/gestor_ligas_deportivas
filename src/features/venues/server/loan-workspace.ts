@@ -60,7 +60,8 @@ export async function getVenueLoanWorkspace() {
       const ownerPending = r.owner_decision_required && !r.owner_decision;
       const ownerCanReview = ownerPending && delegates.some(g => g.clubId === r.venues.owner_club_id && g.leagueId === r.seasons.league_id);
       return { id: r.id, venue: r.venues.name, club: r.clubs.name, season: r.seasons.name, zone, status: r.status, reason: r.review_reason ?? r.owner_review_reason,
-        stage: r.status === "PENDING" ? (ownerPending ? "Pendiente del club dueño" : "Pendiente de la liga") : null,
+        ownerReviewRequired: r.owner_decision_required,
+        reviewStage: r.owner_decision_required && r.owner_decision !== "APPROVED" ? "OWNER" as const : "LEAGUE" as const,
         windows: windows.success ? windows.data.map(w => `${format(w.startsAt)} – ${format(w.endsAt)}`) : [],
         review: r.status === "PENDING" && r.requested_by !== actor.id && r.seasons.status !== "CLOSED" &&
           (ownerCanReview || (!ownerPending && presidents.some(g => (!g.leagueId || g.leagueId === r.seasons.league_id) && (!g.clubId || g.clubId === r.club_id)))) };

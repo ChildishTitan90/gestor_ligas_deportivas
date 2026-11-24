@@ -53,21 +53,24 @@ export function MaintenanceList({ items }: { items: MaintenanceRow[] }) {
   return <>
     <p role="status" className="my-4 text-sm text-primary">{message}</p>
     {!items.length ? <p className="rounded-2xl border border-border bg-surface p-6">No hay registros para estos filtros.</p> :
-      <ul className="grid gap-4">{items.map(row => <li key={row.id} className="rounded-2xl border border-border bg-surface p-5">
-        <h2 className="text-lg font-semibold text-primary">{row.name}</h2>
-        <p className="break-all text-sm text-muted">{row.reference}</p>
-        <p className="mt-2 text-sm">{row.leagueName}{row.kind === "team" ? ` · ${row.clubName}` : ""}</p>
-        <p className="my-3 font-medium">{row.kind === "team" ? effectiveStatus(row.status, row.clubStatus) : administrativeStatus(row.status)}</p>
-        <div className="flex flex-wrap gap-2">
-          <button className={button} onClick={() => open(row, "detail")}>Ver detalle e historial</button>
-          {row.canEdit && row.status === "ACTIVE" && row.clubStatus === "ACTIVE" && !row.hasHistory && <button className={button} onClick={() => open(row, "edit")}>Corregir nombre</button>}
-          {row.canChangeStatus && ["ACTIVE", "INACTIVE"].includes(row.status) && (row.kind === "club" || row.clubStatus === "ACTIVE") &&
-            <button className={button} onClick={() => open(row, row.status === "ACTIVE" ? "deactivate" : "reactivate")}>{row.status === "ACTIVE" ? "Dar de baja temporal" : "Reactivar"}</button>}
-          {row.canDelete && <button className={button} onClick={() => open(row, "delete")}>Eliminar definitivamente</button>}
+      <ul className="divide-y divide-border rounded-2xl border border-border bg-surface">{items.map(row => <li key={row.id} className="space-y-3 p-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(12rem,1fr)_auto] lg:items-center lg:gap-5">
+          <div className="min-w-0 space-y-1">
+            <h2 className="wrap-anywhere font-semibold text-primary">{row.name}</h2>
+            <p className="wrap-anywhere text-sm text-muted">{row.reference} · {row.leagueName}{row.kind === "team" ? ` · ${row.clubName}` : ""}</p>
+            <p className="text-sm font-medium">{row.kind === "team" ? effectiveStatus(row.status, row.clubStatus) : administrativeStatus(row.status)}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button className={button} onClick={() => open(row, "detail")}>Ver detalle e historial</button>
+            {row.canEdit && row.status === "ACTIVE" && row.clubStatus === "ACTIVE" && !row.hasHistory && <button className={button} onClick={() => open(row, "edit")}>Corregir nombre</button>}
+            {row.canChangeStatus && ["ACTIVE", "INACTIVE"].includes(row.status) && (row.kind === "club" || row.clubStatus === "ACTIVE") &&
+              <button className={button} onClick={() => open(row, row.status === "ACTIVE" ? "deactivate" : "reactivate")}>{row.status === "ACTIVE" ? "Dar de baja temporal" : "Reactivar"}</button>}
+            {row.canDelete && <button className={button} onClick={() => open(row, "delete")}>Eliminar definitivamente</button>}
+          </div>
         </div>
-        {row.hasHistory && <p className="mt-3 text-sm text-muted">Tiene referencias o historial: el nombre requiere un trámite formal y la eliminación está bloqueada.</p>}
-        {row.kind === "team" && row.clubStatus !== "ACTIVE" && <p className="mt-3 text-sm text-muted">Para editar o reactivar este equipo, una autoridad de liga debe reactivar primero el club.</p>}
-        {!row.canEdit && !row.canChangeStatus && <p className="mt-3 text-sm text-muted">Tu permiso permite consultar este registro.</p>}
+        {row.hasHistory && <p className="text-sm text-muted">Las referencias y el historial bloquean la eliminación. Para corregir el nombre se requiere un trámite formal.</p>}
+        {row.kind === "team" && row.clubStatus !== "ACTIVE" && <p className="text-sm text-muted">Para editar o reactivar este equipo, una autoridad de liga debe reactivar primero el club.</p>}
+        {!row.canEdit && !row.canChangeStatus && <p className="text-sm text-muted">Tu permiso permite consultar este registro.</p>}
       </li>)}</ul>}
     <FormDialog open={!!selected} title={operation === "detail" ? "Detalle e historial" : operation === "delete" ? "Confirmar eliminación definitiva" : operation === "edit" ? "Corregir nombre" : operation === "deactivate" ? "Confirmar baja temporal" : "Confirmar reactivación"}
       description={selected?.name ?? "Club o equipo"} pending={pending} uncertain={uncertain}

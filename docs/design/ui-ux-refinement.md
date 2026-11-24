@@ -112,7 +112,15 @@ Las ejecuciones de esta sección corresponden a `7303aa8`. En `9766e12` se revis
 | Auditoría y propuesta | Inventario, revisión estática y validaciones de base registrados. La rama local ya incorpora `9766e12`. | Revisar el alcance propuesto para afiliación. |
 | Árbitros y designaciones | Listados compactos en `/referees`. Víctor revisó y aprobó el ajuste. | Usar el patrón cuando otro listado lo necesite. |
 | Invariantes y primera entrega funcional | Reglas incorporadas y recorrido de afiliación implementado. | Revisar el nuevo recorrido antes de extenderlo a equipos. |
-| Extensión progresiva | Inventariada. | Tras validar la primera entrega, continuar por inscripción de equipos, jugadores y expediente, y cédula con sincronización sobre la base que incorpora el nuevo registro de partidos. El resto se prioriza a partir de la tabla. |
+| Inscripción de equipos | Alta, historial y recuperación revisados. | Mantener el indicador ligado a la confirmación del servidor. |
+| Jugadores y expediente | Alta, estado de CURP, captura de INE e indicador del expediente revisados. | La validación externa real de CURP e INE corresponde al equipo humano. |
+| Cédula arbitral | Indicador en la captura y comprobación del guardado y la sincronización offline. | Conservar el acuse y el estado del guardado junto a la navegación. |
+| Secretaría y expediente | Bandeja, vistas de decisión, correcciones y participaciones refinadas. | Revisar la continuidad entre generación, revisión y aplicación de la programación. |
+| Programación y operación | Enlace a la propuesta específica, avance de revisión y activación, y contexto de jornada revisados. | Continuar con configuración de competencias y canchas. |
+| Configuración de competencias y canchas | Avance de temporada y de préstamos, contexto de liga y selección de cancha revisados. | Revisar administración de liga y catálogos. |
+| Administración de liga y catálogos | Acciones directas en cuentas y clubes. Contexto y vigencias visibles en órganos y cargos. | Continuar con disciplina y clasificación. |
+| Disciplina y clasificación | Estado de la convocatoria, búsqueda de artículos y corte fijo de clasificación. | Revisar portal público y acceso. |
+| Portal público y acceso | Portada, portal de fútbol e inicio de sesión con su diseño original. Etapas de recuperación y confirmación revisadas. | Revisar la integración de los recorridos en conjunto. |
 
 ## Ajuste de Árbitros y designaciones
 
@@ -138,3 +146,97 @@ Para revisar en el entorno local, entrar a Mi panel con una cuenta autorizada, a
 Durante esta entrega, `gestor_ligas_dev` tenía 13 migraciones pendientes. La navegación de gestión fallaba al seleccionar `schedule_proposals.status`, columna incorporada por `20261117010000_pdgld138_schedule_proposal_review`. Se aplicaron las migraciones versionadas solo al Docker local, se regeneró Prisma Client y se comprobó que la consulta de Registro de partidos volvió a completar. Las bases de prueba de afiliación se mantienen separadas de la base de desarrollo.
 
 Pasaron 28 comprobaciones HTTP de afiliación con Next.js, NextAuth y PostgreSQL aislados, incluidas alta, permisos, correcciones, aprobación concurrente, y lectura del mismo folio con `READ` y `UPDATE` tras retirar `CREATE`. Chrome recorrió solicitud de correcciones, revisión y reenvío con firmas sintéticas preasociadas, aprobación y consulta del mismo folio. Se comprobaron el foco de retorno a resultados, claro en escritorio y oscuro en móvil, y ausencia de desbordamiento horizontal en las capturas. Otro recorrido de Chrome usó transporte simulado para las tres cargas de una afiliación nueva, el doble intento y la recuperación del mismo reenvío. Los proveedores externos quedaron fuera de la validación. Pasaron `typecheck`, lint, `test:affiliation-review`, `test:dashboard`, `test:affiliation-input`, `test:signatures`, `test:affiliation-journey` y `test:management-ui`.
+
+## Entrega de inscripción de equipos
+
+En `/teams/registrations`, el encabezado compartido ofrece retorno al panel y los enlaces internos llevan al formulario y al historial. Los filtros del historial van en una fila en escritorio y se apilan en móvil. Al crear un equipo, el nombre inicial es el del club seleccionado y se puede editar. Cuando hay un envío pendiente, la consulta, recuperación y cancelación disponibles aparecen al inicio del formulario, junto al aviso y antes de la captura bloqueada.
+
+Para revisar, elige un club y una temporada autorizados. Selecciona «Crear equipo», comprueba el nombre inicial y revisa la indicación de grupo para la categoría seleccionada. Desde «Ir al historial», consulta el mismo club con y sin filtro de temporada. En un entorno de prueba, recupera un envío pendiente y comprueba que el resultado se anuncie y reciba el foco.
+
+Pasaron el lint de los componentes, `typecheck`, `test:team-registration` y el recorrido de Chrome `test:team-registration-browser`. Chrome usó transporte simulado para comprobar foco, recuperación, cancelación y cambio de cuenta. Queda pendiente la revisión visual de la página completa en móvil y escritorio y en ambos temas.
+
+Pasaron las 33 comprobaciones de `test:team-enrollments` con Next.js, NextAuth y PostgreSQL 17 en un contenedor temporal. Incluyeron alta tras aprobación, permisos, historial, concurrencia y recuperación por HTTP. El contenedor se detuvo al finalizar.
+
+## Indicador de etapas del expediente de jugadores
+
+El indicador usa círculos conectados, marca las etapas completadas y anuncia la actual mediante `aria-current`. En el expediente muestra Registro, Documentos y Revisión documental. El avance usa los requisitos acreditados o recibidos y la confirmación del expediente devuelta por el servidor. La habilitación deportiva se consulta por separado. Afiliación conserva sus etapas y reutiliza el indicador conectado.
+
+Para revisar, abre un expediente sintético, comprueba la etapa Documentos mientras falte un requisito y verifica el paso a Revisión documental cuando se reciban los documentos obligatorios. Con el expediente completo, las tres etapas muestran su marca de finalización.
+
+## Indicador en recorridos anteriores
+
+- Afiliación conserva sus etapas de captura. Después del envío, el seguimiento del club y el detalle de Secretaría muestran la solicitud registrada, la revisión o corrección vigente y la resolución. El estado del folio sigue diferenciando aprobación y rechazo.
+- La inscripción de equipos muestra Club y temporada, Equipo y categoría, y Confirmación. Las selecciones determinan el avance de captura. Un envío incierto sigue en Confirmación hasta obtener un resultado oficial. El historial sigue siendo una consulta independiente.
+- En arbitraje, Padrón, Designaciones, Cuota, Disponibilidad e Historial son vistas independientes. Las designaciones conservan su estado por registro porque pueden proponerse, aprobarse directamente o revocarse según el permiso y el estado del partido.
+
+## Captura y resultado de identidad
+
+- INE usa el indicador compartido con Frente, Reverso, Selfie y Revisión. «Iniciar con cámara» solicita permiso y muestra la guía frontal mientras abre el video. Al continuar con una foto tomada en cámara, el reverso gira y el video se abre en el mismo marco. Con movimiento reducido se muestra el reverso directamente. La cámara se detiene al tomar la foto y el marco muestra la vista previa. «Usar fotos del dispositivo» permite completar el recorrido sin permiso de cámara.
+- El acuse de registro y los paneles de CURP e INE informan el resultado de identidad separado de la habilitación deportiva. Las discrepancias identifican los campos registrados en el cotejo, sin mostrar los valores. Si el proveedor no da un motivo concluyente, la interfaz indica que el caso requiere revisión.
+- La pantalla y el servidor conservan el acuse ante discrepancia, revisión, respuestas ambiguas o resultados pendientes. Un nuevo intento se ofrece después de un fallo recuperable identificado o al verificar datos de identidad que cambiaron. Tras un fallo recuperable de INE, se pueden volver a revisar las fotos si siguen en memoria y corresponden a la misma versión de identidad. Los errores de acceso o saldo requieren intervención administrativa. Se conservan las cuotas y la confirmación explícita del envío.
+
+Para revisar con datos de prueba, completa Frente y Reverso con cámara simulada, cambia a archivo en Selfie y verifica que la revisión conserve las tres vistas previas. Comprueba que una discrepancia de CURP o un resultado no concluyente de INE muestre el motivo y permita consultar el acuse. Un fallo recuperable permite un nuevo intento explícito.
+
+Pasaron las pruebas de Chrome de INE, registro y expediente con cámara y transporte simulados, y las 65 comprobaciones de registro en PostgreSQL desechable. No hubo consultas a RENAPO ni Verificamex.
+
+## Indicador de etapas de la cédula arbitral
+
+La cédula en línea y la preparada para uso sin conexión comparten cinco botones conectados: Alineaciones, Participación, Eventos, Cierre y firmas, y Resumen. La etapa actual se anuncia con `aria-current`. Las marcas indican alineaciones selladas o una cédula completa confirmada. En una incomparecencia, el indicador permite ubicar el resumen sin marcar la captura ordinaria como completada.
+
+Cada botón utiliza la misma navegación, incluido el aviso de sellado de alineaciones al intentar avanzar. El estado de guardado de la copia, sincronización y acuse sigue junto a la navegación. Para revisar, abre un partido de prueba, navega con teclado a Cierre y firmas y vuelve a Participación. En la copia offline, guarda un cambio, consulta su estado y reconecta para comprobar el acuse sin perder la etapa activa.
+
+Pasaron las 21 comprobaciones de `test:match-report-ui` con datos sintéticos, incluidos teclado, foco y ambos temas a 360, 390 y 1440 px. También pasó `test:match-report-offline -- --postgres=17` con NextAuth, PostgreSQL desechable, Service Worker e IndexedDB. Se comprobó la reapertura sin red, el acuse al reconectar y la conservación de la captura posterior.
+
+## Secretaría y expediente de jugadores
+
+La bandeja de revisión muestra filtros de tipo compactos y conserva tipo, club y temporada al volver desde un caso. El texto de búsqueda queda en la pantalla de la bandeja. La revisión de INE abre la sección de evidencias del expediente y ofrece retorno al listado filtrado.
+
+Identidad, documentos y excepción de edad usan un encabezado con los datos del caso disponibles en su lectura autorizada. En la revisión de identidad y documentos, el indicador distingue la selección o comparación, la decisión y su acuse. En excepción de edad, corrección pendiente y participación superior vigente, el indicador usa el estado de la solicitud devuelto por el servidor. La habilitación deportiva se consulta en su apartado.
+
+Para revisar, filtra la bandeja por tipo, club y temporada, abre un documento y vuelve a los resultados. Con datos sintéticos, compara una coincidencia, consulta un archivo privado, registra una decisión y revisa el acuse. Comprueba que resolver la excepción de edad o una solicitud de corrección conserve el estado propio de la habilitación.
+
+Pasaron las comprobaciones de Chrome para bandeja, registro, revisión documental, identidad, excepción de edad, correcciones y participaciones, con datos sintéticos y ambos temas en la bandeja. También pasaron las 65 comprobaciones de `test:player-registrations` con PostgreSQL temporal y proveedores de identidad simulados.
+
+## Programación y operación de partidos
+
+Generar calendario y Reprogramar partido reutilizan los círculos conectados. El resultado de generación abre directamente el detalle de la propuesta guardada, incluso cuando se recupera una propuesta anterior. En esa vista, el avance usa el estado de revisión y el registro efectivo de partidos. Una aprobación con activación pendiente marca la aprobación como completada y mantiene activa la etapa de registro de partidos.
+
+Registro de partidos conserva la selección de jornada y las acciones autorizadas. El encabezado muestra liga, temporada y jornada, y cada partido agrupa fecha, cancha, programación y arbitraje. La reprogramación distingue datos, validación y cambio guardado. El formulario conserva la misma intención cuando la respuesta es incierta y los controles conservan sus descargas de PDF.
+
+Pasaron ocho comprobaciones de Chrome con datos sintéticos en móvil y escritorio, además de las pruebas de horario, PDF y transiciones. En Chrome con sesión y PostgreSQL temporal se comprobó que el guardado recupera la misma propuesta tras perder la respuesta y que su enlace abre exactamente ese detalle. El caso de prueba incluye las autorizaciones sintéticas de los clubes propietarios para que la asignación de canchas use el contrato vigente.
+
+## Configuración de competencias y canchas
+
+En Temporadas, el indicador reutiliza los círculos conectados y sigue cuatro hitos del servidor. La configuración, el cierre de inscripciones de equipos, la competencia activa y el cierre de temporada muestran la acción autorizada junto al avance. Reglas, categorías y grupos siguen disponibles como secciones. El retorno desde política documental apunta a la categoría de origen y el menú mantiene destacada la sección de Temporadas.
+
+Los préstamos muestran el horario y el avance en un renglón de dos columnas en escritorio. En móvil, el progreso aparece debajo del horario. Si corresponde el visto bueno del club dueño, el indicador lo muestra antes de la revisión de liga. El rechazo identifica quién tomó la decisión y conserva su motivo. La vista de canchas destaca el elemento seleccionado y lleva a sus intervalos de disponibilidad y bloqueo. El partido reserva su propio horario al quedar programado.
+
+Pasaron las 58 comprobaciones de competencias con NextAuth y PostgreSQL temporal y la prueba de formularios de configuración en Chrome con respuestas sintéticas. La revisión visual comprobó las tres vistas principales en claro y oscuro a 390 y 1440 px, con una comprobación adicional a 360 px. Se usaron datos sintéticos para revisar los cuatro hitos de temporada, cinco casos de préstamo y el filtro con teclado.
+
+## Administración de liga y catálogos
+
+La navegación y el panel llevan a Administrar cuentas. Desde el listado, las personas autorizadas para crear pueden abrir el formulario con «Crear cuenta» y volver a la misma búsqueda y página. Los permisos de creación por ámbito conservan esa entrada aunque la cuenta carezca de consulta global. El alta muestra los círculos de captura y cuenta creada. La segunda etapa requiere un acuse válido del servidor.
+
+Cada renglón muestra las acciones según los permisos y el estado de la cuenta. El detalle abre la consulta autorizada. Editar usuario, cambiar correo, restablecer acceso y cambiar el estado abren sus propios diálogos de confirmación, con lectura actual antes de operar. Se conserva el retorno de foco, el descarte de cambios y la consulta de una operación con resultado incierto.
+
+Clubes y equipos alinea acciones, contexto y estado administrativo en renglones. Órganos y cargos muestra liga, órgano, filtro de vigencia y periodo de cada nombramiento. Las operaciones conservan el historial y los permisos vigentes.
+
+Chrome con datos sintéticos comprobó las vistas en claro y oscuro a 390 y 1440 px y el ancho a 360 px. Se verificaron el retorno a la búsqueda desde Crear cuenta, la apertura directa de detalle y edición, el foco al cerrar con teclado, el descarte y la vista de solo lectura. Las respuestas simuladas comprobaron la etapa de captura ante un resultado incierto y la etapa final ante el acuse.
+
+En Chrome con NextAuth y PostgreSQL 17 temporal también pasaron la navegación desde el listado, el cambio de nombre de usuario, la baja, la reactivación, la detección de cambios concurrentes y el estado del correo con el transporte desactivado. Pasaron las pruebas de interfaz y contrato de cuentas, las del panel y las de contratos de mantenimiento de clubes.
+
+## Disciplina y clasificación
+
+El catálogo muestra la liga, la temporada y la versión de convocatoria consultada. Los círculos distinguen borrador y aprobación, según el estado registrado. La versión aplicable la determina la asociación con la categoría. En cada versión se pueden buscar artículos por código o descripción. Los renglones conservan consecuencia, origen, uso histórico y edición autorizada.
+
+El resultado de clasificación identifica competencia, temporada, categoría, grupo, jornada y reglamento. Cuando la jornada se elige automáticamente, «Fijar jornada» añade su identificador al enlace y mantiene el mismo corte al volver a abrirlo. El estado de la clasificación conserva la distinción entre cálculo validado, cálculo sin validar y consulta sin versión guardada. En móvil, los puntos aparecen junto al equipo y el resto de los totales queda debajo.
+
+Pasaron las 13 pruebas de cálculo de clasificación, las dos del contrato disciplinario y las siete comprobaciones del catálogo en PostgreSQL temporal con rol limitado y RLS. Con Chrome y NextAuth se comprobaron los filtros, el corte fijado, los totales, los casos sin resultados y con empate pendiente, y la denegación de acceso. En el catálogo se verificó la búsqueda por descripción y el cambio de borrador a una versión aprobada. Se guardaron capturas con datos sintéticos en claro y oscuro, en escritorio y móvil. Un recorrido simulado adicional comprobó el foco al cerrar el diálogo, el aviso al descartar cambios y el ancho a 360 px.
+
+## Portal público y acceso
+
+La portada, el portal de fútbol y el inicio de sesión conservan su diseño original. La portada lleva al portal de fútbol y la opción «Continuar como espectador» permite llegar desde el inicio de sesión. Las tres vistas restauradas se comprobaron en Chrome en ambos temas a 390 y 1440 px.
+
+La recuperación muestra los pasos de solicitud, nueva contraseña y actualización confirmada. El acuse de solicitud conserva el mensaje neutral. Un enlace inválido vuelve al paso de solicitar otro y la última etapa requiere el acuse de actualización. El cambio obligatorio indica que después corresponde volver a iniciar sesión. La confirmación de correo distingue la acción explícita del resultado, que puede ser confirmado, inválido o incierto. Ambos recorridos aceptan un enlace nuevo en la misma pestaña y conservan el formulario al usar «Saltar al contenido».
+
+Pasaron las pruebas de recuperación y confirmación de correo, mensajes de acceso y temas, incluida la suite de recuperación con PostgreSQL temporal, rol limitado, RLS y transporte simulado. En Chrome con NextAuth se comprobó el recorrido de espectadores, el inicio de sesión y el cambio obligatorio con inicio posterior usando la contraseña nueva. Las respuestas simuladas permitieron comprobar el acuse neutral, el enlace inválido, el enlace nuevo en la misma pestaña, el foco del resultado y el acuse final de recuperación y correo. Se revisó el ancho a 320 px y se guardaron capturas en claro y oscuro a 390 y 1440 px.

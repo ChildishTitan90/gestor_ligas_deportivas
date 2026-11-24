@@ -8,6 +8,7 @@ import { ActionLink } from "@/components/ui/action-link";
 import { createReviewApi } from "../affiliation-review-adapter";
 import { createReviewController, type ReviewController } from "../affiliation-review-controller";
 import { AffiliationReviewList } from "./affiliation-review-list";
+import { AffiliationReviewSteps } from "./affiliation-review-steps";
 import { AffiliationReviewFilters } from "./affiliation-review-filters";
 import { emptyReviewFilters, filterReviewItems, type ReviewFilters } from "../affiliation-review-filters";
 import { useAffiliationLeaveWarning } from "../use-affiliation-leave-warning";
@@ -128,6 +129,7 @@ export function AffiliationReviewView({ controller, leagues = [], initialLeague 
         <h2 ref={detailHeading} id={`${prefix}-detail-title`} tabIndex={-1} className="scroll-mt-28 wrap-anywhere text-xl font-semibold text-primary">{detail.clubName} · {detail.referenceNumber}</h2>
         <button type="button" disabled={busy || !!state.pendingReview} onClick={returnToResults} className={buttonClass}>Volver a resultados</button>
       </div>
+      <AffiliationReviewSteps phase={detail.status === "APPROVED" ? "APPROVED" : detail.reviewPhase === "CORRECTIONS_REQUESTED" ? "CORRECTIONS_REQUESTED" : "AWAITING_REVIEW"} />
       <p className="rounded-lg bg-soft p-3 text-sm leading-6">{detail.status === "APPROVED" ? "La aprobación ya está registrada. El club puede consultar el resultado en su seguimiento."
         : detail.reviewPhase === "CORRECTIONS_REQUESTED" ? "El siguiente paso corresponde al club. La revisión se reanudará cuando reenvíe las correcciones."
           : detail.allowedActions.length ? "Secretaría tiene el siguiente paso. Revisa los requisitos antes de decidir." : "Tu cuenta puede consultar esta solicitud. La decisión corresponde al personal autorizado."}</p>

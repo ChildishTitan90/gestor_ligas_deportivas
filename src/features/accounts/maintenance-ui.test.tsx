@@ -173,7 +173,7 @@ test("vista de consulta, vacío y sesión revocada no muestra correo privado ni 
   const props = { list: { items: [account], page: 1, pageSize: 20, total: 1 }, actorId, canUpdate: false, controller };
   const html = renderToStaticMarkup(<AccountMaintenanceWorkspaceView {...props} />);
   assert.match(html, /Detalle de cuenta/); assert.match(html, /Tu permiso permite consultar/);
-  assert.doesNotMatch(html, /actual@example.test|Editar username|Solicitar cambio de correo|<main|<select/);
+  assert.doesNotMatch(html, /actual@example.test|Editar usuario|Cambiar correo|Restablecer acceso|<main|<select/);
   assert.match(renderToStaticMarkup(<AccountMaintenanceWorkspaceView {...props} list={{ ...props.list, items: [], total: 0 }} />), /No hay cuentas/);
   const denied = fixture({ detail: async () => { throw new MaintenanceClientError("UNAUTHENTICATED", 401); } }); await denied.controller.open(account.id);
   const blocked = renderToStaticMarkup(<AccountMaintenanceWorkspaceView {...props} controller={denied.controller} />);

@@ -6,6 +6,9 @@ export type CurpCheckOutcome = typeof curpCheckOutcomes[number];
 export type CurpCheckStatus = CurpCheckOutcome | "PENDING" | "NOT_PERFORMED" | "NOT_CONFIGURED";
 export const identityFields = ["curp", "firstName", "paternalSurname", "maternalSurname", "birthDate"] as const;
 export type CurpMismatch = typeof identityFields[number];
+export function canRetryCurpVerification(status: CurpCheckStatus) {
+  return status === "UNAVAILABLE";
+}
 export type CurpProviderResult = { status: CurpCheckOutcome; mismatchedFields: CurpMismatch[] };
 export type CurpVerificationStatus = {
   registrationStatus?:string;

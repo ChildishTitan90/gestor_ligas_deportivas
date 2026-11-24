@@ -7,7 +7,7 @@ import { AuthorizationError, getPermissionGrants } from "@/server/auth/authoriza
 import { requireOperationalUser } from "@/server/auth/session";
 import { validatePrivateFileContent, type ValidatedBinaryFile } from "@/server/files/private-file-validation";
 import { assertPlayerRegistrationRead, lockPlayerTeamContext } from "./access";
-import { ineIntentSchema, ineOutcomes, ineParts, type IneOutcome, type IneStatus } from "../ine-verification";
+import { canRetryIneVerification, ineIntentSchema, ineOutcomes, ineParts, ineStatusSchema, type IneOutcome, type IneStatus } from "../ine-verification";
 import { getVerificamexIneProvider, ineProviderResultSchema, type IneImages, type IneProvider } from "./verificamex-ine";
 import {matchIneIdentity,type IneMatch} from "../ine-identity-match";
 import type {PlayerIdentityInput} from "../schemas";
@@ -63,6 +63,7 @@ async function dto(tx: Prisma.TransactionClient, actorId: string, id: string, at
   const attempt = await tx.audit_logs.findFirst({ where: { entity_id: id, action: preparedAction, ...(attemptId ? { id: attemptId } : {}) }, orderBy: [{ occurred_at: "desc" }, { id: "desc" }], select: { id: true, new_data: true, occurred_at: true } });
   if (attemptId && !attempt) throw new AuthorizationError();
   let status: IneStatus["status"] = "NOT_STARTED";
+  let reviewDetails: Pick<IneStatus, "missingFields" | "mismatchedFields"> = {};
   if (attempt) {
     const intent = attempt.new_data as unknown as Intent;
     const result = await tx.audit_logs.findFirst({ where: { entity_id: id, action: resultAction, new_data: { path: ["attemptId"], equals: attempt.id } }, select: { new_data: true } });
@@ -70,8 +71,13 @@ async function dto(tx: Prisma.TransactionClient, actorId: string, id: string, at
     status = intent.snapshotHash !== (intent.snapshotVersion===2?current.snapshotHash:current.legacySnapshotHash) ? "STALE" : outcome.success ? outcome.data : Date.now() - attempt.occurred_at.getTime() > 120000 ? "UNCERTAIN" : "PENDING";
     // Acuses anteriores sin cotejo no se convierten en identidad verificada.
     if(status==="PROVIDER_PASSED" || (status==="IDENTITY_VERIFIED" && (result?.new_data as {matchingVersion?:number})?.matchingVersion!==1))status="ADMIN_REVIEW_REQUIRED";
+    canSubmit = canSubmit && (canRetryIneVerification(status) || (status === "STALE" && intent.version !== current.version));
+    if (status === "ADMIN_REVIEW_REQUIRED") {
+      const details = ineStatusSchema.pick({ missingFields: true, mismatchedFields: true }).safeParse(result?.new_data);
+      if (details.success) reviewDetails = details.data;
+    }
   }
-  return { registrationId: id, applicable: current.applicable, canSubmit, identityVersion: current.version, attemptId: attempt?.id ?? null, status, approvalAllowed: false };
+  return { registrationId: id, applicable: current.applicable, canSubmit, identityVersion: current.version, attemptId: attempt?.id ?? null, status, approvalAllowed: false, ...reviewDetails };
 }
 export async function readPlayerIneStatusForActor(actorId: string, id: string, attemptId?: string) {
   if (attemptId && !z.uuid().safeParse(attemptId).success) throw new AuthorizationError();
@@ -132,7 +138,7 @@ export async function verifyPlayerIneForActor(actorId: string, id: string, input
     }
     const latest = await dto(tx, actorId, id);
     if (latest.attemptId) {
-      if (latest.status === "PENDING" || latest.status === "IDENTITY_VERIFIED") return { done: latest };
+      if (!latest.canSubmit) return { done: latest };
       if (body.retryOf !== latest.attemptId || !body.acknowledgePossiblePreviousCharge) throw new IneVerificationError("RETRY_CONFIRMATION_REQUIRED");
     } else if (body.retryOf) throw new IneVerificationError("OPERATION_CONFLICT");
     const provider = dependencies.provider ?? getVerificamexIneProvider();

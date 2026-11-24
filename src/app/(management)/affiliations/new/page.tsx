@@ -4,6 +4,7 @@ import { ActionLink } from "@/components/ui/action-link";
 import { SelectField } from "@/components/ui/select-field";
 import { getCurrentAccount } from "@/features/auth/server/account-presentation";
 import { AffiliationForm } from "@/features/clubs/components/affiliation-form";
+import { AffiliationReviewSteps } from "@/features/clubs/components/affiliation-review-steps";
 import { getAffiliationFormPageData } from "@/features/clubs/server/affiliation-form-queries";
 import { getTeamEnrollmentCatalogs } from "@/features/clubs/server/team-enrollment-queries";
 import { AuthAccessError } from "@/server/auth/session";
@@ -70,6 +71,7 @@ export default async function NewAffiliationPage({ searchParams }: {
             {status?.label ?? "Estado no disponible"}
           </span>
         </div>
+        {status && <AffiliationReviewSteps phase={existing.phase as keyof typeof followUp} />}
         <dl className="space-y-3 text-sm"><div><dt className="text-xs text-muted">Folio</dt><dd className="wrap-anywhere font-semibold text-primary">{existing.referenceNumber}</dd></div>
           <div><dt className="font-semibold">Qué sigue</dt><dd className="mt-1 leading-6 text-muted">{status?.action ?? "Vuelve a consultar la solicitud."}
             {existing.phase === "CORRECTIONS_REQUESTED" && !existing.canCorrect && " Esta cuenta no puede reenviar este folio."}</dd></div>

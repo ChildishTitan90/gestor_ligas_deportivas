@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "@/server/auth/session";
 import { AuthorizationError } from "@/server/auth/authorization";
-import { curpCheckOutcomes, curpVerificationRequestSchema, identityFields, type CurpVerificationStatus } from "../curp-verification";
+import { canRetryCurpVerification, curpCheckOutcomes, curpVerificationRequestSchema, identityFields, type CurpVerificationStatus } from "../curp-verification";
 import { curpCheckSelect, curpStatus, CurpVerificationError, lockCurpSnapshot } from "./curp-check-record";
 import { getVerificamexCurpProvider, type CurpProvider } from "./verificamex-curp";
 import {activateVerifiedAdultForActor} from "./automatic-activation";
@@ -44,10 +44,8 @@ export async function verifyPlayerCurpForActor(actorId: string, registrationId: 
     if (latest) {
       const current = curpStatus(snapshot, latest, true);
       // Un cambio de clave por sí solo no vuelve a consultar ni gastar.
-      if (current.status === "VERIFIED" || !data.retryOf || current.status === "PENDING") return { done: current };
+      if (!data.retryOf || !canRetryCurpVerification(current.status)) return { done: current };
       if (data.retryOf !== latest.id) throw new CurpVerificationError("OPERATION_CONFLICT");
-      if (current.status === "UNCERTAIN" && !data.acknowledgePossiblePreviousCharge)
-        throw new CurpVerificationError("RETRY_CONFIRMATION_REQUIRED");
     } else if (data.retryOf) throw new CurpVerificationError("OPERATION_CONFLICT");
     if (!snapshot.available) throw new CurpVerificationError("CONTEXT_NOT_AVAILABLE");
     const provider = dependencies?.provider ?? getVerificamexCurpProvider();

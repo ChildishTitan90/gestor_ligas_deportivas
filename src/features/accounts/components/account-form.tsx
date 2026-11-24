@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ActionLink } from "@/components/ui/action-link";
+import { ProcessSteps } from "@/components/ui/process-steps";
 import { accountRoleCodes, delegatePeriodSchema } from "../schemas";
 import { parseAccountForm } from "../form-input";
 import { accountErrorMessage, accountValidationErrors } from "../form-feedback";
@@ -159,12 +160,17 @@ export function AccountForm({ options: initial, canReusePerson, createClubLeague
         aria-invalid={Boolean(errors[path])} aria-describedby={errors[path] ? `${id}-${path}-error` : undefined} />{feedback(path)}</div>;
   }
 
-  if (success) return <div className="mt-6 space-y-5">
+  const progress = <ProcessSteps label="Etapas de creación de cuenta" steps={["Capturar datos", "Cuenta creada"]}
+    current={success ? 1 : 0} completedSteps={[success, success]} />;
+
+  if (success) return <div className="space-y-5">
+    {progress}
     <p role="status" className="rounded-xl bg-soft p-4">Cuenta creada. La persona deberá cambiar su contraseña temporal al iniciar sesión. Coordina su entrega por el canal acordado.</p>
     <button type="button" className={control} onClick={() => { setSuccess(false); setRoles([]); setPersonMode("new"); void loadLeague(""); }}>Crear otra cuenta</button>
   </div>;
 
-  return <form ref={form} onSubmit={submit} noValidate aria-busy={busy || loading} className="mt-6 space-y-6">
+  return <form ref={form} onSubmit={submit} noValidate aria-busy={busy || loading} className="space-y-6">
+    {progress}
     <p className="text-sm text-muted">Los campos con * son obligatorios.</p>
     {message && <p role="alert" className="rounded-xl border border-danger/25 bg-danger-surface p-4 text-sm text-danger">{message}</p>}
     {sessionCode === "UNAUTHENTICATED" && <ActionLink href="/login">Iniciar sesión</ActionLink>}

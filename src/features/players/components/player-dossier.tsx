@@ -3,6 +3,7 @@ import {PrivateDocumentPreview,type DocumentPreviewRequest} from "./private-docu
 import {useEffect,useRef,useState,type FormEvent} from "react";
 import {z} from "zod";
 import {SelectField} from "@/components/ui/select-field";
+import {ProcessSteps} from "@/components/ui/process-steps";
 import {FilePickerButton} from "@/components/ui/file-picker-button";
 import {focusFormControl} from "@/components/ui/focus-form-control";
 import {documentGroupLabels} from "@/features/competitions/document-policy-editor";
@@ -22,6 +23,18 @@ function LocalDocumentPreview({file}:{file:File}){
 }
 
 const messages:Record<string,string>={CONFIGURATION_REQUIRED:"Falta configurar la política o este requisito documental.",CONTEXT_UNAVAILABLE:"El expediente ya no permite cargas en su estado actual.",UPLOAD_CONFLICT:"Los datos o la versión cambiaron. Consulta el expediente antes de preparar otra carga.",UPLOAD_EXPIRED:"La intención venció. Prepara una nueva carga después de consultar su estado.",INVALID_FILE:"El contenido del archivo no corresponde a un PNG, JPEG o PDF válido.",FILE_TOO_LARGE:"El archivo supera los 10 MiB permitidos.",FORBIDDEN:"Tu cuenta ya no tiene acceso a esta operación.",UNAUTHENTICATED:"Tu sesión ya no está disponible. Inicia sesión nuevamente."};
+const dossierSteps = ["Registro", "Documentos", "Revisión documental"];
+
+function dossierStep(dossier: Dossier) {
+  if (dossier.dossierComplete) return dossierSteps.length;
+  if (dossier.configuration === "MISSING" || dossier.configurationIssues.length > 0) return 1;
+  const received = dossier.documentGroups
+    ? dossier.documentGroups.every(group => !group.requiredForDossier || group.ready || group.recorded >= group.quantity)
+    : dossier.requirements.every(requirement => !requirement.required || requirement.recorded >= requirement.quantity)
+      && (!dossier.school?.required || dossier.school.received);
+  return received ? 2 : 1;
+}
+
 export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:string;initial:Dossier;storageConfigured:boolean}){
   const [dossier,setDossier]=useState(initial),[requirementId,setRequirementId]=useState(""),[slot,setSlot]=useState("1"),[file,setFile]=useState<File|null>(null);
   const [phase,setPhase]=useState<"EDITING"|"SENDING"|"UNCERTAIN"|"CONFIRMED">("EDITING"),[message,setMessage]=useState("");
@@ -89,6 +102,7 @@ export function PlayerDossier({actorId,initial,storageConfigured}:{actorId:strin
   }
   function download(id:string){const doc=dossier.documents.find(d=>d.id===id);setPreview({label:dossier.documentTypes.find(t=>t.id===doc?.typeId)?.name ?? "Documento del expediente",path:`/api/player-documents/${id}/download`,body:{}});}
   return <div className="space-y-7">{preview && <PrivateDocumentPreview actorId={actorId} request={preview} onClose={()=>setPreview(null)}/>}
+    <ProcessSteps steps={dossierSteps} current={dossierStep(dossier)} label="Avance del expediente" />
     {dossier.documentGroups?.some(g=>g.scope==="SUPERIOR") && <section className="space-y-3 rounded-xl border border-border bg-surface p-5"><h2 className="text-xl font-semibold">Requisitos por categoría</h2><p className="text-sm text-muted">Un solo expediente conserva los archivos de origen y de las participaciones superiores. Un documento aprobado puede satisfacer requisitos compatibles en ambas.</p><ul className="space-y-2">{dossier.documentGroups.filter(g=>g.requiredForDossier || g.requiredForEligibility).map((g,i)=><li key={i} className="text-sm leading-6"><strong>{g.categoryName} · {g.scope==="ORIGIN"?"Origen":"Superior"}</strong>: {documentGroupLabels[g.key as keyof typeof documentGroupLabels] ?? "Documento"} · {g.ready?"Cumplido":"Pendiente de aprobación"}{g.requiredForEligibility?" · Requerido para habilitación":" · Para completar expediente"}</li>)}</ul></section>}
     <div className="rounded-xl border border-border bg-surface p-5 space-y-2"><p>Edad evaluada en el registro del {dossier.referenceDate}: {dossier.minorAtRegistration===null?"fecha de nacimiento pendiente":dossier.minorAtRegistration?"menor de edad":"mayor de edad"}.</p>
       <p className="text-sm text-muted">{dossier.registrationStatus==="ACTIVE"?(dossier.canUpload?"Jugador activo. Puedes completar los documentos pendientes mientras el expediente siga abierto; las cargas no cambian su habilitación.":"Jugador activo. El estado actual del expediente no permite nuevas cargas."):"Las cargas y sustituciones se permiten cualquier día mientras el expediente esté pendiente. Recibir archivos no autoriza al jugador para competir."}</p>

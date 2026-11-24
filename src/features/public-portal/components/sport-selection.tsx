@@ -1,8 +1,13 @@
 import Link from "next/link";
-import { ArrowRight, CircleDot, Volleyball, SportShoe } from "lucide-react";
+import { ArrowRight, createLucideIcon, Volleyball, SportShoe } from "lucide-react";
+
+const Basketball = createLucideIcon("Basketball", [
+  ["circle", { cx: "12", cy: "12", r: "9", key: "outline" }],
+  ["path", { d: "m5.64 5.64 12.72 12.72m0-12.72L5.64 18.36M12 3a9 9 0 0 0 9 9M3 12a9 9 0 0 1 9 9", key: "seams" }],
+]);
 
 const upcomingSports = [
-  { name: "Básquetbol", id: "basketball-title", Icon: CircleDot },
+  { name: "Básquetbol", id: "basketball-title", Icon: Basketball },
   { name: "Voleibol", id: "volleyball-title", Icon: Volleyball },
 ];
 

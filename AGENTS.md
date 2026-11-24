@@ -127,6 +127,7 @@ Las páginas de servidor consultan la capa de datos directamente; no llamar por 
 
 ## UI/UX y convenciones
 
+- Para cambios de interfaz, sigue la [guía visual para agentes de desarrollo](CLAUDE.md) y las skills indicadas en ella.
 - Carpetas/archivos nuevos en inglés y kebab-case; componentes React en PascalCase. Conservar el alias `@/*` existente. Los textos de producto y documentación del equipo se escriben en español.
 - `components/ui` contiene controles genéricos; `features/*/components` contiene pantallas y componentes de negocio. Compartir un componente cuando existe una necesidad real de reutilización.
 - Conservar Tailwind 4, Geist y los tokens vigentes de `styles/tokens.css`; los estilos compartidos están en `src/app/globals.css`. No introducir configuraciones de Tailwind 3, otra paleta o paquetes UI por iniciativa propia.

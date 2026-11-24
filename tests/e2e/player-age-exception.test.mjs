@@ -26,7 +26,7 @@ test('PDGLD-104: petición y decisión de excepción en Chrome, transporte sint�
     };
     window.fixture={get calls(){return calls},render(next){mode=next;receipt=null;calls=[];failOnce=true;
       state=next==='secretary'?{...initial,status:'PENDING',requestId:id(8),canRequest:false,canReview:true,requestReason:'Carta presentada por el delegado'}:next==='none'?{...initial,applicable:false,status:'NOT_REQUIRED',canRequest:false}:next==='stale'?{...initial,status:'STALE'}:{...initial};
-      flushSync(()=>root.render(<AgeExceptionPanel key={next} actorId={id(next==='secretary'?20:10)} registrationId={id(1)} fetcher={fake}/>));},setDenied(){mode='denied';},releaseInitial(){mode='delegate';releaseInitial();}};
+      flushSync(()=>root.render(<AgeExceptionPanel key={next} actorId={id(next==='secretary'?20:10)} registrationId={id(1)} fetcher={fake} showProgress={next==='secretary'}/>));},setDenied(){mode='denied';},releaseInitial(){mode='delegate';releaseInitial();}};
     window.fixture.render('delegate');
   `} });
   const server=createServer((req,res)=>{res.setHeader('Content-Type',req.url==='/bundle.js'?'text/javascript':'text/html');res.end(req.url==='/bundle.js'?bundle.outputFiles[0].contents:'<!doctype html><html lang="es"><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script src="/bundle.js"></script></html>');});
@@ -49,11 +49,15 @@ test('PDGLD-104: petición y decisión de excepción en Chrome, transporte sint�
     assert.equal(await ev('[...document.querySelectorAll("button")].some(n=>n.textContent==="Aceptar excepción")'),false);
   });
   await t.test('Secretaría confirma una decisión y recupera su acuse sin otro POST',async()=>{
-    await ev('window.fixture.render("secretary")');await wait('document.querySelector("textarea")');await reason('Carta revisada por Secretaría');await click('Aceptar excepción');
+    const progress='document.querySelector(\'[aria-label="Avance de la excepción de edad"]\')';
+    await ev('window.fixture.render("secretary")');await wait('document.querySelector("textarea")');
+    assert.match(await ev(`${progress}.querySelector('[aria-current="step"]').textContent`),/Revisión de Secretaría/);
+    await reason('Carta revisada por Secretaría');await click('Aceptar excepción');
     await wait('document.querySelector("dialog[open]")');assert.equal(await ev('window.fixture.calls.filter(c=>c.method==="POST").length'),0);
     await click('Confirmar decisión');await wait('document.body.textContent.includes("No se confirmó")');await click('Consultar resultado del envío');
     await wait('document.body.textContent.includes("El servidor confirmó")');assert.equal(await ev('window.fixture.calls.filter(c=>c.method==="POST").length'),1);
     assert.equal(await ev('document.body.textContent.includes("Excepción de edad aceptada")'),true);
+    assert.equal(await ev(`${progress}.querySelector('[aria-current="step"]')===null`),true);
     assert.equal(await ev('document.body.textContent.includes("no habilita automáticamente")'),true);
   });
   await t.test('pérdida de acceso retira motivos privados y acciones',async()=>{

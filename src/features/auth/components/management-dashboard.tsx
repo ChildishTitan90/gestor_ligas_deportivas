@@ -15,7 +15,7 @@ const tools = {
   "/affiliations/new": { title: "Mis afiliaciones", description: "Consulta tu solicitud, atiende correcciones o inicia la afiliación de tu club.", action: "Abrir mis solicitudes", icon: FilePenLine },
   "/affiliations/review": { title: "Revisión de afiliaciones", description: "Busca solicitudes y consulta su estado. Revisa y autoriza cuando tengas permiso.", action: "Consultar afiliaciones", icon: ClipboardCheck },
   "/teams/registrations": { title: "Inscripción y equipos", description: "Consulta las inscripciones de tus clubes. Registra equipos cuando esté habilitado.", action: "Abrir equipos", icon: UsersRound },
-  "/accounts/new": { title: "Cuentas de acceso", description: "Crea cuentas y asigna los roles y ámbitos que tienes permitido administrar.", action: "Crear cuenta", icon: UserRoundPlus },
+  "/accounts": { title: "Cuentas de acceso", description: "Consulta las opciones de administración disponibles para tu cuenta.", action: "Administrar cuentas", icon: UserRoundPlus },
 };
 
 export function ManagementDashboard({ account, scopes, navigation, activity }: {

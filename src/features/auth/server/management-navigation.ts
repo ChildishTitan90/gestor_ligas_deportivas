@@ -3,7 +3,7 @@ import { canReadStandings } from "@/features/standings/server/queries";
 import { canReadCatalog } from "@/features/discipline/server/catalog";
 
 import type { ManagementNavigationGroup } from "@/components/layout/management-navigation";
-import { getAccountCreationOptions } from "@/features/accounts/server/service";
+import { canCreateAccounts } from "@/features/accounts/server/queries";
 import { canAccessAffiliationCapture } from "@/features/clubs/server/affiliation-form-queries";
 import { getAffiliationReviewLeagueOptions } from "@/features/clubs/server/affiliation-review-service";
 import { getTeamEnrollmentCatalogs } from "@/features/clubs/server/team-enrollment-queries";
@@ -60,7 +60,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
     async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0,
     canAccessAffiliationCapture,
     async () => (await getAffiliationReviewLeagueOptions()).length > 0,
-    async () => (await getAccountCreationOptions()).roles.length > 0,
+    canCreateAccounts,
     canAccessPlayerRegistration,
     canReviewPlayerIdentity,
     async () => (await getSeasonWorkspace()).leagues.length > 0,
@@ -109,8 +109,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if (standings) competitions.items.push({ href: "/standings", label: "Clasificación", icon: "overview" });
   if (competitions.items.length) groups.push(competitions);
   const administration: ManagementNavigationGroup = { label: "Administración", items: [] };
-  if (accountMaintenance) administration.items.push({ href: "/accounts", label: "Administrar cuentas", icon: "accounts" });
-  if (accounts) administration.items.push({ href: "/accounts/new", label: "Crear cuenta", icon: "accounts" });
+  if (accountMaintenance || accounts) administration.items.push({ href: "/accounts", label: "Administrar cuentas", icon: "accounts" });
   if (governance) administration.items.push({ href: "/governance", label: "Órganos y cargos", icon: "overview" });
   if (administration.items.length) groups.push(administration);
   if (catalog) groups.push({ label: "Disciplina", items: [{ href: "/discipline/catalog", label: "Catálogo disciplinario", icon: "review" }] });

@@ -17,7 +17,9 @@ test('PDGLD-132: reprogramar conserva fecha y cancha iniciales y envía el motiv
       plugin.onResolve({filter:/transition-actions$/},()=>({path:'actions',namespace:'fixture'}));
       plugin.onLoad({filter:/.*/,namespace:'fixture'},args=>({contents:args.path==='navigation'
         ? 'export function useRouter(){return {refresh(){window.refreshed=true}}}'
-        : 'export async function rescheduleAbsentMatchAction(input){window.sent=input;return {ok:true,pdfVersion:2}}',loader:'js'}));
+        : `export async function getRescheduleSlotsAction(){return {ok:true,slots:[
+            {value:"2035-11-14T10:00",label:"10:00"},{value:"2035-11-14T12:00",label:"12:00"}]}}
+          export async function rescheduleAbsentMatchAction(input){window.sent=input;return {ok:true,pdfVersion:2}}`,loader:'js'}));
     }}]});
   const server=createServer((req,res)=>{res.setHeader('Content-Type',req.url==='/bundle.js'?'text/javascript':'text/html');
     res.end(req.url==='/bundle.js'?bundle.outputFiles[0].contents:'<!doctype html><html lang="es"><div id="root"></div><script src="/bundle.js"></script></html>');});
@@ -26,8 +28,14 @@ test('PDGLD-132: reprogramar conserva fecha y cancha iniciales y envía el motiv
   const ev=expression=>browser.evaluate(expression);
   await ev(`(async()=>{for(let i=0;i<100;i++){const b=[...document.querySelectorAll('button')].find(x=>x.textContent==='Reprogramar partido');if(b){b.click();return;}await new Promise(r=>setTimeout(r,20));}throw Error('Falta botón');})()`);
   await ev(`(async()=>{for(let i=0;i<100;i++){if(document.querySelector('dialog[open]'))return;await new Promise(r=>setTimeout(r,20));}throw Error('Falta diálogo');})()`);
-  assert.equal(await ev("document.querySelector('input[type=datetime-local]').value"),'2035-11-14T10:00');
-  await ev(`(()=>{const t=document.querySelector('textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t,'Lluvia intensa');t.dispatchEvent(new Event('input',{bubbles:true}));const d=document.querySelector('input[type=datetime-local]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(d,'2035-11-14T12:00');d.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  const wait = expression => ev(`(async()=>{for(let i=0;i<150;i++){if(${expression})return;await new Promise(r=>setTimeout(r,20));}throw Error(${JSON.stringify(expression)});})()`);
+  await wait("document.getElementById('time-fixture').value==='10:00' && document.activeElement.hasAttribute('data-dialog-initial')");
+  assert.equal(await ev("document.querySelector('input[type=date]').value"),'2035-11-14');
+  assert.match(await ev("document.querySelector('[aria-label=\"Tu recorrido\"] [aria-current=step]').textContent"),/Datos del partido/);
+  await ev("document.getElementById('time-fixture').click()");
+  await wait("document.querySelector('[role=option]')");
+  await ev("[...document.querySelectorAll('[role=option]')].find(o=>o.textContent.includes('12:00')).click()");
+  await ev(`(()=>{const t=document.querySelector('textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t,'Lluvia intensa');t.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await ev("document.querySelector('dialog form').requestSubmit()");
   await ev(`(async()=>{for(let i=0;i<100;i++){if(window.sent)return;await new Promise(r=>setTimeout(r,20));}throw Error('No se envió');})()`);
   assert.equal(await ev('window.sent.venueId'),'one');
@@ -37,6 +45,7 @@ test('PDGLD-132: reprogramar conserva fecha y cancha iniciales y envía el motiv
   await ev(`(async()=>{for(let i=0;i<100;i++){if(document.querySelector('dialog a[download]'))return;await new Promise(r=>setTimeout(r,20));}throw Error('No se mostró el PDF actualizado');})()`);
   assert.equal(await ev("document.querySelector('dialog a[download]').getAttribute('href')"),'/api/scheduling/proposals/proposal-fixture/updated-pdf');
   assert.match(await ev("document.querySelector('dialog a[download]').textContent"),/versión 2/);
+  assert.equal(await ev("document.querySelector('[aria-label=\"Tu recorrido\"] [aria-current=step]')===null"),true);
 });
 
 test('PDGLD-132: comisión envía la resolución de cancelación desde su diálogo', { timeout: 60000 }, async t => {
