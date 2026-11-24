@@ -2,6 +2,7 @@ import { ProposalReview } from "@/features/scheduling/components/proposal-review
 import { venueLocalTime } from "@/features/venues/time";
 import { TeamSwapBoard } from "@/features/scheduling/components/team-swap-board";
 import { ProgressSteps } from "@/features/scheduling/components/progress-steps";
+import { ProposalStatus } from "@/features/scheduling/components/proposal-status";
 import { AdjustmentPreview } from "@/features/scheduling/components/adjustment-preview";
 import { listScheduleProposals } from "@/features/scheduling/server/proposals";
 import { AuthorizationError } from "@/server/auth/authorization";
@@ -21,7 +22,7 @@ export default async function ScheduleProposalsPage() {
   try {
     workspace = await listScheduleProposals();
   } catch (error) {
-    if (error instanceof AuthorizationError) return <p role="alert">Tu cuenta no tiene acceso a las propuestas de programación.</p>;
+    if (error instanceof AuthorizationError) return <p role="alert">Tu cuenta no tiene acceso a las propuestas de programación. Si necesitas consultarlas, solicita acceso a la administración de la liga.</p>;
     throw error;
   }
 
@@ -51,6 +52,7 @@ export default async function ScheduleProposalsPage() {
           {label:"En revisión",detail:"La propuesta espera una decisión."},
           {label:"Aprobada",detail:"La programación autorizada queda lista para operar."},
         ]} /></div>}
+        <ProposalStatus status={proposal.status} canEdit={proposal.canEdit} pendingCount={proposal.generated ? proposal.generated.matches.filter(match => !match.venueId || !match.start).length : proposal.matches.filter(match => !match.venues || !match.starts_at).length} />
         {proposal.status === "APPROVED" && proposal.generated && <p className="mt-4"><a
           href={`/api/scheduling/proposals/${proposal.id}/pdf`} download
           className="primary-action inline-flex min-h-12 items-center rounded-xl px-4 py-2 text-sm font-semibold">Descargar programación en PDF</a></p>}

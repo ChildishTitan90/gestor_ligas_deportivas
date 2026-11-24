@@ -8,7 +8,7 @@ for (const width of [390, 1440]) for (const theme of ["light", "dark"]) {
 test(`PDGLD-139: ajuste recuperable y revisión · ${width}px · ${theme}`, { timeout: 60_000 }, async t => {
   const bundle = await build({
     bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic",
-    define: { "process.env.NODE_ENV": '"development"', "process.env": '{}' },
+    define: { "process.env.NODE_ENV": '"development"', "process.env": "{}" },
     stdin: { loader: "tsx", resolveDir: process.cwd(), contents: `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -19,6 +19,8 @@ import { GeneratedEncounterDraft } from './src/features/scheduling/components/ge
 import { SchedulingWorkspace } from './src/features/scheduling/components/scheduling-workspace';
 import { ProgressSteps } from './src/features/scheduling/components/progress-steps';
 import { TeamSwapBoard } from './src/features/scheduling/components/team-swap-board';
+import { ProposalStatus } from './src/features/scheduling/components/proposal-status';
+import { PendingReasons } from './src/features/scheduling/components/pending-reasons';
 const root = createRoot(document.getElementById('root'));
 const mount = element => flushSync(() => root.render(element));
 const check = (value, message) => { if (!value) throw Error(message); };
@@ -50,6 +52,14 @@ window.fetch = (path, request) => {
   });
 };
 window.runTest = async () => {
+  mount(<ProposalStatus status="DRAFT" pendingCount={2} canEdit={true} />);
+  check(document.body.textContent.includes('enviar la propuesta a revisión') && document.body.textContent.includes('2 encuentros pendientes') && document.body.textContent.includes('Ver detalles'), 'El borrador no explica los pendientes');
+  mount(<ProposalStatus status="IN_REVIEW" pendingCount={1} canEdit={false} />);
+  check(document.body.textContent.includes('espera la decisión') && document.body.textContent.includes('persona encargada'), 'La revisión no explica el siguiente paso');
+  mount(<ProposalStatus status="APPROVED" pendingCount={0} canEdit={false} />);
+  check(document.body.textContent.includes('aprobó esta programación para operar') && document.body.textContent.includes('paso separado'), 'La aprobación no distingue la publicación');
+  mount(<PendingReasons factors={['TEAM_CHANGED']} />);
+  check(document.body.textContent.includes('Cambiaron los equipos') && document.body.textContent.includes('antes de guardar el ajuste') && !document.body.textContent.includes('al generar'), 'El pendiente por intercambio no explica cómo resolverlo');
   mount(<AdjustmentPreview proposalId="proposal" matchId="match" expectedVersion={3}
     actorId="actor" timeZone="America/Mexico_City" initialStart="2026-11-18T17:00" />);
   click('Ajustar horario y cancha');
@@ -264,8 +274,11 @@ window.runTest = async () => {
     width, height: 900, deviceScaleFactor: 1, mobile: width < 600,
   });
   await browser.command("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] });
-  const fixtureErrors = await browser.evaluate('window.fixtureErrors');
-  assert.equal(await browser.evaluate('typeof window.runTest'), 'function', `No cargó el módulo de prueba: ${JSON.stringify(fixtureErrors)}`);
+  await browser.evaluate(`new Promise((resolve, reject) => {
+    let attempts = 0;
+    const check = () => { if (typeof window.runTest === 'function') resolve(true); else if (++attempts >= 200) reject(new Error('La prueba no cargó: '+JSON.stringify(window.fixtureErrors))); else setTimeout(check, 25); };
+    check();
+  })`);
   await browser.evaluate(`document.documentElement.dataset.theme = "${theme}";
     window.testDone = window.runTest(); true`);
   assert.equal(await waitForTestDone(browser), true);
