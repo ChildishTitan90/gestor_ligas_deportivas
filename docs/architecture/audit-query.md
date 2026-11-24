@@ -92,3 +92,11 @@ Validación local: TypeScript y ESLint sin errores; dos pruebas puras, cinco
 pruebas de regresión de ACL y cuatro pruebas de componentes en Chrome pasaron.
 La integración completa con HTTP y navegación real pasó en PostgreSQL 15 y 17
 temporales. El YAML del workflow también se analizó correctamente.
+
+Después de integrar `develop` en `b5fa2e6`, volvieron a pasar TypeScript,
+ESLint, las dos pruebas puras, las cinco regresiones de ACL y las cuatro
+pruebas de interfaz en Chrome. El workflow conserva también las pruebas de
+transiciones incorporadas por el equipo. La repetición de la integración
+PostgreSQL 15/17 de esta versión quedó pendiente: el motor local de Docker
+devolvió un error interno antes de crear las bases. El resultado anterior no
+sustituye la ejecución del CI sobre la versión final.
