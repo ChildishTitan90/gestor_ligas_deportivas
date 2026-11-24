@@ -58,6 +58,8 @@ jobs:
         run: npm run test:audit && npm run test:audit:browser
         env:
           CHROME_BIN: /usr/bin/google-chrome
+      - name: Probar contratos y reglas de transiciones (PDGLD-132)
+        run: npm run test:match-transitions
       - name: Probar interfaz de inscripción y actividad de sesión sin base
         run: npm run test:team-registration
       - name: Probar inscripción en Chrome con datos sintéticos
@@ -167,6 +169,8 @@ jobs:
         run: npm run test:preview-runtime
       - name: Probar competencias, distribución y mantenimiento con rol Preview y RLS
         run: npm run test:preview-competitions
+      - name: Probar sesión HTTP y transiciones con rol limitado de Preview
+        run: npm run test:match-transitions-preview
       - name: Probar recuperación de contraseña con PostgreSQL y RLS
         run: npm run test:password-recovery-integration
       - name: Probar catálogo disciplinario, permisos e historial (PDGLD-26)
@@ -179,6 +183,10 @@ jobs:
         env:
           PDGLD22_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
         run: node --test tests/integration/venue-availability.test.mjs
+      - name: Probar transiciones, permisos, reintentos y rollback (PDGLD-132)
+        env:
+          PDGLD132_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: npm run test:match-transitions-db
       - name: Probar órganos, nombramientos, historial y permisos (PDGLD-37)
         run: |
           node --conditions=react-server --import tsx prisma/seed.ts --profile permissions

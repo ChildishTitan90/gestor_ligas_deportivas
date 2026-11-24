@@ -18,6 +18,8 @@ import { localSignatureStorage } from "../../src/features/match-reports/server/l
 import { getPrisma } from "../../src/server/db/prisma";
 import { prepareOwnReport } from "../../src/features/match-reports/server/sync-service";
 import type { ReportCommand, ReportDraft } from "../../src/features/match-reports/contract";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 type Fixture = { db: Client; actors: Record<string,string>; people: Record<string,string>; league: string; otherLeague: string; season: string; sc: string; category: string; rule: string; group: string; clubs: string[]; teams: string[]; match: string; presenting: string; scalar: (sql: string, values?: unknown[]) => Promise<string>; runtimeUrl: string; env: Record<string,string|undefined>; runtimePassword: string; serve: boolean };
 export async function runReportAcceptance(f: Fixture) {
@@ -91,8 +93,156 @@ export async function runReportAcceptance(f: Fixture) {
     await db.query("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('CONFIRMED') WHERE id=$1",[match]);
     assert.equal((await getReportPage(actors.arbitro,match)).match.status.captureAllowed,true);
     await assert.rejects(mutateReport(actors.capturista,command(0)),/PREMATCH_LINEUPS_ONLY/);
-    const pre=command(0);pre.kind="lock-lineups";pre.draft.events=[];pre.draft.score={home:null,away:null};pre.draft.lineups.forEach(r=>r.periods=[]);
+    await db.query("INSERT INTO sports_management.user_roles(user_id,role_id,league_id) SELECT $1,id,$2 FROM sports_management.roles WHERE code='DISCIPLINARY_BOARD'",[actors.comision,league]);
+    await assert.rejects(getPrisma().$transaction(async tx=>{
+      await tx.$queryRaw`SELECT set_config('app.user_id',${actors.comision},true),set_config('app.reason','Preparar prueba de revisión',true)`;
+      await tx.matches.update({where:{id:match},data:{status_id:(await tx.match_statuses.findUniqueOrThrow({where:{code:"SUSPENDED"}})).id}});
+      const {transitionMatchInTransaction}=await import("../../src/features/matches/server/transition");
+      const current=await tx.matches.findUniqueOrThrow({where:{id:match}});
+      const input={matchId:match,operationId:randomUUID(),expectedVersion:current.version,toStatus:"UNDER_REVIEW",reason:"Revisar incidencia del partido"};
+      await assert.rejects(transitionMatchInTransaction(tx,actors.capturista,input),{code:"FORBIDDEN"});
+      const result=await transitionMatchInTransaction(tx,actors.comision,input);
+      assert.equal(result.replayed,false);
+      assert.equal((await transitionMatchInTransaction(tx,actors.comision,input)).replayed,true);
+      assert.equal((await tx.$queryRaw<{match_id:string}[]>`SELECT match_id FROM sports_management.venue_reservations WHERE match_id=${match}::uuid`).length,0);
+      await tx.matches.update({where:{id:match},data:{version:{increment:1}}});
+      assert.equal((await tx.$queryRaw<{match_id:string}[]>`SELECT match_id FROM sports_management.venue_reservations WHERE match_id=${match}::uuid`).length,0);
+      assert.equal(await tx.match_status_history.count({where:{id:input.operationId}}),1);
+      const report=await tx.match_reports.create({data:{match_id:match,client_id:randomUUID(),captured_by:actors.capturista,source:"MOBILE"}});
+      const {cancelReviewedMatchInTransaction}=await import("../../src/features/matches/server/resolve-review");
+      const fresh=await tx.matches.findUniqueOrThrow({where:{id:match}});
+      const cancel={matchId:match,operationId:randomUUID(),expectedVersion:fresh.version,toStatus:"CANCELED",reason:"Cancelación resuelta por comisión"};
+      await assert.rejects(cancelReviewedMatchInTransaction(tx,actors.capturista,cancel),{code:"FORBIDDEN"});
+      assert.equal((await cancelReviewedMatchInTransaction(tx,actors.comision,cancel)).replayed,false);
+      assert.equal((await cancelReviewedMatchInTransaction(tx,actors.comision,cancel)).replayed,true);
+      assert.equal((await tx.matches.findUniqueOrThrow({where:{id:match},include:{match_statuses:true}})).match_statuses.code,"CANCELED");
+      assert.ok(await tx.match_reports.findUnique({where:{id:report.id}}));
+      assert.equal(await tx.match_results.count({where:{match_id:match}}),0);
+      throw Error("REVIEW_ROLLBACK");
+    },{timeout:30000}),/REVIEW_ROLLBACK/);
     const {mutateReportInTransaction:prepareLineups}=await import("../../src/features/match-reports/server/service");
+    for(const absent of ["HOME","AWAY","BOTH"] as const) {
+      await assert.rejects(getPrisma().$transaction(async tx=>{
+        const absence={...command(0),kind:"record-no-show" as const,draft:{lineups:[],captains:{},events:[],score:{home:null,away:null},
+          remarks:"",incidents:"",signatures:{},noShow:{absent,notes:"Registro sintético del árbitro"}}};
+        const actor=absent==="AWAY"?actors.arbitro:actors.capturista;
+        const ack=await prepareLineups(tx,actor,absence);
+        assert.equal(ack.status,"DRAFT");
+        assert.equal(ack.matchVersion,page.match.version+1);
+        assert.deepEqual(await prepareLineups(tx,actor,absence),ack);
+        const stored=await tx.match_reports.findUniqueOrThrow({where:{id:ack.reportId}});
+        assert.equal((stored.draft_data as {draft:{noShow:{absent:string}}}).draft.noShow.absent,absent);
+        const presentation=(stored.draft_data as {presentation:{report:{noShow:{absent:string}};match:{status:{captureAllowed:boolean}}}}).presentation;
+        assert.equal(presentation.report.noShow.absent,absent);
+        assert.equal(presentation.match.status.captureAllowed,false);
+        assert.equal(await tx.match_results.count({where:{match_id:match}}),0);
+        assert.equal(await tx.match_status_history.count({where:{id:absence.operationId}}),1);
+        assert.equal((await tx.matches.findUniqueOrThrow({where:{id:match},include:{match_statuses:true}})).match_statuses.code,"NO_SHOW");
+        if(absent==="BOTH") {
+          const {rescheduleAbsentMatchInTransaction}=await import("../../src/features/matches/server/reschedule");
+          const original=await tx.matches.findUniqueOrThrow({where:{id:match},select:{venue_id:true}});
+          const move={matchId:match,operationId:randomUUID(),expectedVersion:ack.matchVersion,venueId:original.venue_id!,
+            startsAtLocal:"2026-12-05T12:00",reason:"Ambos equipos no se presentaron"};
+          await assert.rejects(rescheduleAbsentMatchInTransaction(tx,actors.capturistaAjeno,move),{code:"FORBIDDEN"});
+          await assert.rejects(rescheduleAbsentMatchInTransaction(tx,actors.programador,{...move,expectedVersion:999}),/STALE_MATCH/);
+          await assert.rejects(rescheduleAbsentMatchInTransaction(tx,actors.programador,move),/REFEREE_REASSIGN_REQUIRED/);
+          const {mutateRefereeingInTransaction}=await import("../../src/features/referees/server/service");
+          const currentAssignment=await tx.referee_assignments.findUniqueOrThrow({where:{id:assignment}});
+          const revoke={kind:"revoke",leagueId:league,seasonId:season,operationKey:randomUUID(),reason:"Reprogramación por ausencia de ambos equipos",assignmentId:assignment,expectedVersion:currentAssignment.version,expectedMatchVersion:ack.matchVersion};
+          await assert.rejects(mutateRefereeingInTransaction(tx,actors.capturistaAjeno,revoke));
+          await mutateRefereeingInTransaction(tx,actors.comision,revoke);
+          await assert.rejects(rescheduleAbsentMatchInTransaction(tx,actors.programador,{...move,venueId:randomUUID()}),/VENUE_NOT_AVAILABLE/);
+          const moved=await rescheduleAbsentMatchInTransaction(tx,actors.programador,move);
+          assert.equal(moved.appliedVersion,ack.matchVersion+1);
+          assert.equal((await rescheduleAbsentMatchInTransaction(tx,actors.programador,move)).replayed,true);
+          const updated=await tx.matches.findUniqueOrThrow({where:{id:match},include:{match_statuses:true}});
+          assert.equal(updated.match_statuses.code,"RESCHEDULED");
+          assert.equal(updated.starts_at?.toISOString(),"2026-12-05T18:00:00.000Z");
+          const reset=await tx.match_reports.findUniqueOrThrow({where:{id:ack.reportId}});
+          assert.equal(reset.version,ack.reportVersion+1);
+          assert.equal((reset.draft_data as {draft:{noShow?:unknown}}).draft.noShow,undefined);
+          assert.equal(await tx.match_status_history.count({where:{id:move.operationId}}),1);
+          const evidence=await tx.match_report_syncs.findUniqueOrThrow({where:{client_id:absence.operationId}});
+          assert.equal((evidence.private_payload as {command:{draft:{noShow:{absent:string}}}}).command.draft.noShow.absent,"BOTH");
+          const log=await tx.audit_logs.findUniqueOrThrow({where:{id:move.operationId}});
+          assert.equal((log.previous_data as {noShowReceiptId:string}).noShowReceiptId,evidence.id);
+        }
+        throw Error("NO_SHOW_TEST_ROLLBACK");
+      },{timeout:30000}),/NO_SHOW_TEST_ROLLBACK/);
+    }
+    const unauthorized={...command(0),kind:"record-no-show" as const,draft:{lineups:[],captains:{},events:[],score:{home:null,away:null},
+      remarks:"",incidents:"",signatures:{},noShow:{absent:"BOTH" as const,notes:"Ningún equipo se presentó"}}};
+    await assert.rejects(mutateReport(actors.capturistaAjeno,unauthorized),{code:"FORBIDDEN"});
+    await assert.rejects(mutateReport(actors.capturista,{...unauthorized,expectedMatchVersion:999}),/STALE_VERSION/);
+    await assert.rejects(mutateReport(actors.capturista,{...unauthorized,kind:"save"}),/NO_SHOW_ACTION_REQUIRED/);
+    await assert.rejects(mutateReport(actors.capturista,{...unauthorized,draft:{...unauthorized.draft,
+      lineups:[{playerId:registrations[0],teamId:teams[0],selected:true,starter:true,matchJersey:17,periods:[]}]}}),/NO_SHOW_ABSENT_LINEUP/);
+    // El registro de la ausencia ya se comprobó arriba con READ COMMITTED.
+    // El cierre usa SERIALIZABLE para actualizar la clasificación atómicamente.
+    const admin=new PrismaClient({adapter:new PrismaPg({connectionString:f.env.DATABASE_URL!})});
+    try {
+      const {confirmNoShowInTransaction}=await import("../../src/features/matches/server/confirm-no-show");
+      for (const absent of ['HOME','AWAY'] as const) {
+      await assert.rejects(admin.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT set_config('app.user_id',${actors.comision},true),set_config('app.reason','Prueba de cierre por incomparecencia',true)`;
+        const rules=await tx.$queryRaw<{id:string}[]>`INSERT INTO sports_management.competition_rules(season_id,version_number) SELECT ${season}::uuid,coalesce(max(version_number),0)+1 FROM sports_management.competition_rules WHERE season_id=${season}::uuid RETURNING id`;
+        const rule=rules[0].id;
+        for(const [key,value] of Object.entries({points:{win:3,draw:1,loss:0},tieBreakers:['GOAL_DIFFERENCE','GOALS_FOR']}))
+          await tx.$executeRaw`INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by,requires_validation) VALUES(${rule}::uuid,${key},${JSON.stringify(value)}::jsonb,${actors.comision}::uuid,false)`;
+        await tx.$executeRaw`UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=${actors.comision}::uuid,approved_at=now() WHERE id=${rule}::uuid`;
+        await tx.$executeRaw`UPDATE sports_management.season_categories SET competition_rule_id=${rule}::uuid WHERE id=${sc}::uuid`;
+        const noShow=await tx.match_statuses.findUniqueOrThrow({where:{code:'NO_SHOW'}});
+        const updated=await tx.matches.update({where:{id:match},data:{status_id:noShow.id,version:{increment:1}}});
+        const draft={...unauthorized.draft,noShow:{absent,notes:"Equipo ausente en prueba"}};
+        const recorded=await tx.match_reports.create({data:{match_id:match,client_id:randomUUID(),captured_by:actors.capturista,source:'MOBILE',draft_data:{draft}}});
+        const input={matchId:match,reportId:recorded.id,operationId:randomUUID(),expectedMatchVersion:updated.version,expectedReportVersion:recorded.version};
+        // From here the real closure runs under the same restricted DB role as Preview.
+        await tx.$executeRawUnsafe('SET LOCAL ROLE gestor_ligas_preview');
+        let cases=0;
+        const effects={async openIncidentCases(){cases++;}};
+        await assert.rejects(confirmNoShowInTransaction(tx,actors.capturista,input,effects),{code:"FORBIDDEN"});
+        const confirmed=await confirmNoShowInTransaction(tx,actors.arbitro,input,effects);
+        assert.equal(confirmed.replayed,false);
+        assert.equal((await confirmNoShowInTransaction(tx,actors.arbitro,input,effects)).replayed,true);
+        assert.equal(cases,1);
+        const official=await tx.match_results.findUniqueOrThrow({where:{match_id:match},select:{source:true,offending_team_id:true,home_score:true,away_score:true}});
+        assert.equal(official.source,"DEFAULT");assert.equal(official.offending_team_id,teams[absent==='HOME'?0:1]);
+        assert.equal(official.home_score,absent==='HOME'?0:1);assert.equal(official.away_score,absent==='HOME'?1:0);
+        assert.equal((await tx.match_reports.findUniqueOrThrow({where:{id:recorded.id}})).status,"CONFIRMED");
+        assert.equal((await tx.matches.findUniqueOrThrow({where:{id:match},include:{match_statuses:true}})).match_statuses.code,"FINISHED");
+        const standing=await tx.$queryRaw<{season_team_id:string;points:number;score_for:number}[]>`SELECT e.season_team_id,e.points::int AS points,e.score_for FROM sports_management.standing_entries e JOIN sports_management.standing_versions v ON v.id=e.standing_version_id WHERE v.group_id=${group}::uuid`;
+        assert.ok(standing.some(row=>row.season_team_id===teams[absent==='HOME'?0:1]&&row.points===0&&row.score_for===0));
+        assert.ok(standing.some(row=>row.season_team_id===teams[absent==='HOME'?1:0]&&row.points===3&&row.score_for===1));
+        throw Error("NO_SHOW_CONFIRM_ROLLBACK");
+      },{timeout:30000,isolationLevel:'Serializable'}),/NO_SHOW_CONFIRM_ROLLBACK/);
+      }
+    } finally {await admin.$disconnect();}
+    // Receptor disciplinario real, aislado dentro de una transacción revertida.
+    const {openIncidentCases}=await import("../../src/features/match-reports/server/incident-cases");
+    const casePrivileges=await getPrisma().$queryRaw<{can_insert:boolean}[]>`SELECT has_any_column_privilege(current_user,'sports_management.disciplinary_cases','INSERT') AS can_insert`;
+    assert.equal(casePrivileges[0].can_insert,true,"El perfil limitado debe poder registrar expedientes de cédula");
+    const caseAdmin=new PrismaClient({adapter:new PrismaPg({connectionString:f.env.DATABASE_URL!})});
+    const caseEventIds=Array.from({length:4},()=>randomUUID());
+    try {
+      await assert.rejects(getPrisma().$transaction(async tx=>{
+        await tx.$queryRaw`SELECT set_config('app.user_id',${actors.capturista},true),set_config('app.reason','Prueba sintética de expedientes',true)`;
+        const report=await tx.match_reports.create({data:{match_id:match,client_id:randomUUID(),captured_by:actors.capturista,source:"MOBILE"}});
+        const sport=await tx.seasons.findUniqueOrThrow({where:{id:season},select:{sport_id:true}});
+        const types=await tx.event_types.findMany({where:{sport_id:sport.sport_id,code:{in:["CAUTION","SENDING_OFF","SERIOUS_INCIDENT"]}}});
+        for(const [i,code] of ["CAUTION","CAUTION","SENDING_OFF","SERIOUS_INCIDENT"].entries()) {
+          const type=types.find(item=>item.code===code);assert.ok(type);
+          await tx.match_events.create({data:{id:caseEventIds[i],match_report_id:report.id,event_type_id:type.id,description:code==="SERIOUS_INCIDENT"?"Incidente sintético":""}});
+        }
+        const context={actorId:actors.capturista,matchId:match,reportId:report.id,operationId:randomUUID(),expectedMatchVersion:1,homeScore:0,awayScore:0,eventIds:caseEventIds,dismissals:[{eventId:caseEventIds[1],playerId:registrations[0],teamId:teams[0],reason:"SECOND_CAUTION" as const},{eventId:caseEventIds[2],playerId:registrations[1],teamId:teams[1],reason:"DIRECT_RED" as const}]};
+        await openIncidentCases(tx,context);await openIncidentCases(tx,context);
+        const cases=await tx.disciplinary_cases.findMany({where:{event_id:{in:caseEventIds}},select:{event_id:true}});
+        assert.deepEqual(new Set(cases.map(item=>item.event_id)),new Set(caseEventIds.slice(1)));
+        assert.equal(cases.length,3);
+        throw Error("INCIDENT_CASE_ROLLBACK");
+      },{timeout:30000}),/INCIDENT_CASE_ROLLBACK/);
+      assert.equal(await caseAdmin.disciplinary_cases.count({where:{event_id:{in:caseEventIds}}}),0);
+    } finally {await caseAdmin.$disconnect();}
+    const pre=command(0);pre.kind="lock-lineups";pre.draft.events=[];pre.draft.score={home:null,away:null};pre.draft.lineups.forEach(r=>r.periods=[]);
     await assert.rejects(getPrisma().$transaction(async tx=>{const ack=await prepareLineups(tx,actors.capturista,pre);assert.equal(ack.status,"DRAFT");const start={...pre,kind:"clock" as const,operationId:randomUUID(),expectedReportVersion:1,clockAction:{type:"start" as const,halfMinutes:45,breakMinutes:15}};const started=await prepareLineups(tx,actors.capturista,start);assert.equal(started.matchVersion,page.match.version+1);assert.deepEqual(await prepareLineups(tx,actors.capturista,start),started);assert.equal(await tx.match_status_history.count({where:{id:start.operationId}}),1);throw Error("PREMATCH_ROLLBACK");},{timeout:30000}),/PREMATCH_ROLLBACK/);
     // Regresión del PR #63: banca reservada a primera mitad, entrada real y salida al descanso.
     await assert.rejects(getPrisma().$transaction(async tx => {
@@ -279,9 +429,6 @@ export async function runReportAcceptance(f: Fixture) {
     await assert.rejects(readReportSignature(actors.capturistaAjeno,match,draft.signatures[teams[0]]!,storage));
     const changed=command(3);changed.draft.remarks="Cambio tras firmar";
     await assert.rejects(mutateReport(actors.capturista,changed),/INVALID_SIGNATURE_REFERENCE/);
-    await assert.rejects(mutateReport(actors.capturista,{...command(3),kind:"confirm"}),/CONFIRMATION_DEPENDENCIES_PENDING/);
-    const confirmations=await Promise.allSettled([mutateReport(actors.capturista,{...command(3),kind:"confirm"}),mutateReport(actors.arbitro,{...command(3),kind:"confirm"})]);
-    assert.ok(confirmations.every(r=>r.status==='rejected'&&r.reason.code==='CONFIRMATION_DEPENDENCIES_PENDING'),"Bloqueo real: no equivale a confirmar una vez");
     assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.match_results WHERE match_id=$1",[match])).rows[0].n,0);
     assert.equal((await getReportPage(actors.arbitro,match)).report.version,3);
     assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.match_status_history WHERE match_id=$1",[match])).rows[0].n,0);
@@ -310,7 +457,85 @@ export async function runReportAcceptance(f: Fixture) {
       for(let n=0;n<180;n++){if(app.exitCode!==null)throw Error("REPORT_APP_EXITED");try{const response=await fetch(base+"/api/auth/csrf",{signal:AbortSignal.timeout(2000)});if(response.ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,500));}
       if(!ready)throw Error("REPORT_APP_NOT_READY");
       const {verifyReportHttp}=await import("./match-reports-http");
-      await verifyReportHttp(base,actors,command(3),draft.signatures[teams[0]]!,"data:image/png;base64,"+png.toString("base64"));
+      const noShowVenue=await scalar("INSERT INTO sports_management.venues(league_id,code,name,address,match_duration_minutes) VALUES($1,$2,'Cancha de incomparecencia','Sintético',120) RETURNING id",[league,randomUUID()]);
+      await db.query("INSERT INTO sports_management.venue_availability(venue_id,starts_at,ends_at,type) VALUES($1,'2026-12-05T14:00Z','2026-12-05T22:00Z','AVAILABLE')",[noShowVenue]);
+      const noShowTeams:string[]=[];
+      for(const club of clubs.slice(1,3)) {
+        const newTeam=await scalar("INSERT INTO sports_management.teams(club_id,reference_number,name) VALUES($1,$2,'Ausencia sintética') RETURNING id",[club,randomUUID()]);
+        const enrollment=await scalar("INSERT INTO sports_management.season_teams(season_id,team_id,club_id,season_category_id) VALUES($1,$2,$3,$4) RETURNING id",[season,newTeam,club,sc]);
+        await db.query("UPDATE sports_management.season_teams SET group_id=$2 WHERE id=$1",[enrollment,group]);noShowTeams.push(enrollment);
+      }
+      const noShowMatch=await scalar("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id) SELECT season_id,group_id,matchday_id,'NO-SHOW-147',$2,$3,$4,starts_at,ends_at,reserved_until,sports_management.get_match_status_id('CONFIRMED') FROM sports_management.matches WHERE id=$1 RETURNING id",[match,...noShowTeams,noShowVenue]);
+      const noShowCommand:ReportCommand={formatVersion:1,operationId:randomUUID(),matchId:noShowMatch,kind:"record-no-show",expectedMatchVersion:1,expectedReportVersion:0,
+        draft:{lineups:[],captains:{},events:[],score:{home:null,away:null},remarks:"",incidents:"",signatures:{},noShow:{absent:"BOTH",notes:"Ambos equipos ausentes"}}};
+      await verifyReportHttp(base,actors,command(3),draft.signatures[teams[0]]!,"data:image/png;base64,"+png.toString("base64"),noShowCommand);
+      // Recorrido HTTP real para una ausencia individual, con árbitro asignado.
+      const singleMatch=await scalar("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id) SELECT season_id,group_id,matchday_id,'SINGLE-NO-SHOW',$2,$3,$4,starts_at+interval '2 hours',ends_at+interval '2 hours',reserved_until+interval '2 hours',sports_management.get_match_status_id('CONFIRMED') FROM sports_management.matches WHERE id=$1 RETURNING id",[match,...noShowTeams,noShowVenue]);
+      const singleAssignment=await scalar("INSERT INTO sports_management.referee_assignments(match_id,referee_id,created_by) VALUES($1,$2,$3) RETURNING id",[singleMatch,referee,actors.comision]);
+      await db.query("UPDATE sports_management.referee_assignments SET status='APPROVED',approved_by=$2,approved_at=now(),approved_identity_version=1 WHERE id=$1",[singleAssignment,actors.comision]);
+      const {Browser}=await import('./auth.test.mjs');
+      const singleClient=new Browser(base),singleReferee=new Browser(base);
+      await singleClient.login('capturista@example.test','Arbitraje-Local-141!');
+      await singleReferee.login('arbitro@example.test','Arbitraje-Local-141!');
+      const singlePath=`/api/match-reports/${singleMatch}`;
+      const headers={origin:base,'content-type':'application/json','X-Expected-Actor-Id':actors.capturista};
+      const singleCommand={...noShowCommand,matchId:singleMatch,operationId:randomUUID(),draft:{...noShowCommand.draft,noShow:{absent:'HOME',notes:'El local no se presentó'}}};
+      const singleResponse=await singleClient.request(singlePath,{method:'POST',headers,body:JSON.stringify(singleCommand)});
+      assert.equal(singleResponse.status,200);const singleReceipt=await singleResponse.json();
+      const view=await singleReferee.request(`/matches/${singleMatch}/report`);assert.equal(view.status,200);assert.match(await view.text(),/Confirmar resultado por incomparecencia/);
+      const newRule=await scalar("INSERT INTO sports_management.competition_rules(season_id,version_number) SELECT $1,max(version_number)+1 FROM sports_management.competition_rules WHERE season_id=$1 RETURNING id",[season]);
+      for(const [key,value] of Object.entries({points:{win:3,draw:1,loss:0},tieBreakers:['GOAL_DIFFERENCE','GOALS_FOR']})) await db.query('INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by,requires_validation) VALUES($1,$2,$3,$4,false)',[newRule,key,JSON.stringify(value),actors.comision]);
+      await db.query("UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=$2,approved_at=now() WHERE id=$1",[newRule,actors.comision]);
+      await db.query('UPDATE sports_management.season_categories SET competition_rule_id=$2 WHERE id=$1',[sc,newRule]);
+      const close={matchId:singleMatch,reportId:singleReceipt.reportId,operationId:randomUUID(),expectedMatchVersion:singleReceipt.matchVersion,expectedReportVersion:singleReceipt.reportVersion};
+      const endpoint=`${singlePath}/confirm-no-show`;
+      assert.equal((await singleClient.request(endpoint,{method:'POST',headers,body:JSON.stringify(close)})).status,403);
+      const refereeHeaders={...headers,'X-Expected-Actor-Id':actors.arbitro};
+      const {launchChrome}=await import('../e2e/chrome-session.mjs');
+      const browser=await launchChrome(base);
+      try {
+        for(const [name,value] of singleReferee.cookies) await browser.command('Network.setCookie',{name,value,url:base});
+        await browser.command('Page.navigate',{url:`${base}/matches/${singleMatch}/report`});
+        const waitFor=async (expression:string)=>{for(let n=0;n<200;n++){try { if(await browser.evaluate(expression)) return; }catch{} await new Promise(resolve=>setTimeout(resolve,150));}throw Error(`NO_SHOW_BROWSER_TIMEOUT: ${expression}`);};
+        await waitFor("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Confirmar resultado por incomparecencia')");
+        await waitFor("(()=>{if ([...document.querySelectorAll('button')].some(b=>b.getClientRects().length&&b.textContent.trim()==='Confirmar resultado')) return true; document.querySelectorAll('button').forEach(b=>{if(b.getClientRects().length&&b.textContent.trim()==='Confirmar resultado por incomparecencia')b.click()}); return false})()");
+        await browser.evaluate("[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&b.textContent.trim()==='Confirmar resultado').click()");
+        await waitFor("document.body.textContent.includes('Finalizado') && !document.body.textContent.includes('Incomparecencia pendiente de confirmación')");
+      } finally {await browser.close();}
+      const sync=(await db.query("SELECT client_id FROM sports_management.match_report_syncs WHERE match_report_id=$1 AND private_payload->'command'->>'kind'='confirm-no-show'",[singleReceipt.reportId])).rows[0];
+      close.operationId=sync.client_id;
+      const retry=await singleReferee.request(endpoint,{method:'POST',headers:refereeHeaders,body:JSON.stringify(close)});assert.equal(retry.status,200);assert.equal((await retry.json()).replayed,true);
+      const final=await db.query('SELECT home_score,away_score,source FROM sports_management.match_results WHERE match_id=$1',[singleMatch]);assert.deepEqual(final.rows,[{home_score:0,away_score:1,source:'DEFAULT'}]);
+      const finalView=await singleReferee.request(singlePath);assert.deepEqual((await finalView.json()).report.score,{home:0,away:1});
+      const rows=await db.query('SELECT e.season_team_id,e.points::int AS points FROM sports_management.standing_entries e JOIN sports_management.standing_versions v ON v.id=e.standing_version_id WHERE v.group_id=$1 AND v.competition_rule_id=$2',[group,newRule]);
+      assert.equal(rows.rows.find(row=>row.season_team_id===noShowTeams[1])?.points,3);
+      const normalPage=await getReportPage(actors.capturista,match);
+      const {prepareReportAttempt}=await import('../../src/features/match-reports/report-client');
+      const reconstructed=prepareReportAttempt(normalPage,{id:randomUUID(),kind:'confirm',expectedReportVersion:normalPage.report.version,expectedMatchVersion:normalPage.match.version,snapshot:normalPage.report}).command.draft;
+      const original=(await db.query('SELECT draft_data FROM sports_management.match_reports WHERE match_id=$1',[match])).rows[0].draft_data.draft;
+      for(const key of Object.keys(original)) assert.deepEqual(reconstructed[key as keyof typeof reconstructed],original[key],`La reapertura cambió el campo ${key}`);
+      // Confirmación normal desde la misma interfaz, con cédula firmada y guardada.
+      const normalBrowser=await launchChrome(base);
+      try {
+        for(const [name,value] of singleClient.cookies) await normalBrowser.command('Network.setCookie',{name,value,url:base});
+        await normalBrowser.command('Page.navigate',{url:`${base}/matches/${match}/report?modo=en-linea`});
+        const waitNormal=async (expression:string)=>{for(let n=0;n<150;n++){try{if(await normalBrowser.evaluate(expression))return;}catch{}await new Promise(resolve=>setTimeout(resolve,150));}const messages=await normalBrowser.evaluate("[...document.querySelectorAll('[role=status],[role=alert]')].map(e=>e.innerText).filter(Boolean).join(' | ')");throw Error(`NORMAL_CONFIRM_BROWSER_TIMEOUT: ${expression}; ${messages}`);};
+        const clickUntil=async(label:string,next:string)=>waitNormal(`(()=>{if(${next})return true;const b=[...document.querySelectorAll('button')].find(x=>x.getClientRects().length&&!x.disabled&&(x.textContent.trim()===${JSON.stringify(label)}||x.getAttribute('aria-label')===${JSON.stringify(label)}));b?.click();return false})()`);
+        await clickUntil('Capturar cédula',"Boolean(document.querySelector('nav[aria-label=\"Secciones de la cédula\"]'))");
+        await clickUntil('Resumen',"Boolean([...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&b.textContent.trim()==='Solicitar confirmación'))");
+        await normalBrowser.evaluate("[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&b.textContent.trim()==='Guardar borrador').click()");
+        await waitNormal("document.body.textContent.includes('Guardado con acuse del servidor')");
+        await waitNormal("Boolean([...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&!b.disabled&&b.textContent.trim()==='Solicitar confirmación'))");
+        await clickUntil('Solicitar confirmación',"Boolean(document.querySelector('dialog[open] input[type=checkbox]'))");
+        await normalBrowser.evaluate("document.querySelector('dialog[open] input[type=checkbox]').click()");
+        await clickUntil('Confirmar cédula',"document.body.textContent.includes('Consulta sin edición')");
+      } finally {await normalBrowser.close();}
+      const normalResult=await db.query("SELECT home_score,away_score,source FROM sports_management.match_results WHERE match_id=$1",[match]);
+      assert.deepEqual(normalResult.rows,[{home_score:1,away_score:0,source:'MATCH_REPORT'}]);
+      assert.equal((await getReportPage(actors.capturista,match)).report.status,'CONFIRMED');
+      assert.equal((await db.query('SELECT count(*)::int AS n FROM sports_management.standing_entries e JOIN sports_management.standing_versions v ON v.id=e.standing_version_id WHERE v.group_id=$1 AND v.competition_rule_id=$2 AND e.season_team_id=$3 AND e.points=3',[group,newRule,teams[0]])).rows[0].n,1);
+      assert.equal((await db.query("SELECT count(*)::int AS n FROM sports_management.match_results WHERE match_id=$1",[noShowMatch])).rows[0].n,0);
+      await assert.rejects(db.query("UPDATE sports_management.match_report_syncs SET reason='alteración' WHERE client_id=$1",[noShowCommand.operationId]),/inmutable/);
       if(process.argv.includes("--browser")){
         const {verifyRealMatchReportBrowser}=await import("../e2e/match-reports-real.mjs");
         // El recorrido de captura tiene personas independientes del escenario
@@ -339,12 +564,12 @@ export async function runReportAcceptance(f: Fixture) {
     }
     if(!f.serve){
       await db.query("UPDATE sports_management.referee_assignments SET status='REVOKED' WHERE id=$1",[assignment]);
-      assert.deepEqual(await getCaptureMatches(actors.arbitro),[]);
+      assert.ok(!(await getCaptureMatches(actors.arbitro)).some(row=>row.id===match));
       assert.ok((await getCaptureMatches(actors.capturista)).some(row=>row.id===match));
       await assert.rejects(getReportPage(actors.arbitro,match));
       assert.ok(await getReportPage(actors.capturista,match),"DATA_ENTRY no utiliza la designación del árbitro");
     }
-    console.log("PDGLD-147 OK: PostgreSQL desechable, rol Preview/RLS, árbitro efectivo, DATA_ENTRY propio/ajeno, elegibilidad, dorsal histórico, periodos, marcador, firmas privadas/reintentos, versiones concurrentes, acuse, rollback y confirmación bloqueada sin efectos.");
+    console.log("PDGLD-147 OK: PostgreSQL desechable, rol Preview/RLS, árbitro efectivo, DATA_ENTRY propio/ajeno, elegibilidad, dorsal histórico, periodos, marcador, firmas privadas/reintentos, versiones concurrentes, acuse y rollback.");
     if(f.serve){
       const production = process.argv.includes("--offline");
       const base = f.env.NEXTAUTH_URL!;
@@ -354,6 +579,21 @@ export async function runReportAcceptance(f: Fixture) {
         const freshAssignment = await scalar("INSERT INTO sports_management.referee_assignments(match_id,referee_id,created_by) VALUES($1,$2,$3) RETURNING id",[freshMatch,referee,actors.comision]);
         await db.query("UPDATE sports_management.referee_assignments SET status='APPROVED',approved_by=$2,approved_at=now(),approved_identity_version=1 WHERE id=$1",[freshAssignment,actors.comision]);
         console.log(`Captura desde cero: ${base}/matches/${freshMatch}/report · partido OFFLINE-20 asignado al árbitro sintético.`);
+      }
+      let preparedNoShowMatch: string | undefined;
+      if (production && process.argv.includes('--verify-offline')) {
+        const preparedVenue=await scalar("INSERT INTO sports_management.venues(league_id,code,name,address,match_duration_minutes) VALUES($1,$2,'Cancha de ausencia preparada','Sintético',120) RETURNING id",[league,randomUUID()]);
+        await db.query("INSERT INTO sports_management.venue_availability(venue_id,starts_at,ends_at,type) VALUES($1,'2026-12-05T14:00Z','2026-12-05T22:00Z','AVAILABLE')",[preparedVenue]);
+        const preparedTeams:string[]=[];
+        for(const club of clubs.slice(1,3)) {
+          const teamId=await scalar("INSERT INTO sports_management.teams(club_id,reference_number,name) VALUES($1,$2,'Equipo preparado') RETURNING id",[club,randomUUID()]);
+          const enrolled=await scalar("INSERT INTO sports_management.season_teams(season_id,team_id,club_id,season_category_id) VALUES($1,$2,$3,$4) RETURNING id",[season,teamId,club,sc]);
+          await db.query('UPDATE sports_management.season_teams SET group_id=$2 WHERE id=$1',[enrolled,group]);
+          preparedTeams.push(enrolled);
+        }
+        preparedNoShowMatch = await scalar("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,venue_id,starts_at,ends_at,reserved_until,status_id) SELECT season_id,group_id,matchday_id,'PREPARED-NO-SHOW',$2,$3,$4,starts_at+interval '2 hours',ends_at+interval '2 hours',reserved_until+interval '2 hours',sports_management.get_match_status_id('CONFIRMED') FROM sports_management.matches WHERE id=$1 RETURNING id",[match,...preparedTeams,preparedVenue]);
+        const noShowAssignment=await scalar("INSERT INTO sports_management.referee_assignments(match_id,referee_id,created_by) VALUES($1,$2,$3) RETURNING id",[preparedNoShowMatch,referee,actors.comision]);
+        await db.query("UPDATE sports_management.referee_assignments SET status='APPROVED',approved_by=$2,approved_at=now(),approved_identity_version=1 WHERE id=$1",[noShowAssignment,actors.comision]);
       }
       const env: NodeJS.ProcessEnv={...f.env,NODE_ENV:production ? "production" : "development",DATABASE_URL:f.runtimeUrl,REPORT_SIGNATURE_LOCAL_DIRECTORY:directory};
       if (production) {
@@ -371,6 +611,8 @@ export async function runReportAcceptance(f: Fixture) {
         }
         assert.ok(ready,"OFFLINE_SERVER_NOT_READY");
         const { verifyOfflineReportBrowser } = await import("../e2e/match-reports-offline.mjs");
+        const { verifyPreparedNoShowBrowser } = await import('../e2e/match-report-prepared-no-show.mjs');
+        await verifyPreparedNoShowBrowser({base,match:preparedNoShowMatch!,db,actorId:actors.arbitro});
         await verifyOfflineReportBrowser({base,match,db,actorId:actors.arbitro});
       }
       if (process.argv.includes("--verify-offline")) return;

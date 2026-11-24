@@ -125,7 +125,12 @@ export async function mutateRefereeingInTransaction(tx: Tx, actorId: string, inp
       const match = await tx.matches.findUniqueOrThrow({ where: { id: matchId }, select: { season_id: true, version: true, match_statuses: { select: { code: true } } } });
       if (match.season_id !== command.seasonId) throw new AuthorizationError();
       if (match.version !== command.expectedMatchVersion || (existing && existing.version !== (command as Extract<RefereeMutation, {kind: "approve" | "revoke"}>).expectedVersion)) throw new RefereeError("STALE_VERSION");
-      if (["FINISHED", "NO_SHOW", "ADMINISTRATIVELY_RESOLVED"].includes(match.match_statuses.code)) throw new RefereeError("CLOSED_CONTEXT");
+      if (["FINISHED", "NO_SHOW", "ADMINISTRATIVELY_RESOLVED"].includes(match.match_statuses.code)) {
+        const report=match.match_statuses.code==="NO_SHOW" && command.kind==="revoke"
+          ? await tx.match_reports.findUnique({where:{match_id:matchId},select:{status:true,draft_data:true}}) : null;
+        const noShow=(report?.draft_data as {draft?:{noShow?:{absent?:string}}}|undefined)?.draft?.noShow;
+        if(report?.status!=="DRAFT" || noShow?.absent!=="BOTH") throw new RefereeError("CLOSED_CONTEXT");
+      }
       if (command.kind === "propose") result = await tx.referee_assignments.create({ data: { match_id: matchId, referee_id: refereeId, created_by: actorId }, select: { id: true, version: true } });
       else {
         if (existing!.status === "REVOKED" || command.kind === "approve" && existing!.status !== "PROPOSED") throw new RefereeError("INVALID_TRANSITION");

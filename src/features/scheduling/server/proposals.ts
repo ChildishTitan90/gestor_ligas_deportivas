@@ -1,4 +1,5 @@
 import { storedProposalSchema } from "../stored-proposal";
+import { proposalActions } from "../proposal-actions";
 import "server-only";
 import {
   AuthorizationError,
@@ -89,14 +90,14 @@ export async function listScheduleProposals() {
     const { parameters: _parameters, ...safeProposal } = proposal;
     void _parameters;
     const scope = { leagueId: proposal.seasons.league_id, clubIds: [], hasContext: true };
-    const open = proposal.seasons.status !== "CLOSED";
-    const canEdit = open && proposal.status === "DRAFT" && updates.some(grant => grantCoversContext(grant, scope));
-    const canReview = open && proposal.status === "IN_REVIEW" && approvals.some(grant => grantCoversContext(grant, scope));
+    const actions = proposalActions({status:proposal.status,seasonOpen:proposal.seasons.status !== "CLOSED",
+      canUpdate:updates.some(grant => grantCoversContext(grant, scope)),canApprove:approvals.some(grant => grantCoversContext(grant, scope)),
+      generated:stored.success,operationalCount:proposal.matches.length});
     return {
       ...safeProposal,
       generated,
-      canEdit,
-      canReview,
+      ...actions,
+      operationalCount:proposal.matches.length,
       // El vínculo al UUID de la propuesta no garantiza temporada ni jornada en PostgreSQL.
       matches: proposal.matches.filter(match =>
         match.season_id === proposal.season_id && match.matchday_id === proposal.matchday_id),

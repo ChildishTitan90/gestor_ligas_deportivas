@@ -11,6 +11,7 @@ import { readLocalReport, updateLocalReport, writeLocalReport, subscribeReports,
 import { downloadOwnReport, prepareLocalReport } from "../offline/prepare.client";
 import { offlineSupport } from "../offline/resources.client";
 import { enqueueReport, synchronizeReport } from "../offline/sync.client";
+import { confirmPreparedNoShow } from "../offline/confirm-no-show.client";
 import { resolveReportConflict, type ResolutionChoice } from "../offline/resolve.client";
 import { ReportWorkspace } from "./report-workspace";
 import { primaryButton, secondaryButton } from "./report-shared";
@@ -20,6 +21,7 @@ export type ReportDeviceControls = {
   confirmation: ReportDemoData["confirmation"];
   setReport: Dispatch<SetStateAction<MatchReportPresentation>>;
   run(kind: ReportOperation["kind"], action?: ReportOperation["clockAction"]): void;
+  confirmNoShow(): Promise<void>; connected: boolean;
   locked: boolean; notice: ReactNode; safelyStored: boolean;
 };
 
@@ -79,7 +81,8 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [localOperation, setLocalOperation] = useState(false);
-  const [error, setError] = useState(serverReference && (serverReference.match.version !== initial.data.match.version || serverReference.report.version !== initial.data.report.version || !serverReference.match.status.captureAllowed) ? "SERVER_REFERENCE_CHANGED" : "");
+  const mayHaveNoShowReceipt = serverReference?.match.status.code === "NO_SHOW" && initial.pending.some(item => item.operation.kind === "record-no-show" && item.operation.expectedMatchVersion + 1 === serverReference.match.version && item.operation.expectedReportVersion + 1 === serverReference.report.version) || serverReference?.match.status.code === "FINISHED" && !!initial.noShowConfirmation && !initial.noShowConfirmation.receipt && initial.noShowConfirmation.expectedMatchVersion + 1 === serverReference.match.version && initial.noShowConfirmation.expectedReportVersion + 1 === serverReference.report.version;
+  const [error, setError] = useState(serverReference && !mayHaveNoShowReceipt && (serverReference.match.version !== initial.data.match.version || serverReference.report.version !== initial.data.report.version || serverReference.match.status.code !== initial.data.match.status.code) ? "SERVER_REFERENCE_CHANGED" : "");
   const [accountLocked, setAccountLocked] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [connected, setConnected] = useState(true);
@@ -102,9 +105,9 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
     const local = current.current;
     if (incoming.draftId !== local.draftId) return;
     const next = { ...incoming, revision: local.revision, editId: local.editId, data: {
-      ...local.data, confirmation: incoming.data.confirmation, match: { ...local.data.match, version: incoming.data.match.version },
-      report: { ...local.data.report, id: incoming.data.report.id, version: incoming.data.report.version,
-        lineupsLock: incoming.data.report.lineupsLock, clock: incoming.data.report.clock },
+      ...local.data, confirmation: incoming.data.confirmation, match: { ...local.data.match, version: incoming.data.match.version, status: incoming.data.match.status },
+      report: { ...local.data.report, id: incoming.data.report.id, version: incoming.data.report.version, status: incoming.data.report.status,
+        lineupsLock: incoming.data.report.lineupsLock, clock: incoming.data.report.clock, confirmedAt: incoming.data.report.confirmedAt, ...(incoming.data.report.status === "CONFIRMED" ? { score: incoming.data.report.score } : {}) },
     } };
     current.current = next;
     if (mounted.current) render(next);
@@ -144,6 +147,10 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
         local = await updateLocalReport(actorId, matchId, value => ({ ...value, reviewRequired: false }));
         apply(local);
       }
+      if (local.noShowConfirmation && !local.noShowConfirmation.receipt) {
+        await confirmPreparedNoShow(actorId, matchId, apply);
+        setSessionExpired(false); setError(""); return;
+      }
       if (!local.pending.length && Object.keys(jerseyErrors(local.data, local.data.report)).length) {
         setError("LOCAL_DRAFT_INCOMPLETE"); return;
       }
@@ -155,7 +162,7 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
         const response = await fetch(`/api/match-reports/${matchId}`, { cache: "no-store", headers: { "X-Expected-Actor-Id": actorId }, signal: AbortSignal.timeout(20000) });
         if (!response.ok) throw new ReportClientError("REFERENCE_UNAVAILABLE", response.status);
         const reference = await response.json() as ReportDemoData;
-        if (reference.match.version !== local.data.match.version || reference.report.version !== local.data.report.version || !reference.match.status.captureAllowed) {
+        if (reference.match.version !== local.data.match.version || reference.report.version !== local.data.report.version || reference.match.status.code !== local.data.match.status.code) {
           setComparison(reference); setError("SERVER_REFERENCE_CHANGED"); return;
         }
       }
@@ -216,6 +223,7 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
   }, [initial.prepared]);
   async function run(kind: ReportOperation["kind"], action?: ReportOperation["clockAction"]) {
     if (operationBusy.current) return;
+    if (kind === "record-no-show" && !navigator.onLine) { setError("NO_SHOW_CONNECTION_REQUIRED"); return; }
     operationBusy.current = true;
     const liveClock = kind === "clock" && navigator.onLine;
     setLocalOperation(true);
@@ -227,6 +235,12 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
       if (liveClock && navigator.onLine) queuedLiveClocks.current.add(next.pending.at(-1)!.operation.id);
       if (navigator.onLine) await sync(false);
     } catch (failure) { setError(failure instanceof ReportClientError ? failure.code : "LOCAL_WRITE_FAILED"); }
+    finally { operationBusy.current = false; setLocalOperation(false); }
+  }
+  async function confirmNoShow() {
+    if (operationBusy.current || syncBusy.current) throw new ReportClientError("PARTICIPATION_RETRY_REQUIRED", 409);
+    operationBusy.current = true; setLocalOperation(true);
+    try { await writes.current; await confirmPreparedNoShow(actorId, matchId, apply); setError(""); }
     finally { operationBusy.current = false; setLocalOperation(false); }
   }
   async function retryLocal() {
@@ -280,7 +294,8 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
   const rejected = record.pending.find(item => item.error);
   const localFailed = !saving && savedRevision !== record.revision;
   const pending = record.revision > record.acknowledgedRevision || record.pending.length > 0;
-  const locked = Boolean(resolving || localOperation || otherTab || rejected || expired || sessionExpired || error === "LOCAL_ACCOUNT_LOCKED" || error === "SERVER_REFERENCE_CHANGED");
+  const syncLocked = Boolean(resolving || localOperation || otherTab || rejected || expired || sessionExpired || error === "LOCAL_ACCOUNT_LOCKED" || error === "SERVER_REFERENCE_CHANGED");
+  const locked = syncLocked || record.pending.some(item => item.operation.kind === "record-no-show") || Boolean(record.noShowConfirmation && !record.noShowConfirmation.receipt);
   const receipt = record.lastReceipt;
   if (accountLocked) return <p role="alert">La copia está bloqueada. Para retomarla, inicia sesión con la cuenta que preparó el partido.</p>;
   const notice = <section aria-label="Guardado y sincronización" className="space-y-3 rounded-2xl border border-border bg-surface p-4">
@@ -290,7 +305,7 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
     {record.reviewRequired && <p role="status" className="text-sm">Revisa tus eventos y notas sobre la referencia vigente. Pulsa Sincronizar cuando termines la revisión. Las capturas anteriores están conservadas abajo.</p>}
     {record.prepared && <a className={secondaryButton} href={`/offline/report?match=${matchId}`}>Abrir copia preparada sin conexión</a>}
     <div className="flex flex-wrap gap-2">
-      <button className={secondaryButton} type="button" disabled={saving || syncing || locked || !connected || localFailed} onClick={() => void sync(true, true)}>{syncing ? "Consultando acuse y sincronizando…" : "Sincronizar"}</button>
+      <button className={secondaryButton} type="button" disabled={saving || syncing || syncLocked || !connected || localFailed} onClick={() => void sync(true, true)}>{syncing ? "Consultando acuse y sincronizando…" : "Sincronizar"}</button>
       {!record.prepared && <button className={secondaryButton} type="button" disabled={preparing || !connected || saving} onClick={() => void prepare()}>{preparing ? "Preparando recursos…" : "Preparar para usar sin conexión"}</button>}
       {localFailed && <button type="button" className={primaryButton} onClick={() => void retryLocal()}>Reintentar guardado local</button>}
       {sessionExpired && <><ActionLink variant="secondary" href={`/login?callbackUrl=${encodeURIComponent("/offline/report?match=" + matchId)}`} target="_blank" rel="noopener noreferrer">Iniciar sesión en otra pestaña</ActionLink><button type="button" className={secondaryButton} onClick={() => void sync(false)}>Revisar sesión y acuse</button></>}
@@ -298,7 +313,7 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
     {expired && <p role="alert" className="text-sm text-danger">Venció la autorización local. Recupera conexión y revalida el partido antes de continuar.</p>}
     {sessionExpired && <p role="alert" className="text-sm text-danger">Tu sesión venció. La copia y la intención pendientes se conservan. Inicia sesión con la misma cuenta y revisa el acuse para continuar.</p>}
     {otherTab && <p role="alert" className="text-sm text-danger">Otra pestaña guardó la revisión {otherTab.revision}. Tu captura sigue en memoria. Compara las versiones antes de continuar.</p>}
-    {(rejected || error && !localFailed) && <p role="alert" className="text-sm text-danger">{rejected ? reportErrorMessage(rejected.error!) : error === "LOCAL_DRAFT_INCOMPLETE" ? "Corrige los dorsales incompletos o repetidos antes de sincronizar. La edición sigue disponible." : error === "SERVER_REFERENCE_CHANGED" ? "La referencia del servidor cambió. Conservamos tu copia para compararla antes de continuar." : error === "PREPARATION_INCOMPLETE" ? "La preparación quedó incompleta. Reintenta con conexión y espacio disponible. En desarrollo utiliza el recorrido de producción." : error === "LOCAL_ACCOUNT_LOCKED" ? "La cuenta local se cerró o cambió. La captura está bloqueada." : "No se recibió el acuse. La intención original sigue pendiente. Recupera conexión y pulsa Sincronizar."}</p>}
+    {(rejected || error && !localFailed) && <p role="alert" className="text-sm text-danger">{rejected ? reportErrorMessage(rejected.error!) : error === "NO_SHOW_CONNECTION_REQUIRED" ? "Conéctate para registrar la incomparecencia. Tu captura permanece en este dispositivo." : error === "LOCAL_DRAFT_INCOMPLETE" ? "Corrige los dorsales incompletos o repetidos antes de sincronizar. La edición sigue disponible." : error === "SERVER_REFERENCE_CHANGED" ? "La referencia del servidor cambió. Conservamos tu copia para compararla antes de continuar." : error === "PREPARATION_INCOMPLETE" ? "La preparación quedó incompleta. Reintenta con conexión y espacio disponible. En desarrollo utiliza el recorrido de producción." : error === "LOCAL_ACCOUNT_LOCKED" ? "La cuenta local se cerró o cambió. La captura está bloqueada." : "No se recibió el acuse. La intención original sigue pendiente. Recupera conexión y pulsa Sincronizar."}</p>}
     {resolutionMessage && <p role="status" className="text-sm leading-6">{resolutionMessage}</p>}
     {(otherTab || rejected || error === "SERVER_REFERENCE_CHANGED") && <button className={secondaryButton} type="button" disabled={resolving || saving || syncing || localOperation || !connected} onClick={() => void compare()}>{resolving ? "Consultando versiones…" : "Comparar versiones"}</button>}
     <FormDialog open={compareOpen} title="Resolver el conflicto de captura" description="Revisa las versiones y elige la copia con la que continuarás. Las capturas anteriores se conservarán en este dispositivo." pending={resolving} onClose={() => setCompareOpen(false)}
@@ -326,6 +341,6 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
   const viewData = { ...record.data, players: record.data.players.map(player => ({ ...player, photoUrl: photoUrls.get(player.id) ?? null })) };
   return <ReportWorkspace key={record.draftId} data={viewData} live={{ actorId }} device={{
     report: record.data.report, match: record.data.match, confirmation: record.data.confirmation, setReport, run: (kind, action) => void run(kind, action),
-    locked, notice, safelyStored: !otherTab && !saving && !localFailed && savedRevision === record.revision,
+    locked, notice, confirmNoShow, connected, safelyStored: !otherTab && !saving && !localFailed && savedRevision === record.revision,
   }} />;
 }

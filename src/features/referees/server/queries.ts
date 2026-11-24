@@ -61,14 +61,18 @@ export async function getRefereeWorkspaceForActor(actorId: string, leagueId = ""
       JOIN sports_management.match_statuses ms ON ms.id=m.status_id LEFT JOIN sports_management.venues v ON v.id=m.venue_id
       WHERE m.season_id=${seasonId}::uuid ORDER BY m.starts_at,m.number`;
     const members = await tx.season_teams.findMany({ where: { season_id: seasonId }, select: { group_id: true, club_id: true, teams: { select: { name: true } } } });
+    const noShowReports=await tx.match_reports.findMany({where:{match_id:{in:matches.filter(m=>m.status==="NO_SHOW").map(m=>m.id)},status:"DRAFT"},select:{match_id:true,draft_data:true}});
     data.matches = matches.map(m => ({ id: m.id, number: m.number, seasonId, version: m.version, openForAssignments:season.status!=="CLOSED"&&!m.deleted_at&&!["FINISHED","NO_SHOW","ADMINISTRATIVELY_RESOLVED","CANCELED","UNSCHEDULED","DRAFT"].includes(m.status), category: m.category, group: m.group, home: m.home, away: m.away, venue: m.venue ?? "Cancha sin asignar", startsAt: m.starts_at?.toISOString() ?? "", endsAt: m.ends_at?.toISOString() ?? "", groupClubs: members.filter(t => t.group_id === m.group_id).map(t => ({ clubId: t.club_id, team: t.teams.name })) }));
+    for(const match of data.matches) match.canReleaseForReschedule=season.status!=="CLOSED" && noShowReports.some(report=>report.match_id===match.id &&
+      (report.draft_data as {draft?:{noShow?:{absent?:string}}}|undefined)?.draft?.noShow?.absent==="BOTH");
     const assignments = await tx.referee_assignments.findMany({ where: { matches: { season_id: seasonId } }, orderBy: { id: "asc" } });
     for (const a of assignments) {
       data.assignments.push({ id: a.id, matchId: a.match_id, refereeId: a.referee_id, status: a.status as AssignmentStatus, version: a.version });
       const evaluation = await assessAssignment(tx, a.match_id, a.referee_id, a.id);
       const r = refs.find(r => r.id === a.referee_id)!;
-      const historical = season.status === "CLOSED" || matches.some(m => m.id === a.match_id && ["FINISHED","NO_SHOW","ADMINISTRATIVELY_RESOLVED"].includes(m.status));
-      const terminal = matches.some(m=>m.id===a.match_id && ["FINISHED","NO_SHOW","ADMINISTRATIVELY_RESOLVED"].includes(m.status));
+      const hasMatchSnapshot=(a.identity_snapshot as {source?:string}|null)?.source==="MATCH_CLOSURE_V1";
+      const historical = hasMatchSnapshot || season.status === "CLOSED" || matches.some(m => m.id === a.match_id && ["FINISHED","NO_SHOW","ADMINISTRATIVELY_RESOLVED"].includes(m.status));
+      const terminal = hasMatchSnapshot || matches.some(m=>m.id===a.match_id && ["FINISHED","NO_SHOW","ADMINISTRATIVELY_RESOLVED"].includes(m.status));
       const identity = historical ? await readRefereeIdentity(tx,r.person_id,seasonId,a.identity_snapshot,season.status==="CLOSED",terminal) : null;
       const presentation = data.assignments.at(-1)!;
       presentation.historical=historical;

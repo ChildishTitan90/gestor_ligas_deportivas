@@ -5,6 +5,7 @@ import { FormDialog } from "@/components/ui/form-dialog";
 import { scheduleRecoveryStore, type PendingSchedule } from "../schedule-recovery.client";
 import { PendingReasons } from "./pending-reasons";
 import { ProgressSteps } from "./progress-steps";
+import Link from "next/link";
 import type { getSchedulingWorkspace } from "../server/workspace";
 
 type Workspace = Awaited<ReturnType<typeof getSchedulingWorkspace>>;
@@ -20,7 +21,7 @@ type Proposal = {
 };
 type SavedProposal = { id: string; createdAt: string; proposal: Proposal };
 type Result = { ok: boolean; code?: string; proposalId?: string; proposal?: Proposal; conflicts?: Pairing[] };
-const messages: Record<string,string> = { APPROVED_SCHEDULING_POLICY_REQUIRED: "Falta aprobar la configuración de generación en el reglamento.", MATCHDAY_COUNT_MISMATCH: "Revisa que las jornadas necesarias estén configuradas y no se traslapen.", DISTRIBUTION_PENDING: "Hay equipos pendientes de asignar a un grupo.", NO_AVAILABLE_SLOT: "Algunos encuentros no tienen un horario viable. Revisa la disponibilidad y los bloqueos de las canchas, los préstamos y las reglas aplicables.", NO_SOLUTION: "No se encontró una combinación para acomodar el calendario completo. Revisa la disponibilidad de las canchas y las restricciones; la lista incluye todos los encuentros considerados.", SEARCH_LIMIT: "La búsqueda alcanzó su límite antes de encontrar una propuesta; esto no significa que sea imposible generarla. Revisa la disponibilidad y vuelve a intentar.", STALE_CONFIGURATION: "La temporada cambió. Actualiza la página antes de volver a generar.", SERVICE_UNAVAILABLE: "No se pudo completar la operación. Puedes volver a intentar con la misma solicitud." };
+const messages: Record<string,string> = { CALENDAR_ALREADY_EXISTS: "Este grupo ya tiene partidos registrados. Consulta sus encuentros o selecciona un grupo sin programación.", APPROVED_SCHEDULING_POLICY_REQUIRED: "Falta aprobar la configuración de generación en el reglamento.", MATCHDAY_COUNT_MISMATCH: "Revisa que las jornadas necesarias estén configuradas y no se traslapen.", DISTRIBUTION_PENDING: "Hay equipos pendientes de asignar a un grupo.", NO_AVAILABLE_SLOT: "Algunos encuentros no tienen un horario viable. Revisa la disponibilidad y los bloqueos de las canchas, los préstamos y las reglas aplicables.", NO_SOLUTION: "No se encontró una combinación para acomodar el calendario completo. Revisa la disponibilidad de las canchas y las restricciones; la lista incluye todos los encuentros considerados.", SEARCH_LIMIT: "La búsqueda alcanzó su límite antes de encontrar una propuesta; esto no significa que sea imposible generarla. Revisa la disponibilidad y vuelve a intentar.", STALE_CONFIGURATION: "La temporada cambió. Actualiza la página antes de volver a generar.", SERVICE_UNAVAILABLE: "No se pudo completar la operación. Puedes volver a intentar con la misma solicitud." };
 const factorMessages: Record<string,string> = {
   NO_OPENING:"No se encontró una apertura con tiempo suficiente para esa jornada en las canchas consideradas.",
   VENUE_STAGE:"La configuración de jornadas excluye algunas canchas.",
@@ -151,7 +152,7 @@ export function SchedulingWorkspace({ workspace }: { workspace: Workspace }) {
     ]} />
     <section className="space-y-4 rounded-3xl border border-border bg-surface p-6"><div><label htmlFor="schedule-season" className="font-semibold">Temporada</label><SelectField id="schedule-season" disabled={!recoveryReady || pending || uncertain} value={seasonId} onValueChange={v=>{setSeason(v);setGroup("");setResult(undefined);setSaved([]);setSelectedSaved("");setSavedError("");setSavedLoading(false);}} options={workspace.seasons.map(s=>({value:s.id,label:s.name,description:s.league}))} /></div>
     <div><label htmlFor="schedule-group" className="font-semibold">Categoría y grupo</label><SelectField id="schedule-group" value={groupId} onValueChange={v=>{setGroup(v);setResult(undefined);setSaved([]);setSelectedSaved("");setSavedError("");setSavedLoading(Boolean(v));}} disabled={!recoveryReady || !season || pending || uncertain} options={(season?.groups??[]).map(g=>({value:g.id,label:`${g.category} · ${g.name}`}))} /></div>
-    {!workspace.seasons.length&&<p>No hay temporadas disponibles para tu cuenta.</p>}<button className="primary-action" disabled={!recoveryReady || pending || (!group && !uncertain)} onClick={()=>{if (!uncertain) setReason(""); setDialog(true);}}>{uncertain ? "Recuperar propuesta pendiente" : "Generar propuesta"}</button></section>
+    {!workspace.seasons.length&&<p>No hay temporadas disponibles para tu cuenta.</p>}<button className="primary-action min-h-12 rounded-xl px-5 py-3 font-semibold disabled:opacity-50" disabled={!recoveryReady || pending || (!group && !uncertain)} onClick={()=>{if (!uncertain) setReason(""); setDialog(true);}}>{uncertain ? "Recuperar propuesta pendiente" : "Generar propuesta"}</button></section>
     {recoveryError && <p role="alert">{recoveryError}</p>}
     {uncertain && !group && <p role="status">Hay una solicitud pendiente de un contexto que ya no está disponible. Puedes reintentarla para consultar su resultado.</p>}
     {group && <section className="space-y-3 rounded-3xl border border-border bg-surface p-6">
@@ -183,6 +184,7 @@ export function SchedulingWorkspace({ workspace }: { workspace: Workspace }) {
     </details> : null}
     {result?.ok && proposal && <section className="space-y-3 rounded-3xl border border-border bg-surface p-6">
       <h2 className="text-xl font-bold">Propuesta generada</h2>
+      <p>Abre cada jornada para consultar sus encuentros. Para ajustar la propuesta o enviarla a revisión, visita <Link href="/scheduling/proposals" className="font-semibold underline underline-offset-4">Propuestas de programación</Link>.</p>
       <p>{proposal.matches.length} partidos · {proposal.byes.length} descansos</p>
       {proposal.matches.some(match => !match.venueId) ? <p role="status">Hay encuentros pendientes de cancha y horario. Asígnalos antes de aprobar la propuesta.</p> : proposal.preferenceOptimal === false && <p role="status">La búsqueda alcanzó su límite. Puede haber otra propuesta que cumpla más preferencias.</p>}
       {proposal.matches.some(match => !match.venueId) && proposal.partialOptimal === false && <p role="status">La búsqueda alcanzó su límite; podría ser posible programar más encuentros.</p>}
@@ -201,7 +203,7 @@ export function SchedulingWorkspace({ workspace }: { workspace: Workspace }) {
           <p key={bye.teamId} className="mt-2 rounded-xl border border-border p-3"><strong>Descansa</strong> · {teamName(bye.teamId)}</p>)}
       </details>)}
     </section>}
-    <FormDialog open={dialog} title="Generar propuesta" description={`${season?.name ?? "Temporada"} · ${group?.category ?? "Categoría"} · ${group?.name ?? "Grupo"}. La propuesta se guardará para revisión.`} pending={pending} uncertain={uncertain} dirty={!!reason} onClose={()=>setDialog(false)} footer={<button className="primary-action" disabled={pending||(!uncertain&&reason.trim().length<5)} onClick={send}>{pending?"Generando…":uncertain?"Reintentar la misma solicitud":"Generar"}</button>}>
+    <FormDialog open={dialog} title="Generar propuesta" description={`${season?.name ?? "Temporada"} · ${group?.category ?? "Categoría"} · ${group?.name ?? "Grupo"}. La propuesta se guardará como borrador para que puedas revisarla y ajustarla.`} pending={pending} uncertain={uncertain} dirty={!!reason} onClose={()=>setDialog(false)} footer={<button className="primary-action min-h-12 rounded-xl px-5 py-3 font-semibold disabled:opacity-50" disabled={pending||(!uncertain&&reason.trim().length<5)} onClick={send}>{pending?"Generando…":uncertain?"Reintentar la misma solicitud":"Generar"}</button>}>
       <label htmlFor="schedule-reason" className="block font-semibold">Motivo</label><textarea id="schedule-reason" value={reason} disabled={pending||uncertain} onChange={e=>setReason(e.target.value)} maxLength={500} className="mt-2 min-h-28 w-full rounded-xl border border-border bg-surface p-3" />{uncertain&&<p role="alert">No recibimos confirmación. La solicitud se conserva en este navegador. Reintenta la misma solicitud para recuperar el resultado.</p>}
     </FormDialog></div>;
 }

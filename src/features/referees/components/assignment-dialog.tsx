@@ -29,6 +29,7 @@ export function AssignmentDialog({ data, seasonId, timezone, assignment, onClose
   const match = data.matches.find(item => item.id === matchId);
   const revoked = assignment?.status === "REVOKED";
   const openContext=!data.seasons.find(s=>s.id===seasonId)?.closed&&match?.openForAssignments!==false&&!assignment?.historical;
+  const releaseForReschedule=!data.seasons.find(s=>s.id===seasonId)?.closed&&Boolean(match?.canReleaseForReschedule)&&Boolean(assignment?.historical);
   const renewal=revoked&&openContext&&(!live||live.capabilities.update);
   const review = !!assignment&&!renewal;
   const assessmentAssignmentId=review?assignment?.id:undefined;
@@ -53,13 +54,14 @@ export function AssignmentDialog({ data, seasonId, timezone, assignment, onClose
     description={renewal?"El partido ya está seleccionado. Elige al árbitro y confirma una nueva designación; la revocada se conserva en el historial.":live ? direct ? "Al confirmar se asigna y aprueba en una sola operación autorizada. Se validan de nuevo las reglas y queda registrado en el historial." : "Revisa el contexto y los motivos. La propuesta no publica ni concede acceso; la aprobación requiere permiso de Comisión." : "Partido, presentación y disponibilidad sintéticos. Ninguna acción envía información al servidor."}
     dirty={!review&&(assignment?refereeId!==assignment.refereeId:!!matchId||!!refereeId)||!!live?.reason} pending={live?.pending} uncertain={live?.uncertain} onClose={onClose}
     footer={<>
-      {review && !revoked && <button type="button" disabled={!openContext||!!live && (!live.capabilities.approve || live.pending || live.uncertain)} className="min-h-12 rounded-xl border border-danger px-4 py-3 text-sm font-semibold text-danger disabled:opacity-50" onClick={() => onConfirm({ matchId, refereeId, status: "REVOKED" })}>{live ? "Revocar designación" : "Simular revocación"}</button>}
+      {review && !revoked && <button type="button" disabled={!(openContext||releaseForReschedule)||!!live && (!live.capabilities.approve || live.pending || live.uncertain)} className="min-h-12 rounded-xl border border-danger px-4 py-3 text-sm font-semibold text-danger disabled:opacity-50" onClick={() => onConfirm({ matchId, refereeId, status: "REVOKED" })}>{live ? "Revocar designación" : "Simular revocación"}</button>}
       {(!review || assignment?.status === "PROPOSED") && <button type="button" disabled={!eligible} aria-describedby="assignment-assessment"
         className="primary-action min-h-12 rounded-xl px-5 py-3 text-sm font-semibold disabled:opacity-50"
         onClick={() => onConfirm({ matchId, refereeId, status: review || direct ? "APPROVED" : "PROPOSED" })}>{live ? review ? "Aprobar designación" : renewal ? direct?"Actualizar y aprobar":"Enviar nueva propuesta" : direct ? "Asignar y aprobar" : "Enviar propuesta" : renewal?"Simular nueva propuesta":review ? "Simular aprobación" : "Simular propuesta"}</button>}
     </>}>
     <div className="space-y-5">
       {assignment && <p className="font-semibold">{renewal?"Designación anterior":"Estado"}: {assignmentLabels[assignment.status]}</p>}
+      {releaseForReschedule && <p className="text-sm text-muted">Ambos equipos no se presentaron. Se puede revocar esta designación para reprogramar; su identidad e historial se conservan.</p>}
       <div><label htmlFor="assignment-match" className="mb-2 block text-sm font-semibold">Partido</label>
         <SelectField id="assignment-match" value={matchId} onValueChange={value=>{setMatchId(value);setRefereeId("");}} disabled={!!assignment}
           options={(assignment?data.matches.filter(m=>m.id===assignment.matchId).map(match=>({match,description:"Partido de esta designación"})):choices).map(({match:item,description}) => ({ value: item.id, label: `${item.number} · ${item.home} – ${item.away}`, description: `${description} · ${item.category} · Grupo ${item.group}` }))} />

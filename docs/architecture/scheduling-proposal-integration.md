@@ -1,5 +1,9 @@
 # Integración PDGLD-24 y PDGLD-25
 
+> Esta descripción y su evidencia del 19 de noviembre corresponden a la versión
+> anterior a la activación de partidos al aprobar. Para el comportamiento y las
+> pruebas de la rama integrada actual, consultar [PDGLD-138](../validation/PDGLD-138.md).
+
 Se incorporó la rama de Sergio en f2f9b35, incluido el validador compartido
 validateScheduleProposalInTransaction y su contrato PDGLD-137.
 

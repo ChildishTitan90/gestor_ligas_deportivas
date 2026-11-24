@@ -2,14 +2,15 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 
 export type SchedulePdfData = {
   league:string; season:string; category:string; group:string; timezone:string; version:number; generatedAt:Date;
-  matches:{round:number;home:string;away:string;venue:string;start:string}[];
+  variant?:"original"|"updated";
+  matches:{round:number;home:string;away:string;venue:string;start:string|null;status?:string}[];
   byes:{round:number;team:string}[];
 };
 
 /** Una instantánea de la propuesta aprobada; no publica ni reserva partidos. */
 export async function createSchedulePdf(data:SchedulePdfData):Promise<Uint8Array> {
   const pdf=await PDFDocument.create();
-  pdf.setTitle("Programación de jornadas"); pdf.setSubject("Propuesta aprobada");
+  pdf.setTitle("Programación de jornadas"); pdf.setSubject(data.variant === "updated" ? "Programación actualizada" : "Propuesta aprobada");
   const regular=await pdf.embedFont(StandardFonts.Helvetica), bold=await pdf.embedFont(StandardFonts.HelveticaBold);
   const color=rgb(0.10,0.20,0.24), muted=rgb(0.32,0.39,0.41), accent=rgb(0.75,0.36,0.22);
   const width=595.28, height=841.89, left=44, right=width-44;
@@ -38,7 +39,7 @@ export async function createSchedulePdf(data:SchedulePdfData):Promise<Uint8Array
     page=pdf.addPage([width,height]); pages++;
     page.drawRectangle({x:0,y:height-73,width,height:73,color});
     line("PROGRAMACIÓN DE JORNADAS",bold,16,left,height-24,rgb(1,1,1));
-    line(wrap("Programación aprobada · " + data.league,regular,9,right-left)[0],regular,9,left,height-48,rgb(0.88,0.92,0.92));
+    line(wrap((data.variant === "updated" ? "Programación actualizada · " : "Programación aprobada · ") + data.league,regular,9,right-left)[0],regular,9,left,height-48,rgb(0.88,0.92,0.92));
     y=height-93;
   }
   function ensure(space:number) {if(y-space<48)newPage();}
@@ -49,16 +50,16 @@ export async function createSchedulePdf(data:SchedulePdfData):Promise<Uint8Array
   newPage();
   text(`${data.season} · ${data.category} · Grupo ${data.group}`,bold,12);
   text(`Versión ${data.version} · Generado: ${format.format(data.generatedAt)} · ${data.timezone}`,regular,9,0,muted);
-  text("La información corresponde a la propuesta aprobada en el momento de la descarga.",regular,9,0,muted);
+  text(data.variant === "updated" ? "Versión registrada tras la reprogramación." : "La información corresponde a la propuesta aprobada en el momento de la descarga.",regular,9,0,muted);
   y-=8;
   const rounds=[...new Set([...data.matches.map(m=>m.round),...data.byes.map(b=>b.round)])].sort((a,b)=>a-b);
   for(const round of rounds) {
     ensure(58); page.drawRectangle({x:left,y:y-22,width:right-left,height:22,color:rgb(0.93,0.95,0.95)});
     line(`JORNADA ${round}`,bold,10,left+8,y-5,accent);y-=32;
-    const matches=data.matches.filter(m=>m.round===round).sort((a,b)=>Date.parse(a.start)-Date.parse(b.start)||a.home.localeCompare(b.home));
+    const matches=data.matches.filter(m=>m.round===round).sort((a,b)=>(a.start?Date.parse(a.start):Infinity)-(b.start?Date.parse(b.start):Infinity)||a.home.localeCompare(b.home));
     for(const match of matches) {
       const title=`${match.home}  vs.  ${match.away}`;
-      const detail=`${format.format(new Date(match.start))} · ${match.venue}`;
+      const detail=`${match.status === "CANCELED" ? "Cancelado · " : ""}${match.start?format.format(new Date(match.start)):"Horario pendiente"} · ${match.venue}`;
       const required=(wrap(title,bold,10,right-left-16).length+wrap(detail,regular,9,right-left-16).length)*15+8;
       ensure(required); text(title,bold,10,8);text(detail,regular,9,8,muted);y-=5;
     }

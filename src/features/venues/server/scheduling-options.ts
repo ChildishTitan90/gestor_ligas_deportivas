@@ -39,7 +39,7 @@ export async function loadHomeVenueOptions(tx: Prisma.TransactionClient, actorId
     where: { id: ctx.matchdayId, season_id: ctx.seasonId }, select: { number: true },
   });
   const teams = await tx.season_teams.findMany({
-    where: { id: { in: [ctx.homeSeasonTeamId, ctx.awaySeasonTeamId] }, season_id: ctx.seasonId, status: "ACTIVE" },
+    where: { id: { in: [ctx.homeSeasonTeamId, ctx.awaySeasonTeamId] }, season_id: ctx.seasonId, status: { in: ["ACTIVE","REGISTERED"] } },
     select: { id: true, club_id: true },
   });
   const home = teams.find(team => team.id === ctx.homeSeasonTeamId);

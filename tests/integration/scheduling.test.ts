@@ -234,7 +234,7 @@ test("generación real: permisos, persistencia, reintento y rollback", async t =
     throw new Error("SYNTHETIC_ROLLBACK");
   },{timeout:30000}),{message:"SYNTHETIC_ROLLBACK"});
   assert.equal(await db.schedule_proposals.count(),1);
-  assert.equal(await db.matches.count(),0);
+  assert.equal(await db.matches.count({where:{deleted_at:null}}),0);
   const concurrent={...input,operationId:randomUUID()};
   const raced=await Promise.all([generateScheduleForActor(f.actor,concurrent),generateScheduleForActor(f.actor,concurrent)]);
   assert.ok(raced.every(result=>result.ok));

@@ -5,11 +5,21 @@ import type { MatchReportPresentation, ReportDemoData } from "../types";
 import { participationPeriods } from "../tactics";
 import { ReportEvents } from "./report-events";
 import { ReportNotice, SectionHeading } from "./report-shared";
+import { proposedNoShowScore } from "../no-show";
 
 export function ReportSummary({ data, report, live = false, issues }: {
   data: ReportDemoData; report: MatchReportPresentation; live?: boolean; issues: string[];
 }) {
   const confirmed = report.status === "CONFIRMED";
+  if(report.noShow) {
+    const score=proposedNoShowScore(report.noShow);
+    const absent=report.noShow.absent==="BOTH" ? "Ambos equipos" : report.noShow.absent==="HOME" ? data.match.home.name : data.match.away.name;
+    return <section aria-label="Incomparecencia registrada" className="space-y-4 rounded-2xl border border-border bg-surface p-5">
+      <h2 className="text-xl font-semibold">Incomparecencia registrada</h2><p>Equipo ausente: {absent}.</p>
+      <p>{score ? `Marcador propuesto: ${data.match.home.name} ${score.home} – ${score.away} ${data.match.away.name}. Pendiente de resolución; no es un resultado oficial.` : "Ambos equipos faltaron. Pendiente de reprogramación; no se asignó ganador."}</p>
+      <p className="whitespace-pre-wrap">Observaciones: {report.noShow.notes}</p>
+    </section>;
+  }
   return <section aria-label={confirmed ? "Consulta de cédula confirmada" : "Resumen previo a confirmar"} className="space-y-5">
     <SectionHeading number={confirmed ? "✓" : "05"} title={confirmed ? "Cédula confirmada · Solo consulta" : "Revisa antes de confirmar"}>{confirmed ? "La edición normal está deshabilitada. Un ajuste posterior requerirá el procedimiento autorizado." : "Este resumen reúne la captura que se usará para solicitar la confirmación."}</SectionHeading>
     {confirmed && <div className="flex items-start gap-3 rounded-2xl border border-positive bg-positive-surface p-5 text-positive"><ClipboardCheck size={24} className="shrink-0" aria-hidden="true" /><div><p className="font-semibold">{live ? "Cédula confirmada" : "Confirmación simulada"}</p><p className="mt-1 text-sm">{report.confirmedAt ? new Intl.DateTimeFormat("es-MX", { timeZone: "America/Mexico_City", dateStyle: "medium", timeStyle: "short" }).format(new Date(report.confirmedAt)) : "Fecha de ejemplo no disponible"} · Versión {report.version}. {!live && "No existe resultado oficial, expediente ni actualización de tabla."}</p></div></div>}

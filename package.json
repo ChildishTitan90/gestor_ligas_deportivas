@@ -16,13 +16,17 @@
     "fsevents": false
   },
   "scripts": {
+    "test:match-transitions": "node --import tsx --test src/features/matches/transition-rules.test.ts src/features/matches/transition-presentation.test.ts",
+    "test:match-transition-browser": "node --test tests/e2e/match-transition-controls.test.mjs",
+    "test:match-transitions-db": "node --conditions=react-server --import tsx --test tests/integration/match-transitions.test.ts",
+    "test:match-transitions-preview": "node scripts/test-auth.mjs --preview-match-transitions",
     "test:scheduling:integration": "node scripts/test-scheduling.mjs",
     "test:scheduling:preview": "node scripts/test-scheduling-preview.mjs",
     "venues:cleanup-cancelled": "node --conditions=react-server --import tsx scripts/cleanup-venue-loans.mts",
     "test:scheduling": "node --import tsx --test src/features/scheduling/generator.test.ts src/features/scheduling/constraints.test.ts src/features/scheduling/loan-windows.test.ts src/features/scheduling/slot-validation.test.ts src/features/scheduling/team-swap.test.ts src/features/scheduling/schedule-pdf.test.ts",
     "test:match-report-offline": "node --conditions=react-server --import tsx scripts/match-reports-local.mts --serve --offline --verify-offline",
     "test:pdgld149": "node scripts/test-pdgld149.mjs",
-    "test:match-report-tactics": "node --import tsx --test src/features/match-reports/tactics.test.ts src/features/match-reports/lineup-clock.test.ts src/features/matches/participation-halves.test.ts",
+    "test:match-report-tactics": "node --import tsx --test src/features/match-reports/tactics.test.ts src/features/match-reports/lineup-clock.test.ts src/features/match-reports/no-show.test.ts src/features/matches/participation-halves.test.ts",
     "test:match-report-storage": "node --conditions=react-server --import tsx --test src/features/match-reports/server/signature-storage-profile.test.ts",
     "test:match-report-client": "node --import tsx --test src/features/match-reports/report-client.test.ts",
     "test:match-reports": "node --conditions=react-server --import tsx scripts/match-reports-local.mts --http",

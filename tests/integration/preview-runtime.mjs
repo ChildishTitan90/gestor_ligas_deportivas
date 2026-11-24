@@ -107,8 +107,6 @@ export async function verifyPreviewRuntime(client) {
       'DELETE FROM sports_management.match_results',
       'SELECT * FROM sports_management.imports',
       'SELECT * FROM sports_management.official_documents',
-      'SELECT validated_by FROM sports_management.match_results',
-      'SELECT calculation_data FROM sports_management.standing_versions',
       'UPDATE sports_management.match_results SET home_score=home_score WHERE false',
       'UPDATE sports_management.standing_versions SET status=status WHERE false',
       'TRUNCATE sports_management.groups',

@@ -15,6 +15,10 @@ export type LocalReport = {
   serverMatchStatus: string;
   pending: PendingReport[];
   lastReceipt?: { draftId: string; revision: number; receipt: ReportReceipt };
+  noShowConfirmation?: {
+    operationId: string; matchId: string; reportId: string; expectedMatchVersion: number; expectedReportVersion: number;
+    receipt?: { matchId: string; reportId: string; matchVersion: number; reportVersion: number; replayed: boolean };
+  };
   archives?: ArchivedReport[];
   reviewRequired?: boolean;
 };
@@ -146,7 +150,7 @@ export async function writeLocalReport(record: LocalReport, expectedRevision: nu
         const prior = request.result as LocalReport | undefined;
         if ((prior?.revision ?? null) !== expectedRevision || prior && prior.draftId !== record.draftId) return fail("LOCAL_REVISION_CONFLICT");
         // Receipts can arrive while a later edit is being written.
-        const next = prior ? { ...record, pending: prior.pending, acknowledgedRevision: prior.acknowledgedRevision, lastReceipt: prior.lastReceipt,
+        const next = prior ? { ...record, pending: prior.pending, acknowledgedRevision: prior.acknowledgedRevision, lastReceipt: prior.lastReceipt, noShowConfirmation: prior.noShowConfirmation,
           prepared: prior.prepared || record.prepared, serverMatchStatus: prior.serverMatchStatus, expiresAt: prior.expiresAt,
           data: { ...record.data, match: { ...record.data.match, version: prior.data.match.version }, report: { ...record.data.report, version: prior.data.report.version, clock: prior.data.report.clock, lineupsLock: prior.data.report.lineupsLock } } } : record;
         store.put(next);
