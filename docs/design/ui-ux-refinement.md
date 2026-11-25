@@ -187,6 +187,8 @@ Cada botón utiliza la misma navegación, incluido el aviso de sellado de alinea
 
 Pasaron las 21 comprobaciones de `test:match-report-ui` con datos sintéticos, incluidos teclado, foco y ambos temas a 360, 390 y 1440 px. También pasó `test:match-report-offline -- --postgres=17` con NextAuth, PostgreSQL desechable, Service Worker e IndexedDB. Se comprobó la reapertura sin red, el acuse al reconectar y la conservación de la captura posterior.
 
+Al reabrir una copia con incomparecencia, la confirmación queda deshabilitada mientras se consulta la referencia del servidor. La pantalla y el diálogo explican la espera. La prueba de navegador retiene esa respuesta para reproducir la concurrencia, comprueba el bloqueo y después corta la respuesta de confirmación. Al reabrir, verifica que la intención persistida recupere el acuse con el mismo identificador y que exista un solo resultado oficial.
+
 ## Secretaría y expediente de jugadores
 
 La bandeja de revisión muestra filtros de tipo compactos y conserva tipo, club y temporada al volver desde un caso. El texto de búsqueda queda en la pantalla de la bandeja. La revisión de INE abre la sección de evidencias del expediente y ofrece retorno al listado filtrado.
