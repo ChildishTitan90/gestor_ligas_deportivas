@@ -6,13 +6,15 @@ import { focusFormControl } from "@/components/ui/focus-form-control";
 import { FormDialog } from "@/components/ui/form-dialog";
 import { ProcessSteps } from "@/components/ui/process-steps";
 import { useUnsavedChangesWarning } from "@/lib/use-unsaved-changes-warning";
-import { chargesPath, chargesUrl, type DemoResponse, type DemoSeason } from "../demo-data";
+import { chargesPath, chargesUrl } from "../navigation";
+import { saveBillingCommand, consultBillingOperation } from "../actions";
+import { billingMessages } from "../feedback";
 import { chargeCaptureSchema, createChargeSchema, type CreateCharge } from "../schemas";
-import type { ChargeFilters, ChargeTerms as Terms } from "../types";
+import type { BillingReceipt, BillingResult, BillingSeason, ChargeFilters, ChargeTerms as Terms } from "../types";
 import { ChargeCaptureFields, type CaptureErrors, type CaptureField, type ChargeDraft } from "./charge-capture";
 import { ChargeTerms, WeeklyConditions } from "./charge-details";
 
-const steps = ["Captura", "Revisión", "Resultado simulado"];
+const steps = ["Captura", "Revisión", "Resultado confirmado"];
 const primary = "primary-action min-h-12 rounded-xl px-5 py-3 text-sm font-semibold disabled:opacity-50";
 const secondary = "min-h-12 rounded-xl border border-border bg-surface px-5 py-3 text-sm font-semibold text-primary hover:bg-background disabled:opacity-50";
 const draftDefaults: ChargeDraft = {
@@ -24,10 +26,9 @@ const fieldOrder = Object.keys(draftDefaults) as CaptureField[];
 type Intent = { command: CreateCharge; terms: Terms };
 type Result = "idle" | "sending" | "error" | "uncertain" | "checking" | "retry" | "confirmed";
 
-export function ChargeForm({ seasons, filters, response }: {
-  seasons: readonly DemoSeason[];
+export function ChargeForm({ seasons, filters }: {
+  seasons: readonly BillingSeason[];
   filters: ChargeFilters;
-  response: DemoResponse;
 }) {
   const [draft, setDraft] = useState<ChargeDraft>(() => ({ ...draftDefaults, seasonId: filters.season ?? "" }));
   const [dirty, setDirty] = useState(false);
@@ -39,13 +40,14 @@ export function ChargeForm({ seasons, filters, response }: {
   const reviewHeading = useRef<HTMLHeadingElement>(null);
   const resultHeading = useRef<HTMLHeadingElement>(null);
   const active = useRef(false);
-  const scenarioUsed = useRef(false);
+  const [receipt, setReceipt] = useState<BillingReceipt | null>(null);
+  const [error, setError] = useState("");
   const consultationRequired = result === "uncertain" || result === "checking" || result === "retry";
   const locked = consultationRequired || result === "sending";
   const back = chargesUrl(chargesPath, filters);
 
   useUnsavedChangesWarning(result === "confirmed" ? null : locked
-    ? "La simulación aún no tiene un resultado confirmado. Si sales, se perderá la captura de esta página. ¿Salir?"
+    ? "El envío aún no tiene un resultado confirmado. Si sales, perderás los datos para conciliarlo desde esta captura. ¿Salir?"
     : dirty ? "Si sales, se perderán los datos de la captura. ¿Salir?" : null);
 
   function changeDraft(field: CaptureField, value: string) {
@@ -94,18 +96,24 @@ export function ChargeForm({ seasons, filters, response }: {
     requestAnimationFrame(() => reviewHeading.current?.focus());
   }
 
-  async function simulate() {
+  function accept(response: BillingResult) {
+    if (response.status === "CONFIRMED" && response.receipt.operationId === intent?.command.operationId) {
+      setReceipt(response.receipt);
+      setResult("confirmed");
+    } else if (response.status === "REJECTED") {
+      setError(billingMessages[response.code] ?? "Revisa los datos y vuelve a consultar.");
+      setResult("error");
+    } else setResult(response.status === "NOT_APPLIED" ? "retry" : "uncertain");
+  }
+
+  async function submitIntent() {
     if (!intent || active.current || (result !== "idle" && result !== "error" && result !== "retry")) return;
     active.current = true;
     setConfirmOpen(false);
     setResult("sending");
     requestAnimationFrame(() => reviewHeading.current?.focus());
-    await pause();
-    const initial = !scenarioUsed.current;
-    scenarioUsed.current = true;
-    if (initial && response === "error") setResult("error");
-    else if (initial && (response === "uncertain" || response === "retry")) setResult("uncertain");
-    else setResult("confirmed");
+    try { accept(await saveBillingCommand({ action: "CREATE", input: intent.command })); }
+    catch { setResult("uncertain"); }
     active.current = false;
     requestAnimationFrame(() => (resultHeading.current ?? reviewHeading.current)?.focus());
   }
@@ -114,8 +122,8 @@ export function ChargeForm({ seasons, filters, response }: {
     if (!intent || active.current || result !== "uncertain") return;
     active.current = true;
     setResult("checking");
-    await pause();
-    setResult(response === "retry" ? "retry" : "confirmed");
+    try { accept(await consultBillingOperation({ action: "CREATE", input: intent.command })); }
+    catch { setResult("uncertain"); }
     active.current = false;
     requestAnimationFrame(() => (resultHeading.current ?? reviewHeading.current)?.focus());
   }
@@ -132,45 +140,42 @@ export function ChargeForm({ seasons, filters, response }: {
     {!intent ? <ChargeCaptureFields formRef={form} seasons={seasons} draft={draft} errors={errors} onChange={changeDraft} onReview={review} />
       : result === "confirmed" ? <section className="space-y-5 rounded-2xl border border-border bg-surface p-5 sm:p-6" aria-labelledby="charge-result">
         <div className="rounded-xl bg-(--positive-surface) px-4 py-3 text-positive">
-          <h2 ref={resultHeading} tabIndex={-1} id="charge-result" className="text-lg font-semibold">{weekly ? "Plan semanal simulado" : "Creación del cargo simulada"}</h2>
-          <p className="mt-1 text-sm">{weekly ? "La simulación terminó. El calendario de la Liga sigue pendiente y no se generaron cargos ni pagos." : "La simulación terminó. No se registró ningún cargo oficial ni pago."}</p>
+          <h2 ref={resultHeading} tabIndex={-1} id="charge-result" className="text-lg font-semibold">{weekly ? "Plan semanal guardado" : receipt?.existing ? "Cargo existente recuperado" : "Cargo creado"}</h2>
+          <p className="mt-1 text-sm">{weekly ? "El plan quedó guardado. Elige cada periodo y su vencimiento desde el listado para generar sus cargos." : "El servidor confirmó el cargo. El registro de pagos corresponde a otro trámite."}</p>
         </div>
         <ChargeTerms terms={intent.terms} preview />
         {weekly && <WeeklyConditions />}
         <ActionLink href={back}>Volver al listado</ActionLink>
+        {receipt?.chargeId && <ActionLink variant="secondary" href={chargesUrl(`${chargesPath}/${receipt.chargeId}`, filters)}>Ver cargo</ActionLink>}
       </section>
       : <section className="space-y-5 rounded-2xl border border-border bg-surface p-5 sm:p-6" aria-labelledby="review-charge">
         <div>
           <h2 ref={reviewHeading} tabIndex={-1} id="review-charge" className="text-lg font-semibold text-primary">Revisa los datos del cargo</h2>
-          <p className="mt-1 text-sm text-muted">Verifica el destinatario y el importe antes de confirmar la simulación.</p>
+          <p className="mt-1 text-sm text-muted">Verifica el destinatario y el importe antes de confirmar.</p>
         </div>
         <ChargeTerms terms={intent.terms} preview />
         <p className="wrap-anywhere border-t border-border pt-3 text-sm text-primary"><strong className="font-semibold">Motivo:</strong> {intent.command.reason}</p>
         {weekly && <WeeklyConditions />}
         {(result === "sending" || result === "checking") && <p role="status" className="rounded-xl bg-soft px-4 py-3 text-sm text-primary">
-          {result === "sending" ? "Enviando la solicitud de demostración…" : "Consultando el resultado simulado…"}
+          {result === "sending" ? "Enviando la solicitud…" : "Consultando el resultado…"}
         </p>}
-        {result === "error" && <p role="alert" className="rounded-xl bg-danger-surface px-4 py-3 text-sm text-danger">La demostración rechazó el intento. La captura se conserva. Puedes revisarla o volver a intentar.</p>}
+        {result === "error" && <p role="alert" className="rounded-xl bg-danger-surface px-4 py-3 text-sm text-danger">{error} La captura se conserva.</p>}
         {result === "uncertain" && <p role="alert" className="rounded-xl bg-soft px-4 py-3 text-sm text-primary"><strong>Resultado incierto.</strong> Conservamos los datos de este intento. Consulta su resultado antes de volver a enviarlo.</p>}
-        {result === "retry" && <p role="status" className="rounded-xl bg-soft px-4 py-3 text-sm text-primary">La consulta de demostración confirmó que ese intento no se aplicó. Puedes reintentar con los mismos datos.</p>}
+        {result === "retry" && <p role="status" className="rounded-xl bg-soft px-4 py-3 text-sm text-primary">La consulta confirmó que ese intento no se aplicó. Puedes reintentar con los mismos datos.</p>}
         <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
           {!locked && <>
             <button type="button" className={secondary} onClick={edit}>Volver a la captura</button>
-            <button type="button" className={primary} onClick={() => setConfirmOpen(true)}>{weekly ? "Simular plan semanal" : "Simular creación del cargo"}</button>
+            <button type="button" className={primary} onClick={() => setConfirmOpen(true)}>{weekly ? "Guardar plan semanal" : "Crear cargo"}</button>
           </>}
           {result === "uncertain" && <button type="button" className={primary} onClick={checkResult}>Consultar resultado</button>}
-          {result === "retry" && <button type="button" className={primary} onClick={simulate}>Reintentar la misma solicitud</button>}
+          {result === "retry" && <button type="button" className={primary} onClick={submitIntent}>Reintentar la misma solicitud</button>}
         </div>
       </section>}
-    {intent && <FormDialog open={confirmOpen} title={weekly ? "Simular plan semanal" : "Simular creación del cargo"}
-      description="Confirma el destinatario y el importe de la demostración."
+    {intent && <FormDialog open={confirmOpen} title={weekly ? "Guardar plan semanal" : "Crear cargo"}
+      description="Confirma el destinatario y el importe."
       onClose={() => setConfirmOpen(false)} dismissLabel="Volver a la revisión"
-      footer={<button type="button" className={primary} onClick={simulate}>Confirmar simulación</button>}>
+      footer={<button type="button" className={primary} onClick={submitIntent}>Confirmar {weekly ? "plan" : "cargo"}</button>}>
       <ChargeTerms terms={intent.terms} preview />
     </FormDialog>}
   </div>;
-}
-
-function pause() {
-  return new Promise<void>(resolve => setTimeout(resolve, 850));
 }

@@ -1,9 +1,9 @@
 import { ManagementPageHeader } from "@/components/layout/management-page-header";
-import { chargesPath } from "@/features/billing/demo-data";
+import { chargesPath } from "@/features/billing/navigation";
 
 export default function ChargeNotFound() {
   return <section className="mx-auto max-w-6xl">
-    <ManagementPageHeader title="Cargo de ejemplo no encontrado"
-      description="Abre un cargo desde el listado de demostración." back={{ href: chargesPath, label: "Volver a cargos" }} />
+    <ManagementPageHeader title="Cargo no encontrado"
+      description="Abre un cargo desde el listado de tesorería." back={{ href: chargesPath, label: "Volver a cargos" }} />
   </section>;
 }

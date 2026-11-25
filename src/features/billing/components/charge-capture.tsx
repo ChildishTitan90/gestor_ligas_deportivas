@@ -1,6 +1,6 @@
 import type { ChangeEvent, FormEvent, ReactNode, RefObject } from "react";
 import { SelectField } from "@/components/ui/select-field";
-import type { DemoSeason } from "../demo-data";
+import type { BillingSeason } from "../types";
 import { recipientContext } from "../presentation";
 import { chargeConceptLabels } from "../schemas";
 import type { ChargeCapture } from "../schemas";
@@ -13,7 +13,7 @@ const controlClass = "min-h-12 w-full min-w-0 rounded-xl border border-border bg
 
 export function ChargeCaptureFields({ formRef, seasons, draft, errors, onChange, onReview }: {
   formRef: RefObject<HTMLFormElement | null>;
-  seasons: readonly DemoSeason[];
+  seasons: readonly BillingSeason[];
   draft: ChargeDraft;
   errors: CaptureErrors;
   onChange: (field: CaptureField, value: string) => void;
@@ -42,7 +42,7 @@ export function ChargeCaptureFields({ formRef, seasons, draft, errors, onChange,
         <div className="grid gap-4 sm:grid-cols-2">
           <Field name="seasonId" label="Temporada" errors={errors}>
             <SelectField {...fixed("seasonId")} searchable={false} onValueChange={set("seasonId")}
-              options={seasons.map(option => ({ value: option.id, label: option.name }))} />
+              options={seasons.map(option => ({ value: option.id, label: option.name, description: option.league }))} />
           </Field>
           <Field name="recipientKind" label="Tipo de destinatario" errors={errors}>
             <SelectField {...fixed("recipientKind")} searchable={false} onValueChange={set("recipientKind")}
@@ -70,10 +70,10 @@ export function ChargeCaptureFields({ formRef, seasons, draft, errors, onChange,
               options={[{ value: "ONCE", label: "Único" }, { value: "WEEKLY", label: "Semanal" }]} />
           </Field>
           {draft.concept === "FINE" && <p role="status" className="rounded-xl border border-border bg-soft px-4 py-3 text-sm text-primary sm:col-span-2">La multa requiere una resolución oficial. El vínculo con PDGLD-27 está pendiente y este concepto queda bloqueado.</p>}
-          <Field name="amount" label={weekly ? "Importe por semana (MXN de ejemplo)" : "Importe (MXN de ejemplo)"} errors={errors}>
+          <Field name="amount" label={weekly ? "Importe por semana (MXN)" : "Importe (MXN)"} errors={errors}>
             <input {...fixed("amount")} type="text" inputMode="decimal" spellCheck={false} placeholder="Ej. 175.50…" className={controlClass} onChange={change("amount")} />
           </Field>
-          <Field name="dueOn" label={weekly ? "Vencimiento de referencia" : "Vencimiento"} errors={errors}>
+          <Field name="dueOn" label={weekly ? "Vencimiento de referencia para la revisión" : "Vencimiento"} errors={errors}>
             <input {...fixed("dueOn")} type="date" className={controlClass} onChange={change("dueOn")} />
           </Field>
           <Field name="periodStart" label="Inicio del periodo" errors={errors}>

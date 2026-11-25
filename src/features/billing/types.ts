@@ -3,6 +3,7 @@ import type { ChargeCapture, CreateCharge } from "./schemas";
 export type ChargeConcept = CreateCharge["concept"];
 export type ChargeFrequency = CreateCharge["frequency"];
 export type ChargeSeason = { id: string; name: string; league: string };
+export type BillingSeason = ChargeSeason & { recipients: readonly ChargeRecipient[] };
 export type ChargeRecipient =
   | { kind: "CLUB"; id: string; name: string; club: string }
   | { kind: "TEAM"; id: string; name: string; club: string; category: string };
@@ -34,16 +35,17 @@ export type ChargeDetail = ChargeSummary & {
   history: readonly ChargeHistoryEntry[];
   billingPlanId?: string;
   resolutionId?: string;
+  canModify?: boolean;
+  modificationBlocked?: string;
 };
 
-export type CreateChargeErrorCode =
-  | "INVALID_INPUT" | "FORBIDDEN" | "CONTEXT_CHANGED" | "DUPLICATE_CHARGE"
-  | "POLICY_UNCONFIRMED" | "RESOLUTION_UNAVAILABLE" | "UNAVAILABLE";
+export type ChargeFilters = { season?: string; recipient?: string; concept?: ChargeConcept; period?: string; league?: string; page?: string };
 
-export type CreateChargeResult =
-  | { status: "CONFIRMED"; operationId: string; chargeIds: readonly [string, ...string[]] }
-  | { status: "REJECTED"; code: CreateChargeErrorCode; fieldErrors?: Partial<Record<keyof ChargeCapture, string>> };
-
-export type ChargeOperationResult = CreateChargeResult | { status: "UNCONFIRMED" | "NOT_APPLIED" };
-
-export type ChargeFilters = { season?: string; recipient?: string; concept?: ChargeConcept; period?: string };
+export type BillingReceipt = {
+  operationId: string; chargeId?: string; planId?: string; version?: number; existing: boolean;
+};
+export type BillingResult =
+  | { status: "CONFIRMED"; receipt: BillingReceipt }
+  | { status: "REJECTED"; code: string }
+  | { status: "UNCERTAIN" | "NOT_APPLIED" };
+export type BillingPlan = ChargeTerms & { id: string; canGenerate?: boolean };

@@ -1,30 +1,38 @@
 import Link from "next/link";
 import { SelectField } from "@/components/ui/select-field";
 import { ActionLink } from "@/components/ui/action-link";
-import { chargesPath, chargesUrl, demoMonths, demoRecipients, demoSeasons } from "../demo-data";
+import { chargesPath, chargesUrl } from "../navigation";
 import { chargeConceptLabels } from "../schemas";
-import { chargePaymentLabel, formatChargeAmount, formatChargeDate, formatChargeMonth, formatChargePeriod, recipientContext } from "../presentation";
-import type { ChargeFilters, ChargeSummary } from "../types";
+import { chargePaymentLabel, formatChargeAmount, formatChargeDate, formatChargePeriod, recipientContext } from "../presentation";
+import type { BillingSeason, ChargeFilters, ChargeSummary } from "../types";
 
 const all = { value: "", label: "Todos" };
 const textLink = "inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-semibold text-primary underline underline-offset-4 hover:text-primary-hover";
 
-export function ChargeList({ filters, charges }: { filters: ChargeFilters; charges: readonly ChargeSummary[] }) {
+export function ChargeList({ filters, charges, seasons, total, page }: {
+  filters: ChargeFilters; charges: readonly ChargeSummary[]; seasons: readonly BillingSeason[]; total: number; page: number;
+}) {
+  const recipients = [...new Map(seasons.flatMap(season => season.recipients).map(recipient => [recipient.id, recipient])).values()];
   const filterFields = [
-    { name: "season", label: "Temporada", value: filters.season, options: demoSeasons.map(season => ({ value: season.id, label: season.name })) },
-    { name: "recipient", label: "Destinatario", value: filters.recipient, options: demoRecipients.map(recipient => ({ value: recipient.id, label: recipient.name, description: recipientContext(recipient) })) },
+    { name: "season", label: "Temporada", value: filters.season, options: seasons.map(season => ({ value: season.id, label: season.name })) },
+    { name: "recipient", label: "Destinatario", value: filters.recipient, options: recipients.map(recipient => ({ value: recipient.id, label: recipient.name, description: recipientContext(recipient) })) },
     { name: "concept", label: "Concepto", value: filters.concept, options: Object.entries(chargeConceptLabels).map(([value, label]) => ({ value, label })) },
-    { name: "period", label: "Mes del periodo", value: filters.period, options: demoMonths.map(value => ({ value, label: formatChargeMonth(value) })) },
   ];
   const filtered = Object.values(filters).some(Boolean);
 
   return <>
     <form method="get" action={chargesPath} className="space-y-3 rounded-2xl border border-border bg-surface p-4 sm:p-5" aria-label="Filtros de cargos">
+      {filters.league && <input type="hidden" name="league" value={filters.league} />}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {filterFields.map(({ name, label, value, options }) => <div key={name} className="min-w-0">
           <label htmlFor={`charge-filter-${name}`} className="mb-1.5 block text-sm font-medium text-primary">{label}</label>
           <SelectField id={`charge-filter-${name}`} name={name} defaultValue={value ?? ""} options={[all, ...options]} searchable={name === "recipient"} />
         </div>)}
+        <div className="min-w-0">
+          <label htmlFor="charge-filter-period" className="mb-1.5 block text-sm font-medium text-primary">Mes del periodo</label>
+          <input id="charge-filter-period" type="month" name="period" defaultValue={filters.period ?? ""}
+            className="min-h-12 w-full min-w-0 rounded-xl border border-border bg-surface px-3 text-sm text-primary" />
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button type="submit" className="min-h-12 rounded-xl border border-border bg-surface px-5 text-sm font-semibold text-primary hover:bg-background">Aplicar filtros</button>
@@ -34,7 +42,7 @@ export function ChargeList({ filters, charges }: { filters: ChargeFilters; charg
 
     <section aria-labelledby="charge-results" className="space-y-3">
       <h2 id="charge-results" className="text-lg font-semibold text-primary">
-        {charges.length} {charges.length === 1 ? "cargo de ejemplo" : "cargos de ejemplo"}
+        {total} {total === 1 ? "cargo" : "cargos"}
       </h2>
       {charges.length === 0 ? <div className="space-y-3 rounded-2xl border border-border bg-surface p-5 sm:p-6">
         <h3 className="font-semibold text-primary">No hay coincidencias para estos filtros</h3>
@@ -43,7 +51,7 @@ export function ChargeList({ filters, charges }: { filters: ChargeFilters; charg
       </div> : <>
         <div className="hidden rounded-2xl border border-border bg-surface xl:block">
           <table className="w-full table-fixed text-left text-sm">
-            <caption className="sr-only">Cargos de demostración</caption>
+            <caption className="sr-only">Cargos autorizados</caption>
             <thead className="border-b border-border text-xs font-semibold text-muted">
               <tr>
                 <th scope="col" className="w-[25%] px-4 py-3">Destinatario</th>
@@ -78,6 +86,11 @@ export function ChargeList({ filters, charges }: { filters: ChargeFilters; charg
           </li>)}
         </ul>
       </>}
+      {total > 25 && <nav aria-label="Páginas de cargos" className="flex flex-wrap items-center gap-3">
+        {page > 1 && <ActionLink variant="secondary" href={chargesUrl(chargesPath, { ...filters, page: String(page - 1) })}>Anterior</ActionLink>}
+        <p className="text-sm text-muted">Página {page}</p>
+        {page * 25 < total && <ActionLink variant="secondary" href={chargesUrl(chargesPath, { ...filters, page: String(page + 1) })}>Siguiente</ActionLink>}
+      </nav>}
     </section>
   </>;
 }

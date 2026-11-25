@@ -1,4 +1,32 @@
-# PDGLD-77 · PDGLD-174
+# PDGLD-77 · PDGLD-175
+
+## Estado actual
+
+La entrega conecta las vistas aprobadas de PDGLD-174 con consultas y escrituras reales. Conserva el shell, los selectores y los diálogos compartidos. La rama parte de `345e244`. `origin/develop` continúa en `0bded09` en la última revisión.
+
+El usuario cambió el destino de la preparación a su Docker habitual y pidió datos para recorrer todos los módulos implementados. La URL vigente es [localhost:3000/treasury/charges](http://localhost:3000/treasury/charges). Usa `tesoreria-local` y la contraseña sintética de la guía de autenticación. La [guía de datos locales](local-app-data.md) contiene las cuentas por rol, clubes, jugadores, árbitros, documentos y recorridos.
+
+Funcionan en el recorrido mínimo ejecutado con NextAuth y PostgreSQL 15 de Docker: alta única, consulta, detalle, corrección de importe con motivo e historial, guardado de plan semanal, generación de un periodo y recuperación del mismo cargo al repetir ese periodo. El ejemplo persistente es inscripción de Monarcas Morelia por 125.75 MXN tras corregir 100.50 MXN. Pumas tiene un plan de cancha de 75.50 MXN y el periodo 04–10/01/2027, con vencimiento 15/01/2027. Los importes son datos ficticios de prueba.
+
+La captura semanal guarda un plan. La generación ocurre desde el listado para cada periodo de siete días dentro de la ventana. El usuario aceptó esta generación manual y el bloqueo de modificaciones cuando existe cualquier pago. Propuso automatizar arbitraje por partido. Falta concretar su devengo, importes y relación con programación/resultado.
+
+La multa permanece bloqueada en servidor hasta que PDGLD-27 publique una resolución verificable y exigible. Las consultas de saldo y evento confirmado para las historias consumidoras están definidas. [Integridad, contratos y seguridad](../architecture/billing-integrity.md)
+
+## Archivos y comprobaciones de esta entrega
+
+- `src/features/billing/server/` contiene autorización, catálogo, consultas, servicio transaccional y consultas para consumidores. `actions.ts` obtiene acuses reales. Las rutas y componentes existentes consumen esos datos.
+- `prisma/migrations/20261125010000_pdgld175_charge_integrity/` añade unicidad y protección de correcciones/pagos. Se aplicó a Docker local después de comprobar que no había duplicados. El plan de ACL/RLS remoto queda documentado para revisión.
+- Los scripts `seed-treasury-demo.mts`, `seed-app-local-scenarios.mts`, `seed-local-competition.mts`, `seed-local-player-photos.mts` y `seed-local-private-documents.mts` preparan y conservan los escenarios locales. Los PDFs nuevos se cargaron únicamente al Storage de pruebas autorizado. Las dos fotos originales se conservaron.
+- Pasaron TypeScript y ESLint de los archivos afectados durante la implementación. Se recorrió el flujo mínimo en Chrome con sesión real y se guardaron capturas en `.codex-attachments/pdgld-77/175-docker-detalle.png` y `175-docker-generacion.png`.
+- La batería final de concurrencia, rollback, revocación, claves reutilizadas con otro contenido y regresión sigue pendiente para PDGLD-176, después de la prueba manual solicitada.
+
+## Para retomar
+
+Primero recoger la prueba manual del usuario en Docker. Revisar la corrección del cargo y generar otro periodo del plan de Pumas, por ejemplo 11–17/01/2027, con vencimiento 22/01/2027. Repetir el periodo debe recuperar el mismo cargo. Usar Secretaría para consulta y un delegado para comprobar el alcance de su club.
+
+Después cerrar decisiones de integración de multas y de arbitraje por partido, revisar el plan privado de permisos y desarrollar la etapa de tests de PDGLD-176. La historia permanece abierta. Esta entrega conserva los cambios sin commit ni push.
+
+## Registro histórico de PDGLD-174
 
 ## Para revisar
 

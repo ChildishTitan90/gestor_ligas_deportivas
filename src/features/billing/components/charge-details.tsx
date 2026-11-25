@@ -39,7 +39,7 @@ export function ChargeTerms({ terms, preview = false }: { terms: Terms; preview?
 export function WeeklyConditions() {
   return <div className="rounded-xl border border-border bg-soft px-4 py-3 text-sm leading-6 text-primary">
     <p className="font-semibold">Condiciones de la recurrencia semanal</p>
-    <p>El importe se captura por semana dentro de la ventana solicitada. La Liga aún debe confirmar el día de generación, los cortes de semana y el vencimiento de cada cargo.</p>
+    <p>Guardar el plan habilita la generación manual de cada periodo de siete días dentro de esta ventana. Tesorería elige las fechas y el vencimiento al generar cada cargo.</p>
   </div>;
 }
 
@@ -49,10 +49,10 @@ export function ChargeDetails({ charge }: { charge: ChargeDetail }) {
       <h2 id="charge-terms" className="text-lg font-semibold text-primary">Datos del cargo</h2>
       <ChargeTerms terms={charge} />
       <p className="border-t border-border pt-3 text-sm text-muted">Emitido el {formatChargeDate(charge.issuedOn)} · Versión {charge.version}</p>
-      {charge.billingPlanId && <p className="text-sm text-muted">Este cargo de ejemplo proviene de un plan semanal.</p>}
+      {charge.billingPlanId && <p className="text-sm text-muted">Este cargo proviene de un plan semanal.</p>}
     </section>
     <section aria-labelledby="charge-payment" className="space-y-3 rounded-2xl border border-border bg-surface p-5 sm:p-6">
-      <h2 id="charge-payment" className="text-lg font-semibold text-primary">Pagos y saldo de ejemplo</h2>
+      <h2 id="charge-payment" className="text-lg font-semibold text-primary">Pagos y saldo</h2>
       <p className="text-sm font-medium text-primary">{chargePaymentLabel(charge.payment)}</p>
       {charge.payment && <dl className="grid grid-cols-2 gap-4 text-sm tabular-nums">
         <div><dt className="text-muted">Pagos registrados</dt><dd className="mt-1 font-semibold text-primary">{formatChargeAmount(charge.payment.paid, charge.currency)}</dd></div>

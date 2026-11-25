@@ -26,7 +26,7 @@ import { canUseReportWorkspace } from "@/features/match-reports/server/service";
 import { canReadRefereeing } from "@/features/referees/server/service";
 import { canAccessRefereePresentations } from "@/features/referees/server/presentations";
 import { canReadOwnRefereeAvailability } from "@/features/referees/server/own-availability";
-import { canReadChargeDemo } from "@/features/billing/server/queries";
+import { canReadCharges } from "@/features/billing/server/queries";
 const canAccessMatchEligibility = async () => canUseReportWorkspace((await requireOperationalUser()).id);
 
 /** Solo una denegación esperada oculta el enlace; los fallos de sesión o servicio se propagan. */
@@ -114,6 +114,6 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if (governance) administration.items.push({ href: "/governance", label: "Órganos y cargos", icon: "overview" });
   if (administration.items.length) groups.push(administration);
   if (catalog) groups.push({ label: "Disciplina", items: [{ href: "/discipline/catalog", label: "Catálogo disciplinario", icon: "review" }] });
-  if (await allowed(canReadChargeDemo)) groups.push({ label: "Tesorería", items: [{ href: "/treasury/charges", label: "Cargos", icon: "overview" }] });
+  if (await allowed(canReadCharges)) groups.push({ label: "Tesorería", items: [{ href: "/treasury/charges", label: "Cargos", icon: "overview" }] });
   return groups;
 }

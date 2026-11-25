@@ -257,6 +257,8 @@ model charges {
   payments          payments[]
 
   @@unique([billing_plan_id, period_start_date])
+  @@unique([season_id, club_id, charge_concept_id, period_start_date, period_end_date], map: "charges_club_business_period", where: raw("(club_id IS NOT NULL)"))
+  @@unique([season_id, season_team_id, charge_concept_id, period_start_date, period_end_date], map: "charges_team_business_period", where: raw("(season_team_id IS NOT NULL)"))
   @@index([charge_concept_id], map: "fk_charges_charge_concept_id_fkey")
   @@index([club_id], map: "fk_charges_club_id_fkey")
   @@index([club_id, season_id], map: "fk_charges_club_id_season_id_fkey")
