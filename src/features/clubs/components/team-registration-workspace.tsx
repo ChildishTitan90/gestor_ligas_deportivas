@@ -50,31 +50,41 @@ export function TeamRegistrationWorkspaceView({ controller }: { controller: Regi
     </div>}
     <button type="button" className={button} disabled={state.loading || state.blocked || state.formClosed} onClick={() => void controller.reloadOptions()}>Actualizar opciones</button>
     <p className="text-sm text-muted">Las opciones para inscribir y crear equipos dependen de la autorización vigente del club seleccionado.</p>
+    <nav aria-label="Secciones de inscripción" className="flex flex-wrap gap-3">
+      {state.formVisible && <ActionLink href="#inscribir-equipo" variant="secondary">Ir al formulario</ActionLink>}
+      <ActionLink href="#historial-equipos" variant="secondary">Ir al historial</ActionLink>
+    </nav>
     {state.formVisible && <TeamRegistrationFormView controller={controller.form} disabled={state.loading || !!state.optionsError || state.operationBusy}
+      pendingActions={<PendingOperations controller={controller} />}
       onContextChange={(clubId, seasonId) => void controller.context(clubId, seasonId)} />}
-    {state.formVisible && <PendingOperations controller={controller} />}
     {state.operationBusy && <p role="status">Consultando o cancelando la intención…</p>}
     {state.operationMessage && <p ref={operationNotice} tabIndex={-1} role="status">{state.operationMessage}</p>}
     {state.cancelConfirm && <CancellationDialog controller={controller} />}
     {state.closeConfirm && <ClosePendingDialog controller={controller} />}
     {state.closeError && <p ref={noticeRef} tabIndex={-1} role="alert">{state.closeError}</p>}
-    <section aria-labelledby="registration-query-title" className="space-y-4 rounded-3xl border border-border p-5 sm:p-8">
+    <section id="historial-equipos" tabIndex={-1} aria-labelledby="registration-query-title" className="scroll-mt-6 space-y-4 rounded-3xl border border-border bg-surface p-5 sm:p-8">
       <h2 id="registration-query-title" className="text-xl font-semibold text-primary">Consultar inscripciones e historial</h2>
-      <p className="text-sm text-muted">Selecciona un club autorizado y, si lo necesitas, una temporada. Todas las temporadas incluye el historial cerrado. Un listado vacío no resuelve un envío pendiente.</p>
+      <p className="text-sm text-muted">Selecciona un club autorizado. Si eliges «Todas las temporadas», la consulta incluye las temporadas cerradas.</p>
       {state.catalogLoading && <p role="status">Cargando catálogos autorizados…</p>}
       {state.catalogError && <div role="alert"><p>{state.catalogError}</p><button type="button" className={button} onClick={() => void controller.queryCatalogs()}>Volver a consultar catálogos</button></div>}
       {!state.catalogLoading && !state.catalogError && !state.queryClubs.length && <p>No hay clubes disponibles para consultar en tu ámbito.</p>}
       <form onSubmit={query} className="space-y-4" aria-busy={state.listLoading || state.catalogLoading}>
-        <div><label htmlFor="registration-query-club">Club *</label>
-          <SelectField id="registration-query-club" name="clubId" value={state.queryClubId} required
-            disabled={state.catalogLoading || state.listLoading || !!state.catalogError} className="mt-2"
-            placeholder="Selecciona un club" onValueChange={value => void controller.queryCatalogs(value, "")}
-            options={state.queryClubs.map(club => ({ value: club.id, label: club.name }))} /></div>
-        <div><label htmlFor="registration-query-season">Temporada</label>
-          <SelectField id="registration-query-season" name="seasonId" value={state.querySeasonId}
-            disabled={state.catalogLoading || state.listLoading || !state.queryClubId || !!state.catalogError} className="mt-2"
-            onValueChange={value => void controller.queryCatalogs(state.queryClubId, value)}
-            options={[{ value: "", label: "Todas las temporadas" }, ...state.querySeasons.map(season => ({ value: season.id, label: season.name }))]} /></div>
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div>
+            <label htmlFor="registration-query-club" className="text-sm font-medium">Club *</label>
+            <SelectField id="registration-query-club" name="clubId" value={state.queryClubId} required
+              disabled={state.catalogLoading || state.listLoading || !!state.catalogError} className="mt-2"
+              placeholder="Selecciona un club" onValueChange={value => void controller.queryCatalogs(value, "")}
+              options={state.queryClubs.map(club => ({ value: club.id, label: club.name }))} />
+          </div>
+          <div>
+            <label htmlFor="registration-query-season" className="text-sm font-medium">Temporada</label>
+            <SelectField id="registration-query-season" name="seasonId" value={state.querySeasonId}
+              disabled={state.catalogLoading || state.listLoading || !state.queryClubId || !!state.catalogError} className="mt-2"
+              onValueChange={value => void controller.queryCatalogs(state.queryClubId, value)}
+              options={[{ value: "", label: "Todas las temporadas" }, ...state.querySeasons.map(season => ({ value: season.id, label: season.name }))]} />
+          </div>
+        </div>
         <button className={button} disabled={state.listLoading || state.catalogLoading || !state.queryClubId || !!state.catalogError}>Consultar inscripciones</button>
       </form>
       {state.listLoading && <p role="status">Cargando inscripciones…</p>}
@@ -84,10 +94,6 @@ export function TeamRegistrationWorkspaceView({ controller }: { controller: Regi
       {state.nextAfter && !state.listError && <button type="button" className={button} disabled={state.listLoading}
         onClick={() => { queryRequested.current = true; void controller.list(state.listClubId, state.listSeasonId, true); }}>Cargar más inscripciones</button>}
     </section>
-    <nav aria-label="Acceso a la cuenta" className="flex flex-wrap gap-3">
-      <ActionLink href="/access" variant="secondary">Mi panel</ActionLink>
-      <ActionLink href="/futbol" variant="secondary">Portal de fútbol</ActionLink>
-    </nav>
   </div>;
 }
 

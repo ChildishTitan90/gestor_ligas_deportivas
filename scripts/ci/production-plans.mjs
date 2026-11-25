@@ -32,6 +32,10 @@ export const DISTRIBUTION_PLAN = Object.freeze({
 // Cada migración se revisó con RLS en Supabase y sin acceso de roles de API.
 // El checksum impide que un cambio posterior herede esta autorización.
 export const PRIVATE_TABLE_PLANS = Object.freeze([
+  ['20261119010000_pdgld32_public_recovery_budgets', 'e27ced30438e7471134be4a77456538136323a4c7569958b6b01125e10332a73', ['password_recovery_budgets']],
+  ['20261114060000_pdgld141_referee_credentials', 'eb25559ba42a6fa347c9c292ca73999bb67e71d198ad33dff088d086d41c18b9', ['referee_presentation_credentials']],
+  ['20261114020000_pdgld141_referee_presentations', '81d8a7c7d2e66c3d3573df6a4246ef5ce96e1c1002fb335f8e0ef6631ca0af2a', ['referee_presentations']],
+  ['20261114010000_pdgld141_refereeing', '6d216494e8d6d5d838eedb99a118bd36051efce0d2f1c74b3279ec68060d8d18', ['referee_operations']],
   ['20261104020000_pdgld13_category_participations', 'd705a50e6e0e9b8c7864a8bc7eaaf04baf59990e62fb9a6c70c94bb2550b655b', ['player_category_levels', 'player_category_participations']],
   ['20261105020000_pdgld118_pending_email', '95416e2811d865d283ca44eace7ab0f4ab15556af6ac3a2961a98d3e9dbef1dd', ['account_email_changes']],
   ['20261108010000_pdgld117_identity_corrections', '5c8244040be0e00bbd7a2c2c781f7a34afdf7d901461eabb14b842c356a4365f', ['player_identity_corrections', 'player_identity_correction_evidence']],

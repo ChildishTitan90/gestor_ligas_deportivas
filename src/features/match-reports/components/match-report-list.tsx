@@ -1,0 +1,23 @@
+import { ArrowRight, CalendarDays, ClipboardPenLine, MapPin } from "lucide-react";
+import { ActionLink } from "@/components/ui/action-link";
+import type { ReactNode } from "react";
+
+export type ReportMatchCard = { id: string; number: string; status: string; statusCode: string; startsAt: string | null; season: string; category: string; group: string; matchday: number; venue: string; home: string; away: string };
+const initials = (name: string) => name.split(/\s+/).slice(0, 2).map(word => word[0]).join("");
+export function MatchReportList({ matches, renderActions }: {
+  matches: ReportMatchCard[];
+  renderActions?: (match: ReportMatchCard) => ReactNode;
+}) {
+  return <section className="mx-auto max-w-6xl space-y-7">
+    <header className="space-y-3"><p className="flex items-center gap-2 text-sm font-semibold text-muted"><ClipboardPenLine size={18} aria-hidden="true" /> Arbitraje · Mis partidos</p><h1 className="text-3xl font-semibold tracking-tight text-primary">Cédula arbitral</h1><p className="max-w-2xl leading-7 text-muted">Del partido al cierre: revisa las alineaciones, registra lo ocurrido y reúne las firmas de los capitanes.</p></header>
+    {!matches.length ? <div className="rounded-3xl border border-border bg-surface px-6 py-14 text-center"><span className="mx-auto mb-5 grid size-16 place-items-center rounded-2xl bg-soft text-primary"><CalendarDays size={28} aria-hidden="true" /></span><h2 className="text-xl font-semibold text-primary">Aún no tienes partidos disponibles</h2><p className="mx-auto mt-3 max-w-lg text-sm leading-7 text-muted">Aquí aparecerán los encuentros para los que tengas una designación arbitral efectiva o autorización de captura. Cuando te asignen uno, podrás abrir su cédula desde esta pantalla.</p></div>
+      : <div className="space-y-5">{matches.map(match => <article key={match.id} data-report-match={match.id} className="overflow-hidden rounded-3xl border border-border bg-surface">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4 text-sm sm:px-8"><span className="font-medium text-muted">{match.number} · Jornada {match.matchday}</span><span className={`rounded-full border px-3 py-1 ${match.statusCode === "IN_PROGRESS" ? "border-accent text-primary" : "border-border text-muted"}`}>{match.status}</span></header>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-7 text-center sm:px-8 sm:py-9">{[match.home, match.away].map((name, index) => <div key={index} className={index ? "col-start-3 row-start-1" : "col-start-1 row-start-1"}><span className={`mx-auto mb-3 grid size-14 place-items-center rounded-2xl text-lg font-bold text-primary ${index ? "border border-accent bg-background" : "bg-soft"}`} aria-hidden="true">{initials(name)}</span><h2 className="text-base font-semibold leading-6 text-primary sm:text-xl">{name}</h2><p className="mt-1 text-sm text-muted">{index ? "Visitante" : "Local"}</p></div>)}<span className="col-start-2 row-start-1 text-sm font-semibold text-muted">vs.</span></div>
+        <p className="px-5 text-center text-sm leading-6 text-muted">{match.season} · {match.category} · {match.group}</p>
+        <div className="flex flex-wrap justify-center gap-x-5 gap-y-2 px-5 py-4 text-sm text-muted"><p className="flex items-center gap-2"><CalendarDays size={16} aria-hidden="true" />{match.startsAt ? new Intl.DateTimeFormat("es-MX", { timeZone: "America/Mexico_City", dateStyle: "medium", timeStyle: "short" }).format(new Date(match.startsAt)) : "Horario pendiente"}</p><p className="flex items-center gap-2"><MapPin size={16} aria-hidden="true" />{match.venue || "Cancha pendiente"}</p></div>
+        <footer className="flex flex-wrap gap-3 px-5 pt-2 pb-6 sm:px-8">{renderActions ? renderActions(match) : <ActionLink href={`/matches/${match.id}/report`} className="w-full sm:w-auto"><ClipboardPenLine size={18} aria-hidden="true" />Abrir cédula<ArrowRight size={17} aria-hidden="true" /></ActionLink>}</footer>
+      </article>)}</div>}
+    {matches.length >= 100 && <p className="text-sm text-muted">Se muestran los últimos 100 encuentros disponibles.</p>}
+  </section>;
+}

@@ -6,8 +6,9 @@ import { SelectField } from "@/components/ui/select-field";
 import { emptyReviewFilters, reviewSeasonKey, type ReviewFilters } from "../affiliation-review-filters";
 import type { ReviewSummary } from "../affiliation-review-model";
 
-export function AffiliationReviewFilters({ leagues, items, sourceLeague, sourceStatus, busy, onQuery }: {
+export function AffiliationReviewFilters({ leagues, initialLeague, items, sourceLeague, sourceStatus, busy, onQuery }: {
   leagues: { id: string; name: string }[];
+  initialLeague?: string;
   items: readonly ReviewSummary[];
   sourceLeague: string;
   sourceStatus: ReviewSummary["status"];
@@ -15,7 +16,7 @@ export function AffiliationReviewFilters({ leagues, items, sourceLeague, sourceS
   onQuery: (leagueId: string, status: ReviewSummary["status"], filters: ReviewFilters) => void;
 }) {
   const id = useId();
-  const [league, setLeague] = useState(leagues.length === 1 ? leagues[0].id : "");
+  const [league, setLeague] = useState(initialLeague && leagues.some(item => item.id === initialLeague) ? initialLeague : leagues.length === 1 ? leagues[0].id : "");
   const [status, setStatus] = useState<ReviewSummary["status"]>("PENDING");
   const [search, setSearch] = useState("");
   const [season, setSeason] = useState("");
@@ -31,6 +32,10 @@ export function AffiliationReviewFilters({ leagues, items, sourceLeague, sourceS
     onQuery(league, status, { search: search.trim(), season, phase: status === "PENDING" ? phase : "ALL", page: 1 });
   }
   return <form onSubmit={query} className="space-y-4 rounded-3xl border border-border bg-surface p-5 sm:p-6" aria-busy={busy}>
+    <div className="sm:max-w-sm"><label htmlFor={`${id}-league`} className="mb-2 block text-sm font-semibold">Liga</label>
+      <SelectField id={`${id}-league`} name="leagueId" required value={league} disabled={busy || !leagues.length}
+        onValueChange={value => { setLeague(value); setSeason(""); }} options={leagues.map(item => ({ value: item.id, label: item.name }))} />
+    </div>
     <label htmlFor={`${id}-search`} className="block text-sm font-semibold">Buscar solicitud</label>
     <div className="flex flex-col gap-3 sm:flex-row">
       <div className="relative min-w-0 flex-1">
@@ -43,10 +48,6 @@ export function AffiliationReviewFilters({ leagues, items, sourceLeague, sourceS
     <button type="button" aria-expanded={expanded} aria-controls={`${id}-filters`} disabled={busy} onClick={() => setExpanded(value => !value)}
       className={`${secondary} flex w-full items-center justify-center gap-2 lg:hidden`}><SlidersHorizontal size={18} aria-hidden="true" />Filtros{count ? ` (${count})` : ""}</button>
     <div id={`${id}-filters`} className={`${expanded ? "grid" : "hidden"} gap-4 lg:grid lg:grid-cols-2 xl:grid-cols-3`}>
-      <div><label htmlFor={`${id}-league`} className="mb-2 block text-sm font-medium">Liga</label>
-        <SelectField id={`${id}-league`} name="leagueId" required value={league} disabled={busy || !leagues.length}
-          onValueChange={value => { setLeague(value); setSeason(""); }} options={leagues.map(item => ({ value: item.id, label: item.name }))} />
-      </div>
       <fieldset disabled={busy} className="min-w-0"><legend className="mb-2 text-sm font-medium">Estado</legend>
         <div className="flex rounded-xl border border-border p-1">
           {([ ["PENDING", "Pendientes"], ["APPROVED", "Aprobadas"] ] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={status === value}
@@ -67,7 +68,7 @@ export function AffiliationReviewFilters({ leagues, items, sourceLeague, sourceS
       }}>Limpiar filtros</button></div>
     </div>
     <p className="text-xs leading-6 text-muted">{status === "APPROVED" ? "Aprobadas" : "Pendientes"} · {phase === "ALL" || status === "APPROVED" ? "Todas las fases" : phase === "AWAITING_REVIEW" ? "Por revisar" : "Correcciones solicitadas"} · {leagues.find(item => item.id === league)?.name ?? "Sin liga seleccionada"}. Aplica tu selección con Buscar.</p>
-    {!league && leagues.length > 0 && <p className="text-sm text-muted">Selecciona una liga en Filtros para consultar sus solicitudes.</p>}
+    {!league && leagues.length > 0 && <p className="text-sm text-muted">Selecciona una liga para consultar sus solicitudes.</p>}
     {!leagues.length && <p>No tienes ligas disponibles para consultar esta bandeja.</p>}
   </form>;
 }

@@ -8,6 +8,7 @@ import {
 export type AffiliationSubmitOutcome =
   | { kind: "confirmed"; result: AffiliationResult }
   | { kind: "rejected"; message: string }
+  | { kind: "conflict" | "access-denied"; message: string }
   | { kind: "unconfirmed"; message: string };
 
 function unconfirmed(): AffiliationSubmitOutcome {
@@ -74,9 +75,12 @@ export async function submitAffiliationRequest(
   }
 
   if (response.status >= 400 && response.status < 500) {
+    const message = affiliationErrorMessage(responseBody);
+    if (response.status === 409) return { kind: "conflict", message };
+    if (response.status === 401 || response.status === 403) return { kind: "access-denied", message };
     return {
       kind: "rejected",
-      message: affiliationErrorMessage(responseBody),
+      message,
     };
   }
 

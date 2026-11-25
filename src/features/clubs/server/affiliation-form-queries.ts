@@ -13,11 +13,13 @@ import { affiliationOfficeCodes, type AffiliationFormValues } from "../schemas";
 import { affiliationCorrectionKey } from "./affiliation-correction-key";
 import { getAffiliation, AffiliationReviewError } from "./affiliation-review-service";
 import type { AffiliationFormProps } from "../types";
+import { affiliationReviewPhase } from "../affiliation-review";
 
 type ContextOption = {
   value: string;
   clubId: string;
   clubName: string;
+  leagueName: string;
   seasonId: string;
   seasonName: string;
 };
@@ -101,6 +103,7 @@ export async function getAffiliationFormPageData(
         id: true,
         name: true,
         league_id: true,
+        leagues: { select: { name: true } },
       },
       orderBy: { name: "asc" },
     });
@@ -129,6 +132,7 @@ export async function getAffiliationFormPageData(
           value: `${club.id}:${season.id}`,
           clubId: club.id,
           clubName: club.name,
+          leagueName: club.leagues.name,
           seasonId: season.id,
           seasonName: season.name,
         })),
@@ -159,6 +163,7 @@ export async function getAffiliationFormPageData(
     });
 
     let selected: ContextOption | undefined;
+    let followUpOnly = false;
 
     if (requestedContext !== undefined) {
       const parsed = z.tuple([z.uuid(), z.uuid()]).safeParse(
@@ -178,7 +183,17 @@ export async function getAffiliationFormPageData(
       selected = options.find((option) => option.value === value);
 
       if (!selected) {
-        throw new AuthorizationError();
+        // Un delegado con UPDATE puede seguir su folio después de corregirlo.
+        // La consulta exige READ en ese contexto y no habilita otra captura.
+        const target = allOptions.find(option => option.value === value);
+        const previous = target && existing.find(item => item.club_id === target.clubId && item.season_id === target.seasonId);
+        if (!target || previous?.requested_by !== actor.id || !updateGrants.some(grant => grant.roleId === delegate.id && grant.clubId === target.clubId)) {
+          throw new AuthorizationError();
+        }
+        await assertPermission(tx, actor.id, { module: "clubs", action: "READ", context: { clubId: target.clubId, seasonId: target.seasonId } });
+        selected = target;
+        options.push(target);
+        followUpOnly = true;
       }
     } else {
       selected =
@@ -205,10 +220,7 @@ export async function getAffiliationFormPageData(
       };
     }
 
-    await assertSignatureUploadAccess(tx, actor.id, {
-      clubId: selected.clubId,
-      seasonId: selected.seasonId,
-    });
+    if (!followUpOnly) await assertSignatureUploadAccess(tx, actor.id, { clubId: selected.clubId, seasonId: selected.seasonId });
 
     const previous = existing.find(
       (item) =>
@@ -225,7 +237,8 @@ export async function getAffiliationFormPageData(
           id: previous.id,
           referenceNumber: previous.reference_number,
           status: previous.status,
-          canCorrect: previous.requested_by === actor.id && previous.status === "PENDING" && !!previous.review_reason,
+          phase: affiliationReviewPhase(previous.status, previous.review_reason),
+          canCorrect: !followUpOnly && previous.requested_by === actor.id && previous.status === "PENDING" && !!previous.review_reason,
         },
         submissionContext: null,
       };
@@ -285,7 +298,8 @@ export async function getAffiliationCorrectionFormPageData(id: string): Promise<
     await assertPermission(tx, actor.id, { module: "clubs", action: "READ",
       context: { clubId: detail.clubId, seasonId: detail.seasonId } });
     const current = await tx.club_affiliations.findUniqueOrThrow({ where: { id },
-      select: { review_version: true, requested_by: true, status: true, review_reason: true } });
+      select: { review_version: true, requested_by: true, status: true, review_reason: true,
+        clubs: { select: { leagues: { select: { name: true } } } } } });
     if (current.requested_by !== actor.id || current.status !== "PENDING" || !current.review_reason)
       throw new AuthorizationError();
     if (current.review_version !== detail.version) throw new AffiliationReviewError("STALE_AFFILIATION", 409);
@@ -299,7 +313,7 @@ export async function getAffiliationCorrectionFormPageData(id: string): Promise<
     // Una captura anterior puede carecer de categorías/directivos. Es un formulario
     // incompleto para corregir; la validación obligatoria sigue al enviar, también en servidor.
     const initialValues: AffiliationFormValues = { clubName: detail.clubName,
-      uniformColors: detail.uniformColors ?? "", categoryIds: detail.categoryIds,
+      uniformColors: detail.uniformColors ?? "", ...(detail.uniformKits ? { uniformKits: detail.uniformKits } : {}), categoryIds: detail.categoryIds,
       officers: officers as AffiliationFormValues["officers"] };
     const signatureFileIds = Object.fromEntries(detail.officers.filter(person => person.signatureFileId)
       .map(person => [person.office, person.signatureFileId!])) as NonNullable<AffiliationFormProps["correction"]>["signatureFileIds"];
@@ -308,6 +322,7 @@ export async function getAffiliationCorrectionFormPageData(id: string): Promise<
       submissionContext: { actorId: actor.id, clubId: detail.clubId, seasonId: detail.seasonId, storageOrigin: readStorageOrigin() },
       correction: { id, submissionKey: affiliationCorrectionKey(id, detail.submissionKey ?? null), expectedVersion: detail.version,
         referenceNumber: detail.referenceNumber, observations: detail.observations ?? "", signatureFileIds },
+      contextLabels: { club: detail.clubName, season: detail.seasonName, league: current.clubs.leagues.name },
     };
   });
 }

@@ -155,3 +155,17 @@ Para incorporar las pruebas independientes de Karol, el runner descubre `tests/i
 `npm run test:seed` conserva la suite base `tests/integration/seed.test.ts` y ejecuta después, en otra invocación secuencial, `tests/integration/demo-seed.test.ts`. La separación permite que la suite base compruebe sus snapshots sin concesiones antes de que demo instale su catálogo de fixture. El fixture de demo no es la matriz RF22 de Sergio; las ejecuciones reales de los perfiles `permissions` y `demo` requieren integrar `prisma/permissions-data.ts`, como detalla [la guía del seed](seed.md).
 
 El workflow mantiene `test:auth` y `test:seed -- --existing` en PostgreSQL temporal 15/17. `test:ci` sigue ejecutando los controles `.mjs` de migraciones; no descubre por sí solo las nuevas pruebas TypeScript. Los resultados históricos documentados arriba no acreditan una ejecución de PDGLD-54 ni de los nuevos archivos de Karol: la entrega debe registrar sus resultados locales reales y cualquier ejecución remota todavía pendiente.
+
+## Arbitraje y ensayo del plan Supabase — PDGLD-143
+
+`CI listo para integrar` también exige el job de arbitraje con PostgreSQL 15/17.
+Ejecuta `test:referees:components`, `test:referees:integration` y las carreras de
+identidad/cierre. La integración reconstruye migraciones, comprueba ausencia de
+drift y reproduce los marcadores de Supabase en otra base desechable para verificar
+el plan exacto de seguridad y su reintento. No contacta proyectos Supabase.
+
+La [evidencia de PDGLD-143](validation/refereeing-automated.md) detalla comandos,
+rol limitado, diferencias Windows/Linux, resultados y límites de la revisión
+histórica de Actions. Estas comprobaciones se realizan antes del despliegue;
+no sustituyen la CA, secretos, historial ni seguridad reales que continúa
+verificando `deploy-supabase.mjs` durante la liberación manual desde main.

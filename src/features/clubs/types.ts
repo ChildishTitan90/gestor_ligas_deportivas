@@ -18,6 +18,7 @@ export type AffiliationFormProps = {
   categories: readonly AffiliationCategoryOption[];
   initialValues?: AffiliationFormValues;
   submissionContext?: AffiliationSubmissionContext;
+  contextLabels?: { club: string; season: string; league: string };
   correction?: {
     id: string;
     submissionKey: string;

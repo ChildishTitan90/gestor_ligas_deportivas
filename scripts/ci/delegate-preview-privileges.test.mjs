@@ -24,12 +24,33 @@ test('PDGLD-118: altas y mantenimiento usan columnas explícitas, sin permisos a
   assert.equal(runtimePrivileges.update.user_roles, undefined);
 });
 
-test('PDGLD-118: correo pendiente tiene ACL mínimas; reset solo se invalida y el secreto no se reescribe', () => {
+test('PDGLD-118: correo pendiente tiene ACL mínimas; recuperación usa ACL por columna sin borrar ni reescribir el hash', () => {
   assert.ok(runtimePrivileges.read.includes('account_email_changes'));
   assert.deepEqual(runtimePrivileges.update.account_email_changes,
     ['status','used_at','confirmation_delivery','previous_notice_delivery','completion_notice_delivery']);
   assert.equal(runtimePrivileges.remove.includes('account_email_changes'),false);
-  assert.deepEqual(runtimePrivileges.readColumns.password_resets,['user_id','used_at']);
+  assert.deepEqual(runtimePrivileges.readColumns.password_resets,['id','user_id','token_hash','created_at','expires_at','used_at']);
   assert.deepEqual(runtimePrivileges.update.password_resets,['used_at']);
-  assert.equal(runtimePrivileges.insert.password_resets,undefined);
+  assert.deepEqual(runtimePrivileges.insert.password_resets,['id','user_id','token_hash','created_at','expires_at']);
+  assert.equal(runtimePrivileges.remove.includes('password_resets'), false);
+});
+
+test('PDGLD-32 y PDGLD-23 conservan juntos recuperación y préstamos de cancha', () => {
+  assert.deepEqual(runtimePrivileges.insert.password_resets,
+    ['id','user_id','token_hash','created_at','expires_at']);
+  assert.deepEqual(runtimePrivileges.update.password_resets, ['used_at']);
+  assert.deepEqual(runtimePrivileges.insert.venue_loans,
+    ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'owner_decision_required']);
+  assert.deepEqual(runtimePrivileges.update.venue_loans,
+    ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at', 'owner_decision', 'owner_reviewed_by', 'owner_reviewed_at', 'owner_review_reason']);
+});
+
+
+test('PDGLD-32: limpieza solo de cuotas, sin borrar recuperaciones ni cambiar sus hashes', () => {
+  assert.ok(runtimePrivileges.read.includes('password_recovery_budgets'));
+  assert.deepEqual(runtimePrivileges.insert.password_recovery_budgets, ['bucket_key','window_start','hits']);
+  assert.deepEqual(runtimePrivileges.update.password_recovery_budgets, ['window_start','hits']);
+  assert.ok(runtimePrivileges.remove.includes('password_recovery_budgets'));
+  assert.equal(runtimePrivileges.remove.includes('password_resets'), false);
+  assert.equal(runtimePrivileges.update.password_resets.includes('token_hash'), false);
 });

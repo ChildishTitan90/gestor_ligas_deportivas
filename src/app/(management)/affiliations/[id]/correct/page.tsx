@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
-import { ActionLink } from "@/components/ui/action-link";
+import { ManagementPageHeader } from "@/components/layout/management-page-header";
 import { AffiliationForm } from "@/features/clubs/components/affiliation-form";
+import { affiliationFollowUpHref } from "@/features/clubs/affiliation-feedback";
 import { getAffiliationCorrectionFormPageData } from "@/features/clubs/server/affiliation-form-queries";
 import { getCurrentAccount } from "@/features/auth/server/account-presentation";
 import { AuthAccessError } from "@/server/auth/session";
@@ -23,9 +24,17 @@ export default async function CorrectAffiliationPage({ params }: { params: Promi
   const current = await getCurrentAccount();
   if (!current) redirect("/login");
   if (current.mustChangePassword) redirect("/change-password");
+  const context = data?.contextLabels;
+  const submission = data?.submissionContext;
+  const correction = data?.correction;
   return <div className="mx-auto w-full max-w-5xl space-y-6">
-      <ActionLink href="/affiliations/new" variant="secondary">Volver a mis solicitudes</ActionLink>
-      <h1 className="text-2xl font-semibold text-primary">Corregir solicitud de afiliación</h1>
+      <ManagementPageHeader title="Corregir solicitud de afiliación"
+        description="Atiende las observaciones y reenvía la solicitud a Secretaría conservando su folio."
+        back={{ href: submission ? affiliationFollowUpHref(submission.clubId, submission.seasonId) : "/affiliations/new", label: "Mis solicitudes de afiliación" }}
+        context={context && correction && [
+          { label: "Liga", value: context.league }, { label: "Temporada", value: context.season },
+          { label: "Club", value: context.club }, { label: "Folio", value: correction.referenceNumber },
+        ]} />
       {data ? <AffiliationForm {...data} /> : <p role="alert">{message}</p>}
   </div>;
 }

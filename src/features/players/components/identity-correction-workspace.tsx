@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
-import Link from "next/link";
+import { ManagementPageHeader } from "@/components/layout/management-page-header";
+import { ProcessSteps } from "@/components/ui/process-steps";
 import { SelectField } from "@/components/ui/select-field";
 import { correctionMessages, correctionRequestSchema, type CorrectionIdentity, type CorrectionWorkspace } from "../identity-correction";
 const fields = [['curp', 'CURP'], ['firstName', 'Nombre(s)'], ['paternalSurname', 'Apellido paterno'], ['maternalSurname', 'Apellido materno'], ['birthDate', 'Nacimiento']] as const;
@@ -44,7 +45,10 @@ export function IdentityCorrectionWorkspace({ data, actorId }: {
         }
     }
     const base = `/api/player-registrations/${data.registrationId}/identity-corrections`;
-    return <section className="mx-auto w-full min-w-0 max-w-4xl space-y-6 break-words"><Link href={`/players/registrations/${data.registrationId}/documents`} className="underline">Volver al expediente</Link><h1 className="text-2xl font-semibold">Corrección de identidad deportiva</h1><p>La propuesta modifica la identidad vigente de la misma persona; no sustituye los datos de temporadas cerradas.</p>
+    return <section className="mx-auto w-full min-w-0 max-w-4xl space-y-6 break-words">
+  <ManagementPageHeader title="Corrección de identidad deportiva"
+    description="Propón una corrección de los datos vigentes de la misma persona o consulta las solicitudes del expediente."
+    back={{href:`/players/registrations/${data.registrationId}/documents`,label:"Volver al expediente"}} />
   <p>Solicitar o devolver una corrección no cambia la identidad ni la habilitación. La aprobación requiere evidencia privada y autoridad sobre todas las referencias de la misma persona.</p>
   <p>Las referencias en temporadas cerradas sin identidad histórica acreditada bloquean la aplicación, sin cambiar el historial.</p>
   <p>CURP: constancia correcta y documento de vinculación si hay duda. Nombre o nacimiento: acta o documento rectificatorio; constancia actualizada si cambia la clave o existe discrepancia. Para menores no hay excepciones nuevas y se conserva la acreditación de tutor.</p>
@@ -72,7 +76,9 @@ export function IdentityCorrectionWorkspace({ data, actorId }: {
   {message && <p role="status" tabIndex={-1} ref={messageRef}>{message}</p>}
   <button type="button" disabled={busy} onClick={() => location.reload()} className="min-h-12 rounded-xl border border-border px-4">Consultar estado sin reenviar</button>
   <h2 className="text-xl font-semibold">Solicitudes de este expediente</h2>{!data.requests.length && <p>No hay solicitudes visibles.</p>}
-  {data.requests.map(r => <article key={r.id} className="space-y-4 rounded-xl border border-border bg-surface p-5"><h3 className="font-semibold">{r.status === 'PENDING' ? 'Pendiente' : r.status === 'RETURNED' ? 'Devuelta' : 'Aplicada'} · {r.createdAt}</h3><dl>{fields.map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{r.identity[key] ?? '—'}</dd></div>)}</dl><p>Motivo privado: {r.reason}</p>{r.observations && <p>Observaciones: {r.observations}</p>}<ul>{r.evidence.map(e => <li key={e.id}><a target="_blank" rel="noreferrer" className="underline" href={`${base}/evidence/${e.id}`}>Ver evidencia privada · {e.kind}</a></li>)}</ul>
+  {data.requests.map(r => <article key={r.id} className="space-y-4 rounded-xl border border-border bg-surface p-5"><h3 className="font-semibold">{r.status === 'PENDING' ? 'Pendiente' : r.status === 'RETURNED' ? 'Devuelta' : 'Aplicada'} · {r.createdAt}</h3>
+   {r.status === 'PENDING' && <ProcessSteps steps={["Solicitud enviada","Revisión","Resolución"]} current={1} label="Avance de la corrección" />}
+   <dl className="grid gap-3 sm:grid-cols-2">{fields.map(([key, label]) => <div key={key}><dt className="text-sm text-muted">{label}</dt><dd className="wrap-anywhere font-medium">{r.identity[key] ?? '—'}</dd></div>)}</dl><p>Motivo privado: {r.reason}</p>{r.observations && <p>Observaciones: {r.observations}</p>}<ul>{r.evidence.map(e => <li key={e.id}><a target="_blank" rel="noreferrer" className="underline" href={`${base}/evidence/${e.id}`}>Ver evidencia privada · {e.kind}</a></li>)}</ul>
    {r.status === 'PENDING' && data.canReview && !r.own && <Decision applyBlockedCode={data.applyBlockedCode} busy={busy || uncertain} onSend={body => void send(`${base}/${r.id}`, JSON.stringify(body), true)}/>}
    {r.status === 'PENDING' && r.own && <p>No puedes aprobar ni devolver tu propia solicitud.</p>}
    {!data.canReview && <p>La revisión requiere autoridad con alcance sobre todas las referencias afectadas.</p>}

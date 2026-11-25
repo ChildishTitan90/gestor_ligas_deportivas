@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { createTeamRegistrationFormController, registrationChoices, type TeamRegistrationField, type TeamRegistrationFormController } from "../team-registration-form-controller";
 import type { TeamRegistrationFormOptions, TeamRegistrationOption, TeamRegistrationSubmit } from "../team-registration-model";
 import { SelectField } from "@/components/ui/select-field";
+import { ProcessSteps } from "@/components/ui/process-steps";
 import { focusFormControl } from "@/components/ui/focus-form-control";
 
 const controlClass = "mt-2 min-h-12 w-full rounded-xl border border-border bg-surface px-3.5 py-3 text-base focus:border-primary disabled:opacity-50";
+const enrollmentSteps = ["Club y temporada", "Equipo y categoría", "Confirmación"];
 
 export function TeamRegistrationForm({ options, onSubmit }: { options: TeamRegistrationFormOptions; onSubmit: TeamRegistrationSubmit }) {
   const [controller] = useState(() => createTeamRegistrationFormController(options, onSubmit));
@@ -15,7 +17,12 @@ export function TeamRegistrationForm({ options, onSubmit }: { options: TeamRegis
 }
 
 /** Vista inyectable para pruebas; ninguna página monta fixtures. */
-export function TeamRegistrationFormView({ controller, disabled = false, onContextChange }: { controller: TeamRegistrationFormController; disabled?: boolean; onContextChange?: (clubId: string, seasonId: string) => void }) {
+export function TeamRegistrationFormView({ controller, disabled = false, onContextChange, pendingActions }: {
+  controller: TeamRegistrationFormController;
+  disabled?: boolean;
+  onContextChange?: (clubId: string, seasonId: string) => void;
+  pendingActions?: ReactNode;
+}) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const prefix = useId();
   const formRef = useRef<HTMLFormElement>(null);
@@ -57,12 +64,32 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
       {error(field)}
     </div>;
   }
-  return <form ref={formRef} onSubmit={submit} noValidate aria-busy={submitting} aria-labelledby={`${prefix}-title`}
-    className="space-y-6 rounded-3xl border border-border bg-surface p-5 sm:p-8">
+  const recovering = state.outcome === "unconfirmed" || state.pendingCleanup;
+  const contextReady = club && season?.canEnroll && !errors.clubId && !errors.seasonId;
+  const teamReady = draft.teamMode === "new"
+    ? season?.canCreateTeam && !!draft.teamName.trim() && draft.teamName.trim().length <= 200
+    : teams.some(team => team.id === draft.teamId);
+  const captureReady = hasRequiredOptions && teamReady && category &&
+    (!manualGroup || groups.some(group => group.id === draft.groupId)) && !Object.keys(errors).length;
+  const enrollmentStep = state.outcome === "confirmed" ? enrollmentSteps.length
+    : submitting || state.outcome === "unconfirmed" ? 2
+    : !contextReady ? 0 : captureReady ? 2 : 1;
+  const message = state.message && <p ref={messageRef} tabIndex={-1} role={["confirmed", "cancelled"].includes(state.outcome) ? "status" : "alert"}
+    className={`rounded-xl border border-border p-4 font-semibold ${["confirmed", "cancelled"].includes(state.outcome) ? "bg-soft text-primary" : "text-danger"}`}>{state.message}</p>;
+  return <form id="inscribir-equipo" tabIndex={-1} ref={formRef} onSubmit={submit} noValidate aria-busy={submitting} aria-labelledby={`${prefix}-title`}
+    className="scroll-mt-6 space-y-6 rounded-3xl border border-border bg-surface p-5 sm:p-8">
     <header>
       <h2 id={`${prefix}-title`} className="text-2xl font-semibold text-primary">Inscribir equipo</h2>
       <p className="mt-2 text-sm text-muted">Selecciona el club, la temporada y la categoría. El formato determina la asignación de grupo. La inscripción inicial será «Inscrito»; no activa el equipo.</p>
     </header>
+    {state.outcome !== "cancelled" && (options.clubs.length > 0 || recovering) &&
+      <ProcessSteps steps={enrollmentSteps} current={enrollmentStep} label="Avance de la inscripción" />}
+    {recovering && <div className="space-y-3">
+      <h3 className="font-semibold text-primary">Resolver envío pendiente</h3>
+      {message}
+      {pendingActions}
+      {state.retryAvailable && <button type="button" className={controlClass} disabled={disabled || submitting || !season?.canEnroll} onClick={() => void controller.retry()}>Recuperar resultado con el mismo envío</button>}
+    </div>}
     {!options.clubs.length && <p>No hay clubes disponibles para inscribir equipos en tu ámbito.</p>}
     {!!Object.keys(errors).length && <p role="alert" className="text-danger">Revisa los campos señalados.</p>}
     <div className="grid gap-5 sm:grid-cols-2">
@@ -90,13 +117,11 @@ export function TeamRegistrationFormView({ controller, disabled = false, onConte
     {season && !categories.length && <p className="text-sm text-muted">No hay categorías disponibles para esta temporada.</p>}
     {season && categories.length > 0 && (category ? manualGroup && !groups.length : !categories.some(item => item.format === "GROUP_STAGE" || item.groups.length > 0)) &&
       <p className="text-sm text-muted">No hay grupos disponibles para {category ? "la categoría seleccionada" : "las categorías de esta temporada"}.</p>}
-    <button type="submit" disabled={locked || !hasRequiredOptions}
+    {!recovering && <button type="submit" disabled={locked || !hasRequiredOptions}
       className="min-h-12 rounded-xl primary-action px-5 py-3 text-sm font-semibold disabled:opacity-50">
       {submitting ? "Enviando inscripción…" : "Inscribir equipo"}
-    </button>
-    {state.message && <p ref={messageRef} tabIndex={-1} role={["confirmed", "cancelled"].includes(state.outcome) ? "status" : "alert"}
-      className={`rounded-xl border border-border p-4 font-semibold ${["confirmed", "cancelled"].includes(state.outcome) ? "bg-soft text-primary" : "text-danger"}`}>{state.message}</p>}
-    {state.retryAvailable && <button type="button" className={controlClass} disabled={disabled || submitting || !season?.canEnroll} onClick={() => void controller.retry()}>Recuperar resultado con el mismo envío</button>}
+    </button>}
+    {!recovering && message}
     {["confirmed", "cancelled"].includes(state.outcome) && !state.pendingCleanup && <button type="button" className={controlClass} onClick={() => { controller.reset(); onContextChange?.("", ""); }}>Iniciar otra inscripción</button>}
     {submitting && <p role="status">Espera mientras se procesa el envío.</p>}
   </form>;

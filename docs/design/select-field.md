@@ -91,3 +91,8 @@ opción confirmada con cobre y check, ambos temas, escritorio y viewport de 390 
 sin desbordamiento horizontal. Esa página utiliza datos de demostración y no
 registra inscripciones. No se revisó visualmente cada combinación de permisos de
 todas las pantallas; sus servicios, contratos y controles de autorización no cambian.
+
+La opción `descriptionPosition="below"` coloca la descripción debajo del nombre
+en el menú abierto. El historial arbitral la usa para mostrar nombre y UUID;
+conserva el campo cerrado y el valor real seleccionado. El resto de selectores
+mantiene la distribución lateral predeterminada.

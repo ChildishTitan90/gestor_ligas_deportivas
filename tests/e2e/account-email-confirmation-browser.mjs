@@ -80,6 +80,7 @@ export async function verifyAccountEmailConfirmationBrowser(config) {
       await go(`${page}#token=${encodeURIComponent(token)}`);
       await wait(()=>location.hash===''&&[...document.querySelectorAll('button')].some(e=>e.textContent==='Confirmar correo'&&Object.keys(e).some(k=>k.startsWith('__reactProps$'))));
       assert.equal(await run(token=>document.documentElement.outerHTML.includes(token),token),false);
+      assert.equal(await run(()=>document.querySelector('ol[aria-label="Etapas de confirmación de correo"] [aria-current=step]')?.textContent.includes('Confirmar cambio')),true);
     };
     const clickConfirm=async()=>{
       const point=await run(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent==='Confirmar correo');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};});
@@ -90,6 +91,8 @@ export async function verifyAccountEmailConfirmationBrowser(config) {
     context.case='email-open-without-consumption';
     await go(page);await invalid();assert.equal(posts,0);
     await openLink(first.token);await new Promise(r=>setTimeout(r,500));
+    await run(()=>document.querySelector('a[href="#main-content"]').click());
+    await wait(()=>location.hash==='#main-content'&&!!document.querySelector('main form button[type=submit]'));
     assert.equal(posts,0);assert.equal((await snapshot(person.id)).email===person.email,true);
     assert.equal((await db.query('SELECT used_at IS NULL AS unused FROM sports_management.account_email_changes WHERE id=$1',[first.receipt.id])).rows[0].unused,true);
     await command('Page.reload');await invalid();assert.equal(posts,0);
@@ -97,6 +100,7 @@ export async function verifyAccountEmailConfirmationBrowser(config) {
     await openLink(first.token);
     context.case='email-explicit-confirmation';
     await clickConfirm();await wait(()=>document.querySelector('[role="status"] h2')?.textContent==='Correo confirmado');
+    assert.equal(await run(()=>document.querySelector('ol[aria-label="Etapas de confirmación de correo"] [aria-current=step]')?.textContent.includes('Correo confirmado')),true);
     assert.equal(posts,1);
     const after=await snapshot(person.id);assert.equal(after.email===first.email,true);assert.ok(after.email_verified_at);assert.equal(after.version,before.version+1);
     old.cookies=new Map(oldCookies);assert.equal((await old.session()).user,undefined);

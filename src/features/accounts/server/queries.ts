@@ -4,6 +4,14 @@ import { requireOperationalUser } from "@/server/auth/session";
 import { assertPermission, AuthorizationError } from "@/server/auth/authorization";
 import { getPrisma } from "@/server/db/prisma";
 
+export async function canCreateAccounts() {
+  try { return (await getAccountCreationOptions()).roles.length > 0; }
+  catch (error) {
+    if (error instanceof AuthorizationError) return false;
+    throw error;
+  }
+}
+
 export async function getAccountFormData() {
   const options = await getAccountCreationOptions();
   if (!options.roles.length) throw new AuthorizationError();

@@ -101,7 +101,8 @@ export async function runAccountIntegrationSuite({ databaseUrl, baseUrl }) {
         assert.match(response.headers.get('cache-control'), /private.*no-store/);
         const options = await response.json();
         assert.ok(options.roles.some((role) => role.code === 'CLUB_DELEGATE'));
-        assert.ok(!options.roles.some((role) => ['GUEST', 'PLAYER', 'REFEREE'].includes(role.code)));
+        assert.ok(!options.roles.some((role) => ['GUEST', 'PLAYER'].includes(role.code)));
+        assert.ok(options.roles.some(role=>role.code==='REFEREE'),'Administración global ofrece acceso sobre una Persona incorporada; no crea árbitros implícitamente.');
         assert.ok(options.clubs.some((club) => club.id === clubs[0]));
         assert.ok(!options.clubs.some((club) => club.id === clubs[1]));
         assert.deepEqual(Object.keys(options).sort(), ['clubs', 'leagues', 'roles']);

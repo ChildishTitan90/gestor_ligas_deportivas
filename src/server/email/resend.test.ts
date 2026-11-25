@@ -65,3 +65,21 @@ test("desactivación explícita, proveedor ajeno y rechazos HTTP restantes no ac
     assert.equal(calls, 1);
   }
 });
+
+test("la recuperación usa un enlace de propósito separado y guarda el token en el fragmento", async () => {
+  let body: { text: string } | undefined;
+  const transport = createResendEmailTransport(
+    { apiKey: "synthetic", from: "demo@example.test", origin: "https://liga.example.test" },
+    async (_url, init) => {
+      body = JSON.parse(String(init?.body));
+      return Response.json({ id: "synthetic-recovery" });
+    },
+  );
+  const token = "a".repeat(43);
+  assert.equal(await transport.send({ kind: "PASSWORD_RECOVERY", to: "demo@example.test", token,
+    expiresAt: new Date("2026-11-16T12:00:00Z"), idempotencyKey: "synthetic-operation" }), "ACCEPTED");
+  const link = new URL(body!.text.match(/https:\/\/[^ ]+/)![0]);
+  assert.equal(link.pathname, "/recover-password/reset");
+  assert.equal(link.search, "");
+  assert.equal(link.hash, `#token=${token}`);
+});

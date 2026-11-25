@@ -19,6 +19,9 @@ function fingerprint(catalog: readonly PermissionGrant[]) {
 
 /** Extensión independiente de RF22; se instala una vez y nunca restaura revocaciones. */
 export async function installLeagueCreationPermission(tx: Prisma.TransactionClient, actorId: string) {
+  await tx.$queryRaw`SELECT sports_management.install_referee_access_permission()::text`;
+  await tx.$queryRaw`SELECT sports_management.install_referee_access_delegation_permission()::text`;
+  await tx.$queryRaw`SELECT sports_management.install_own_referee_availability_permission()::text`;
   await installSecretaryCompetitionPermissions(tx, actorId);
   const id = "54000000-0000-4000-8000-000000000053";
   const tableName = "seed_league_creation_permission";

@@ -1,8 +1,12 @@
+import { SchedulingPolicyFields } from "@/features/competitions/components/scheduling-policy-fields";
+import { schedulingPolicySchema } from "@/features/scheduling/schemas";
 import { RuleParameter } from "@/features/competitions/components/rule-parameter";
 import { TieBreakerFields } from "@/features/competitions/components/tie-breaker-fields";
 import { PlayerPolicyFields, PlayerPolicySummary } from "@/features/competitions/components/player-policy-fields";
 import { redirect } from "next/navigation";
+import { ManagementPageHeader } from "@/components/layout/management-page-header";
 import { ActionLink } from "@/components/ui/action-link";
+import { ProcessSteps } from "@/components/ui/process-steps";
 import { SelectField } from "@/components/ui/select-field";
 import { ConfigurationForm } from "@/features/competitions/components/configuration-form";
 import { getCompetitionConfiguration } from "@/features/competitions/server/configuration";
@@ -15,6 +19,8 @@ import { AuthorizationError } from "@/server/auth/authorization";
 
 export const metadata = { title: "Configurar competencia" };
 const control = "min-h-12 w-full rounded-xl border border-border bg-surface p-3";
+const seasonSteps = ["Preparar", "Altas cerradas", "En curso", "Cerrada"];
+const seasonStatusLabels: Record<string, string> = { PLANNED: "Planificada", ACTIVE: "Activa", CLOSED: "Cerrada" };
 function Field({ name, label, type = "text", value }: { name: string; label: string; type?: string; value?: string | number }) {
   return <label className="block">{label}<input className={control} name={name} type={type} defaultValue={value} required maxLength={160} /></label>;
 }
@@ -25,9 +31,10 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
     const config = await getCompetitionConfiguration(id);
     const workspace = await getSeasonWorkspace();
     const dates = workspace.seasons.find(season => season.id === id);
+    const league = workspace.leagues.find(league => league.id === config.season.leagueId);
     const [catalog, categories, capabilities] = await Promise.all([listCategoryCatalog(config.season.leagueId), listSeasonCategories(id), getConfigurationCapabilities(id)]);
     const groups = await Promise.all(categories.items.map(category => listCompetitionGroups(id, category.id)));
-    data = { ...config, catalog, categories, capabilities, groups, dates };
+    data = { ...config, catalog, categories, capabilities, groups, dates, league };
   } catch (error) {
     if (error instanceof AuthAccessError) redirect(error.code === "PASSWORD_CHANGE_REQUIRED" ? "/change-password" : "/login");
     const denied = error instanceof AuthorizationError;
@@ -36,7 +43,13 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
   const { season, rules, capabilities } = data;
   const base = `/api/competitions/seasons/${id}`;
   const editable = season.status === "PLANNED" && capabilities.update;
+  const closed = season.status === "CLOSED";
+  const active = season.status === "ACTIVE";
+  const currentStep = closed ? 3 : active ? 2 : season.teamRegistrationClosed ? 1 : 0;
   const latest = Object.fromEntries((rules[0]?.parameters ?? []).map(parameter => [parameter.key, parameter.value]));
+  const calendar = latest.calendar;
+  const previousScheduling = calendar && typeof calendar === "object" && !Array.isArray(calendar)
+    ? schedulingPolicySchema.safeParse(calendar.scheduling) : null;
   function previousNumber(group: string, key: string) {
     const value = latest[group];
     if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
@@ -44,18 +57,40 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
     return typeof number === "number" ? number : undefined;
   }
   return <div className="mx-auto max-w-5xl space-y-6 p-6">
-    <ActionLink href="/competitions/seasons" variant="secondary">Volver a temporadas</ActionLink>
-    <h1 className="text-2xl font-semibold">{season.name}</h1><p>Configuración · Versión de temporada {season.version}</p>
+    <ManagementPageHeader title={season.name} description="Consulta el avance de la temporada y configura sus reglas, categorías y grupos."
+      back={{ href: "/competitions/seasons", label: "Volver a temporadas" }}
+      context={[
+        ...(data.league ? [{ label: "Liga", value: data.league.name }] : []),
+        { label: "Estado de la temporada", value: seasonStatusLabels[season.status] ?? season.status },
+        { label: "Inscripciones de equipos", value: season.teamRegistrationClosed || closed ? "Cerradas" : "Abiertas" },
+        { label: "Versión", value: String(season.version) },
+      ]} />
+    {seasonStatusLabels[season.status] && <section aria-labelledby="season-progress" className="space-y-4 rounded-2xl border border-border bg-surface p-4 sm:p-5">
+      <h2 id="season-progress" className="text-lg font-semibold text-primary">Avance de la temporada</h2>
+      <ProcessSteps label="Etapas de la temporada" steps={seasonSteps} current={currentStep}
+        completedSteps={[currentStep > 0, season.teamRegistrationClosed, closed, closed]} />
+      {closed ? <p className="text-sm text-muted">La configuración queda disponible para consulta.</p>
+        : active ? <p className="text-sm text-muted">Para cerrar la temporada, completa los resultados de los partidos disputados.</p>
+          : season.teamRegistrationClosed
+            ? <p className="text-sm text-muted">Para iniciar la competencia, asigna los equipos a sus grupos y verifica que los reglamentos asociados estén aprobados y sin parámetros pendientes.</p>
+            : <p className="text-sm text-muted">Prepara las reglas y asocia las categorías que se usarán para afiliación. Después configura las reglas de jugadores de cada categoría. Cuando termine el periodo de alta de equipos, cierra las inscripciones.</p>}
+      {editable && !season.teamRegistrationClosed && <ConfigurationForm modal title="Cerrar inscripciones de equipos" endpoint={`${base}/lifecycle/close-registrations`} version={season.version}>
+        <p>El cierre es definitivo e impide nuevas inscripciones de equipos para esta temporada. Se conservan las inscripciones existentes y las ventanas de registro de jugadores.</p>
+      </ConfigurationForm>}
+      {editable && season.teamRegistrationClosed && <ConfigurationForm modal title="Iniciar competencia" endpoint={`${base}/lifecycle/start`} version={season.version}>
+        <p>Para iniciar, todos los equipos inscritos deben tener un grupo asignado y los reglamentos asociados deben estar aprobados, con sus parámetros validados. Las reglas y los grupos quedarán protegidos contra cambios incompatibles. Las jornadas y los horarios se generan desde Programación.</p>
+      </ConfigurationForm>}
+      {capabilities.update && active && <ConfigurationForm key={`close-${season.version}`} modal title="Cerrar temporada" endpoint={`${base}/close`} version={season.version}>
+        <p>El cierre es irreversible y conserva el historial en solo lectura. Antes deben completarse los resultados de los partidos disputados. Los partidos cancelados no requieren marcador.</p>
+        <Field name="confirm" label="Escribe CERRAR para confirmar" />
+      </ConfigurationForm>}
+    </section>}
     <nav aria-label="Secciones de configuración" className="flex flex-wrap gap-3"><ActionLink variant="secondary" href={`/competitions/seasons/${id}/player-pathways`}>Categorías que permiten subir</ActionLink><ActionLink href="#season-rules" variant="secondary">Reglas</ActionLink><ActionLink href="#season-categories" variant="secondary">Categorías y grupos</ActionLink></nav>
-    {season.status === "PLANNED" && <p className="rounded-xl border border-border bg-surface p-4">Preparación de la temporada: crea una versión de reglas, crea las categorías en el catálogo y asócialas a esta temporada. Después configura las reglas de jugadores de cada categoría, incluidos los jugadores en cancha y los convocados. Las categorías del catálogo solo estarán disponibles para afiliación cuando estén asociadas a la temporada.</p>}
-    {season.status === "CLOSED" && <p role="status">Temporada cerrada. La configuración se conserva para consulta.</p>}
-    <p>Inscripciones de equipos: {season.teamRegistrationClosed || season.status === "CLOSED" ? "Cerradas" : "Abiertas"}</p>
     <p>Total de inscripciones en la temporada: {data.groups.reduce((total, group) => total + group.total, 0)}</p>
-    {editable && !season.teamRegistrationClosed && <ConfigurationForm modal title="Cerrar inscripciones de equipos" endpoint={`${base}/lifecycle/close-registrations`} version={season.version}><p>Se impedirán nuevas inscripciones de equipos para esta temporada. Las inscripciones existentes y su historial se conservan. Por ahora no existe una opción para reabrirlas; esta acción no cierra los registros de jugadores.</p></ConfigurationForm>}
-    {editable && season.teamRegistrationClosed && <ConfigurationForm modal title="Iniciar competencia" endpoint={`${base}/lifecycle/start`} version={season.version}><p>Las inscripciones de equipos están cerradas. Para iniciar, todos los equipos inscritos deben tener un grupo asignado y los reglamentos de las categorías deben estar aprobados, sin parámetros pendientes de validación. Los borradores no permiten iniciar. Las reglas y grupos quedarán protegidos contra cambios incompatibles. Este paso no genera jornadas ni horarios.</p></ConfigurationForm>}
-    {editable && <ConfigurationForm modal title="Eliminar temporada vacía" endpoint={base} method="DELETE" version={season.version} successHref="/competitions/seasons"><p>La eliminación es definitiva. Solo se permite si no hay reglas, categorías ni otros datos relacionados.</p></ConfigurationForm>}
-    {capabilities.update && season.status === "ACTIVE" && <ConfigurationForm key={`close-${season.version}`} modal title="Cerrar temporada" endpoint={`${base}/close`} version={season.version}><p>El cierre conserva el historial en solo lectura y no puede revertirse. Antes deben completarse los resultados de todos los partidos disputados. Los partidos cancelados no requieren marcador.</p><Field name="confirm" label="Escribe CERRAR para confirmar" /></ConfigurationForm>}
-    {editable && data.dates && <ConfigurationForm key={`season-${season.version}`} modal title="Editar temporada" endpoint={base} method="PATCH" version={season.version}><Field name="name" label="Nombre" value={season.name} /><Field name="startDate" label="Fecha de inicio" type="date" value={data.dates.startDate} /><Field name="endDate" label="Fecha de fin" type="date" value={data.dates.endDate} /><p>El servidor protege las fechas cuando ya existen datos relacionados.</p></ConfigurationForm>}
+    {editable && <div className="flex flex-wrap gap-3">
+      {data.dates && <ConfigurationForm key={`season-${season.version}`} modal title="Editar temporada" endpoint={base} method="PATCH" version={season.version}><Field name="name" label="Nombre" value={season.name} /><Field name="startDate" label="Fecha de inicio" type="date" value={data.dates.startDate} /><Field name="endDate" label="Fecha de fin" type="date" value={data.dates.endDate} /><p>El servidor protege las fechas cuando ya existen datos relacionados.</p></ConfigurationForm>}
+      <ConfigurationForm modal title="Eliminar temporada vacía" endpoint={base} method="DELETE" version={season.version} successHref="/competitions/seasons"><p>La eliminación es definitiva. Solo se permite si no hay reglas, categorías ni otros datos relacionados.</p></ConfigurationForm>
+    </div>}
     <section id="season-rules" className="scroll-mt-24 space-y-4"><h2 className="text-xl font-semibold">Reglas de esta temporada</h2>
       {!rules.length && <p>{season.status === "CLOSED" ? "No hay versiones de reglas registradas en esta temporada." : "Todavía no hay versiones de reglas. Crea un borrador antes de asociar categorías."}</p>}
     {capabilities.update && season.status !== "CLOSED" && <ConfigurationForm modal key={`rules-${season.version}`} title={rules.length ? "Modificar reglas · nueva versión" : "Crear reglas de temporada"} endpoint={`${base}/configuration`} version={season.version}>
@@ -63,10 +98,16 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
       <div className="grid gap-4 sm:grid-cols-3"><Field name="win" label="Puntos por victoria" type="number" value={previousNumber("points", "win")} /><Field name="draw" label="Puntos por empate" type="number" value={previousNumber("points", "draw")} /><Field name="loss" label="Puntos por derrota" type="number" value={previousNumber("points", "loss")} /></div>
       <TieBreakerFields initialValues={Array.isArray(latest.tieBreakers) ? latest.tieBreakers.filter((value): value is string => typeof value === "string") : []} />
       <Field name="rounds" label="Vueltas" type="number" value={previousNumber("calendar", "rounds")} /><Field name="matchDurationMinutes" label="Duración del partido (minutos)" type="number" value={previousNumber("calendar", "matchDurationMinutes")} />
+      <label className="block">Últimas jornadas solo en unidad deportiva
+        <input name="complexOnlyFinalRounds" type="number" min={0} step={1} aria-describedby="complex-only-final-rounds-help"
+          defaultValue={previousNumber("calendar", "complexOnlyFinalRounds")} className={control} />
+        <span id="complex-only-final-rounds-help" className="mt-1 block text-sm text-muted">Usa 0 para desactivar la restricción o deja el campo vacío si aún no se ha definido.</span>
+      </label>
+      <SchedulingPolicyFields venues={data.venues} initial={previousScheduling?.success ? previousScheduling.data : undefined} />
       <p>El borrador conserva las versiones anteriores. Su creación no publica ni aprueba las reglas.</p>
     </ConfigurationForm>}
       {rules.map((rule, index) => <details key={rule.id} open={index === 0} className="rounded-2xl border border-border bg-surface p-5"><summary className="min-h-12 cursor-pointer font-semibold">Versión {rule.version} · {rule.status === "DRAFT" ? "Borrador" : rule.status === "APPROVED" ? "Aprobado" : rule.status}{index === 0 ? " · Última versión" : " · Historial"}</summary>
-        {rule.parameters.map(parameter => <RuleParameter key={parameter.key} parameter={parameter} />)}
+        {rule.parameters.map(parameter => <RuleParameter key={parameter.key} parameter={parameter} venueNames={Object.fromEntries(data.venues.map(venue => [venue.id, `${venue.name} · ${venue.code}`]))} />)}
         {season.status === "PLANNED" && capabilities.approve && rule.status === "DRAFT" && <ConfigurationForm key={`approve-${rule.id}-${season.version}`} modal title={`Aprobar reglamento versión ${rule.version}`} endpoint={`${base}/configuration/${rule.id}/approve`} version={season.version}>
           <p>Confirma que revisaste la convocatoria, puntuación, desempates y calendario de esta versión. La aprobación valida estos parámetros y los conserva en solo lectura; una corrección requerirá otra versión. Aprobar no inicia la competencia ni cambia el reglamento asociado a una categoría.</p>
           <Field name="confirm" label="Escribe APROBAR para confirmar la revisión" />
@@ -85,7 +126,7 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
       {!data.categories.items.length && <p>No hay categorías asociadas.</p>}
       {data.categories.items.map((category, index) => {
         const endpoint = `${base}/categories/${category.id}`;
-        return <article id={`category-${category.id}`} key={category.id} className="space-y-4 rounded-2xl border border-border bg-surface p-5"><h3 className="text-lg font-semibold">{category.name}</h3>
+        return <article id={`category-${category.id}`} key={category.id} className="scroll-mt-24 space-y-4 rounded-2xl border border-border bg-surface p-5"><h3 className="text-lg font-semibold">{category.name}</h3>
           <p>Reglas: versión {rules.find(rule => rule.id === category.ruleId)?.version ?? "no disponible"} · {category.format === "GENERAL_TABLE" ? "Tabla general" : category.format === "GROUP_STAGE" ? "Fase de grupos" : "Grupos existentes"}</p>
           {category.eligibilityPending && <p>Elegibilidad pendiente de configurar. Esta asociación no habilita por sí sola el registro de jugadores.</p>}
           <PlayerPolicySummary value={category.playerPolicy} />

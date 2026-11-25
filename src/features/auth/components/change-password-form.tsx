@@ -4,6 +4,7 @@ import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { signOutCurrentSession } from "../client/sign-out.client";
 import { CircleAlert, Eye, EyeOff } from "lucide-react";
 import { changePasswordSchema } from "@/features/auth/schemas";
+import { ProcessSteps } from "@/components/ui/process-steps";
 
 type FieldErrors = {
   currentPassword?: string;
@@ -43,6 +44,7 @@ export function ChangePasswordForm() {
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [passwordChanged, setPasswordChanged] = useState(false);
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -101,6 +103,7 @@ export function ChangePasswordForm() {
       }
 
       updated = true;
+      setPasswordChanged(true);
       // El JWT anterior queda revocado. Pedir credenciales nuevas, sin promover
       // la sesión restringida mediante datos enviados desde el navegador.
       try {
@@ -137,6 +140,11 @@ export function ChangePasswordForm() {
 
   return (
     <form onSubmit={handleSubmit} noValidate aria-busy={isSubmitting} className="mt-6">
+      <div className="mb-5">
+        <ProcessSteps label="Etapas del cambio de contraseña" steps={["Cambiar contraseña", "Iniciar sesión"]}
+          current={passwordChanged ? 1 : 0} completedSteps={[passwordChanged, false]} />
+      </div>
+      {passwordChanged && <p role="status" className="mb-5 rounded-xl bg-positive-surface p-3 text-sm text-positive">Contraseña actualizada. Volviendo al inicio de sesión…</p>}
       <div aria-live="polite">
         {!isOnline && (
           <p className="mb-5 rounded-xl border border-border bg-background p-3 text-sm leading-6 text-primary">

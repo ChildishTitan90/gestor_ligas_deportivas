@@ -1,0 +1,2 @@
+"use client";
+export default function Error({ reset }: { reset: () => void }) { return <section role="alert" className="space-y-4 rounded-2xl border border-border bg-surface p-6"><h1 className="text-xl font-semibold text-primary">No se pudieron consultar los partidos</h1><p className="text-muted">Vuelve a consultar en unos momentos. Este error de consulta no modifica las cédulas que ya guardaste.</p><button type="button" className="primary-action min-h-12 rounded-xl px-5 py-3 font-semibold" onClick={reset}>Volver a consultar</button></section>; }

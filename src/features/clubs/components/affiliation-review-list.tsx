@@ -6,7 +6,7 @@ export type AffiliationReviewItem = {
   reviewPhase: "AWAITING_REVIEW" | "CORRECTIONS_REQUESTED" | null;
   detailHref: string;
 };
-type Props = { items: readonly AffiliationReviewItem[]; onSelect?: (id: string) => void; disabled?: boolean; status?: "PENDING" | "APPROVED" };
+type Props = { items: readonly AffiliationReviewItem[]; onSelect?: (id: string, trigger: HTMLButtonElement) => void; disabled?: boolean; status?: "PENDING" | "APPROVED" };
 const phase = (item: AffiliationReviewItem) => item.reviewPhase === "AWAITING_REVIEW" ? "Por revisar" : item.reviewPhase === "CORRECTIONS_REQUESTED" ? "Correcciones solicitadas" : "No aplica";
 
 function Status({ item }: { item: AffiliationReviewItem }) {
@@ -22,8 +22,8 @@ export function AffiliationReviewList({ items, onSelect, disabled = false, statu
   function action(item: AffiliationReviewItem) {
     const text = item.status === "PENDING" ? "Revisar" : "Ver detalle";
     const name = `${text} de ${item.clubName}, folio ${item.referenceNumber}`;
-    return onSelect ? <button type="button" disabled={disabled} onClick={() => onSelect(item.id)} aria-label={name}
-      className="min-h-11 w-full rounded-xl border border-border bg-surface px-5 py-2.5 text-sm font-semibold text-primary hover:bg-soft disabled:opacity-50 lg:w-auto">{text}</button> :
+    return onSelect ? <button type="button" disabled={disabled} onClick={event => onSelect(item.id, event.currentTarget)} aria-label={name} data-affiliation-review-id={item.id}
+      className="min-h-11 w-full scroll-mt-28 rounded-xl border border-border bg-surface px-5 py-2.5 text-sm font-semibold text-primary hover:bg-soft disabled:opacity-50 lg:w-auto">{text}</button> :
       <ActionLink href={item.detailHref} variant="secondary" aria-label={name}>{text}</ActionLink>;
   }
   if (!items.length) return <div className="rounded-2xl border border-border bg-surface p-6">

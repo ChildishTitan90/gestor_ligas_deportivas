@@ -2,6 +2,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
 import { FormDialog } from "@/components/ui/form-dialog";
+import { ProcessSteps } from "@/components/ui/process-steps";
 import { ageExceptionCommandSchema, ageExceptionStateSchema, type AgeExceptionState } from "../age-exception";
 import { playerRequest, PlayerRequestError } from "../player-client";
 import { playerErrorMessages } from "../player-feedback";
@@ -13,10 +14,12 @@ const statusLabels: Record<AgeExceptionState["status"], string> = {
   APPROVED: "Excepción de edad aceptada", REJECTED: "Petición rechazada", STALE: "La petición requiere actualización", UNAVAILABLE: "La excepción no está disponible con los datos actuales",
 };
 const secondary = "min-h-12 rounded-xl border border-border bg-surface px-4 py-3 font-semibold text-primary disabled:opacity-50";
-export function AgeExceptionPanel(props: { actorId: string; registrationId: string; fetcher?: typeof fetch }) {
+type AgeExceptionPanelProps = { actorId: string; registrationId: string; fetcher?: typeof fetch; showProgress?: boolean };
+const ageSteps = { DRAFT: 0, PENDING: 1, APPROVED: 3, REJECTED: 3 } as const;
+export function AgeExceptionPanel(props: AgeExceptionPanelProps) {
   return <PanelContent key={`${props.actorId}:${props.registrationId}`} {...props} />;
 }
-function PanelContent({ actorId, registrationId, fetcher = fetch }: { actorId: string; registrationId: string; fetcher?: typeof fetch }) {
+function PanelContent({ actorId, registrationId, fetcher = fetch, showProgress = false }: AgeExceptionPanelProps) {
   const prefix = useId(), reasonRef = useRef<HTMLTextAreaElement>(null), lock = useRef(true);
   const pending = useRef<z.infer<typeof ageExceptionCommandSchema> | null>(null);
   const [state, setState] = useState<AgeExceptionState | null>(null), [reason, setReason] = useState("");
@@ -96,11 +99,13 @@ function PanelContent({ actorId, registrationId, fetcher = fetch }: { actorId: s
     pending.current = parsed.data; void send();
   }
   if (state && !state.applicable) return null;
+  const stage = state?.status === "DRAFT" || state?.status === "PENDING" || state?.status === "APPROVED" || state?.status === "REJECTED" ? ageSteps[state.status] : undefined;
   const frozen = busy || uncertain;
   return <section className="space-y-4 rounded-2xl border border-border bg-surface p-5" aria-label="Excepción de edad" aria-busy={busy}>
     <h2 className="text-xl font-semibold text-primary">Excepción de edad</h2>
     {state && <>
       <p className="font-semibold">{statusLabels[state.status]}</p>
+      {showProgress && stage !== undefined && <ProcessSteps steps={["Presentar petición","Revisión de Secretaría","Resolución"]} current={stage} label="Avance de la excepción de edad" />}
       {state.rule && <p className="text-sm leading-6 text-muted">Año de referencia: {state.rule.referenceYear}. Rango ordinario: {state.rule.minimumAge} a {state.rule.maximumAge ?? "sin máximo"} años. Mínimo excepcional: {state.rule.exceptionMinimumAge ?? "no configurado"} años.</p>}
       <p className="text-sm leading-6">La carta de excepción es distinta del consentimiento del tutor. Aceptar la excepción resuelve solo la edad; no habilita automáticamente al jugador.</p>
       {!state.documentId && <p>Carga y confirma la <strong>Carta de excepción de edad</strong> en los documentos del expediente y después actualiza este estado.</p>}

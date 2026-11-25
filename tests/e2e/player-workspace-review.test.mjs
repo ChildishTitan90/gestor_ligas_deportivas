@@ -2,13 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {build} from 'esbuild';
 import {createServer} from 'node:http';
+import {readFile,writeFile,mkdtemp} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {launchChrome,closeTestServer} from './chrome-session.mjs';
 
 test('Jugadores: lista persistente, acceso al expediente, alta con CURP integrada y revisión de tutor recuperable', {timeout:45000},async t=>{
+  const css=process.env.PLAYER_REVIEW_VISUAL_CSS?await readFile(process.env.PLAYER_REVIEW_VISUAL_CSS,'utf8'):'';
   const bundle=await build({write:false,bundle:true,platform:'browser',format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"development"'},stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`
     import React from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
     import {PlayerRegistrationWorkspace} from './src/features/players/components/player-registration-workspace';
     import {DocumentReviewForm} from './src/features/players/components/document-review-form';
+    import {IdentityReviewForm} from './src/features/players/components/identity-review-form';
     const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
     const rows=[{registrationId:id(10),displayName:'Jugador existente',status:'INELIGIBLE',identityReviewStatus:'NOT_REQUIRED',seasonTeamId:id(4),teamName:'Equipo sintético',clubName:'Club sintético',seasonName:'Temporada sintética'}];
     const teams=[{id:id(4),clubId:id(2),seasonId:id(3),clubName:'Club sintético',seasonName:'Temporada sintética',teamName:'Equipo sintético',categoryName:'Libre',groupName:'A'}];
@@ -21,15 +26,18 @@ test('Jugadores: lista persistente, acceso al expediente, alta con CURP integrad
       if(url.includes('/curp-verification'))return Response.json({registrationId:id(11),identityVersion:1,checkId:id(12),status:'VERIFIED',mismatchedFields:[],checkedAt:null,replayed:true,registrationStatus:'ACTIVE'});
       if(url.includes('/document-review') && options?.method==='POST'){revisionAttempts++;if(revisionAttempts===1)throw Error('synthetic response lost');return Response.json({confirmed:true,replayed:true});}
       if(url.includes('/document-review'))throw Error('synthetic refresh unavailable');
+      if(url.endsWith('/identity-review') && options?.method==='POST')return Response.json({confirmed:true});
       throw Error('Unexpected synthetic endpoint');
     };
-    window.fixture={calls,render(next='workspace'){mode=next;flushSync(()=>root.render(mode==='workspace'?<PlayerRegistrationWorkspace actorId={id(1)} teams={teams} initialPlayers={rows} providerConfigured/>:<DocumentReviewForm actorId={id(1)} initial={{registrationId:id(11),fingerprint:'a'.repeat(64),documents:[{id:id(20),name:'Autorización del tutor',code:'GUARDIAN_CONSENT',status:'PENDING'}],history:[]}}/>));}};
+    window.fixture={calls,render(next='workspace'){mode=next;flushSync(()=>root.render(mode==='workspace'?<PlayerRegistrationWorkspace actorId={id(1)} teams={teams} initialPlayers={rows} providerConfigured/>
+      : mode==='identity'?<IdentityReviewForm actorId={id(1)} id={id(11)} fingerprint={'a'.repeat(64)} blocked={false} refreshHref={'/players/review/'+id(11)+'?tipo=IDENTITY'}/>
+      : <DocumentReviewForm actorId={id(1)} initial={{registrationId:id(11),fingerprint:'a'.repeat(64),documents:[{id:id(20),name:'Autorización del tutor',code:'GUARDIAN_CONSENT',status:'PENDING'}],history:[]}}/>));}};
     window.fixture.render();
   `},plugins:[{name:'synthetic-next-link',setup(plugin){
     plugin.onResolve({filter:/^next\/link$/},()=>({path:'link',namespace:'fixture'}));
     plugin.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:"import React from 'react';export default function Link(props){return React.createElement('a',props)}",resolveDir:process.cwd()}));
   }}]});
-  const server=createServer((request,response)=>{response.setHeader('Content-Type',request.url==='/bundle.js'?'text/javascript':'text/html');response.end(request.url==='/bundle.js'?bundle.outputFiles[0].contents:'<!doctype html><div id="root"></div><script src="/bundle.js"></script>');});
+  const server=createServer((request,response)=>{response.setHeader('Content-Type',request.url==='/bundle.js'?'text/javascript':'text/html');response.end(request.url==='/bundle.js'?bundle.outputFiles[0].contents:`<!doctype html><html lang="es"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root" class="mx-auto max-w-4xl p-5"></div><script src="/bundle.js"></script></html>`);});
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>closeTestServer(server));
   const browser=await launchChrome(`http://127.0.0.1:${server.address().port}`,{signal:t.signal,commandTimeoutMs:15000,waitForDocument:true});t.after(()=>browser.close());
   const evaluate=expression=>browser.evaluate(expression);
@@ -70,7 +78,19 @@ test('Jugadores: lista persistente, acceso al expediente, alta con CURP integrad
   assert.equal(await evaluate(`document.querySelector('a[href$="000000000011/documents"]').textContent`),'Continuar al expediente');
   assert.equal(await evaluate('document.body.textContent.includes("tokens")'),false);
   await evaluate('window.fixture.render("review")');await wait('document.getElementById("review-document")');
+  const currentStep='document.querySelector(\'[aria-label="Avance de la revisión documental"] [aria-current="step"]\')';
+  assert.match(await evaluate(currentStep+'?.textContent'),/Elegir archivo/);
+  if(css){
+    const dir=await mkdtemp(join(tmpdir(),'pdgld-secretaria-detalle-'));
+    await browser.command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await evaluate("document.documentElement.dataset.theme='dark';window.scrollTo(0,0);new Promise(r=>requestAnimationFrame(r))");
+    assert.equal(await evaluate("document.documentElement.scrollWidth<=innerWidth"),true);
+    const image=await browser.command('Page.captureScreenshot',{format:'png'});
+    const path=join(dir,'revision-documental-movil.png');
+    await writeFile(path,Buffer.from(image.data,'base64'));t.diagnostic(path);
+  }
   await select('Documento a revisar','Autorización del tutor');await select('Decisión','Aprobar documento');
+  assert.match(await evaluate(currentStep+'?.textContent'),/Decisión/);
   await input('#review-guardian-name','Persona responsable sintética');
   await select('Relación comprobada','Madre');await input('textarea','Identidad, relación, firma y autorización comprobadas en caso sintético.');
   assert.equal(await evaluate('document.querySelector("form").checkValidity()'),false,'No acredita sin las cuatro comprobaciones');
@@ -78,12 +98,20 @@ test('Jugadores: lista persistente, acceso al expediente, alta con CURP integrad
   assert.deepEqual(await evaluate(`Array.from(document.querySelector('form').elements).filter(n=>n.willValidate && !n.validity.valid).map(n=>({tag:n.tagName,type:n.type,name:n.name,value:n.value,checked:n.checked,message:n.validationMessage}))`),[],'Todos los controles de acreditación están completos');
   await wait('document.querySelector("form").checkValidity()');await click('Confirmar revisión');
   await wait('document.body.textContent.includes("No se confirmó la revisión")');
+  assert.match(await evaluate(currentStep+'?.textContent'),/Acuse/);
   assert.match(await evaluate('document.querySelector("textarea").value'),/Identidad/,"Una respuesta incierta conserva la captura");
   await click('Reintentar la misma operación');
   await wait('document.body.textContent.includes("Revisión confirmada. Recarga")');
+  assert.equal(await evaluate(currentStep+' === null'),true);
   assert.equal(await evaluate('document.querySelector("textarea").value'),'','El acuse confirmado limpia la justificación');
   assert.equal(await evaluate('document.getElementById("review-document").value'),'','El acuse limpia el documento elegido');
   const bodies=await evaluate(`window.fixture.calls.filter(c=>c.url.includes('/document-review') && c.method==='POST').map(c=>c.body)`);
   assert.equal(bodies.length,2);assert.equal(bodies[0],bodies[1],'Reintento conserva intención y versión');
   assert.equal(await evaluate('document.body.textContent.includes("Reintentar la misma operación")'),false,'Fallo de refresco no invalida el acuse');
+  await evaluate('window.fixture.render("identity")');
+  await select('Resultado motivado de la revisión','Documentación insuficiente');
+  await click('Guardar revisión');
+  await wait('document.body.textContent.includes("La revisión de identidad sigue pendiente")');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Avance de la revisión de identidad"] [aria-current="step"]')===null`),true,'El acuse se completa aunque la revisión de identidad siga pendiente');
+  assert.equal(await evaluate(`document.querySelector('a[href$="?tipo=IDENTITY"]').textContent.trim()`),'Consultar expediente actualizado');
 });

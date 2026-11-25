@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createServer } from 'node:http';
 import { bounded, closeTestServer, launchChrome, waitForTestDone } from './chrome-session.mjs';
+import { waitForReportBrowser } from './match-report-browser-wait.mjs';
 
 async function fixture(t, html, options = {}) {
   const server = createServer((_request, response) => {
@@ -91,4 +92,46 @@ test('Servidor sintético: cierra conexiones activas incluso si una respuesta no
   try { await bounded(started, 1000, 'Servidor: petición recibida'); }
   finally { await closeTestServer(server); }
   await failed;
+});
+
+test('cédula: espera el body tras navegar y conserva el fallo de una expresión inválida', { timeout: 45000 }, async t => {
+  let finishDocument;
+  const server = createServer((request, response) => {
+    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    if (request.url !== '/slow-document') { response.end('<p>Inicio sintético</p>'); return; }
+    response.write('<!doctype html><html><head><script>window.headReady=true</script>');
+    finishDocument = () => response.end('</head><body>No hay copias locales vigentes</body></html>');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => closeTestServer(server));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const browser = await launchChrome(base, { signal: t.signal, waitForDocument: true });
+  t.after(() => browser.close());
+  await browser.command('Page.navigate', { url: base + '/slow-document' });
+  await bounded((async () => {
+    for (;;) {
+      try { if (await browser.evaluate('window.headReady === true')) return; }
+      catch (error) { if (!/context|navigat/i.test(String(error))) throw error; }
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  })(), 5000, 'Documento sintético: cabecera', t.signal);
+  assert.equal(await browser.evaluate('document.body === null'), true);
+  const expression = "document.body.innerText.includes('No hay copias locales vigentes')";
+  const premature = await browser.command('Runtime.evaluate', { expression, returnByValue: true });
+  assert.equal(premature.exceptionDetails.exception.className, 'TypeError');
+  assert.equal(premature.exceptionDetails.text, 'Uncaught');
+  let checked;
+  const firstCheck = new Promise(resolve => { checked = resolve; });
+  const waiting = waitForReportBrowser(async query => {
+    const value = await browser.evaluate(query);
+    checked();
+    return value;
+  }, expression);
+  await Promise.race([firstCheck, waiting]);
+  assert.equal(await browser.evaluate('document.body === null'), true);
+  finishDocument();
+  await waiting;
+  assert.equal(await browser.evaluate(expression), true);
+  await assert.rejects(waitForReportBrowser(query => browser.evaluate(query),
+    "(()=>{throw new TypeError('synthetic-invalid-expression')})()"), /TypeError/);
 });

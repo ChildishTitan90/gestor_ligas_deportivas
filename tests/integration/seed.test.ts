@@ -71,8 +71,8 @@ async function snapshot(client: pg.Client): Promise<Snapshot> {
     WHERE table_schema = 'sports_management' AND table_type = 'BASE TABLE'
     ORDER BY table_name
   `);
-  assert.equal(tables.length, 107,
-    'La base debe conservar las 96 tablas iniciales y las once adiciones: categorías de afiliación, operaciones de inscripción, comprobaciones CURP, dos tablas de participación, correo pendiente y cinco tablas privadas de corrección/historial.');
+  assert.equal(tables.length, 111,
+    'La base debe conservar las 110 tablas anteriores y la tabla privada de cuotas públicas de PDGLD-32.');
   assert.ok(tables.some(({ table_name }) => table_name === 'club_affiliation_categories'),
     'Debe existir la tabla de categorías de afiliación de PDGLD-57.');
   assert.ok(tables.some(({ table_name }) => table_name === 'team_enrollment_operations'),
@@ -80,7 +80,8 @@ async function snapshot(client: pg.Client): Promise<Snapshot> {
   assert.ok(tables.some(({ table_name }) => table_name === 'account_email_changes'),
     'Debe existir exactamente la tabla de correo pendiente añadida por 20261105020000_pdgld118_pending_email.');
   for (const name of ['player_identity_corrections', 'player_identity_correction_evidence',
-    'season_person_identity_snapshots', 'season_identity_closures', 'season_registration_history']) {
+    'season_person_identity_snapshots', 'season_identity_closures', 'season_registration_history',
+    'referee_operations', 'referee_presentations', 'referee_presentation_credentials', 'password_recovery_budgets']) {
     assert.ok(tables.some(({ table_name }) => table_name === name), `Debe conservarse la tabla privada ${name}.`);
   }
   const result: Snapshot = {};
@@ -208,6 +209,9 @@ test('seed en PostgreSQL temporal: atomicidad, identidad, dos ejecuciones, integ
   const client = new pg.Client({ connectionString: targetUrl(), connectionTimeoutMillis: 10_000, query_timeout: 20_000 });
   try {
     await client.connect();
+    // El seed no debe consumir ni borrar cuotas públicas ya registradas.
+    await client.query(`INSERT INTO sports_management.password_recovery_budgets(bucket_key,window_start,hits)
+      VALUES($1,'2026-11-19T12:00:00Z',7)`, ['f'.repeat(64)]);
     const baseline = await snapshot(client);
     assert.deepEqual(baseline.roles.map(row => row.code).sort(), OFFICIAL_ROLES);
     assert.deepEqual(SEED_ROLES.map(row => row.code).sort(), OFFICIAL_ROLES, 'El seed debe conservar los 12 códigos oficiales.');
@@ -231,6 +235,8 @@ test('seed en PostgreSQL temporal: atomicidad, identidad, dos ejecuciones, integ
 
     await seedCli();
     const first = await snapshot(client);
+    assert.deepEqual(first.password_recovery_budgets, baseline.password_recovery_budgets,
+      'El seed conserva los contadores privados, cuya clave es bucket_key y no id.');
     const seeded = context(first);
     const addedTables = new Set(['leagues', 'seasons', 'categories', 'competition_rules', 'season_categories',
       'groups', 'people', 'users', 'audit_logs']);

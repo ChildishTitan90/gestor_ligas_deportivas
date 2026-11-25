@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { ManagementPageHeader } from "@/components/layout/management-page-header";
 import { ActionLink } from "@/components/ui/action-link";
 import { SelectField } from "@/components/ui/select-field";
 import { getCurrentAccount } from "@/features/auth/server/account-presentation";
@@ -34,8 +35,8 @@ export default async function NewLeaguePage({ searchParams }: { searchParams: Pr
   const allowed = await canCreateLeague();
   const params = await searchParams;
   return <div className="mx-auto w-full max-w-3xl space-y-6 px-6 py-10">
-    <ActionLink href="/access" variant="secondary">Volver al panel</ActionLink>
-    <h1 className="text-2xl font-semibold">Crear liga</h1>
+    <ManagementPageHeader title="Crear liga" description="Registra la liga y la zona horaria que usarán sus temporadas."
+      back={{ href: "/access", label: "Volver al panel" }} />
     {!allowed ? <p role="alert">No tienes permiso global para crear ligas.</p> : <>
       {typeof params.error === "string" && <p role="alert">{messages[params.error] ?? messages.UNAVAILABLE}</p>}
       {params.created === "1" && <p role="status">Liga creada. Ya puedes configurar sus temporadas si tienes permiso.</p>}

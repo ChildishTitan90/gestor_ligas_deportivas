@@ -190,7 +190,7 @@ test('rechaza cambios de puerto, IP, red, identidad y montajes antes de SQL', ()
 });
 
 test('el hijo no hereda .env loaders, PG*, conexiones ni opciones/contexto Docker', () => {
-  assert.deepEqual(childEnvironment({ PATH: '/bin', NODE_OPTIONS: '--env-file=.env', DATABASE_URL: 'foreign',
+  assert.deepEqual(childEnvironment({ PATH: '/bin', TEMP: undefined, TMP: undefined, SystemRoot: undefined, NODE_OPTIONS: '--env-file=.env', DATABASE_URL: 'foreign',
     DIRECT_URL: 'foreign', PGHOST: 'remote', PGOPTIONS: '-c role=admin', DOCKER_HOST: 'ssh://foreign',
     DOCKER_CONTEXT: 'production', SUPABASE_URL: 'foreign', HOME: '/user' }), { PATH: '/bin' });
 });

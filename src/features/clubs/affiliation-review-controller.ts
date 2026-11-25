@@ -48,6 +48,11 @@ export function createReviewController(api: ReviewApi) {
     } catch (error) { if (token === generation) fail(error, "detail"); }
     finally { if (token === generation) update({ detailLoading: false }); }
   }
+  function closeDetail() {
+    if (state.submitting || state.detailLoading || state.pendingReview) return;
+    generation++;
+    update({ detail: null, confirming: false, observations: "", fieldError: "", selectedCategoryIds: [], categoryError: "", download: null, downloading: false });
+  }
   async function submit(action: ReviewAction, confirmed = false, retry = false) {
     const detail = state.detail;
     if (!detail || state.submitting || state.detailLoading || state.downloading || (!retry && (state.error || state.pendingReview)) ||
@@ -125,7 +130,7 @@ export function createReviewController(api: ReviewApi) {
   return {
     getSnapshot: () => state,
     subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
-    load, open, submit: (action: ReviewAction) => submit(action),
+    load, open, closeDetail, submit: (action: ReviewAction) => submit(action),
     confirmApproval: () => submit("APPROVE", true),
     reconcile,
     retryReview: () => state.pendingReview ? submit(state.pendingReview.action, true, true) : Promise.resolve(),

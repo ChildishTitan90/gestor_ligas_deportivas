@@ -53,6 +53,7 @@ export function accountValidationMessage(issue: ZodIssue): string {
     case "invalid_union": return "Revisa los datos de la persona o la selección indicada.";
     case "unrecognized_keys": return "Revisa los campos del formulario.";
     case "custom":
+      if (field === "person") return "Usa la Persona ya incorporada al padrón arbitral de la liga.";
       if (field === "delegatePeriod.endsAt") return "El fin debe ser posterior al inicio.";
       if (field === "delegatePeriod") return "La vigencia corresponde únicamente al perfil de delegado.";
       if (field === "delegatePosition") return "Selecciona titular o subdelegado únicamente para el perfil de delegado.";

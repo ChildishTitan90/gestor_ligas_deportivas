@@ -453,12 +453,12 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
             const own = await actor.browser.request(pageUrl);
             assert.equal(own.status, 200);
             const markup = await own.text();
-            assert.match(markup, /Reenviar correcciones/);
+            assert.match(markup, /Continuar a directivos y firmas/);
             assert.match(markup, /Aclarar colores del uniforme/);
             assert.match(markup, /Nombre anual sintético/);
             for (const denied of [foreignOwner.browser, secretary.browser]) {
               const other = await denied.request(pageUrl);
-              assert.doesNotMatch(await other.text(), /Reenviar correcciones|Nombre anual sintético/);
+              assert.doesNotMatch(await other.text(), /Continuar a directivos y firmas|Nombre anual sintético/);
             }
             assert.equal((await new Browser(baseUrl).request(pageUrl)).status, 307);
             const update = reviewGrants[3];
@@ -466,7 +466,7 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
             await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [update.roleId, update.permId]);
             try {
               const denied = await actor.browser.request(pageUrl);
-              assert.doesNotMatch(await denied.text(), /Reenviar correcciones|Nombre anual sintético/);
+              assert.doesNotMatch(await denied.text(), /Continuar a directivos y firmas|Nombre anual sintético/);
               const upload = await actor.browser.request('/api/affiliations/signatures/prepare', { method: 'POST',
                 headers: { origin: baseUrl, 'content-type': 'application/json' },
                 body: JSON.stringify({ clubId, seasonId: fresh.seasonId, office: 'PRESIDENT', mimeType: 'image/png', sizeBytes: 100 }) });
@@ -488,10 +488,10 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           const pagePath = `/affiliations/${legacy.id}/correct`;
           const before = await counts();
           const firstPage = await (await actor.browser.request(pagePath)).text();
-          assert.match(firstPage, /Reenviar correcciones/);
+          assert.match(firstPage, /Continuar a directivos y firmas/);
           assert.match(firstPage, /Completar categorías, directivos y firmas/);
           assert.deepEqual(await counts(), before, 'Abrir la corrección no inicializa ni altera el registro.');
-          assert.doesNotMatch(await (await foreignOwner.browser.request(pagePath)).text(), /Reenviar correcciones/);
+          assert.doesNotMatch(await (await foreignOwner.browser.request(pagePath)).text(), /Continuar a directivos y firmas/);
           const bytes = createHash('sha256').update(`affiliation-correction:v1:${legacy.id}`).digest().subarray(0,16);
           bytes[6]=(bytes[6]&15)|80; bytes[8]=(bytes[8]&63)|128;
           const hex=bytes.toString('hex');
@@ -529,6 +529,20 @@ export async function runAffiliationIntegrationSuite({ databaseUrl, baseUrl }) {
           assert.equal(detail.status, 'PENDING');
           assert.equal(detail.version, 2);
           assert.equal(detail.reviewPhase, 'AWAITING_REVIEW');
+          const followUp = `/affiliations/new?${new URLSearchParams({ context: `${clubId}:${fresh.seasonId}` })}`;
+          await db.query('DELETE FROM sports_management.role_permissions WHERE role_id=$1 AND permission_id=$2', [delegateRoleId, permissionId]);
+          try {
+            const tracking = await actor.browser.request(followUp);
+            assert.equal(tracking.status, 200);
+            const html = await tracking.text();
+            assert.ok(html.includes(created.referenceNumber));
+            assert.match(html, /Pendiente de revisión/);
+            assert.doesNotMatch(html, /Continuar a directivos y firmas/);
+            const foreign = await foreignOwner.browser.request(followUp);
+            assert.ok(!(await foreign.text()).includes(created.referenceNumber));
+          } finally {
+            await db.query('INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) VALUES ($1,$2,true)', [delegateRoleId, permissionId]);
+          }
           assert.equal(detail.uniformColors, 'Blanco corregido');
           assert.equal(detail.submissionKey, fresh.submissionKey);
           assert.equal(detail.officers.length, 3);

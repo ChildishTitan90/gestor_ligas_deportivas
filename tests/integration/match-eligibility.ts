@@ -1,0 +1,332 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import type { TestContext } from "node:test";
+import { evaluateMatchForActor, listAssignedMatchesForActor } from "../../src/features/matches/server/eligibility";
+import { AuthorizationError } from "../../src/server/auth/authorization";
+
+export async function runMatchEligibilityTests(t: TestContext, db: PrismaClient, actors: Record<string, string>, originId: string) {
+  const audit = <T,>(run: (tx: Prisma.TransactionClient) => Promise<T>) => db.$transaction(async tx => {
+    await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Fixture sintético PDGLD-16',true)`;
+    return run(tx);
+  });
+  const reg = await db.player_registrations.findUniqueOrThrow({ where: { id: originId } });
+  const target = await db.player_category_participations.findFirstOrThrow({ where: { origin_registration_id: originId, status: "AUTHORIZED" } });
+  const team = await db.season_teams.findUniqueOrThrow({ where: { id: target.target_season_team_id } });
+  const season = await db.seasons.findUniqueOrThrow({ where: { id: reg.season_id } });
+  const nonce = randomUUID();
+  const day = await db.matchdays.create({ data: { season_id: reg.season_id, number: 900, start_date: new Date("2026-11-11"), end_date: new Date("2026-11-12") } });
+  // Otro inscrito sintético de la misma categoría para completar el partido.
+  assert.ok(team.group_id);
+  const groupId = team.group_id;
+  const otherTeam = await db.teams.create({ data: { club_id: team.club_id, name: `Rival ${nonce}`, reference_number: nonce } });
+  const other = await db.$transaction(async tx => {
+    await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Fixture sintético PDGLD-16',true)`;
+    return tx.season_teams.create({ data: { season_id: reg.season_id, club_id: team.club_id, group_id: groupId, team_id: otherTeam.id } });
+  });
+  const venue = await db.venues.create({data:{league_id:season.league_id,code:nonce,name:"Cancha sintética",address:"Domicilio sintético",match_duration_minutes:120}});
+  await db.venue_availability.create({data:{venue_id:venue.id,starts_at:new Date('2026-11-10T00:00Z'),ends_at:new Date('2026-11-16T00:00Z'),type:'AVAILABLE'}});
+  const scheduled=await db.match_statuses.findUniqueOrThrow({where:{code:'SCHEDULED'}});
+  const match = await audit(tx=>tx.matches.create({ data: { season_id: reg.season_id, group_id: groupId, matchday_id: day.id, number: nonce,
+    home_team_id: team.id, away_team_id: other.id, venue_id:venue.id,status_id:scheduled.id, reserved_until:new Date("2026-11-11T20:00:00Z"), starts_at: new Date("2026-11-11T18:00:00Z"), ends_at: new Date("2026-11-11T20:00:00Z") } }));
+  const user = await db.users.findUniqueOrThrow({ where: { id: actors.delegate } });
+  assert.ok(user.person_id);
+  const referee = await audit(tx=>tx.referees.create({ data: { person_id: user.person_id } }));
+  const presenter=await db.clubs.create({data:{league_id:season.league_id,reference_number:`presenter-${nonce}`,name:'Presentador arbitral sintético'}});
+  await audit(tx=>tx.club_affiliations.create({data:{season_id:season.id,club_id:presenter.id,league_id:season.league_id,reference_number:nonce,uniform_colors:'Sintético',status:'APPROVED',requested_by:actors.admin}}));
+  await audit(tx=>tx.club_season_referees.create({data:{referee_id:referee.id,season_id:season.id,club_id:presenter.id}}));
+  await audit(tx=>tx.referee_availability.create({data:{referee_id:referee.id,starts_at:new Date('2026-11-10T00:00Z'),ends_at:new Date('2026-11-16T00:00Z'),is_available:true}}));
+  const role = await db.roles.findUniqueOrThrow({ where: { code: "REFEREE" } });
+  const permission = await db.permissions.upsert({ where: { module_action: { module: "match-reports", action: "CREATE" } }, update: {}, create: { module: "match-reports", action: "CREATE" } });
+  await audit(tx=>tx.role_permissions.upsert({ where: { role_id_permission_id: { role_id: role.id, permission_id: permission.id } }, update: { context_only: false }, create: { role_id: role.id, permission_id: permission.id, context_only: false } }));
+  const updatePermission = await db.permissions.upsert({where:{module_action:{module:"match-reports",action:"UPDATE"}},update:{},create:{module:"match-reports",action:"UPDATE"}});
+  await audit(tx=>tx.role_permissions.upsert({where:{role_id_permission_id:{role_id:role.id,permission_id:updatePermission.id}},update:{context_only:true},create:{role_id:role.id,permission_id:updatePermission.id,context_only:true}}));
+  await audit(tx=>tx.user_roles.create({ data: { user_id: user.id, role_id: role.id, league_id: season.league_id } }));
+  const identity=await db.people.findUniqueOrThrow({where:{id:user.person_id},select:{identity_version:true}});
+  const assign=()=>audit(async tx=>{
+    const proposed=await tx.referee_assignments.create({data:{match_id:match.id,referee_id:referee.id,created_by:actors.admin}});
+    return tx.referee_assignments.update({where:{id:proposed.id},data:{status:'APPROVED',approved_by:actors.admin,approved_at:new Date(),approved_identity_version:identity.identity_version}});
+  });
+  let assignment=await assign();
+  const evaluate = () => evaluateMatchForActor(user.id, match.id);
+  const player = async () => (await evaluate()).players.find(p => p.registrationId === originId && p.seasonTeamId === team.id)!;
+  await t.test("PDGLD-16: árbitro designado evalúa superior autorizado y origen no cambia", async () => {
+    assert.equal((await player()).eligible, true, JSON.stringify((await player()).blockers));
+    const denied = (await evaluate()).players.find(p => p.registrationId === originId && p.seasonTeamId === other.id);
+    assert.equal(denied, undefined, "Otra categoría sin autorización para el rival queda fuera del DTO");
+    assert.equal((await listAssignedMatchesForActor(user.id)).some(m => m.id === match.id), true);
+    assert.equal((await db.player_registrations.findUniqueOrThrow({ where: { id: originId } })).season_team_id, reg.season_team_id);
+  });
+  await t.test("PDGLD-16: ambas plantillas aparecen y otra categoría sin autorización queda fuera", async () => {
+    const ids: string[]=[];
+    for (const seasonTeamId of [team.id,other.id,reg.season_team_id]) {
+      const prefix=`ZAX${["A","E","I"][ids.length]}000101HMNLRR0`;
+      const alphabet="0123456789ABCDEFGHIJKLMNÑOPQRSTUVWXYZ";
+      const sum=[...prefix].reduce((total,char,index)=>total+alphabet.indexOf(char)*(18-index),0);
+      const person=await db.people.create({data:{first_name:"Jugador sintético",paternal_surname:randomUUID(),
+        birth_date:new Date("2000-01-01"),curp:prefix+(10-sum%10)%10}});
+      const registration=await audit(tx=>tx.player_registrations.create({data:{person_id:person.id,
+        season_id:season.id,season_team_id:seasonTeamId,reference_number:randomUUID()}}));
+      ids.push(registration.id);
+    }
+    const result=await evaluate();
+    assert.ok(result.players.some(p=>p.registrationId===ids[0] && p.seasonTeamId===team.id));
+    assert.ok(result.players.some(p=>p.registrationId===ids[1] && p.seasonTeamId===other.id));
+    assert.equal(result.players.some(p=>p.registrationId===ids[2]),false,
+      "Mismo club y temporada no autorizan la inscripción de la categoría de origen");
+    assert.ok(result.players.some(p=>p.registrationId===originId && p.seasonTeamId===team.id && p.eligible),
+      "La participación superior válida sí se incluye");
+  });
+  await t.test("PDGLD-16: ni administrador sin designación ni otro árbitro obtiene el partido", async () => {
+    await assert.rejects(evaluateMatchForActor(actors.admin, match.id), e => e instanceof AuthorizationError);
+    await assert.rejects(evaluateMatchForActor(actors.other, match.id), e => e instanceof AuthorizationError);
+    await audit(tx=>tx.referee_assignments.update({ where: { id: assignment.id }, data: { status: "REVOKED" } }));
+    await assert.rejects(evaluate(), e => e instanceof AuthorizationError);
+    assignment=await assign(); // El antecedente revocado permanece inmutable.
+  });
+  await t.test("PDGLD-16: pertenencia inmutable y cambio de equipo tras inicio se rechazan en PostgreSQL", async () => {
+    await assert.rejects(audit(tx=>tx.player_registrations.update({where:{id:reg.id},data:{season_team_id:other.id}})),/pertenencia|TEAM_CHANGE|inmutable/i);
+    await audit(tx=>tx.seasons.update({where:{id:season.id},data:{competition_starts_at:new Date("2026-01-01")}}));
+    try {
+      await assert.rejects(audit(tx=>tx.player_registrations.create({data:{...reg,id:randomUUID(),reference_number:randomUUID(),season_team_id:other.id}})),/cambiar equipo|TEAM_CHANGE/i);
+    } finally {
+      await audit(tx=>tx.seasons.update({where:{id:season.id},data:{competition_starts_at:season.competition_starts_at}}));
+    }
+  });
+  await t.test("PDGLD-16/86: dorsal no invalida identidad y retirar horario con designación aprobada se revierte", async () => {
+    const before = await db.player_curp_checks.count({ where: { person_id: reg.person_id } });
+    await audit(tx=>tx.player_registrations.update({ where: { id: originId }, data: { jersey_number: 88 } }));
+    assert.equal((await player()).eligible, true);
+    assert.equal((await player()).jerseyNumber, 88);
+    assert.equal(await db.player_curp_checks.count({ where: { person_id: reg.person_id } }), before);
+    await assert.rejects(audit(async tx=>tx.matches.update({ where: { id: match.id }, data: { starts_at: null, ends_at: null, reserved_until:null,status_id:(await tx.match_statuses.findUniqueOrThrow({where:{code:'UNSCHEDULED'}})).id } })),/APPROVED_ASSIGNMENT_CONFLICT:(?:MATCH_NOT_SCHEDULED|INVALID_TIME)/);
+    assert.equal((await db.matches.findUniqueOrThrow({where:{id:match.id}})).starts_at?.toISOString(),match.starts_at?.toISOString());
+    assert.equal((await player()).eligible,true);
+  });
+  await t.test("PDGLD-16: sanción se evalúa a la fecha del partido, con inicio inclusivo y fin exclusivo", async () => {
+    const type = await db.sanction_types.findUniqueOrThrow({where:{code:"TIME"}});
+    const rule = await db.competition_rules.findFirstOrThrow({where:{season_id:season.id}});
+    await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Sanción sintética PDGLD-16',true)`;
+      const article = await tx.regulation_articles.create({data:{competition_rule_id:rule.id,number:`16-${nonce}`,description:"Sintético",sanction_type_id:type.id}});
+      const c = await tx.disciplinary_cases.create({data:{season_id:season.id,reference_number:nonce,opened_by:actors.admin,description:"Sintético"}});
+      const ruling = await tx.disciplinary_rulings.create({data:{case_id:c.id,version_number:1,decided_by:actors.admin,decision:"Sintética",reason:"Prueba aislada"}});
+      await tx.sanctions.create({data:{ruling_id:ruling.id,article_id:article.id,sanction_type_id:type.id,registration_id:reg.id,
+        starts_at:new Date("2026-11-12T18:00:00Z"),ends_at:new Date("2026-11-13T18:00:00Z"),blocks_participation:true}});
+    });
+    assert.equal((await player()).eligible,true,"Sanción futura respecto al partido no bloquea");
+    await audit(tx=>tx.matches.update({where:{id:match.id},data:{starts_at:new Date("2026-11-12T18:00:00Z"),ends_at:new Date("2026-11-12T20:00:00Z"),reserved_until:new Date("2026-11-12T20:00:00Z")}}));
+    assert.ok((await player()).blockers.some(b=>b.code==="PARTICIPATION_BLOCKED"));
+    await audit(tx=>tx.matches.update({where:{id:match.id},data:{starts_at:new Date("2026-11-13T18:00:00Z"),ends_at:new Date("2026-11-13T20:00:00Z"),reserved_until:new Date("2026-11-13T20:00:00Z")}}));
+    assert.equal((await player()).eligible,true,"En el instante final ya no aplica");
+    await audit(tx=>tx.matches.update({where:{id:match.id},data:{starts_at:match.starts_at,ends_at:match.ends_at,reserved_until:match.reserved_until}}));
+  });
+  await t.test("PDGLD-16: registra tiempos atómicos con versión y conserva la captura ante versión obsoleta", async () => {
+    const {recordParticipationInTransaction} = await import("../../src/features/matches/server/eligibility");
+    const report = await audit(tx=>tx.match_reports.create({data:{match_id:match.id,client_id:randomUUID(),captured_by:user.id,source:"MOBILE"}}));
+    const lineup = await audit(tx=>tx.lineups.create({data:{match_report_id:report.id,registration_id:reg.id,season_team_id:team.id,validated_by:user.id}}));
+    const input = {matchId:match.id,lineupId:lineup.id,expectedMatchVersion:match.version,expectedReportVersion:1,
+      periods:[{periodNumber:1,entryMinute:0,exitMinute:35},{periodNumber:2,entryMinute:5,exitMinute:null}]};
+    const result = await db.$transaction(tx=>recordParticipationInTransaction(tx,user.id,input),{timeout:20000});
+    assert.equal(result.reportVersion,2);
+    await assert.rejects(db.$transaction(tx=>recordParticipationInTransaction(tx,user.id,{...input,periods:[]})),/STALE_REPORT/);
+    assert.equal(await db.player_period_participations.count({where:{lineup_id:lineup.id}}),2);
+    assert.equal((await player()).participation.length,2);
+    const finished = await db.match_statuses.findUniqueOrThrow({where:{code:"FINISHED"}});
+    const beforeTimes = await db.player_period_participations.findMany({where:{lineup_id:lineup.id},orderBy:{id:"asc"}});
+    // El partido finalizado es inmutable. La prueba se revierte en vez de
+    // intentar devolverlo a un estado anterior mediante una actualización.
+    await assert.rejects(audit(async tx=>{
+      await tx.matches.update({where:{id:match.id},data:{status_id:finished.id,starts_at:null,ends_at:null,reserved_until:null}});
+      await assert.rejects(recordParticipationInTransaction(tx,user.id,{...input,expectedReportVersion:2,periods:[]}),/MATCH_FINISHED/);
+      assert.equal((await tx.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,2);
+      assert.deepEqual(await tx.player_period_participations.findMany({where:{lineup_id:lineup.id},orderBy:{id:"asc"}}),beforeTimes);
+      throw Error("FINISHED_TEST_ROLLBACK");
+    }),/FINISHED_TEST_ROLLBACK/);
+    await assert.rejects(db.$transaction(tx=>recordParticipationInTransaction(tx,user.id,{...input,expectedReportVersion:2,periods:[{periodNumber:1,entryMinute:40,exitMinute:10}]})));
+  });
+  await t.test("PDGLD-16: reprogramación concurrente conserva tiempos y devuelve STALE_MATCH", async () => {
+    const {recordParticipationInTransaction} = await import("../../src/features/matches/server/eligibility");
+    const report = await db.match_reports.findUniqueOrThrow({where:{match_id:match.id}});
+    const lineup = await db.lineups.findFirstOrThrow({where:{match_report_id:report.id}});
+    const before = await db.player_period_participations.findMany({where:{lineup_id:lineup.id},orderBy:{id:"asc"}});
+    const current = await db.matches.findUniqueOrThrow({where:{id:match.id}});
+    const input = {matchId:match.id,lineupId:lineup.id,expectedMatchVersion:current.version,
+      expectedReportVersion:report.version,periods:[]};
+    // Barreras explícitas; no se usa un sleep para presumir que hubo una carrera.
+    const deferred = () => {
+      let resolve!: () => void;
+      const promise = new Promise<void>(r => { resolve = r; });
+      return {promise, resolve};
+    };
+    const waitBlocked = async (pid: number) => {
+      const deadline = Date.now()+10000;
+      while (Date.now()<deadline) {
+        const [row] = await db.$queryRaw<{blocked:boolean}[]>`SELECT cardinality(pg_blocking_pids(${pid}::int))>0 AS blocked`;
+        if (row.blocked) return;
+        await new Promise(r=>setTimeout(r,10));
+      }
+      assert.fail("La segunda transacción no esperó el bloqueo PostgreSQL");
+    };
+    const held=deferred(), release=deferred(), saveStarted=deferred();
+    let savePid=0;
+    const reschedule = audit(async tx=>{
+      await tx.matches.update({where:{id:match.id},data:{version:{increment:1},
+        starts_at:new Date("2026-11-11T18:05:00Z"),ends_at:new Date("2026-11-11T20:05:00Z"),reserved_until:new Date("2026-11-11T20:05:00Z")}});
+      held.resolve(); await release.promise;
+    });
+    await held.promise;
+    const save = db.$transaction(async tx=>{
+      const [row]=await tx.$queryRaw<{pid:number}[]>`SELECT pg_backend_pid() AS pid`;
+      savePid=row.pid; saveStarted.resolve();
+      return recordParticipationInTransaction(tx,user.id,input);
+    },{timeout:20000});
+    const rejected=assert.rejects(save,/STALE_MATCH/);
+    try { await saveStarted.promise; await waitBlocked(savePid); }
+    finally { release.resolve(); }
+    await reschedule; await rejected;
+    assert.deepEqual(await db.player_period_participations.findMany({where:{lineup_id:lineup.id},orderBy:{id:"asc"}}),before);
+    assert.equal((await db.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,report.version);
+
+    // Orden inverso: el guardado terminó, pero su transacción sigue abierta.
+    const saved=deferred(), commit=deferred(), updating=deferred();
+    let updatePid=0;
+    const saving=db.$transaction(async tx=>{
+      await recordParticipationInTransaction(tx,user.id,{...input,expectedMatchVersion:current.version+1,
+        periods:before.map(p=>({periodNumber:p.period_number,entryMinute:p.entry_minute,exitMinute:p.exit_minute}))});
+      saved.resolve(); await commit.promise;
+    },{timeout:20000});
+    await saved.promise;
+    const updatingMatch=audit(async tx=>{
+      const [row]=await tx.$queryRaw<{pid:number}[]>`SELECT pg_backend_pid() AS pid`;
+      updatePid=row.pid; updating.resolve();
+      await tx.matches.update({where:{id:match.id},data:{version:{increment:1},starts_at:current.starts_at,
+        ends_at:current.ends_at,reserved_until:current.reserved_until}});
+    });
+    try { await updating.promise; await waitBlocked(updatePid); }
+    finally { commit.resolve(); }
+    await saving; await updatingMatch;
+    assert.equal((await db.matches.findUniqueOrThrow({where:{id:match.id}})).version,current.version+2);
+    assert.equal((await db.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,report.version+1);
+  });
+  await t.test("PDGLD-16: capturas de la misma persona esperan y releen el commit", async () => {
+    const {lockParticipationPeople}=await import("../../src/features/matches/server/participation-lock");
+    const report=await db.match_reports.findUniqueOrThrow({where:{match_id:match.id}});
+    let release!:()=>void, ready!:()=>void, waiting!:()=>void;
+    const gate=new Promise<void>(r=>{release=r}), locked=new Promise<void>(r=>{ready=r}), entered=new Promise<void>(r=>{waiting=r});
+    let pid=0;
+    const first=audit(async tx=>{await lockParticipationPeople(tx,[reg.id]);await tx.match_reports.update({where:{id:report.id},data:{version:{increment:1}}});ready();await gate;});
+    await locked;
+    const second=db.$transaction(async tx=>{pid=(await tx.$queryRaw<{pid:number}[]>`SELECT pg_backend_pid() AS pid`)[0].pid;waiting();await lockParticipationPeople(tx,[reg.id]);return (await tx.match_reports.findUniqueOrThrow({where:{id:report.id}})).version;},{timeout:20000});
+    try {
+      await entered;
+      let blocked=false;
+      for(let n=0;n<100;n++) {const rows=await db.$queryRaw<{blocked:boolean}[]>`SELECT cardinality(pg_blocking_pids(${pid}))>0 AS blocked`;if(rows[0].blocked){blocked=true;break;}await new Promise(r=>setTimeout(r,10));}
+      assert.equal(blocked,true,"Espera comprobada en PostgreSQL, no presumida por sleep");
+    } finally {release();}
+    await first;assert.equal(await second,report.version+1,"READ COMMITTED observa la captura confirmada después de esperar");
+  });
+  await t.test("PDGLD-16/18: cédula real conserva mitad y tiempos; rechaza cruce real y marcas ausentes", async () => {
+    const {mutateReportInTransaction}=await import("../../src/features/match-reports/server/service");
+    const {advanceMatchClock}=await import("../../src/features/match-reports/match-clock");
+    const {draftSchema}=await import("../../src/features/match-reports/contract");
+    await assert.rejects(db.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT set_config('app.user_id',${actors.admin},true),set_config('app.reason','Fixture integrado RF02.7, rollback íntegro',true)`;
+      const role=await tx.roles.findUniqueOrThrow({where:{code:"DATA_ENTRY"}});
+      for(const action of ["CREATE","UPDATE"] as const){
+        const permission=await tx.permissions.upsert({where:{module_action:{module:"match-reports",action}},update:{},create:{module:"match-reports",action}});
+        await tx.role_permissions.upsert({where:{role_id_permission_id:{role_id:role.id,permission_id:permission.id}},update:{context_only:false},create:{role_id:role.id,permission_id:permission.id,context_only:false}});
+      }
+      await tx.user_roles.create({data:{user_id:actors.admin,role_id:role.id,league_id:season.league_id}});
+      const source=await tx.season_teams.findUniqueOrThrow({where:{id:reg.season_team_id}});
+      assert.ok(source.group_id);
+      const rivalTeam=await tx.teams.create({data:{club_id:team.club_id,name:"Rival origen sintético",reference_number:randomUUID()}});
+      const rival=await tx.season_teams.create({data:{season_id:season.id,club_id:team.club_id,group_id:source.group_id,team_id:rivalTeam.id}});
+      const active=await tx.match_statuses.findUniqueOrThrow({where:{code:"IN_PROGRESS"}});
+      const firstVenue=await tx.venues.create({data:{league_id:season.league_id,code:randomUUID(),name:"Cancha origen sintética",address:"Fixture",match_duration_minutes:120}});
+      await tx.venue_availability.create({data:{venue_id:firstVenue.id,starts_at:new Date("2026-11-10T00:00Z"),ends_at:new Date("2026-11-16T00:00Z"),type:"AVAILABLE"}});
+      const firstMatch=await tx.matches.create({data:{season_id:season.id,group_id:source.group_id,matchday_id:day.id,number:randomUUID(),home_team_id:source.id,away_team_id:rival.id,status_id:active.id,venue_id:firstVenue.id,starts_at:match.starts_at,ends_at:match.ends_at,reserved_until:match.ends_at}});
+      let firstClock=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},"2026-11-11T18:00:00Z","server");
+      firstClock=advanceMatchClock(firstClock,{type:"end-half"},"2026-11-11T18:43:00Z","server");
+      const firstDraft=draftSchema.parse({lineups:[{playerId:reg.id,teamId:source.id,selected:true,starter:true,matchJersey:88,participationHalf:1,periods:[{periodNumber:1,entryMinute:0,exitMinute:43}]}],captains:{},events:[],score:{home:null,away:null},remarks:"",incidents:"",signatures:{}});
+      const firstReport=await tx.match_reports.create({data:{match_id:firstMatch.id,client_id:randomUUID(),captured_by:actors.admin,source:"MOBILE",draft_data:{draft:firstDraft,clock:firstClock}}});
+      await tx.lineups.create({data:{match_report_id:firstReport.id,registration_id:reg.id,season_team_id:source.id,is_starter:true,validated_by:actors.admin,player_period_participations:{create:{period_number:1,entry_minute:0,exit_minute:43}}}});
+      await tx.matches.update({where:{id:match.id},data:{status_id:(await tx.match_statuses.findUniqueOrThrow({where:{code:"IN_PROGRESS"}})).id}});
+      const current=await tx.matches.findUniqueOrThrow({where:{id:match.id}});
+      const report=await tx.match_reports.findUniqueOrThrow({where:{match_id:match.id}});
+      let clock=advanceMatchClock(null,{type:"start",halfMinutes:40,breakMinutes:10},"2026-11-11T18:00:00Z","server");
+      clock=advanceMatchClock(clock,{type:"end-half"},"2026-11-11T18:43:00Z","server");
+      clock=advanceMatchClock(clock,{type:"start-second"},"2026-11-11T18:55:00Z","server");
+      const draft=draftSchema.parse({...firstDraft,lineups:[{...firstDraft.lineups[0],teamId:team.id,starter:false,participationHalf:2,periods:[{periodNumber:2,entryMinute:0,exitMinute:null}]}]});
+      await tx.match_reports.update({where:{id:report.id},data:{draft_data:{draft,clock}}});
+      const command={formatVersion:1 as const,operationId:randomUUID(),kind:"save" as const,matchId:match.id,expectedMatchVersion:current.version,expectedReportVersion:report.version,draft};
+      const saved=await mutateReportInTransaction(tx,actors.admin,command);
+      assert.equal(saved.reportVersion,report.version+1);
+      assert.deepEqual(await mutateReportInTransaction(tx,actors.admin,command),saved,"Reintento idempotente");
+      const reopened=await tx.match_reports.findUniqueOrThrow({where:{id:report.id}});
+      assert.equal(draftSchema.parse((reopened.draft_data as {draft:unknown}).draft).lineups[0].participationHalf,2);
+      const times=await tx.player_period_participations.findMany({where:{lineups:{match_report_id:report.id}},select:{period_number:true,entry_minute:true,exit_minute:true}});
+      assert.deepEqual(times,[{period_number:2,entry_minute:0,exit_minute:null}]);
+      const next={...command,operationId:randomUUID(),expectedReportVersion:saved.reportVersion};
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,{...next,draft:{...draft,lineups:draft.lineups.map(r=>({...r,starter:true}))}}),/SECOND_HALF_STARTER/);
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,{...next,draft:{...draft,lineups:draft.lineups.map(r=>({...r,periods:[{periodNumber:2,entryMinute:1,exitMinute:null}]}))}}),/HALFTIME_ENTRY_REQUIRED/);
+      // La misma separación horaria, declarada offline o sin origen histórico, exige revisión.
+      for (const boundarySources of [{...firstClock.boundarySources, firstEndedAt:"device"}, {}]) {
+        await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft,clock:{...firstClock,boundarySources}}}});
+        await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_CLOCK_REQUIRED/);
+      }
+      await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft,clock:firstClock}}});
+      await tx.match_reports.update({where:{id:report.id},data:{draft_data:{draft,clock:{...clock,boundarySources:{...clock.boundarySources,secondStartedAt:"device"}}}}});
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_CLOCK_REQUIRED/);
+      await tx.match_reports.update({where:{id:report.id},data:{draft_data:{draft,clock}}});
+      const delayed={...firstClock,boundaries:{...firstClock.boundaries,firstEndedAt:"2026-11-11T18:56:00Z"}};
+      await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft,clock:delayed}}});
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_REAL_TIME_CONFLICT/);
+      await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft}}});
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_CLOCK_REQUIRED/);
+      // Programados separados; la participación registrada impide confiar solo en el horario.
+      await tx.matches.update({where:{id:firstMatch.id},data:{starts_at:new Date("2026-11-11T16:00Z"),ends_at:new Date("2026-11-11T18:00Z"),reserved_until:new Date("2026-11-11T18:00Z")}});
+      for(const data of [{draft:firstDraft},{draft:firstDraft,clock:{...firstClock,boundaries:{firstStartedAt:"2026-11-11T18:00:00Z"}}}]) {
+        await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:data}});
+        await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_CLOCK_REQUIRED/);
+      }
+      await tx.match_reports.update({where:{id:firstReport.id},data:{draft_data:{draft:firstDraft,clock:firstClock}}});
+      await tx.match_reports.update({where:{id:report.id},data:{draft_data:{draft}}});
+      await assert.rejects(mutateReportInTransaction(tx,actors.admin,next),/PARTICIPATION_CLOCK_REQUIRED/,"Los periodos del segundo partido siguen siendo participación aunque le falte reloj");
+      assert.equal((await tx.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,saved.reportVersion,"Los rechazos no incrementan la versión");
+      assert.deepEqual(await tx.player_period_participations.findMany({where:{lineups:{match_report_id:report.id}},select:{period_number:true,entry_minute:true,exit_minute:true}}),times);
+      await tx.match_reports.update({where:{id:report.id},data:{draft_data:{draft,clock}}});
+      await mutateReportInTransaction(tx,actors.admin,next);
+      assert.deepEqual(await tx.player_period_participations.findMany({where:{lineups:{match_report_id:report.id}},select:{period_number:true,entry_minute:true,exit_minute:true}}),times,"Un bloqueo no borra tiempos guardados");
+      assert.equal((await tx.match_reports.findUniqueOrThrow({where:{id:report.id}})).version,saved.reportVersion+1);
+      throw Error("HALVES_FIXTURE_ROLLBACK");
+    },{timeout:30000}),/HALVES_FIXTURE_ROLLBACK/);
+  });
+  await t.test("PDGLD-16: partidos separados no inventan descanso; misma categoría no admite excepción por mitades", async () => {
+    // Antecedente sin programación publicada: no reserva cancha/equipos ni
+    // concede acceso arbitral. Su cédula sintética conserva el cruce pendiente.
+    const unscheduled=await db.match_statuses.findUniqueOrThrow({where:{code:'UNSCHEDULED'}});
+    const second = await audit(tx=>tx.matches.create({data:{...match,id:randomUUID(),number:randomUUID(),status_id:unscheduled.id,
+      starts_at:new Date("2026-11-14T18:00:00Z"),ends_at:new Date("2026-11-14T20:00:00Z"),reserved_until:new Date("2026-11-14T20:00:00Z")}}));
+    const report = await audit(tx=>tx.match_reports.create({data:{match_id:second.id,client_id:randomUUID(),captured_by:user.id,source:"MOBILE"}}));
+    await audit(tx=>tx.lineups.create({data:{match_report_id:report.id,registration_id:reg.id,season_team_id:team.id,validated_by:user.id}}));
+    assert.equal((await player()).eligible,true,"No se impone un margen de descanso sin confirmar");
+    await audit(tx=>tx.matches.update({where:{id:second.id},data:{starts_at:match.starts_at,ends_at:match.ends_at,reserved_until:match.reserved_until}}));
+    assert.ok((await player()).blockers.some(b=>b.code==="PARTICIPATION_CONTEXT_CONFLICT"));
+  });
+  await t.test("PDGLD-16/86: CLOSED sin evidencia arbitral no permite reconstruir el pasado", async () => {
+    // El cierre real tiene su propio proceso y triggers. Rollback de fixture,
+    // exclusivamente en esta base desechable, para probar la rama de lectura.
+    await db.$transaction(async tx => {
+      await tx.$executeRawUnsafe('ALTER TABLE sports_management.seasons DISABLE TRIGGER USER');
+      await tx.seasons.update({ where: { id: season.id }, data: { status: "CLOSED", closed_at: new Date() } });
+      const { evaluateMatchInTransaction } = await import("../../src/features/matches/server/eligibility");
+      await assert.rejects(evaluateMatchInTransaction(tx,user.id,match.id),e=>e instanceof AuthorizationError);
+      await tx.seasons.update({ where: { id: season.id }, data: { status: season.status, closed_at: season.closed_at } });
+      await tx.$executeRawUnsafe('ALTER TABLE sports_management.seasons ENABLE TRIGGER USER');
+    });
+  });
+  // Las siguientes pruebas de jugadores modifican equipos/identidad. Retirar
+  // nuestra designación conserva el antecedente sin bloquear fixtures ajenos.
+  await audit(tx=>tx.referee_assignments.update({where:{id:assignment.id},data:{status:'REVOKED'}}));
+}
