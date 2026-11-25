@@ -195,6 +195,8 @@ La bandeja de revisión muestra filtros de tipo compactos y conserva tipo, club 
 
 Identidad, documentos y excepción de edad usan un encabezado con los datos del caso disponibles en su lectura autorizada. En la revisión de identidad y documentos, el indicador distingue la selección o comparación, la decisión y su acuse. En excepción de edad, corrección pendiente y participación superior vigente, el indicador usa el estado de la solicitud devuelto por el servidor. La habilitación deportiva se consulta en su apartado.
 
+Si el proveedor rechaza las credenciales o el saldo es insuficiente, en **Revisión del expediente** se puede autorizar un nuevo intento de CURP o INE tras restablecer el servicio. El permiso de aprobación se verifica para el expediente, y la autorización queda asociada al intento bloqueado en la auditoría. Quien captura actualiza el resultado y confirma la nueva consulta con los límites habituales. Autorizar y actualizar el estado son operaciones locales, sin consultas al proveedor.
+
 Para revisar, filtra la bandeja por tipo, club y temporada, abre un documento y vuelve a los resultados. Con datos sintéticos, compara una coincidencia, consulta un archivo privado, registra una decisión y revisa el acuse. Comprueba que resolver la excepción de edad o una solicitud de corrección conserve el estado propio de la habilitación.
 
 Pasaron las comprobaciones de Chrome para bandeja, registro, revisión documental, identidad, excepción de edad, correcciones y participaciones, con datos sintéticos y ambos temas en la bandeja. También pasaron las 65 comprobaciones de `test:player-registrations` con PostgreSQL temporal y proveedores de identidad simulados.

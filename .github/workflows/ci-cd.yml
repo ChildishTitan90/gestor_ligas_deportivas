@@ -73,6 +73,10 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
       - name: Probar firmas de afiliación
         run: npm run test:signatures
+      - name: Probar revisión y reenvío de afiliación en Chrome
+        run: npm run test:affiliation-journey
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
       - name: Probar captura y vista previa de firmas con datos sintéticos
         timeout-minutes: 2
         run: npm run test:direct-signature && npm run test:signature-preview && npm run test:guardian-signature && npm run test:player-workspace && npm run test:age-exception-browser

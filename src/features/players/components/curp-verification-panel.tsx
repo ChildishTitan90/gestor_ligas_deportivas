@@ -4,9 +4,11 @@ import { FormDialog } from "@/components/ui/form-dialog";
 import { canRetryCurpVerification, type CurpVerificationStatus } from "../curp-verification";
 import { curpStateSchema, playerRequest, PlayerRequestError } from "../player-client";
 import { curpStatusLabels, identityFieldLabels, playerErrorMessages } from "../player-feedback";
+import { isProviderBlocked } from "../provider-retry";
+import { ProviderRetryAuthorization } from "./provider-retry-authorization";
 
-export function CurpVerificationPanel({ actorId, registrationId, providerConfigured, fetcher = fetch,onRegistrationChange }: {
-  actorId: string; registrationId: string; providerConfigured: boolean; fetcher?: typeof fetch;onRegistrationChange?:()=>void;
+export function CurpVerificationPanel({ actorId, registrationId, providerConfigured = false, fetcher = fetch, onRegistrationChange, recoveryOnly = false }: {
+  actorId: string; registrationId: string; providerConfigured?: boolean; fetcher?: typeof fetch; onRegistrationChange?:()=>void; recoveryOnly?: boolean;
 }) {
   const [state, setState] = useState<CurpVerificationStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -43,13 +45,14 @@ export function CurpVerificationPanel({ actorId, registrationId, providerConfigu
     finally { locked.current = false; setBusy(false); }
   }
 
-  const canVerify = providerConfigured && !consultRequired && state &&
-    (state.status === "NOT_PERFORMED" || state.status === "STALE" || canRetryCurpVerification(state.status));
+  const canRetry = state && canRetryCurpVerification(state.status, state.providerRetryAuthorized);
+  const canVerify = !recoveryOnly && providerConfigured && !consultRequired && state &&
+    (state.status === "NOT_PERFORMED" || state.status === "STALE" || canRetry);
   async function verify() {
     if (locked.current || !state || !canVerify) return;
     locked.current = true; setBusy(true); setMessage("");
     pending.current ??= { operationKey: crypto.randomUUID(), identityVersion: state.identityVersion, confirmCharge: true,
-      ...(state.checkId && canRetryCurpVerification(state.status) ? { retryOf: state.checkId } : {}) };
+      ...(state.checkId && canRetry ? { retryOf: state.checkId } : {}) };
     try {
       const parsed = curpStateSchema.safeParse(await playerRequest(actorId, endpoint, pending.current, fetcher));
       if (!parsed.success) throw new PlayerRequestError("UNCONFIRMED", true);
@@ -71,6 +74,8 @@ export function CurpVerificationPanel({ actorId, registrationId, providerConfigu
     try{const value=curpStateSchema.parse(await playerRequest(actorId,`/api/player-registrations/${registrationId}/activation`,{},fetcher));setState(value);setMessage(value.registrationStatus==="ACTIVE"?"Jugador activo. No se volvió a consultar al proveedor.":"La habilitación sigue pendiente de coincidencias o requisitos de categoría. No se realizó otra consulta externa.");if(value.registrationStatus==="ACTIVE")onRegistrationChange?.();}
     catch{setMessage("No se pudo confirmar la habilitación. Consulta el estado antes de reintentar; esta operación no consulta Verificamex.");}finally{locked.current=false;setBusy(false);}
   }
+  const providerBlocked = state && isProviderBlocked(state.status);
+  if (recoveryOnly && !providerBlocked) return null;
   return <section className="space-y-4 rounded-2xl border border-border bg-surface p-5" aria-label="Verificación de CURP">
     <h3 className="font-semibold text-primary">Verificación externa de CURP</h3>
     <div role="status" className={`space-y-2 rounded-xl border p-4 ${state?.status === "VERIFIED" ? "border-positive bg-positive-surface text-positive" : "border-border bg-background"}`}>
@@ -78,13 +83,15 @@ export function CurpVerificationPanel({ actorId, registrationId, providerConfigu
       {state?.status === "DISCREPANCY" && state.mismatchedFields.length > 0 &&
         <p className="text-sm">Campos que no coinciden: {state.mismatchedFields.map(field => identityFieldLabels[field]).join(", ")}.</p>}
     </div>
-    {state?.registrationStatus && <p role="status">{state.registrationStatus==="ACTIVE"?"Jugador activo":state.identityReviewStatus==="REQUIRED"?"Pendiente de revisión por posibles coincidencias":"Pendiente de habilitación"}</p>}
-    <p className="text-sm leading-6 text-muted">Para mayores fuera de Veteranos, una CURP verificada y coincidente permite la habilitación automática si no hay duplicados pendientes y cumplen las reglas de categoría. La constancia se puede añadir después para completar el expediente.</p>
-    {!providerConfigured && <p className="text-sm">La consulta externa todavía no está configurada. El registro local puede consultarse.</p>}
+    {!recoveryOnly && state?.registrationStatus && <p role="status">{state.registrationStatus==="ACTIVE"?"Jugador activo":state.identityReviewStatus==="REQUIRED"?"Pendiente de revisión por posibles coincidencias":"Pendiente de habilitación"}</p>}
+    {!recoveryOnly && <p className="text-sm leading-6 text-muted">Para mayores fuera de Veteranos, una CURP verificada y coincidente permite la habilitación automática si no hay duplicados pendientes y cumplen las reglas de categoría. La constancia se puede añadir después para completar el expediente.</p>}
+    {!recoveryOnly && !providerConfigured && <p className="text-sm">La consulta externa todavía no está configurada. El registro local puede consultarse.</p>}
+    {providerBlocked && state.checkId && <ProviderRetryAuthorization key={state.checkId} kind="CURP" actorId={actorId} registrationId={registrationId}
+      attemptId={state.checkId} state={state} disabled={busy} fetcher={fetcher} onAuthorized={value => setState(curpStateSchema.parse(value))} />}
     {message && <p role="status" className="text-sm leading-6">{message}</p>}
     <div className="flex flex-wrap gap-3">
       <button type="button" disabled={busy} onClick={() => void check()} className="min-h-12 rounded-xl border border-border px-4 py-3 font-semibold text-primary disabled:opacity-50">Consultar estado</button>
-      {canVerify && <button type="button" disabled={busy} onClick={() => setConfirming(true)} className="min-h-12 rounded-xl border border-border px-4 py-3 font-semibold text-primary disabled:opacity-50">{canRetryCurpVerification(state.status) ? "Reintentar verificación" : "Verificar CURP"}</button>}
+      {canVerify && <button type="button" disabled={busy} onClick={() => setConfirming(true)} className="min-h-12 rounded-xl border border-border px-4 py-3 font-semibold text-primary disabled:opacity-50">{canRetry ? "Reintentar verificación" : "Verificar CURP"}</button>}
       {state?.status==="VERIFIED" && state.registrationStatus==="INELIGIBLE" && <button type="button" disabled={busy} onClick={()=>void reevaluate()} className="min-h-12 rounded-xl border border-border px-4 py-3 font-semibold">Actualizar habilitación</button>}
     </div>
     <FormDialog open={confirming} title="Consultar CURP con Verificamex" description="Se contrastará la CURP con los datos del jugador." pending={busy} onClose={() => setConfirming(false)}

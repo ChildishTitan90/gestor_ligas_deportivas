@@ -3,6 +3,8 @@ import {PrivateDocumentPreview,type DocumentPreviewRequest} from "./private-docu
 /* eslint-disable @next/next/no-img-element -- Vistas locales efímeras con blob URLs; sin optimizador ni transmisión de imágenes. */
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { canRetryIneVerification, ineParts, ineStatusSchema, type IneStatus } from "../ine-verification";
+import { isProviderBlocked } from "../provider-retry";
+import { ProviderRetryAuthorization } from "./provider-retry-authorization";
 import { playerRequest } from "../player-client";
 import { identityFieldLabels, playerErrorMessages } from "../player-feedback";
 import { DevicePhotoCamera } from "./device-photo-camera";
@@ -100,8 +102,9 @@ export function IneVerificationPanel({ actorId, initial, readOnly=false }: { act
     finally { lock.current = false; setBusy(false); }
   }
   function download(part:typeof ineParts[number]){if(!status.attemptId)return;setPreview({label:labels[part],path:`${endpoint}/evidence`,body:{attemptId:status.attemptId,part}});}
+  const canRetry = canRetryIneVerification(status.status, status.providerRetryAuthorized);
   const mayStart = !readOnly && status.canSubmit && !uncertain &&
-    (status.status === "NOT_STARTED" || status.status === "STALE" || canRetryIneVerification(status.status));
+    (status.status === "NOT_STARTED" || status.status === "STALE" || canRetry);
   function move(next:number, camera = false){if(lock.current || !mayStart)return;moved.current=true;setStartCamera(camera);setStep(next);setMessage("");}
   function beginCapture(camera: boolean) {
     if (lock.current || !mayStart) return;
@@ -124,7 +127,7 @@ export function IneVerificationPanel({ actorId, initial, readOnly=false }: { act
     const url=URL.createObjectURL(file);previewUrls.current.add(url);setPhotos(current=>({...current,[part]:{file,url,source}}));setMessage("");
   }
   const part=ineParts[Math.min(step,2)],selected=photos[part];
-  const canReusePhotos = canRetryIneVerification(status.status) &&
+  const canReusePhotos = canRetry &&
     captureIdentityVersion === status.identityVersion && ineParts.every(side => Boolean(photos[side]));
   const frameContent = selected ? <div className="ine-capture-preview" data-captured>
     <img src={selected.url} alt={`Vista previa: ${labels[part]}`} onError={()=>setMessage("No se puede mostrar esta imagen. Selecciona otra foto legible antes de continuar.")}/>
@@ -144,6 +147,9 @@ export function IneVerificationPanel({ actorId, initial, readOnly=false }: { act
     </div>
     <p className="text-sm text-muted">La consulta de CURP en RENAPO no valida la INE. Aquí puedes revisar el resultado y las fotos de INE y selfie. Un resultado favorable que coincide con el jugador satisface el requisito compatible de identificación sin otra carga ni revisión de identidad. Los demás documentos y la habilitación deportiva se evalúan por separado.</p>
     <button type="button" onClick={() => void consult()} disabled={busy} className={button}>Actualizar resultado</button>
+    {isProviderBlocked(status.status) && status.attemptId && <ProviderRetryAuthorization key={status.attemptId} kind="INE" actorId={actorId}
+      registrationId={status.registrationId} attemptId={status.attemptId} state={status} disabled={busy}
+      onAuthorized={value => setStatus(ineStatusSchema.parse(value))} />}
     {status.attemptId && <div className="flex flex-wrap gap-3">{ineParts.map(p => <button key={p} type="button" className={button} disabled={busy} onClick={() => void download(p)}>Consultar {labels[p].toLowerCase()}</button>)}</div>}
     {mayStart && !captureOpen && <div className="space-y-3 rounded-xl border border-border p-4">
       {status.attemptId && <p className="text-sm leading-6">Revisa el resultado anterior antes de preparar nuevas fotos.</p>}

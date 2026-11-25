@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isProviderBlocked, type ProviderRetryState } from "./provider-retry";
 
 export const curpCheckOutcomes = ["VERIFIED", "NOT_FOUND", "DISCREPANCY", "INVALID_CREDENTIALS",
   "INSUFFICIENT_BALANCE", "UNAVAILABLE", "UNEXPECTED_RESPONSE", "UNCERTAIN", "STALE"] as const;
@@ -6,11 +7,11 @@ export type CurpCheckOutcome = typeof curpCheckOutcomes[number];
 export type CurpCheckStatus = CurpCheckOutcome | "PENDING" | "NOT_PERFORMED" | "NOT_CONFIGURED";
 export const identityFields = ["curp", "firstName", "paternalSurname", "maternalSurname", "birthDate"] as const;
 export type CurpMismatch = typeof identityFields[number];
-export function canRetryCurpVerification(status: CurpCheckStatus) {
-  return status === "UNAVAILABLE";
+export function canRetryCurpVerification(status: CurpCheckStatus, providerRetryAuthorized = false) {
+  return status === "UNAVAILABLE" || (providerRetryAuthorized && isProviderBlocked(status));
 }
 export type CurpProviderResult = { status: CurpCheckOutcome; mismatchedFields: CurpMismatch[] };
-export type CurpVerificationStatus = {
+export type CurpVerificationStatus = ProviderRetryState & {
   registrationStatus?:string;
   identityReviewStatus?:string|null;
   registrationId: string;

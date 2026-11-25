@@ -18,11 +18,11 @@ import {preparePlayerDocumentForActor,uploadPlayerDocumentForActor,confirmPlayer
 import {createPlayerDocumentDownloadForActor} from "../../src/features/players/server/document-download";
 import {validatePrivateFileContent} from "../../src/server/files/private-file-validation";
 import {PDFDocument} from "pdf-lib";
-import { readPlayerCurpStatusForActor, verifyPlayerCurpForActor } from "../../src/features/players/server/curp-verification-service";
+import { authorizeCurpProviderRetryForActor, readPlayerCurpStatusForActor, verifyPlayerCurpForActor } from "../../src/features/players/server/curp-verification-service";
 import { CurpVerificationError } from "../../src/features/players/server/curp-check-record";
 import { createVerificamexCurpAdapter, type CurpProvider } from "../../src/features/players/server/verificamex-curp";
 import sharp from "sharp";
-import {verifyPlayerIneForActor,readPlayerIneStatusForActor,readIneReviewQueueForActor,downloadPlayerIneEvidenceForActor,IneVerificationError} from "../../src/features/players/server/ine-verification-service";
+import {authorizeIneProviderRetryForActor,verifyPlayerIneForActor,readPlayerIneStatusForActor,readIneReviewQueueForActor,downloadPlayerIneEvidenceForActor,IneVerificationError} from "../../src/features/players/server/ine-verification-service";
 import type {PlayerDocumentTransport} from "../../src/features/players/server/document-storage";
 import {createVerificamexIneAdapter} from "../../src/features/players/server/verificamex-ine";
 import {activateVerifiedAdultForActor} from "../../src/features/players/server/automatic-activation";
@@ -701,6 +701,44 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
       assert.equal(held.checkId, retried.checkId); assert.equal(calls, 3);
     });
 
+    await t.test("CURP: Secretaría habilita un intento tras resolver credenciales o saldo", async () => {
+      const { registrationId: id } = await registerPlayerForActor(actors.delegate, input(team.id, "1975-06-09"));
+      const outcomes = ["INVALID_CREDENTIALS", "INSUFFICIENT_BALANCE", "VERIFIED"] as const;
+      let calls = 0;
+      const provider = fake(async () => ({ status: outcomes[calls++], mismatchedFields: [] }));
+      const verify = (request: unknown) => verifyPlayerCurpForActor(actors.delegate, id, request, { provider, policy });
+      const first = await verify(intention());
+      assert.equal(first.status, "INVALID_CREDENTIALS");
+      const firstRetry = { ...intention(), retryOf: first.checkId! };
+      assert.equal((await verify(firstRetry)).checkId, first.checkId);
+      assert.equal((await readPlayerCurpStatusForActor(actors.delegate, id)).canAuthorizeProviderRetry, undefined);
+      await assert.rejects(authorizeCurpProviderRetryForActor(actors.delegate, id, first.checkId!), AuthorizationError);
+      assert.equal((await readPlayerCurpStatusForActor(actors.secretary, id)).canAuthorizeProviderRetry, true);
+      await Promise.all([
+        authorizeCurpProviderRetryForActor(actors.secretary, id, first.checkId!),
+        authorizeCurpProviderRetryForActor(actors.secretary, id, first.checkId!),
+      ]);
+      assert.equal(calls, 1);
+      assert.equal(await db.audit_logs.count({ where: { entity_id: id, action: "PLAYER_CURP_RETRY_AUTHORIZED" } }), 1);
+      assert.equal((await readPlayerCurpStatusForActor(actors.delegate, id)).providerRetryAuthorized, true);
+      assert.equal((await verify(intention())).checkId, first.checkId, "Una clave nueva sin referencia no envía la consulta");
+      await assert.rejects(verifyPlayerCurpForActor(actors.delegate, id, firstRetry,
+        { provider, policy: { ...policy, globalDailyLimit: 0 } }), isCurpCode("USAGE_LIMIT_REACHED"));
+      const [attempt, replay] = await Promise.all([verify(firstRetry), verify(firstRetry)]);
+      const balance = await readPlayerCurpStatusForActor(actors.delegate, id);
+      assert.equal(balance.status, "INSUFFICIENT_BALANCE");
+      assert.equal(attempt.checkId, balance.checkId);
+      assert.equal(replay.checkId, balance.checkId);
+      assert.equal(calls, 2);
+      assert.equal(await readPlayerCurpStatusForActor(actors.delegate, id, first.checkId!).then(value => value.providerRetryAuthorized), undefined);
+      const next = { ...intention(), retryOf: balance.checkId! };
+      assert.equal((await verify(next)).checkId, balance.checkId);
+      await assert.rejects(authorizeCurpProviderRetryForActor(actors.secretary, id, first.checkId!), isCurpCode("OPERATION_CONFLICT"));
+      await authorizeCurpProviderRetryForActor(actors.secretary, id, balance.checkId!);
+      assert.equal((await verify(next)).status, "VERIFIED");
+      assert.equal(calls, 3);
+    });
+
     await t.test("Activación automática: adulto CURP verificada sin archivo, expediente posterior y límites de categoría",async()=>{
       // La excepción documental ahora se configura explícitamente en el fixture.
       const [context]=await db.$queryRaw<{id:string}[]>`SELECT g.season_category_id AS id FROM sports_management.season_teams st JOIN sports_management.groups g ON g.id=st.group_id WHERE st.id=${team.id}::uuid`;
@@ -830,6 +868,57 @@ test("PDGLD-97: servicio real, integridad y permisos en PostgreSQL desechable", 
       });
       assert.equal((await readPlayerDossierForActor(actors.delegate,adult.registrationId)).canUpload,false);
       await assert.rejects(preparePlayerDocumentForActor(actors.delegate,{...inputPhoto,operationKey:randomUUID()},policy),isDocument("CONTEXT_UNAVAILABLE"));
+    });
+
+    await t.test("INE: Secretaría habilita un intento tras resolver saldo o credenciales", async () => {
+      const { registrationId: id } = await registerPlayerForActor(actors.delegate, input(team.id, "1961-03-08"));
+      const bytes = new Uint8Array(await sharp({ create: { width: 32, height: 32, channels: 3, background: "white" } }).png().toBuffer());
+      const image = { bytes, mimeType: "image/png" };
+      const raw = { front: image, back: image, selfie: image };
+      const outcomes = ["INSUFFICIENT_BALANCE", "INVALID_CREDENTIALS", "ADMIN_REVIEW_REQUIRED"] as const;
+      let calls = 0;
+      let uploads = 0;
+      const storage: PlayerDocumentTransport = {
+        async put() { uploads++; return { replayed: false }; },
+        async read() { throw Error("Lectura sintética inesperada"); },
+        async createDownloadUrl() { throw Error("Descarga sintética inesperada"); },
+      };
+      const provider = { configured: true, async verify() { return { status: outcomes[calls++], readings: [] }; } };
+      const limits = { daily: 100, actorDaily: 100 };
+      const intention = (retryOf: string | null = null) => ({ operationKey: randomUUID(), identityVersion: 1,
+        acknowledgeCharge: true, retryOf, acknowledgePossiblePreviousCharge: Boolean(retryOf) });
+      const verify = (request: unknown) => verifyPlayerIneForActor(actors.delegate, id, request, raw, { storage, provider, limits });
+      const first = await verify(intention());
+      assert.equal(first.status, "INSUFFICIENT_BALANCE");
+      const firstRetry = intention(first.attemptId);
+      assert.equal((await verify(firstRetry)).attemptId, first.attemptId);
+      await assert.rejects(authorizeIneProviderRetryForActor(actors.delegate, id, first.attemptId!), AuthorizationError);
+      assert.equal((await readPlayerIneStatusForActor(actors.secretary, id)).canAuthorizeProviderRetry, true);
+      await Promise.all([
+        authorizeIneProviderRetryForActor(actors.secretary, id, first.attemptId!),
+        authorizeIneProviderRetryForActor(actors.secretary, id, first.attemptId!),
+      ]);
+      assert.equal(calls, 1);
+      assert.equal(uploads, 3);
+      assert.equal(await db.audit_logs.count({ where: { entity_id: id, action: "PLAYER_INE_RETRY_AUTHORIZED" } }), 1);
+      assert.equal((await readPlayerIneStatusForActor(actors.delegate, id)).canSubmit, true);
+      await assert.rejects(verify({ ...firstRetry, acknowledgePossiblePreviousCharge: false }), { code: "RETRY_CONFIRMATION_REQUIRED" });
+      await assert.rejects(verifyPlayerIneForActor(actors.delegate, id, firstRetry, raw,
+        { storage, provider, limits: { ...limits, actorDaily: 0 } }), { code: "USAGE_LIMIT_REACHED" });
+      const [attempt, replay] = await Promise.all([verify(firstRetry), verify(firstRetry)]);
+      const credentials = await readPlayerIneStatusForActor(actors.delegate, id);
+      assert.equal(credentials.status, "INVALID_CREDENTIALS");
+      assert.equal(attempt.attemptId, credentials.attemptId);
+      assert.equal(replay.attemptId, credentials.attemptId);
+      const next = intention(credentials.attemptId);
+      assert.equal((await verify(next)).attemptId, credentials.attemptId);
+      assert.equal((await readPlayerIneStatusForActor(actors.delegate, id, first.attemptId!)).providerRetryAuthorized, undefined);
+      assert.equal(calls, 2);
+      await assert.rejects(authorizeIneProviderRetryForActor(actors.secretary, id, first.attemptId!), { code: "OPERATION_CONFLICT" });
+      await authorizeIneProviderRetryForActor(actors.secretary, id, credentials.attemptId!);
+      assert.equal((await verify(next)).status, "ADMIN_REVIEW_REQUIRED");
+      assert.equal(calls, 3);
+      assert.equal(uploads, 9);
     });
 
     await t.test("INE sintética: Veteranos, alcance, evidencia privada, idempotencia concurrente y revisión sin aprobación", async () => {

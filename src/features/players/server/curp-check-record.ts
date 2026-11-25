@@ -12,7 +12,7 @@ export class CurpVerificationError extends Error {
     "SERVICE_UNAVAILABLE", public readonly status = 409) { super(code); }
 }
 
-export type CurpSnapshot = { personId: string; registrationId: string; version: number;
+export type CurpSnapshot = { personId: string; registrationId: string; seasonTeamId: string; version: number;
   fingerprint: string; identity: PlayerIdentityInput; available: boolean };
 
 export async function lockCurpSnapshot(tx: Prisma.TransactionClient, actorId: string, registrationId: string,
@@ -43,7 +43,7 @@ export async function lockCurpSnapshot(tx: Prisma.TransactionClient, actorId: st
   const parsed = playerIdentitySchema.safeParse(rawIdentity);
   if (!parsed.success) throw new CurpVerificationError("LOCAL_IDENTITY_INVALID");
   const fingerprint = createHash("sha256").update(JSON.stringify([person.version, rawIdentity])).digest("hex");
-  return { personId: person.personId, registrationId, identity: parsed.data, fingerprint, version: person.version,
+  return { personId: person.personId, registrationId, seasonTeamId: row.seasonTeamId, identity: parsed.data, fingerprint, version: person.version,
     available: !person.withdrawn && row.teamStatus !== "WITHDRAWN" && row.seasonStatus !== "CLOSED" &&
       row.affiliationStatus === "APPROVED" && (row.categoryAuthorized && row.operational) };
 }

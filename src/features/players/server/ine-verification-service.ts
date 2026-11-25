@@ -16,6 +16,8 @@ import {readRegistrationLabels} from "./registration-labels";
 import {ineSnapshotHash} from "./identity-document-evidence";
 import {resolveCategoryDocuments} from "./category-document-requirements";
 import {minorAtDate} from "../document-rules";
+import { isProviderBlocked, type ProviderRetryState } from "../provider-retry";
+import { readProviderRetryState, recordProviderRetryAuthorization } from "./provider-retry";
 
 export class IneVerificationError extends Error {
   constructor(public code: string, public status = 409) { super(code); }
@@ -60,10 +62,15 @@ async function dto(tx: Prisma.TransactionClient, actorId: string, id: string, at
   let canSubmit = false;
   try { await lockPlayerTeamContext(tx, actorId, current.context.seasonTeamId, "UPDATE"); canSubmit = current.available; }
   catch (error) { if (!(error instanceof AuthorizationError)) throw error; }
-  const attempt = await tx.audit_logs.findFirst({ where: { entity_id: id, action: preparedAction, ...(attemptId ? { id: attemptId } : {}) }, orderBy: [{ occurred_at: "desc" }, { id: "desc" }], select: { id: true, new_data: true, occurred_at: true } });
+  const select = { id: true, new_data: true, occurred_at: true } as const;
+  const where = { entity_id: id, action: preparedAction };
+  const latest = await tx.audit_logs.findFirst({ where, orderBy: [{ occurred_at: "desc" }, { id: "desc" }], select });
+  const attempt = attemptId && attemptId !== latest?.id
+    ? await tx.audit_logs.findFirst({ where: { ...where, id: attemptId }, select }) : latest;
   if (attemptId && !attempt) throw new AuthorizationError();
   let status: IneStatus["status"] = "NOT_STARTED";
   let reviewDetails: Pick<IneStatus, "missingFields" | "mismatchedFields"> = {};
+  let recovery: ProviderRetryState = {};
   if (attempt) {
     const intent = attempt.new_data as unknown as Intent;
     const result = await tx.audit_logs.findFirst({ where: { entity_id: id, action: resultAction, new_data: { path: ["attemptId"], equals: attempt.id } }, select: { new_data: true } });
@@ -71,13 +78,27 @@ async function dto(tx: Prisma.TransactionClient, actorId: string, id: string, at
     status = intent.snapshotHash !== (intent.snapshotVersion===2?current.snapshotHash:current.legacySnapshotHash) ? "STALE" : outcome.success ? outcome.data : Date.now() - attempt.occurred_at.getTime() > 120000 ? "UNCERTAIN" : "PENDING";
     // Acuses anteriores sin cotejo no se convierten en identidad verificada.
     if(status==="PROVIDER_PASSED" || (status==="IDENTITY_VERIFIED" && (result?.new_data as {matchingVersion?:number})?.matchingVersion!==1))status="ADMIN_REVIEW_REQUIRED";
-    canSubmit = canSubmit && (canRetryIneVerification(status) || (status === "STALE" && intent.version !== current.version));
+    if (current.available && attempt.id === latest?.id && isProviderBlocked(status))
+      recovery = await readProviderRetryState(tx, { kind: "INE", registrationId: id, attemptId: attempt.id }, actorId, current.context.seasonTeamId);
+    canSubmit = canSubmit && (canRetryIneVerification(status, recovery.providerRetryAuthorized) || (status === "STALE" && intent.version !== current.version));
     if (status === "ADMIN_REVIEW_REQUIRED") {
       const details = ineStatusSchema.pick({ missingFields: true, mismatchedFields: true }).safeParse(result?.new_data);
       if (details.success) reviewDetails = details.data;
     }
   }
-  return { registrationId: id, applicable: current.applicable, canSubmit, identityVersion: current.version, attemptId: attempt?.id ?? null, status, approvalAllowed: false, ...reviewDetails };
+  return { registrationId: id, applicable: current.applicable, canSubmit, identityVersion: current.version, attemptId: attempt?.id ?? null, status, approvalAllowed: false, ...reviewDetails, ...recovery };
+}
+
+export async function authorizeIneProviderRetryForActor(actorId: string, id: string, attemptId: string) {
+  await getPrisma().$transaction(async tx => {
+    const current = await snapshot(tx, actorId, id, true);
+    await lockPlayerTeamContext(tx, actorId, current.context.seasonTeamId, "APPROVE");
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(98,2026)::text`;
+    const latest = await dto(tx, actorId, id);
+    if (latest.attemptId !== attemptId || !isProviderBlocked(latest.status)) throw new IneVerificationError("OPERATION_CONFLICT");
+    await recordProviderRetryAuthorization(tx, { kind: "INE", registrationId: id, attemptId }, actorId);
+  }, { timeout: 15_000 });
+  return readPlayerIneStatusForActor(actorId, id);
 }
 export async function readPlayerIneStatusForActor(actorId: string, id: string, attemptId?: string) {
   if (attemptId && !z.uuid().safeParse(attemptId).success) throw new AuthorizationError();
