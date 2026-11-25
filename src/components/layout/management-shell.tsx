@@ -17,6 +17,7 @@ export function ManagementShell({ account, navigation, children }: {
   const pathname = usePathname();
   const activeHref = /^\/affiliations\/[^/]+\/correct\/?$/.test(pathname) ? "/affiliations/new"
     : pathname.startsWith("/competitions/seasons/") ? "/competitions/seasons"
+    : pathname.startsWith("/treasury/charges/") ? "/treasury/charges"
     : pathname === "/accounts/new" ? "/accounts"
     : pathname.startsWith("/matches/report-demo/") ? "/matches/report-demo" : /^\/matches\/[^/]+\/(report|lineup)\/?$/.test(pathname) ? "/matches" : pathname;
   const [expanded, setExpanded] = useState(true);

@@ -15,7 +15,7 @@ import { affiliationSubmissionSchema, type AffiliationSubmission } from "../affi
 import { affiliationFollowUpHref, type AffiliationResult } from "../affiliation-feedback";
 import { submitAffiliationRequest } from "../submit-affiliation.client";
 import { resubmitAffiliationRequest } from "../resubmit-affiliation.client";
-import { useAffiliationLeaveWarning } from "../use-affiliation-leave-warning";
+import { useUnsavedChangesWarning } from "@/lib/use-unsaved-changes-warning";
 import {
   createSignatureUploadTask,
   SignatureUploadClientError,
@@ -113,7 +113,7 @@ function AffiliationFormContent({
   const followUpHref = submissionContext && affiliationFollowUpHref(submissionContext.clubId, submissionContext.seasonId);
   const confirmedSignatures = affiliationOfficeCodes.filter(office => signatures[office]?.id).length;
   const signaturesUnavailable = !!submissionContext && !submissionContext.storageOrigin && confirmedSignatures !== affiliationOfficeCodes.length;
-  useAffiliationLeaveWarning(finished ? null : phase === "uncertain" || phase === "sending"
+  useUnsavedChangesWarning(finished ? null : phase === "uncertain" || phase === "sending"
     ? "La solicitud puede estar en proceso. Si sales perderás los datos para consultar o reintentar este mismo envío. ¿Salir de la captura?"
     : dirty ? "Los cambios de esta captura solo están en esta pantalla. ¿Salir y descartar los cambios?" : null);
 

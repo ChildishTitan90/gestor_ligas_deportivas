@@ -1,0 +1,40 @@
+# PDGLD-77 · PDGLD-174
+
+## Para revisar
+
+- Rama `feat/PDGLD-77-cargos-tesoreria`. Base inicial `origin/develop` en `0bded09`, con el refactor de gestión integrado. [Historia](https://victoranhernandez.atlassian.net/browse/PDGLD-77) · [Contrato y vistas](https://victoranhernandez.atlassian.net/browse/PDGLD-174)
+- Vista previa local en [Tesorería → Cargos](http://127.0.0.1:3177/treasury/charges). En esta instancia aislada, entra con `tesoreria-174` para consultar y simular el alta, `consulta-174` para solo lectura, o `disciplina-174` y `delegado-174` para probar la denegación. Las cuentas usan la contraseña de la sección «Demostración manual desechable» de la [guía de autenticación](../authentication.md#demostración-manual-desechable). En el servidor habitual de desarrollo usa una cuenta operativa con `billing:READ` y `billing:CREATE`, según la acción.
+- En **Cargos**, filtra por Apertura de prueba para ver inscripción de Atlético Vista Verde y arbitraje de Mirador Juvenil. Abre el detalle de la inscripción para ver el cambio de vencimiento y su motivo. En Clausura de prueba, el cargo de cancha para Deportivo Mirador muestra un pago parcial de ejemplo. Filtrar por Multa muestra el estado vacío. [Error simulado del listado](http://127.0.0.1:3177/treasury/charges?demo=error)
+- En **Nuevo cargo**, selecciona Apertura de prueba, Equipo, Mirador Juvenil, Arbitraje y Semanal. Usa importe `175,50`, vencimiento de referencia `20/11/2026`, periodo `09/11/2026–29/11/2026` y un motivo de prueba. Revisa el destinatario, el importe por semana y la ventana. Confirma en el diálogo. Repite con modalidad Único y destinatario Club. La opción Multa explica el vínculo pendiente y bloquea la revisión.
+- Las variantes [rechazo](http://127.0.0.1:3177/treasury/charges/new?response=error), [acuse perdido](http://127.0.0.1:3177/treasury/charges/new?response=uncertain) e [intento sin aplicar](http://127.0.0.1:3177/treasury/charges/new?response=retry) conservan la captura. En los dos casos inciertos, usa **Consultar resultado**. El último habilita el reintento con los mismos datos e identificador una vez conciliado. La captura vive en la página hasta que sales o recargas.
+
+## Verificación local
+
+- Chrome con sesión NextAuth y PostgreSQL 17 aislado. Se comprobó el acceso directo sin sesión, el alta de Tesorería con ámbito de liga, la consulta de Secretaría y la denegación para Disciplina y Delegación. También se comprobó el detalle ausente.
+- Con datos y respuestas de cargos sintéticos se recorrieron filtros y retorno desde el detalle, vacío, error, validación de importe y multa bloqueada, alta única y semanal, foco inicial y devolución de foco con Escape, doble pulsación, respuesta incierta, consulta y reintento. Se revisaron claro y oscuro en escritorio de 1440 px y móvil emulado de 360 y 390 px. PostgreSQL conservó cero cargos, planes y pagos tras la prueba.
+- Capturas locales en `.codex-attachments/pdgld-77/`: listado claro y oscuro, detalle con historial, revisión semanal, diálogo de confirmación, respuesta incierta y resultados de ambas modalidades. La carga de navegación usa la convención `loading.tsx` de Next.js.
+- Pasaron `npm run typecheck`, ESLint para los archivos afectados, 16 comprobaciones del contrato y las 31 pruebas de `npm run test:affiliation-review` tras reutilizar la advertencia de salida.
+
+## Contrato propuesto
+
+| Operación | Entrada y autoridad | Salida o error |
+| --- | --- | --- |
+| Consulta de listado | `billing:READ` y ámbito efectivo. Temporada, destinatario, concepto y mes opcionales. El mes filtra por solapamiento con el periodo. | Resumen del cargo con contexto autorizado, importe, periodo, vencimiento y proyección de pagos/saldo. Colección vacía, denegación o error de consulta. |
+| Consulta de detalle e historial | ID de `charges`; `billing:READ` autorizado contra la temporada y el club resuelto. | Datos del cargo, versión, emisión, proyección de pagos/saldo y eventos con fecha, actor visible, motivo y cambios pertinentes. Denegación o recurso ausente según la política de exposición acordada. |
+| Alta única o solicitud semanal | `billing:CREATE` en el ámbito resuelto. `operationId` UUID, `seasonId`, destinatario discriminado, código de concepto, importe decimal, fechas de periodo/vencimiento, modalidad y motivo. | Acuse `CONFIRMED` tras aplicar la operación, con los IDs de cargos. Rechazo explícito por validación, permisos, contexto cambiado, duplicado, política pendiente o resolución indisponible. Un timeout deja el resultado sin confirmar. |
+| Consulta de operación | Mismo `operationId`, con identidad y alcance revalidados en servidor. | Acuse existente, intento confirmado como no aplicado o resultado aún incierto. Solo un resultado conciliado habilita el reintento de la misma intención. |
+| Corrección futura | `billing:UPDATE`, ID, versión esperada, motivo y operación estable. | Nueva versión con historial, conflicto de versión, denegación o bloqueo por política de pagos/cancelación. |
+
+`charge_concepts` contiene `REGISTRATION`, `REFEREE_FEE`, `VENUE` y `FINE`. El servidor resolverá `charge_concept_id` por código. Para club, `charges.club_id` y `season_id` remiten a la afiliación. Para equipo, `season_team_id` corresponde a la inscripción de ese equipo en temporada. Liga y categoría salen de las relaciones, y para comprobar el equipo RBAC recibe `teams.id`. El club tiene alcance de temporada. La categoría se muestra para el equipo.
+
+El baseline usa `Decimal(12,2)`, monto positivo y `MXN`. La captura conserva cadenas decimales normalizadas y el formato solo representa lo que admite el esquema actual. Los importes son ejemplos. La fecha de emisión se resolverá en servidor y el baseline exige que el vencimiento sea igual o posterior. La demostración valida el orden de fechas del periodo sin definir un calendario de Liga.
+
+`billing_plans` modela `ONCE` y `WEEKLY`, importe y ventana. `charges` tiene unicidad por plan e inicio de periodo y por `sanction_id`. Sigue pendiente concretar la unicidad por concepto/destinatario/periodo entre solicitudes distintas y el acuse de la operación. Para multa, PDGLD-27 debe entregar una referencia de resolución verificable que se pueda enlazar a la sanción del esquema. El vínculo y su autorización se resuelven en servidor al integrar.
+
+`charge_balances` calcula saldo descontando pagos vigentes. Crear un cargo no registra un pago. `charges` ya dispara el trigger de auditoría y exige `app.user_id` y `app.reason` transaccionales. La revisión futura debe evitar duplicar ese evento y acordar cómo vincularlo al acuse. Identidad, concesiones, datos crudos de auditoría y finanzas quedan en gestión. El acceso de demostración exige una concesión real de Cobranza sin restricción a un club, porque la muestra abarca varios clubes ficticios. La consulta oficial futura de PDGLD-77 debe restringir al delegado a su propio club.
+
+## Punto de reanudación
+
+- Rutas en `src/app/(management)/treasury/charges/`. Contratos y vistas en `src/features/billing/`. La navegación usa los permisos efectivos existentes. [Diseño del recorrido](../design/treasury-charges.md)
+- Pendientes de decisión de Liga: tarifas, política monetaria y precisión, vencimiento, día y cortes de la recurrencia, y corrección o cancelación de cargos con pagos. La vista semanal presenta la ventana solicitada. No calcula ocurrencias ni total acumulado.
+- Al retomar, recoger comentarios de interfaz y acordar las reglas pendientes antes de conectar transacciones, idempotencia, controles de ámbito por registro y auditoría. Validar persistencia, concurrencia y rollback en su etapa de integración. [Implementación PDGLD-175](https://victoranhernandez.atlassian.net/browse/PDGLD-175) · [Aceptación PDGLD-176](https://victoranhernandez.atlassian.net/browse/PDGLD-176)

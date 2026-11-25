@@ -11,7 +11,7 @@ import { AffiliationReviewList } from "./affiliation-review-list";
 import { AffiliationReviewSteps } from "./affiliation-review-steps";
 import { AffiliationReviewFilters } from "./affiliation-review-filters";
 import { emptyReviewFilters, filterReviewItems, type ReviewFilters } from "../affiliation-review-filters";
-import { useAffiliationLeaveWarning } from "../use-affiliation-leave-warning";
+import { useUnsavedChangesWarning } from "@/lib/use-unsaved-changes-warning";
 
 const buttonClass = "min-h-12 rounded-xl border border-border bg-surface px-5 py-3 text-sm font-semibold text-primary hover:bg-background disabled:opacity-50";
 const historyLabels = {
@@ -54,7 +54,7 @@ export function AffiliationReviewView({ controller, leagues = [], initialLeague 
   const firstCategory = useRef<HTMLInputElement>(null);
   useEffect(() => { if (detail) detailHeading.current?.focus(); }, [detail]);
   useEffect(() => { if (state.categoryError) firstCategory.current?.focus(); }, [state.categoryError]);
-  useAffiliationLeaveWarning(state.pendingReview ? "La revisión aún no tiene un resultado confirmado. ¿Salir de la bandeja?" : null);
+  useUnsavedChangesWarning(state.pendingReview ? "La revisión aún no tiene un resultado confirmado. ¿Salir de la bandeja?" : null);
   useEffect(() => {
     if (!state.download) return;
     const timeout = setTimeout(controller.clearDownload, Math.max(0, state.download.expiresAt - Date.now()));
