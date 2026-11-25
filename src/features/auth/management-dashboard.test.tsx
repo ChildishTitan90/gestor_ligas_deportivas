@@ -45,11 +45,12 @@ test("los ceros son datos reales y se diferencian de un resumen todavía no eleg
 test("fallos y denegación no aparentan ceros ni eliminan las herramientas", () => {
   for (const state of ["invalid", "denied", "unavailable"] as const) {
     const html = render({ activity: { ...activity, state }, navigation: [{ label: "Cuentas", items: [
-      { href: "/accounts/new", label: "Crear cuenta", icon: "accounts" },
+      { href: "/accounts", label: "Administrar cuentas", icon: "accounts" },
     ] }] });
     assert.match(html, /role="alert"/);
     assert.match(html, /Reintentar resumen/);
-    assert.match(html, /href="\/accounts\/new"/);
+    assert.match(html, /href="\/accounts"/);
+    assert.doesNotMatch(html, /href="\/accounts\/new"/);
     assert.doesNotMatch(html, /tabular-nums/);
   }
 });

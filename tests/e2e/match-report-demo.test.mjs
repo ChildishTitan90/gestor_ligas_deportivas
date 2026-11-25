@@ -50,6 +50,9 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
   const ev = expression => browser.evaluate(expression);
   const wait = expression => ev(`(async()=>{for(let n=0;n<250;n++){if(${expression})return;await new Promise(r=>setTimeout(r,20));}throw Error('No se cumplió: '+${JSON.stringify(expression)});})()`);
   const visibleText = () => ev("document.body.innerText");
+  const stages = 'document.querySelector(\'nav[aria-label="Secciones de la cédula"]\')';
+  const activeStage = `${stages}.querySelector('[aria-current="step"]').getAttribute('aria-label')`;
+  const completedStages = `[...${stages}.querySelectorAll('button[aria-describedby]')].map(button=>button.getAttribute('aria-label'))`;
   const click = text => ev(`(()=>{const b=[...document.querySelectorAll('button,a')].find(b=>b.getClientRects().length && (b.textContent.trim()===${JSON.stringify(text)} || b.getAttribute('aria-label')===${JSON.stringify(text)}));if(!b||b.disabled)throw Error('Control no disponible: '+${JSON.stringify(text)});b.focus();b.click();})()`);
   const key = async name => { for (const type of ["keyDown", "keyUp"]) await browser.command("Input.dispatchKeyEvent", { type, key: name, code: name, windowsVirtualKeyCode: name === "Enter" ? 13 : name === "Escape" ? 27 : name === "Tab" ? 9 : 40 }); };
   const render = async scenario => { await ev(`window.fixture.render(${JSON.stringify(scenario)})`); await ev("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))"); };
@@ -80,12 +83,15 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
     await wait("document.querySelector('dialog[open]')"); await click("Confirmar registro");
     await wait("document.querySelector('[aria-label=\"Incomparecencia registrada\"]')?.getClientRects().length > 0");
     assert.match(await visibleText(),/Pendiente de reprogramación; no se asignó ganador/);
+    assert.deepEqual(await ev(completedStages), []);
   });
 
   await t.test("partido, estados separados, alineación y dorsal independiente", async () => {
     await render("setup");
     assert.match(await visibleText(), /Partido: En curso/); assert.match(await visibleText(), /Cédula: Borrador/);
     await click("Capturar cédula");
+    assert.equal(await ev(activeStage), "Alineaciones");
+    assert.deepEqual(await ev(completedStages), []);
     await ev("[...document.querySelectorAll('summary')].filter(n=>n.textContent==='Convocados y dorsales'&&n.getClientRects().length).forEach(n=>n.click())");
     assert.equal(await ev("document.getElementById('jersey-home-7').value"), "17");
     assert.match(await visibleText(), /Sanción vigente/);
@@ -93,9 +99,12 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
     await ev(`(()=>{const i=document.getElementById('jersey-home-7');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,'27');i.dispatchEvent(new Event('input',{bubbles:true}));})()`);
     await click("Resumen");
     await wait("document.querySelector('dialog[open]')");
+    assert.equal(await ev(activeStage), "Alineaciones");
     await ev("document.querySelector('dialog input[type=checkbox]').click()");await click("Confirmar y guardar alineaciones");
     await wait("!document.querySelector('dialog[open]')");
     await click("Resumen"); assert.match(await visibleText(), /#27/);
+    assert.equal(await ev(activeStage), "Resumen");
+    assert.deepEqual(await ev(completedStages), ["Alineaciones"]);
     assert.match(await visibleText(), /falta capturar y confirmar la firma/);
     assert.equal(await ev("[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Confirmar · Simulación').disabled"), true);
   });
@@ -414,8 +423,24 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
       assert.equal(await ev("document.documentElement.scrollWidth<=innerWidth"), true, `${theme}/${width}: partido sin desbordamiento`);
       await click("Capturar cédula"); await ev("window.scrollTo(0,0)"); await screenshot(`${theme}-${width}-alineaciones`);
       assert.equal(await ev("document.documentElement.scrollWidth<=innerWidth"), true, `${theme}/${width}: alineaciones sin desbordamiento`);
+      assert.equal(await ev(`(() => {
+        const nav = ${stages};
+        const bounds = nav.getBoundingClientRect();
+        const buttons = [...nav.querySelectorAll('button')];
+        return buttons.length === 5 && buttons.every(button => {
+          const rect = button.getBoundingClientRect();
+          return rect.height >= 48 && rect.width >= 44 && rect.left >= bounds.left && rect.right <= bounds.right;
+        });
+      })()`), true, `${theme}/${width}: etapas visibles con área táctil suficiente`);
       await ev("document.getElementById('captain-home').scrollIntoView({block:'center'})"); await screenshot(`${theme}-${width}-jugadores`);
-      await click("Cierre y firmas"); await ev("document.querySelector('canvas').scrollIntoView({block:'center'})"); await screenshot(`${theme}-${width}-firmas`);
+      await ev(`${stages}.querySelector('[aria-label="Cierre y firmas"]').focus()`);
+      assert.equal(await ev("document.activeElement.getAttribute('aria-label')"), "Cierre y firmas");
+      for (const type of ["rawKeyDown", "keyUp"]) {
+        await browser.command("Input.dispatchKeyEvent", { type, key: " ", code: "Space", windowsVirtualKeyCode: 32 });
+      }
+      await wait(`${activeStage}==='Cierre y firmas'`);
+      await wait("document.activeElement.tagName==='H2' && document.activeElement.textContent==='Cierre y firmas'");
+      await ev("document.querySelector('canvas').scrollIntoView({block:'center'})"); await screenshot(`${theme}-${width}-firmas`);
       await click("Eventos"); await click("Registrar evento");
       await ev("document.getElementById('event-type').focus()"); await key("ArrowDown");
       assert.equal(await ev("Boolean(document.querySelector('dialog[open] [role=listbox]'))"), true);
@@ -424,6 +449,7 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
       await wait("!document.querySelector('dialog[open]')");
       assert.equal(await ev("document.activeElement.textContent.trim()"), "Registrar evento");
       await render("confirmed"); await ev("window.scrollTo(0,0)"); await screenshot(`${theme}-${width}-confirmada`);
+      assert.deepEqual(await ev(completedStages), ["Alineaciones", "Participación", "Eventos", "Cierre y firmas", "Resumen"]);
       assert.equal(await ev("document.documentElement.scrollWidth<=innerWidth"), true);
     }
     assert.deepEqual(await ev("window.networkCalls"), []);
@@ -489,6 +515,8 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
     await ev(`(()=>{const field=document.querySelector('textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field,'Captura de prueba sin red');field.dispatchEvent(new Event('input',{bubbles:true}));})()`);
     await status("Guardando cambios en el dispositivo");
     await status("Guardado en este dispositivo");
+    assert.equal(await ev(activeStage), "Cierre y firmas");
+    await screenshot("dark-390-cierre-offline");
     await click("Volver a la ficha del partido");
     await wait("document.activeElement.textContent.trim()==='Retomar borrador de ejemplo'");
     await click("Retomar borrador de ejemplo");
@@ -497,6 +525,7 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
     await status("Pendiente de sincronizar");
     await click("Sincronizar borrador");
     await status("Acuse de borrador recibido");
+    assert.equal(await ev(completedStages + ".includes('Resumen')"), false);
     assert.match(await visibleText(), /Cédula: Borrador/);
     assert.equal(await ev("document.documentElement.scrollWidth<=innerWidth"), true);
 

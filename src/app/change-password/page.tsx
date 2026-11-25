@@ -19,10 +19,9 @@ export default async function ChangePasswordPage() {
       <section aria-labelledby="password-title" className="overflow-hidden rounded-3xl border border-border bg-surface shadow-sm">
         <div className="h-1 bg-accent" />
         <div className="p-6 sm:p-9">
-          <p className="mb-3 text-xs font-semibold tracking-widest text-muted uppercase">Un paso antes de continuar</p>
           <h1 id="password-title" className="text-2xl font-semibold tracking-tight text-primary">Actualiza tu contraseña</h1>
           <p className="mt-4 text-sm leading-7 text-muted">
-            Tu cuenta usa una contraseña temporal. Debes cambiarla antes de acceder a las funciones de la liga.
+            Cambia tu contraseña temporal. Después vuelve a iniciar sesión con la nueva contraseña.
           </p>
           
           <ChangePasswordForm />

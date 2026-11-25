@@ -226,12 +226,14 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
         const formController=createTeamRegistrationFormController(formOptions,()=>new Promise(resolve=>{finish=resolve;}));
         flushSync(()=>root.render(<TeamRegistrationFormView controller={formController}/>));
         for(const [field,value] of Object.entries({clubId:id(1),seasonId:id(2),teamId:id(5)})) flushSync(()=>formController.change(field,value));
+        check(document.querySelector('[aria-label="Avance de la inscripción"] [aria-current="step"]').textContent.includes('Equipo y categoría'),'Capture step did not follow the selected context');
         document.querySelector('form').requestSubmit();
         await wait(()=>document.activeElement?.getAttribute('data-select-field')==='categoryId');
         check(document.getElementById(document.activeElement.getAttribute('aria-describedby'))?.textContent.includes('categoría'),'Field error association missing');
         flushSync(()=>{formController.change('categoryId',id(3));formController.change('groupId',id(4));});
         document.querySelector('form').requestSubmit();
         await wait(()=>!!finish);
+        check(document.querySelector('[aria-label="Avance de la inscripción"] [aria-current="step"]').textContent.includes('Confirmación'),'Confirmation step missing during submission');
         check(document.querySelector('button[type="submit"]').disabled,'Duplicate submit enabled');
         finish({kind:'correctable',fieldErrors:{groupId:'SYNTHETIC-SERVER-ERROR'}});
         await wait(()=>document.activeElement?.getAttribute('data-select-field')==='groupId');
@@ -241,12 +243,15 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
         finish({kind:'confirmed',teamId:id(5),seasonTeamId:id(7),status:'REGISTERED'});
         await wait(()=>document.activeElement?.getAttribute('role')==='status');
         check(document.activeElement.textContent.includes('Inscripción confirmada'),'Confirmation did not receive focus');
+        check(!document.querySelector('[aria-label="Avance de la inscripción"] [aria-current="step"]'),'Confirmed enrollment still has an active step');
         Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Iniciar otra inscripción').click();
         await wait(()=>document.activeElement?.getAttribute('data-select-field')==='clubId');
         // Montar la vista real con captura pendiente; abrir/cancelar no hace POST.
         flushSync(()=>root.render(<Parent/>));
         const parent=document.getElementById('stable-parent');
         await wait(()=>document.querySelector('input[name="teamName"]')?.value==='PRIVATE-CAPTURE-A');
+        const enrollmentForm=document.getElementById('inscribir-equipo');
+        check(!!enrollmentForm.querySelector('button[type="button"]') && !!document.getElementById('historial-equipos'),'Enrollment sections are missing');
         const discard=Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Cerrar formulario…');
         discard.focus();discard.click();
         await wait(()=>document.querySelector('dialog')?.open);
@@ -289,7 +294,7 @@ test("selectores, modales breves, envíos inciertos y separación de usuarios", 
         check(sessionStorage.getItem('team-enrollment:pending:'+a+':discarded')===null,'Close created a destructive marker');
         Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Retomar envío pendiente').click();
         await wait(()=>document.querySelector('input[name="teamName"]')?.value==='PRIVATE-CAPTURE-A');
-        check(document.querySelector('button[type="submit"]').disabled,'Resumed pending allowed a new enrollment');
+        check(!document.querySelector('#inscribir-equipo button[type="submit"]:enabled'),'Resumed pending allowed a new enrollment');
         root.unmount();root=createRoot(document.getElementById('root'));flushSync(()=>root.render(<Parent/>));
         await wait(()=>document.querySelector('input[name="teamName"]')?.value==='PRIVATE-CAPTURE-A');
         check(sessionStorage.getItem('team-enrollment:pending:'+a)===stored,'Remount lost pending');

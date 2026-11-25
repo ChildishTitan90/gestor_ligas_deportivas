@@ -15,7 +15,11 @@ import { AvailabilityDialog } from "./availability-dialog";
 
 const secondary = "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm font-semibold text-primary disabled:opacity-50";
 const primary = "primary-action inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold disabled:opacity-50";
-const panel = "rounded-2xl border border-border bg-surface p-5 sm:p-6";
+const panel = "rounded-xl border border-border bg-surface p-4";
+const rows = "divide-y divide-border rounded-xl border border-border bg-surface";
+const row = "min-w-0 px-4 py-3 sm:px-5";
+const rowActions = "flex flex-wrap items-start gap-2";
+const rowAction = "inline-flex min-h-11 max-w-full items-center justify-center rounded-lg border border-border px-3 py-2 text-left text-sm font-semibold text-primary hover:bg-soft disabled:opacity-50";
 const all = { value: "all", label: "Todos" };
 
 function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: "positive" | "danger" | "neutral" }) {
@@ -79,6 +83,7 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
     && (clubId === "all" || linkFor(item.id)?.clubId === clubId) && (activeFilter === "all" || item.active === (activeFilter === "active")));
   const matches = data.matches.filter(item => item.seasonId === season?.id);
   const assignments = data.assignments.filter(item => matches.some(match => match.id === item.matchId));
+  const visibleAssignments = assignments.filter(item => assignmentFilter === "all" || item.status === assignmentFilter);
   const assignmentChoices=assignmentMatchesNeedingAttention(data,season?.id??"",evaluate);
   const currentReferee = seasonReferees.find(item => item.id === availabilityRef);
 
@@ -129,10 +134,9 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
   ].filter(item => (historyRef === "all" || item.refereeId === historyRef) && (historyMatch === "all" || item.matchId === historyMatch))
     .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
 
-  return <section className="mx-auto max-w-7xl space-y-6">
+  return <section className="mx-auto max-w-7xl space-y-4 sm:space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><p className="text-xs font-semibold uppercase tracking-widest text-muted">{live ? "Arbitraje / Gestión" : "Arbitraje / Revisión de vistas"}</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-primary">Árbitros y designaciones</h1>
+      <div><h1 className="text-2xl font-semibold tracking-tight text-primary sm:text-3xl">Árbitros y designaciones</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">Padrón, cobertura por club y revisión de propuestas en un mismo espacio.</p></div>
       {matchesHref && <ActionLink variant="secondary" href={matchesHref}>Mis partidos · Alineación <span aria-hidden="true">↗</span></ActionLink>}
     </div>
@@ -142,10 +146,9 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
         <p className="mt-1 leading-6 text-muted">Nombres, clubes, partidos y decisiones son ficticios. Las acciones cambian esta visita y se pierden al recargar o salir. No se guarda información real.</p>
         {matchesHref && <p className="mt-1 text-muted">«Mis partidos» abre el recorrido existente con tus permisos y datos reales; no recibe los ejemplos de esta demo.</p>}</div>
     </aside>}
-    {live && <p className="rounded-xl border border-border bg-surface p-4 text-sm">Datos de la liga · Proponer no concede acceso ni publica una designación. La aprobación de Comisión se verifica en servidor.</p>}
     {live?.error && <div role="alert" className="rounded-xl border border-danger bg-danger-surface p-4 text-sm text-danger">{live.error}{live.uncertain && <button type="button" className={secondary} disabled={live.pending} onClick={live.recover}>Consultar resultado sin reenviar</button>}{live.retryReady && <button type="button" className={secondary} disabled={live.pending} onClick={live.retry}>Reintentar la misma solicitud</button>}</div>}
     {offline && <p role="status" className="rounded-xl border border-border bg-surface p-4 text-sm">Sin conexión. Puedes revisar la demostración ya cargada. No hay cola de sincronización ni guardado local.</p>}
-    <div className={`${panel} grid gap-4 md:grid-cols-3`}>
+    <div className={`${panel} grid gap-3 sm:grid-cols-2 ${live ? "" : "lg:grid-cols-3"}`}>
       <Field id="referee-league" label="Liga"><SelectField id="referee-league" value={leagueId} onValueChange={value => { if(live){live.onScopeChange(value,"");return;} setLeagueId(value); setSeasonId(""); resetFilters(); }} placeholder="Selecciona una liga"
         options={data.leagues.map(item => ({ value: item.id, label: item.name }))} /></Field>
       <Field id="referee-season" label="Temporada"><SelectField id="referee-season" value={seasonId} disabled={!league} onValueChange={value => { if(live){live.onScopeChange(leagueId,value);return;} setSeasonId(value); resetFilters(); }} placeholder="Selecciona una temporada"
@@ -153,9 +156,9 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
       {!live && <Field id="referee-scenario" label="Estado de vista · Simulación"><SelectField id="referee-scenario" value={scenario} onValueChange={value => setScenario(value as PreviewState)} searchable={false}
         options={[{ value: "ready", label: "Datos de ejemplo" }, { value: "loading", label: "Carga" }, { value: "empty", label: "Vacío" }, { value: "error", label: "Error" }, { value: "denied", label: "Acceso denegado" }]} /></Field>}
     </div>
-    <nav aria-label="Vistas de arbitraje" className="flex gap-2 overflow-x-auto border-b border-border pb-3">
+    <nav aria-label="Vistas de arbitraje" className="flex flex-wrap gap-1 border-b border-border pb-2">
       {(Object.entries(viewLabels) as [RefereeView, string][]).map(([key, label]) => <Link key={key} href={`${basePath}${key}`} onClick={event=>{if(live?.pending||live?.uncertain)event.preventDefault();}} aria-current={view === key ? "page" : undefined}
-        className={`inline-flex min-h-12 shrink-0 items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold ${view === key ? "border-accent bg-soft text-primary" : "border-transparent text-muted hover:bg-surface"}`}>
+        className={`inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${view === key ? "border-accent bg-soft text-primary" : "border-transparent text-muted hover:bg-surface"}`}>
         {key === "register" ? <UsersRound size={18} aria-hidden="true" /> : key === "availability" ? <CalendarClock size={18} aria-hidden="true" /> : key === "history" ? <History size={18} aria-hidden="true" /> : <ClipboardCheck size={18} aria-hidden="true" />}{label}</Link>)}
     </nav>
     <div role="status" aria-live="polite">{notice && <p className="rounded-xl border border-positive bg-positive-surface p-4 text-sm text-positive">{notice}</p>}</div>
@@ -166,23 +169,35 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
       {view === "register" && <>
         <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">Padrón de árbitros</h2><p className="mt-1 text-sm text-muted">{visibleReferees.length} de {seasonReferees.length} presentados en esta temporada.</p></div>
           <button type="button" className={primary} disabled={season.closed || !clubs.length || !!live && !live.capabilities.register} onClick={() => openEditor()}>{live ? "Presentar árbitro" : "Presentar árbitro · Demo"}</button></div>
-        <div className={`${panel} grid gap-4 sm:grid-cols-2 lg:grid-cols-4`}>
+        <div className={`${panel} grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,.75fr)_auto]`}>
           <Field id="referee-search" label="Buscar árbitro"><div className="relative"><Search aria-hidden="true" size={18} className="pointer-events-none absolute left-3 top-4 text-muted" />
             <input id="referee-search" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Nombre o referencia" className="min-h-12 w-full rounded-xl border border-border bg-surface py-3 pl-10 pr-3 text-sm" /></div></Field>
           <Field id="referee-club-filter" label="Club que presenta"><SelectField id="referee-club-filter" value={clubId} onValueChange={setClubId} options={[all, ...clubs.map(item => ({ value: item.id, label: item.name, description: item.code }))]} /></Field>
           <Field id="referee-active-filter" label="Estado"><SelectField id="referee-active-filter" value={activeFilter} onValueChange={setActiveFilter} searchable={false} options={[all, { value: "active", label: "Activo" }, { value: "inactive", label: "Inactivo" }]} /></Field>
           <button type="button" className={`${secondary} self-end`} onClick={resetFilters}>Limpiar filtros</button>
         </div>
-        {!visibleReferees.length ? <PreviewFeedback state="empty" onRetry={resetFilters} /> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{visibleReferees.map(referee => <article key={referee.id} className={`${panel} flex flex-col gap-4`}>
-          <div className="flex items-start justify-between gap-3"><div><h3 className="text-lg font-semibold text-primary">{referee.name}</h3><p className="mt-1 text-xs text-muted">{data.people.find(item => item.id === referee.personId)?.reference}{live ? " · Persona existente" : " · Persona sintética"}</p></div><Badge tone={referee.active ? "positive" : "neutral"}>{referee.active ? "Activo" : "Inactivo"}</Badge></div>
-          <dl className="space-y-2 text-sm"><div><dt className="text-muted">Presentado por</dt><dd className="font-medium">{clubFor(referee.id)?.name} · {clubFor(referee.id)?.code}</dd></div><div><dt className="text-muted">Temporada</dt><dd>{season.name}</dd></div></dl>
-          {!referee.active && <p className="text-sm text-danger">No puede recibir una aprobación mientras esté inactivo.</p>}
-          {live&&<details className="text-sm text-muted"><summary className="cursor-pointer">Referencia de Persona para vincular cuenta</summary><code className="mt-2 block select-all break-all text-xs">{referee.personId}</code><p className="mt-2 text-xs">El acceso debe vincularse a esta misma Persona; incorporarla al padrón no crea una cuenta automáticamente.</p></details>}
-          <div className="mt-auto flex flex-wrap gap-2">
-            {live?.capabilities.provisionAccess && !season.closed && data.links.some(l=>l.refereeId===referee.id&&l.seasonId===season.id) && <ActionLink variant="secondary" href={`/referees/access?referee=${referee.id}&season=${season.id}`} onClick={e=>{if(live.pending||live.uncertain)e.preventDefault();}}>Acceso de árbitro</ActionLink>}
-            <button type="button" className={secondary} disabled={season.closed || !!live && !live.capabilities.update} onClick={() => openEditor(referee)}>Editar {referee.name}</button>
-            <Link href={`${basePath}history`} className={secondary} onClick={() => { setHistoryRef(referee.id); setHistoryMatch("all"); }}>Historial de {referee.name}</Link></div>
-        </article>)}</div>}
+        {!visibleReferees.length ? <PreviewFeedback state="empty" onRetry={resetFilters} /> : <div className={rows}>{visibleReferees.map(referee => {
+          const club = clubFor(referee.id);
+          const reference = data.people.find(item => item.id === referee.personId)?.reference;
+          return <article key={referee.id} className={`${row} grid gap-x-4 gap-y-2 lg:grid-cols-[minmax(0,1fr)_auto]`}>
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h3 className="wrap-anywhere font-semibold text-primary">{referee.name}</h3>
+                <Badge tone={referee.active ? "positive" : "neutral"}>{referee.active ? "Activo" : "Inactivo"}</Badge>
+              </div>
+              <p className="wrap-anywhere text-sm text-muted">{club ? `Presentado por ${club.name} · ${club.code}` : "Club presentador no disponible"}{reference && ` · ${reference}`}</p>
+              {!referee.active && <p className="text-sm text-danger">La aprobación requiere que el árbitro esté activo.</p>}
+              {live && <details className="text-sm text-muted"><summary className="w-fit cursor-pointer py-1">Referencia de Persona para vincular cuenta</summary>
+                <code className="block select-all break-all text-xs">{referee.personId}</code><p className="mt-1 text-xs">Vincula el acceso a esta misma Persona. La incorporación al padrón no crea una cuenta.</p>
+              </details>}
+            </div>
+            <div className={`${rowActions} lg:justify-end`}>
+              {live?.capabilities.provisionAccess && !season.closed && data.links.some(link => link.refereeId === referee.id && link.seasonId === season.id) && <Link className={rowAction} href={`/referees/access?referee=${referee.id}&season=${season.id}`} aria-label={`Acceso de árbitro para ${referee.name}`} onClick={event => { if (live.pending || live.uncertain) event.preventDefault(); }}>Acceso de árbitro</Link>}
+              <button type="button" className={rowAction} aria-label={`Editar ${referee.name}`} disabled={season.closed || !!live && !live.capabilities.update} onClick={() => openEditor(referee)}>Editar</button>
+              <Link href={`${basePath}history`} className={rowAction} aria-label={`Historial de ${referee.name}`} onClick={() => { setHistoryRef(referee.id); setHistoryMatch("all"); }}>Historial</Link>
+            </div>
+          </article>;
+        })}</div>}
       </>}
       {view === "availability" && <>
         <div><h2 className="text-xl font-semibold">Disponibilidad del árbitro</h2><p className="mt-2 text-sm text-muted">Intervalos completos en la zona de la liga: <strong>{timezone}</strong>. El horario del dispositivo no cambia estas fechas.</p></div>
@@ -191,13 +206,14 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
           <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">Intervalos de {currentReferee.name}</h3>
             {live ? <button type="button" className={secondary} disabled={season.closed || !live.capabilities.update} onClick={()=>setAvailabilityEditor({})}>Añadir intervalo</button> : <button type="button" className={secondary} disabled={season.closed} onClick={() => { setData(previous => ({ ...previous, availability: previous.availability.filter(item => item.refereeId !== currentReferee.id) })); setNotice("Se retiraron los intervalos solo de la demo para mostrar disponibilidad sin confirmar. Reinicia la demostración para restaurarlos."); }}>Simular sin intervalos</button>}</div>
           {!intervals.some(item => item.refereeId === currentReferee.id) && <p className={panel}>Sin intervalos vigentes ni próximos. No se presume disponibilidad.</p>}
-          <ol className="space-y-3">{intervals.filter(item => item.refereeId === currentReferee.id).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).map(item => <li key={item.id} className={`${panel} flex flex-wrap items-center justify-between gap-3`}>
-            <div><p className="text-sm font-semibold">{intervalLabel(item.startsAt, item.endsAt, timezone)}</p><p className="mt-1 text-xs text-muted">{timezone}{!live && " · Intervalo sintético"}</p></div><Badge tone={item.available ? "positive" : "danger"}>{item.available ? "Disponible" : "No disponible"}</Badge>{live?.capabilities.update && <button type="button" className={secondary} onClick={()=>setAvailabilityEditor({id:item.id})}>Editar intervalo</button>}
+          <ol className={`${rows} empty:hidden`}>{intervals.filter(item => item.refereeId === currentReferee.id).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).map(item => <li key={item.id} className={`${row} flex flex-wrap items-center justify-between gap-x-4 gap-y-2`}>
+            <p className="min-w-0 wrap-anywhere text-sm font-semibold tabular-nums">{intervalLabel(item.startsAt, item.endsAt, timezone)}</p>
+            <div className="flex flex-wrap items-center gap-2"><Badge tone={item.available ? "positive" : "danger"}>{item.available ? "Disponible" : "No disponible"}</Badge>{live?.capabilities.update && <button type="button" className={rowAction} aria-label={`Editar intervalo: ${intervalLabel(item.startsAt, item.endsAt, timezone)}`} onClick={() => setAvailabilityEditor({ id: item.id })}>Editar intervalo</button>}</div>
           </li>)}</ol>
           <div className={panel}><h3 className="font-semibold">Conflictos con propuestas y designaciones</h3><p className="mt-2 text-sm text-muted">«No disponible» tiene prioridad en el tramo que coincide con el partido. El intervalo disponible sigue vigente fuera de ese tramo.</p>
-            <ul className="mt-4 space-y-3">{assignments.filter(item => item.refereeId === currentReferee.id && item.status !== "REVOKED").map(item => {
+            <ul className="mt-3 divide-y divide-border">{assignments.filter(item => item.refereeId === currentReferee.id && item.status !== "REVOKED").map(item => {
               const assessment = evaluate(item);
-              return <li key={item.id} className="rounded-xl border border-border p-3 text-sm"><strong>{matches.find(match => match.id === item.matchId)?.number} · {assignmentLabels[item.status]}</strong>
+              return <li key={item.id} className="wrap-anywhere py-2 text-sm"><strong>{matches.find(match => match.id === item.matchId)?.number} · {assignmentLabels[item.status]}</strong>
                 <p className="mt-1">{assessment.blockers.length ? assessment.blockers.map(blocker => blocker.message).join(" ") : "Sin conflictos en este ejemplo."}</p></li>;
             })}</ul>
             {!assignments.some(item => item.refereeId === currentReferee.id && item.status !== "REVOKED") && <p className="mt-4 text-sm text-muted">No hay designaciones vigentes para comparar.</p>}
@@ -207,33 +223,51 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
       {view === "quota" && (!live || !season.closed) && <>
         <div><h2 className="text-xl font-semibold">Cuota de árbitros por club</h2><p className="mt-2 text-sm text-muted">Requeridos = equipos registrados ÷ 4, redondeado hacia arriba. No se calculan multas ni consecuencias deportivas.</p></div>
         <p className="rounded-xl border border-border bg-surface p-4 text-sm">{live ? "Conteo actual: inscripciones REGISTERED/ACTIVE, equipo activo y afiliación aprobada del club activo, sin duplicar equipos por temporada. Presentados cuenta relaciones únicas por árbitro/temporada; se muestran los inactivos por separado. Su efecto en cuota sigue pendiente de criterio; no habilitan aprobación." : "El ejemplo compara presentados con requeridos y muestra los activos por separado. Falta confirmar si un estado inactivo modifica el cómputo de la cuota; nunca habilita una aprobación."}</p>
-        {!clubs.length ? <PreviewFeedback state="empty" /> : <div className="grid gap-4 md:grid-cols-2">{clubs.map(club => {
+        {!clubs.length ? <PreviewFeedback state="empty" /> : <div className={rows}>{clubs.map(club => {
           const presented = seasonReferees.filter(item => linkFor(item.id)?.clubId === club.id);
           const active = presented.filter(item => item.active).length;
           const required = Math.ceil(club.registeredTeams / 4), missing = Math.max(0, required - presented.length);
-          return <article key={club.id} className={panel}><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-lg font-semibold">{club.name} <span className="text-xs font-normal text-muted">{club.code}</span></h3><Badge tone={missing ? "danger" : required ? "positive" : "neutral"}>{missing ? `Faltan ${missing} árbitros` : required ? "Cuota cubierta" : "Sin requerimiento"}</Badge></div>
-            <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">{[["Equipos", club.registeredTeams], ["Presentados", presented.length], ["Requeridos", required], ["Faltantes", missing]].map(([label, value]) => <div key={label}><dt className="text-xs text-muted">{label}</dt><dd className="mt-1 text-2xl font-semibold text-primary">{value}</dd></div>)}</dl>
-            <p className="mt-4 border-t border-border pt-3 text-sm text-muted">{active} activos · {presented.length - active} inactivos. Cálculo: ceil({club.registeredTeams}/4) = {required}.</p>
-            {live && <p className="mt-2 text-sm text-muted">{club.context}{club.eligible===false && " · No forma parte del conteo vigente de equipos válidos."}</p>}
+          return <article key={club.id} className={`${row} grid gap-x-5 gap-y-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]`}>
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h3 className="wrap-anywhere font-semibold text-primary">{club.name}</h3>
+                <Badge tone={missing ? "danger" : required ? "positive" : "neutral"}>{missing ? `Faltan ${missing} árbitros` : required ? "Cuota cubierta" : "Sin requerimiento"}</Badge>
+              </div>
+              <p className="wrap-anywhere text-sm text-muted">{club.code} · {active} activos · {presented.length - active} inactivos</p>
+            </div>
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">{[["Equipos", club.registeredTeams], ["Presentados", presented.length], ["Requeridos", required], ["Faltantes", missing]].map(([label, value]) => <div key={label}><dt className="text-xs text-muted">{label}</dt><dd className="font-semibold tabular-nums text-primary">{value}</dd></div>)}</dl>
+            {live && (club.context || club.eligible === false) && <p className="wrap-anywhere text-sm text-muted lg:col-span-2">{club.context}{club.context && club.eligible === false && " · "}{club.eligible === false && "No forma parte del conteo vigente de equipos válidos."}</p>}
           </article>;
         })}</div>}
       </>}
       {view === "assignments" && <>
         <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-semibold">Propuesta y revisión de designaciones</h2><p className="mt-2 text-sm text-muted">Revisa el grupo completo, la presentación y todos los motivos antes de aprobar.</p></div><button type="button" className={primary} disabled={season.closed || !assignmentChoices.length || !!live && !live.capabilities.update} onClick={() => openReview()}>{live ? live.capabilities.approve ? "Asignar árbitro" : "Proponer designación" : "Proponer designación · Demo"}</button></div>
-        <p className="text-sm text-muted">La lista conserva propuestas, aprobaciones y revocaciones. Para una revocada, usa «Actualizar designación» en su ficha; el partido ya estará seleccionado.</p>
+        {live && <p className="text-sm text-muted">Una propuesta queda pendiente de aprobación. El acceso al partido se habilita con la designación aprobada según los permisos vigentes.</p>}
         {!season.closed&&!assignmentChoices.length&&<p className="text-sm text-muted">No hay partidos abiertos sin árbitro aprobado o con una designación por revisar.</p>}
-        <div className={panel}><Field id="assignment-status-filter" label="Estado de designación"><SelectField id="assignment-status-filter" value={assignmentFilter} onValueChange={setAssignmentFilter} searchable={false} options={[all, ...Object.entries(assignmentLabels).map(([value, label]) => ({ value, label }))]} /></Field></div>
-        {!assignments.filter(item => assignmentFilter === "all" || item.status === assignmentFilter).length ? <PreviewFeedback state="empty" /> : <div className="grid gap-4 lg:grid-cols-2">{assignments.filter(item => assignmentFilter === "all" || item.status === assignmentFilter).map(item => {
+        <div className={`${panel} sm:max-w-sm`}><Field id="assignment-status-filter" label="Estado de designación"><SelectField id="assignment-status-filter" value={assignmentFilter} onValueChange={setAssignmentFilter} searchable={false} options={[all, ...Object.entries(assignmentLabels).map(([value, label]) => ({ value, label }))]} /></Field></div>
+        {!visibleAssignments.length ? <PreviewFeedback state="empty" /> : <div className={rows}>{visibleAssignments.map(item => {
           const match = matches.find(match => match.id === item.matchId)!;
           const assessment = evaluate(item);
-          return <article key={item.id} className={`${panel} flex flex-col gap-4`}>
-            <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs text-muted">{match.number} · {match.category} · Grupo {match.group}</p><h3 className="mt-1 font-semibold">{match.home} – {match.away}</h3></div><Badge tone={item.status === "APPROVED" ? "positive" : "neutral"}>{assignmentLabels[item.status]}</Badge></div>
-            <p className="text-sm text-muted">{season.name}<br />{intervalLabel(match.startsAt, match.endsAt, timezone)} · {timezone}</p>
-            <p className="font-semibold">{item.displayName ?? data.referees.find(referee => referee.id === item.refereeId)?.name} <span className="font-normal text-muted">· {clubFor(item.refereeId)?.name}</span></p>
-            <p className="text-sm">Disponibilidad: {assessment.availability === "COVERED" ? "cubre el horario" : assessment.availability === "UNAVAILABLE" ? "no disponible" : "sin confirmar"}</p>
-            {item.status === "REVOKED" ? <p className="text-sm text-muted">Antecedente revocado; no ocupa el horario.</p> : assessment.blockers.length ? <ul className="list-disc space-y-1 pl-5 text-sm text-danger">{assessment.blockers.map((blocker, index) => <li key={`${blocker.code}-${index}`}>{blocker.message}</li>)}</ul> : <p className="text-sm text-positive">{live ? "Sin bloqueos actuales." : "Sin bloqueos en el ejemplo."}</p>}
-            <div className="mt-auto flex flex-wrap gap-2"><button type="button" className={secondary} onClick={() => openReview(item)}>{item.status==="REVOKED"&&!item.historical&&!season.closed&&match.openForAssignments!==false&&(!live||live.capabilities.update)?"Actualizar designación":"Revisar"} {match.number} · {item.displayName ?? data.referees.find(referee => referee.id === item.refereeId)?.name}</button>
-              <Link href={`${basePath}history`} className={secondary} onClick={() => { setHistoryRef("all"); setHistoryMatch(match.id); }}>Historial de {match.number}</Link></div>
+          const refereeName = item.displayName ?? data.referees.find(referee => referee.id === item.refereeId)?.name ?? "Árbitro sin referencia";
+          const presentingClub = clubFor(item.refereeId)?.name;
+          const reviewLabel = item.status === "REVOKED" && !item.historical && !season.closed && match.openForAssignments !== false && (!live || live.capabilities.update) ? "Actualizar designación" : "Revisar";
+          return <article key={item.id} className={`${row} grid gap-x-5 gap-y-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_16.5rem]`}>
+            <div className="min-w-0 space-y-1 wrap-anywhere">
+              <h3 className="font-semibold text-primary">{match.home} – {match.away}</h3>
+              <p className="text-xs text-muted">{match.number} · {match.category} · Grupo {match.group}</p>
+              <p className="text-sm tabular-nums text-muted">{intervalLabel(match.startsAt, match.endsAt, timezone)} · {timezone}</p>
+            </div>
+            <div className="min-w-0 space-y-1 wrap-anywhere">
+              <div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{refereeName}</p>
+                <Badge tone={item.status === "APPROVED" ? "positive" : "neutral"}>{assignmentLabels[item.status]}</Badge></div>
+              <p className="text-sm text-muted">{presentingClub && `${presentingClub} · `}{assessment.availability === "COVERED" ? "Horario cubierto" : assessment.availability === "UNAVAILABLE" ? "No disponible en ese horario" : "Disponibilidad sin confirmar"}</p>
+            </div>
+            <div className={`${rowActions} sm:col-span-2 xl:col-span-1 xl:justify-end`}>
+              <button type="button" className={rowAction} aria-label={`${reviewLabel} ${match.number} · ${refereeName}`} onClick={() => openReview(item)}>{reviewLabel}</button>
+              <Link href={`${basePath}history`} className={rowAction} aria-label={`Historial de ${match.number}`} onClick={() => { setHistoryRef("all"); setHistoryMatch(match.id); }}>Historial</Link>
+            </div>
+            <div className="min-w-0 wrap-anywhere sm:col-span-2 xl:col-span-3">
+              {item.status === "REVOKED" ? <p className="text-sm text-muted">Antecedente revocado. No ocupa el horario.</p> : assessment.blockers.length ? <ul className="list-disc space-y-1 pl-5 text-sm text-danger">{assessment.blockers.map((blocker, index) => <li key={`${blocker.code}-${index}`}>{blocker.message}</li>)}</ul> : <p className="text-sm text-positive">{live ? "Sin bloqueos actuales." : "Sin bloqueos en el ejemplo."}</p>}
+            </div>
           </article>;
         })}</div>}
         <aside className={`${panel} text-sm leading-6`}><h3 className="font-semibold">Decisión pendiente: grupo único</h3><p className="mt-2 text-muted">{live ? "La restricción se aplica también al grupo único. Puede dejar sin candidatos a los clubes representados; no existe una excepción automática." : "En D-103 todos los clubes del ejemplo tienen un equipo en el mismo grupo. Aplicar la restricción a todo el grupo deja sin árbitros elegibles de esos clubes. Propón D-103 para revisar el bloqueo; no se ha supuesto ninguna excepción."}</p></aside>
@@ -244,10 +278,11 @@ export function RefereeWorkspace({ initialData, view, matchesHref, live }: { ini
           <Field id="history-referee" label="Referencia de árbitro"><SelectField id="history-referee" value={historyRef} onValueChange={setHistoryRef} descriptionPosition="below" aria-describedby="history-referee-help" options={[all, ...historyRefereeOptions(data,seasonId)]} /><p id="history-referee-help" className="mt-2 text-xs text-muted">El UUID identifica al árbitro. Los antecedentes cerrados conservan su identidad capturada; los nombres vigentes no completan una identidad histórica faltante.</p></Field>
           <Field id="history-match" label="Partido"><SelectField id="history-match" value={historyMatch} onValueChange={setHistoryMatch} options={[all, ...matches.map(item => ({ value: item.id, label: `${item.number} · ${item.home} – ${item.away}` })), ...data.history.filter(item => item.seasonId === seasonId).map(item => ({ value: item.matchId, label: item.matchLabel }))]} /></Field>
         </div>
-        {live && <ol className="space-y-4">{data.events?.filter(e=>(historyRef==="all"||e.refereeId===historyRef)&&(historyMatch==="all"||data.assignments.some(a=>a.id===e.assignmentId&&a.matchId===historyMatch))).map(e=><li key={e.id} className={panel}><h3 className="font-semibold">{({register:"Registro de árbitro",availability:"Disponibilidad",propose:"Propuesta",approve:"Aprobación",revoke:"Revocación"} as Record<string,string>)[e.action]??e.action} · @{e.actor}</h3><p className="mt-2 text-sm">{e.reason}</p><p className="mt-2 text-xs text-muted">{e.refereeId} · Versión {e.version} · {intervalLabel(e.at,e.at,timezone).split(" → ")[0]} · {timezone}</p></li>)}</ol>}
-        {!historyRows.length ? <PreviewFeedback state="empty" /> : <ol className="space-y-4">{historyRows.map(item => <li key={item.id} className={panel}>
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs text-muted">{item.matchLabel} · {season.name}</p><h3 className="mt-2 font-semibold">{item.label}</h3></div><Badge tone={item.status === "APPROVED" ? "positive" : "neutral"}>{assignmentLabels[item.status]}</Badge></div>
-          <p className="mt-3 text-sm text-muted">{item.evidence}</p><p className="mt-3 text-xs text-muted">Referencia: {item.refereeId} · Fecha: {intervalLabel(item.occurredAt, item.occurredAt, timezone).split(" → ")[0]} · {timezone}</p>
+        {live && <ol className={`${rows} empty:hidden`}>{data.events?.filter(e=>(historyRef==="all"||e.refereeId===historyRef)&&(historyMatch==="all"||data.assignments.some(a=>a.id===e.assignmentId&&a.matchId===historyMatch))).map(e=><li key={e.id} className={`${row} space-y-1 wrap-anywhere`}><h3 className="font-semibold">{({register:"Registro de árbitro",availability:"Disponibilidad",propose:"Propuesta",approve:"Aprobación",revoke:"Revocación"} as Record<string,string>)[e.action]??e.action} · @{e.actor}</h3><p className="text-sm">{e.reason}</p><p className="text-xs text-muted">{e.refereeId} · Versión {e.version} · {intervalLabel(e.at,e.at,timezone).split(" → ")[0]} · {timezone}</p></li>)}</ol>}
+        {!historyRows.length ? <PreviewFeedback state="empty" /> : <ol className={rows}>{historyRows.map(item => <li key={item.id} className={`${row} space-y-1 wrap-anywhere`}>
+          <div className="flex flex-wrap items-start justify-between gap-2"><h3 className="min-w-0 font-semibold">{item.label}</h3><Badge tone={item.status === "APPROVED" ? "positive" : "neutral"}>{assignmentLabels[item.status]}</Badge></div>
+          <p className="text-xs text-muted">{item.matchLabel} · {season.name} · {intervalLabel(item.occurredAt, item.occurredAt, timezone).split(" → ")[0]} · {timezone}</p>
+          <p className="text-sm text-muted">{item.evidence}</p><p className="text-xs text-muted">Referencia: {item.refereeId}</p>
         </li>)}</ol>}
       </>}
       {live && view==="quota" && season.closed && <p className={panel}>No se reconstruye una cuota histórica con el estado actual de clubes o árbitros. Consulta los antecedentes conservados.</p>}

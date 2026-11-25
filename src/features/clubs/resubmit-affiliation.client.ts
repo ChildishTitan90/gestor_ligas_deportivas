@@ -7,8 +7,7 @@ const resultSchema = affiliationResultSchema.extend({
   status: z.literal("PENDING"), replayed: z.literal(false),
   version: z.number().int().nonnegative().max(2147483647), reviewPhase: z.literal("AWAITING_REVIEW"),
 });
-export type AffiliationResubmitOutcome = AffiliationSubmitOutcome |
-  { kind: "conflict" | "access-denied"; message: string };
+export type AffiliationResubmitOutcome = AffiliationSubmitOutcome;
 
 /** La captura conserva su versión; un conflicto nunca incrementa ni repite PATCH. */
 export async function resubmitAffiliationRequest(id: string, input: unknown,

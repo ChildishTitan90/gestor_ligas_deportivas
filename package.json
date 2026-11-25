@@ -113,6 +113,7 @@
     "test:management-ui": "node --test tests/e2e/team-registration-session.test.mjs",
     "test:team-registration-list": "node --import tsx --test src/features/clubs/team-registration-list.test.tsx",
     "test:affiliation-review": "node --import tsx --test src/features/clubs/affiliation-review.test.tsx src/features/clubs/resubmit-affiliation.client.test.tsx",
+    "test:affiliation-journey": "node --test tests/e2e/affiliation-journey.test.mjs",
     "test:affiliation-input": "node --import tsx --test src/features/clubs/affiliation-submission.test.ts src/features/clubs/schemas.test.ts",
     "test:affiliations": "node scripts/test-auth.mjs --affiliations",
     "test:team-enrollments": "node scripts/test-auth.mjs --team-enrollments",

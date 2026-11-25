@@ -1,11 +1,13 @@
 import { ActionLink } from "@/components/ui/action-link";
-import { getAccountCreationOptions } from "../server/service";
 
-export async function CreateAccountLink() {
-  let allowed = false;
-  try {
-    const options = await getAccountCreationOptions();
-    allowed = options.roles.length > 0;
-  } catch { /* La navegación no concede permisos ni bloquea el resto del panel. */ }
-  return allowed ? <ActionLink href="/accounts/new" className="mt-4 w-full">Crear cuenta</ActionLink> : null;
+export function CreateAccountLink({ search, page, pageSize }: {
+  search: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  if (page && page !== 1) params.set("page", String(page));
+  if (pageSize && pageSize !== 20) params.set("pageSize", String(pageSize));
+  return <ActionLink href={params.size ? `/accounts/new?${params}` : "/accounts/new"}>Crear cuenta</ActionLink>;
 }

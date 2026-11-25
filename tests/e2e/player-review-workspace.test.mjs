@@ -13,6 +13,7 @@ test('Bandeja de identidad: casos identificables, filtros, teclado, refresco y v
   const bundle=await build({write:false,bundle:true,platform:'browser',format:'iife',jsx:'automatic',define:{'process.env.NODE_ENV':'"development"'},stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`
     import React from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';
     import {PlayerReviewWorkspace} from './src/features/players/components/player-review-workspace';
+    import {parsePlayerReviewFilters,playerReviewReturnHref} from './src/features/players/review-workspace';
     const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
     const base={registeredAt:'2026-11-04T12:00:00Z',clubId:id(10),club:'Club del Parque',seasonId:id(20),season:'Torneo sintético 2026',category:'Categoría A',team:'Equipo del Parque'};
     const rows=[
@@ -23,7 +24,13 @@ test('Bandeja de identidad: casos identificables, filtros, teclado, refresco y v
     ];
     window.fetch=async()=>{throw Error('Esta bandeja sintética no debe consultar APIs');};
     const root=createRoot(document.getElementById('root'));
-    window.fixture={rows,refreshes:0,render(items=rows){flushSync(()=>root.render(<PlayerReviewWorkspace items={items}/>));}};
+    window.fixture={rows,refreshes:0,render(items=rows){flushSync(()=>root.render(<PlayerReviewWorkspace items={items}/>));},returnToQueue(detail){
+      const filters=new URL(detail,location.href).searchParams;
+      const destination=playerReviewReturnHref(Object.fromEntries(filters));
+      const initialFilters=parsePlayerReviewFilters(Object.fromEntries(new URL(destination,location.href).searchParams));
+      flushSync(()=>root.render(<PlayerReviewWorkspace key={destination} items={rows} initialFilters={initialFilters}/>));
+      return destination;
+    }};
     window.fixture.render();
   `},plugins:[{name:'synthetic-next',setup(plugin){
     plugin.onResolve({filter:/^next\/(link|navigation)$/},args=>({path:args.path,namespace:'fixture'}));
@@ -55,12 +62,21 @@ test('Bandeja de identidad: casos identificables, filtros, teclado, refresco y v
   await wait('window.fixture && document.querySelector("table")');
   assert.equal(await evaluate('document.querySelector("[role=status]").textContent'),'4 de 4 casos en tu alcance');
   assert.equal(await evaluate(`document.querySelector('a[aria-label="Revisar documentos de Lucía Torres Reyes"]').getAttribute('href')`),'/players/review/00000000-0000-4000-8000-000000000003/documents');
+  assert.equal(await evaluate(`document.querySelector('a[aria-label="Revisar evidencias de Marina Soto Cruz"]').getAttribute('href')`),'/players/registrations/00000000-0000-4000-8000-000000000002/documents?desde=revision-ine#revision-ine');
   await screenshot('revision-escritorio-oscuro',1440,1000,'dark');
   await filter('Documentos y tutor');await wait('document.querySelector("[role=status]").textContent.includes("2 de 4")');
   assert.equal(await evaluate('document.querySelectorAll("tbody tr").length'),2);
   assert.equal(await evaluate('document.querySelector("[aria-pressed=true]").textContent.includes("Documentos y tutor")'),true);
   await select('Club','Club del Bosque');await wait('document.querySelector("[role=status]").textContent.includes("1 de 4")');
   assert.equal(await evaluate('document.querySelector("tbody").textContent.includes("Daniel Paz Luna")'),true);
+  await select('Temporada','2027');
+  await input('Daniel');
+  assert.equal(await evaluate(`(() => {
+    const link=document.querySelector('a[aria-label="Revisar documentos de Daniel Paz Luna"]').href;
+    return window.fixture.returnToQueue(link);
+  })()`),'/players/review?tipo=DOCUMENTS&club=00000000-0000-4000-8000-000000000011&temporada=00000000-0000-4000-8000-000000000021#casos-revision');
+  await wait('document.querySelector("[role=status]").textContent.includes("1 de 4")');
+  assert.equal(await evaluate('document.querySelector("input[type=search]").value'),"");
   await click('Limpiar filtros');await input('alvaro');await wait('document.querySelector("[role=status]").textContent.includes("1 de 4")');
   assert.equal(await evaluate('document.querySelector("tbody").textContent.includes("Álvaro Sierra Lara")'),true,'Busca sin acentos');
   await input('no existe');await wait('document.body.textContent.includes("No hay casos que coincidan")');await click('Ver todos los casos');

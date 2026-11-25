@@ -1,12 +1,16 @@
 import "server-only";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "@/server/auth/session";
 import { AuthorizationError } from "@/server/auth/authorization";
-import { curpCheckOutcomes, curpVerificationRequestSchema, identityFields, type CurpVerificationStatus } from "../curp-verification";
-import { curpCheckSelect, curpStatus, CurpVerificationError, lockCurpSnapshot } from "./curp-check-record";
+import { canRetryCurpVerification, curpCheckOutcomes, curpVerificationRequestSchema, identityFields, type CurpVerificationStatus } from "../curp-verification";
+import { curpCheckSelect, curpStatus, CurpVerificationError, lockCurpSnapshot, type CurpSnapshot } from "./curp-check-record";
 import { getVerificamexCurpProvider, type CurpProvider } from "./verificamex-curp";
 import {activateVerifiedAdultForActor} from "./automatic-activation";
+import { isProviderBlocked } from "../provider-retry";
+import { lockPlayerTeamContext } from "./access";
+import { hasProviderRetryAuthorization, readProviderRetryState, recordProviderRetryAuthorization } from "./provider-retry";
 
 // Límites de gasto conservadores de esta entrega; compartidos por todos los procesos en PostgreSQL.
 const defaultPolicy = { globalDailyLimit: 3, actorDailyLimit: 2, cooldownMs: 60_000 };
@@ -14,6 +18,24 @@ type CheckPolicy = typeof defaultPolicy;
 type Dependencies = { provider: CurpProvider; policy?: CheckPolicy };
 const providerResultSchema = z.strictObject({ status: z.enum(curpCheckOutcomes), mismatchedFields: z.array(z.enum(identityFields)).max(5) })
   .refine(result => result.status === "DISCREPANCY" ? result.mismatchedFields.length > 0 : result.mismatchedFields.length === 0);
+
+function latestCurpCheck(tx: Prisma.TransactionClient, snapshot: CurpSnapshot) {
+  return tx.player_curp_checks.findFirst({ where: { person_id: snapshot.personId,
+    identity_version: snapshot.version, fingerprint: snapshot.fingerprint }, orderBy: [{ created_at: "desc" }, { id: "desc" }], select: curpCheckSelect });
+}
+
+export async function authorizeCurpProviderRetryForActor(actorId: string, registrationId: string, attemptId: string) {
+  await getPrisma().$transaction(async tx => {
+    const snapshot = await lockCurpSnapshot(tx, actorId, registrationId, "UPDATE");
+    await lockPlayerTeamContext(tx, actorId, snapshot.seasonTeamId, "APPROVE");
+    if (!snapshot.available) throw new CurpVerificationError("CONTEXT_NOT_AVAILABLE");
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(97,2026)::text`;
+    const latest = await latestCurpCheck(tx, snapshot);
+    if (latest?.id !== attemptId || !isProviderBlocked(latest.status)) throw new CurpVerificationError("OPERATION_CONFLICT");
+    await recordProviderRetryAuthorization(tx, { kind: "CURP", registrationId, attemptId }, actorId);
+  }, { timeout: 15_000 });
+  return readPlayerCurpStatusForActor(actorId, registrationId);
+}
 
 export async function verifyPlayerCurp(registrationId: string, input: unknown, expectedActorId?: string): Promise<CurpVerificationStatus> {
   const actor = await requireOperationalUser();
@@ -39,15 +61,15 @@ export async function verifyPlayerCurpForActor(actorId: string, registrationId: 
         throw new CurpVerificationError("OPERATION_CONFLICT");
       return { done: curpStatus(snapshot, prior, true) };
     }
-    const latest = await tx.player_curp_checks.findFirst({ where: { person_id: snapshot.personId,
-      identity_version: snapshot.version, fingerprint: snapshot.fingerprint }, orderBy: [{ created_at: "desc" }, { id: "desc" }], select: curpCheckSelect });
+    const latest = await latestCurpCheck(tx, snapshot);
     if (latest) {
       const current = curpStatus(snapshot, latest, true);
       // Un cambio de clave por sí solo no vuelve a consultar ni gastar.
-      if (current.status === "VERIFIED" || !data.retryOf || current.status === "PENDING") return { done: current };
+      if (!data.retryOf) return { done: current };
+      const providerRetryAuthorized = isProviderBlocked(current.status) &&
+        await hasProviderRetryAuthorization(tx, { kind: "CURP", registrationId, attemptId: latest.id });
+      if (!canRetryCurpVerification(current.status, providerRetryAuthorized)) return { done: current };
       if (data.retryOf !== latest.id) throw new CurpVerificationError("OPERATION_CONFLICT");
-      if (current.status === "UNCERTAIN" && !data.acknowledgePossiblePreviousCharge)
-        throw new CurpVerificationError("RETRY_CONFIRMATION_REQUIRED");
     } else if (data.retryOf) throw new CurpVerificationError("OPERATION_CONFLICT");
     if (!snapshot.available) throw new CurpVerificationError("CONTEXT_NOT_AVAILABLE");
     const provider = dependencies?.provider ?? getVerificamexCurpProvider();
@@ -113,6 +135,11 @@ export async function readPlayerCurpStatusForActor(actorId: string, registration
       ...(checkId ? { id: checkId } : {}) },
       orderBy: [{ created_at: "desc" }, { id: "desc" }], select: curpCheckSelect });
     const registration=await tx.player_registrations.findUniqueOrThrow({where:{id:registrationId},select:{status:true,identity_review_status:true}});
-    return {...curpStatus(snapshot, row, true),registrationStatus:registration.status,identityReviewStatus:registration.identity_review_status};
+    const state = curpStatus(snapshot, row, true);
+    const recovery = snapshot.available && row && isProviderBlocked(state.status) &&
+      (!checkId || (await latestCurpCheck(tx, snapshot))?.id === row.id)
+      ? await readProviderRetryState(tx, { kind: "CURP", registrationId, attemptId: row.id }, actorId, snapshot.seasonTeamId)
+      : {};
+    return {...state,...recovery,registrationStatus:registration.status,identityReviewStatus:registration.identity_review_status};
   });
 }

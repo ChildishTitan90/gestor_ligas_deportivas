@@ -15,7 +15,7 @@ const tools = {
   "/affiliations/new": { title: "Mis afiliaciones", description: "Consulta tu solicitud, atiende correcciones o inicia la afiliación de tu club.", action: "Abrir mis solicitudes", icon: FilePenLine },
   "/affiliations/review": { title: "Revisión de afiliaciones", description: "Busca solicitudes y consulta su estado. Revisa y autoriza cuando tengas permiso.", action: "Consultar afiliaciones", icon: ClipboardCheck },
   "/teams/registrations": { title: "Inscripción y equipos", description: "Consulta las inscripciones de tus clubes. Registra equipos cuando esté habilitado.", action: "Abrir equipos", icon: UsersRound },
-  "/accounts/new": { title: "Cuentas de acceso", description: "Crea cuentas y asigna los roles y ámbitos que tienes permitido administrar.", action: "Crear cuenta", icon: UserRoundPlus },
+  "/accounts": { title: "Cuentas de acceso", description: "Consulta las opciones de administración disponibles para tu cuenta.", action: "Administrar cuentas", icon: UserRoundPlus },
 };
 
 export function ManagementDashboard({ account, scopes, navigation, activity }: {
@@ -26,6 +26,8 @@ export function ManagementDashboard({ account, scopes, navigation, activity }: {
 }) {
   const links = navigation.flatMap(group => group.items).filter(item => Object.hasOwn(tools, item.href));
   const summary = activity.summary;
+  const reviewPending = summary?.context.kind === "league" && summary.awaitingReview > 0 && links.some(item => item.href === "/affiliations/review");
+  const hasClubCorrections = summary?.context.kind === "club" && summary.correctionsRequested > 0 && links.some(item => item.href === "/affiliations/new");
   const metrics = summary ? [
     { label: "Por revisar", value: summary.awaitingReview, detail: "Afiliaciones pendientes sin correcciones solicitadas." },
     { label: "Con correcciones", value: summary.correctionsRequested, detail: "Afiliaciones pendientes de un nuevo envío." },
@@ -102,6 +104,10 @@ export function ManagementDashboard({ account, scopes, navigation, activity }: {
             <dd className="mt-2 text-xs leading-5 text-muted">{metric.detail}</dd>
           </div>)}
         </dl>
+        {reviewPending && <ActionLink className="mt-4" href={`/affiliations/review?${new URLSearchParams({ league: summary.context.id })}`}>Revisar solicitudes de esta liga</ActionLink>}
+        {hasClubCorrections && <div className="mt-4 space-y-2"><p className="text-sm text-muted">Hay correcciones pendientes en el club seleccionado. Abre Mis solicitudes y comprueba el club y la temporada del folio.</p>
+          <ActionLink href="/affiliations/new">Abrir mis solicitudes de afiliación</ActionLink>
+        </div>}
         {metrics.every(metric => metric.value === 0) && <p className="mt-4 text-sm leading-6 text-muted">No hay afiliaciones pendientes ni aprobadas{summary.enrollments === 0 ? ", ni inscripciones registradas" : ""} en esta selección.</p>}
       </div>}
     </section>

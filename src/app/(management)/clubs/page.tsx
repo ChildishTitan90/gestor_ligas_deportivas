@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ManagementPageHeader } from "@/components/layout/management-page-header";
 import { SelectField } from "@/components/ui/select-field";
 import { MaintenanceList } from "@/features/clubs/components/maintenance-list";
 import { getMaintenanceWorkspace, MaintenanceError } from "@/features/clubs/server/maintenance";
@@ -22,10 +23,11 @@ export default async function ClubsPage({ searchParams }: { searchParams: Promis
   }
   const next = new URLSearchParams({ q: input.q ?? "", kind: input.kind ?? "club", status: input.status ?? "all", after: data.nextAfter ?? "" });
   return <div className="mx-auto w-full max-w-6xl">
-    <h1 className="text-2xl font-semibold text-primary">Administrar clubes y equipos</h1>
-    <p className="mt-2 text-muted">Consulta datos, historial y bajas temporales. Las altas se realizan desde afiliación e inscripción.</p>
+    <ManagementPageHeader title="Administrar clubes y equipos"
+      description="Consulta el catálogo y su historial administrativo. Las altas de temporada se gestionan en afiliación e inscripción."
+      back={{ href: "/access", label: "Volver al panel" }} />
     <form className="mt-6 grid gap-4 rounded-2xl border border-border bg-surface p-5 sm:grid-cols-2 lg:grid-cols-4">
-      <label htmlFor="maintenance-search">Nombre o referencia<input id="maintenance-search" name="q" defaultValue={input.q} maxLength={160} className="min-h-12 w-full rounded-xl border border-border bg-surface px-3 text-foreground" /></label>
+      <label htmlFor="maintenance-search">Nombre o referencia<input id="maintenance-search" name="q" defaultValue={input.q} maxLength={160} className="mt-1 min-h-12 w-full rounded-xl border border-border bg-surface px-3 text-foreground" /></label>
       <div><label htmlFor="maintenance-kind">Consultar</label><SelectField id="maintenance-kind" name="kind" defaultValue={input.kind ?? "club"} options={[{ value: "club", label: "Clubes" }, { value: "team", label: "Equipos" }]} searchable={false} /></div>
       <div><label htmlFor="maintenance-status">Estado</label><SelectField id="maintenance-status" name="status" defaultValue={input.status ?? "all"} options={[{ value: "all", label: "Todos" }, { value: "ACTIVE", label: "Activos" }, { value: "INACTIVE", label: "Baja temporal / bloqueados" }]} searchable={false} /></div>
       <button className="primary-action min-h-12 self-end rounded-xl px-5 py-3 font-semibold">Buscar</button>

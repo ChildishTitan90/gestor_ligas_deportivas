@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { ManagementPageHeader } from "@/components/layout/management-page-header";
 import { SelectField } from "@/components/ui/select-field";
 import { ActionLink } from "@/components/ui/action-link";
 import { getCurrentAccount } from "@/features/auth/server/account-presentation";
@@ -30,8 +31,8 @@ export default async function SeasonsPage({ searchParams }: { searchParams: Prom
   }
   const creationLeagues = data?.leagues.filter(league => league.canCreate) ?? [];
   return <div className="mx-auto w-full max-w-5xl space-y-6 px-6 py-10">
-    <ActionLink href="/access" variant="secondary">Volver al panel</ActionLink>
-    <h1 className="text-2xl font-semibold">Temporadas</h1>
+    <ManagementPageHeader title="Temporadas" description="Consulta y configura las temporadas de tus ligas."
+      back={{ href: "/access", label: "Volver al panel" }} />
     {!data ? <p role="alert">{denied ? "No tienes permiso para consultar temporadas de una liga." : "No se pudieron cargar las temporadas. Intenta nuevamente."}</p> : <>
       {typeof params.error === "string" && <p role="alert">{messages[params.error] ?? messages.UNAVAILABLE}</p>}
       {params.created === "1" && <p role="status">Temporada creada como planificada. Configura sus categorías y reglas antes de recibir inscripciones.</p>}
@@ -47,13 +48,17 @@ export default async function SeasonsPage({ searchParams }: { searchParams: Prom
         </form>
       </section>}
       <section aria-labelledby="seasons-heading" className="space-y-4"><h2 id="seasons-heading" className="text-xl font-semibold">Temporadas registradas</h2>
-        {!data.seasons.length && <p>No hay temporadas registradas en tus ligas disponibles.</p>}
-        {data.seasons.map(season => <article key={season.id} className="rounded-2xl border border-border bg-surface p-5">
-          <h3 className="font-semibold">{season.name}</h3><ActionLink href={`/competitions/seasons/${season.id}`} variant="secondary">Configurar temporada</ActionLink>
-          <p>{data.leagues.find(league => league.id === season.leagueId)?.name}</p>
-          <p>{season.startDate} a {season.endDate}</p>
-          <p>Estado: {({ PLANNED: "Planificada", ACTIVE: "Activa", CLOSED: "Cerrada" } as Record<string, string>)[season.status] ?? season.status} · Versión {season.version}</p>
-        </article>)}
+        {data.seasons.length === 0 ? <p>No hay temporadas registradas en tus ligas disponibles.</p>
+          : <ul className="divide-y divide-border rounded-2xl border border-border bg-surface">
+          {data.seasons.map(season => <li key={season.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 space-y-1">
+              <h3 className="font-semibold text-primary">{season.name}</h3>
+              <p className="text-sm text-muted">{data.leagues.find(league => league.id === season.leagueId)?.name} · {season.startDate} a {season.endDate}</p>
+              <p className="text-sm">{({ PLANNED: "Planificada", ACTIVE: "Activa", CLOSED: "Cerrada" } as Record<string, string>)[season.status] ?? season.status} · Versión {season.version}</p>
+            </div>
+            <div className="shrink-0"><ActionLink href={`/competitions/seasons/${season.id}`} variant="secondary">Configurar temporada</ActionLink></div>
+          </li>)}
+        </ul>}
       </section>
     </>}
   </div>;

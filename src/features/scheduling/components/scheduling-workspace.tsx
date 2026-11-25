@@ -184,11 +184,13 @@ export function SchedulingWorkspace({ workspace }: { workspace: Workspace }) {
     </details> : null}
     {result?.ok && proposal && <section className="space-y-3 rounded-3xl border border-border bg-surface p-6">
       <h2 className="text-xl font-bold">Propuesta generada</h2>
-      <p>Abre cada jornada para consultar sus encuentros. Para ajustar la propuesta o enviarla a revisión, visita <Link href="/scheduling/proposals" className="font-semibold underline underline-offset-4">Propuestas de programación</Link>.</p>
+      <p className="text-sm text-muted">Abre cada jornada para consultar los encuentros y sus pendientes.</p>
+      <Link href={result.proposalId ? `/scheduling/proposals?propuesta=${encodeURIComponent(result.proposalId)}#propuesta-${encodeURIComponent(result.proposalId)}` : "/scheduling/proposals"}
+        className="primary-action inline-flex min-h-12 items-center rounded-xl px-4 py-2 text-sm font-semibold">Abrir propuesta guardada</Link>
       <p>{proposal.matches.length} partidos · {proposal.byes.length} descansos</p>
       {proposal.matches.some(match => !match.venueId) ? <p role="status">Hay encuentros pendientes de cancha y horario. Asígnalos antes de aprobar la propuesta.</p> : proposal.preferenceOptimal === false && <p role="status">La búsqueda alcanzó su límite. Puede haber otra propuesta que cumpla más preferencias.</p>}
       {proposal.matches.some(match => !match.venueId) && proposal.partialOptimal === false && <p role="status">La búsqueda alcanzó su límite; podría ser posible programar más encuentros.</p>}
-      <p className="text-muted">Pendiente de revisión y publicación. Horarios de la liga ({timezone}).</p>
+      <p className="text-sm text-muted">Horarios de la liga ({timezone}). El estado vigente se consulta en la propuesta guardada.</p>
       {rounds.map(round => <details key={round} className="rounded-xl border border-border p-4">
         <summary className="cursor-pointer font-semibold">Jornada {round}</summary>
         <ul className="mt-2 divide-y divide-border">{proposal.matches.filter(match => match.round === round).map(match =>

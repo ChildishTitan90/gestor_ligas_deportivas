@@ -10,10 +10,8 @@ export async function verifyPreparedNoShowBrowser({base,match,db,actorId}) {
   const browser=await launchChrome(base+'/login');
   const ev=expression=>browser.evaluate(expression);
   const wait=expression=>waitForReportBrowser(ev,expression);
-  const click=async label=>{
-    await wait(`[...document.querySelectorAll('button')].some(b=>b.getClientRects().length&&!b.disabled&&b.textContent.trim()===${JSON.stringify(label)})`);
-    await ev(`[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&!b.disabled&&b.textContent.trim()===${JSON.stringify(label)}).click()`);
-  };
+  const enabledButton=label=>`[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&!b.disabled&&b.textContent.trim()===${JSON.stringify(label)})`;
+  const click=label=>wait(`(()=>{const button=${enabledButton(label)};if(!button)return false;button.click();return true})()`);
   const local=`new Promise((resolve,reject)=>{const r=indexedDB.open('league-match-reports-v1');r.onsuccess=()=>{const db=r.result;const tx=db.transaction('reports');const q=tx.objectStore('reports').get([${JSON.stringify(actorId)},${JSON.stringify(match)}]);q.onsuccess=()=>resolve(q.result);tx.oncomplete=()=>db.close()};r.onerror=()=>reject(Error('IDB'))})`;
   try {
     for(const [name,value] of account.cookies) await browser.command('Network.setCookie',{name,value,url:base});
@@ -21,6 +19,7 @@ export async function verifyPreparedNoShowBrowser({base,match,db,actorId}) {
     await click('Aceptar y preparar');
     await wait(`(async()=>Boolean((await ${local})?.prepared))()`);
     await click('Capturar cédula');
+    await wait(enabledButton('Sincronizar'));
     assert.equal(await ev('navigator.onLine'),true);
     await wait("document.getElementById('no-show-team')");
     await ev("document.getElementById('no-show-team').click()");
@@ -36,8 +35,23 @@ export async function verifyPreparedNoShowBrowser({base,match,db,actorId}) {
     assert.equal(stored.data.match.status.captureAllowed,false);
     assert.equal(stored.serverMatchStatus,'NO_SHOW');
     assert.equal((await db.query("SELECT s.code FROM sports_management.matches m JOIN sports_management.match_statuses s ON s.id=m.status_id WHERE m.id=$1",[match])).rows[0].code,'NO_SHOW');
+    // Hold the server reference read that starts when the prepared copy opens.
+    // A slower response must not leave confirmation enabled during that sync.
+    let referenceRequestId;
+    const pauseReference=event=>{
+      const message=JSON.parse(event.data);
+      if(message.method==='Fetch.requestPaused') referenceRequestId=message.params.requestId;
+    };
+    browser.socket.addEventListener('message',pauseReference);
+    await browser.command('Fetch.enable',{patterns:[{urlPattern:`${base}/api/match-reports/${match}`,requestStage:'Response'}]});
     await browser.command('Page.navigate',{url:`${base}/offline/report?match=${match}`});
     await wait("document.querySelector('[data-report-workspace]') && document.body.innerText.includes('No presentado')");
+    await waitForReportBrowser(()=>Boolean(referenceRequestId),'consulta de referencia al reabrir la copia');
+    const confirmationButton="[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Confirmar resultado por incomparecencia')";
+    assert.equal(await ev(`${confirmationButton}?.disabled`),true,'Confirmación bloqueada mientras se sincroniza al abrir');
+    await browser.command('Fetch.continueResponse',{requestId:referenceRequestId});
+    await browser.command('Fetch.disable');
+    browser.socket.removeEventListener('message',pauseReference);
     const reopened=await ev(local);
     assert.equal(reopened.data.report.noShow.notes,stored.data.report.noShow.notes);
     assert.equal(reopened.data.match.status.code,'NO_SHOW');
@@ -50,19 +64,27 @@ export async function verifyPreparedNoShowBrowser({base,match,db,actorId}) {
     await db.query('UPDATE sports_management.season_categories SET competition_rule_id=$2 WHERE id=$1',[scope.season_category_id,rule]);
     // Simula un acuse perdido después del commit; al reabrir se reenvía la
     // misma intención, sin duplicar resultado ni descartar el acuse anterior.
-    let lostAck=false;
-    const intercept=event=>{const message=JSON.parse(event.data);if(message.method==='Fetch.requestPaused'){lostAck=true;void browser.command('Fetch.failRequest',{requestId:message.params.requestId,errorReason:'ConnectionReset'});}};
+    let interceptedStatus;
+    const intercept=event=>{
+      const message=JSON.parse(event.data);
+      if(message.method!=='Fetch.requestPaused') return;
+      interceptedStatus=message.params.responseStatusCode;
+      void browser.command('Fetch.failRequest',{requestId:message.params.requestId,errorReason:'ConnectionReset'});
+    };
     browser.socket.addEventListener('message',intercept);
-    await browser.command('Fetch.enable',{patterns:[{urlPattern:'*/confirm-no-show',requestStage:'Response'}]});
+    await browser.command('Fetch.enable',{patterns:[{urlPattern:`${base}/api/match-reports/${match}/confirm-no-show`,requestStage:'Response'}]});
     await click('Confirmar resultado por incomparecencia');
     await click('Confirmar resultado');
-    await wait(`(async()=>Boolean((await ${local})?.noShowConfirmation && !((await ${local}).noShowConfirmation.receipt)))()`);
     await wait('document.body.innerText.includes("No llegó el acuse")');
-    assert.equal(lostAck,true);
+    assert.equal(interceptedStatus,200,'Se pierde el acuse de una confirmación aplicada');
+    const unacknowledged=await ev(local);
+    assert.ok(unacknowledged.noShowConfirmation?.operationId,'La intención se guardó antes de enviar la confirmación');
+    assert.ok(!unacknowledged.noShowConfirmation.receipt,'La intención sigue pendiente de acuse');
     await browser.command('Fetch.disable');browser.socket.removeEventListener('message',intercept);
     await browser.command('Page.navigate',{url:`${base}/offline/report?match=${match}`});
     await wait(`(async()=>{const r=await ${local};return r?.data.match.status.code==='FINISHED' && r.data.report.status==='CONFIRMED' && Boolean(r.noShowConfirmation?.receipt)})()`);
     const confirmed=await ev(local);
+    assert.equal(confirmed.noShowConfirmation.operationId,unacknowledged.noShowConfirmation.operationId,'Recupera la misma intención');
     assert.equal(confirmed.data.report.noShow.notes,stored.data.report.noShow.notes);
     assert.equal(confirmed.lastReceipt.receipt.operationId,stored.lastReceipt.receipt.operationId,'conserva el acuse del registro');
     assert.deepEqual(confirmed.data.report.score,{home:0,away:1});

@@ -10,10 +10,12 @@ export function PublicShell({
   children,
   current,
   football = false,
+  showSignIn = true,
 }: {
   children: ReactNode;
   current: CurrentAccount | null;
   football?: boolean;
+  showSignIn?: boolean;
 }) {
   return (
     <>
@@ -29,7 +31,7 @@ export function PublicShell({
           <div className="flex shrink-0 items-center gap-2 sm:gap-4">
             {current ? <AccountMenu username={current.account.username} initials={current.account.initials}
             mustChangePassword={current.mustChangePassword} publicView />
-            : <><ThemeSelector /><ActionLink href="/login" className="shrink-0">Iniciar sesión</ActionLink></>}
+            : <><ThemeSelector />{showSignIn && <ActionLink href="/login" className="shrink-0">Iniciar sesión</ActionLink>}</>}
           </div>
         </div>
       </header>
