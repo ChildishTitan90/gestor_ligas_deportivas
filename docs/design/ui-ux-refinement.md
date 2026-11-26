@@ -181,6 +181,8 @@ Pasaron las pruebas de Chrome de INE, registro y expediente con cámara y transp
 
 ## Indicador de etapas de la cédula arbitral
 
+Al preparar un partido en la vista previa offline, el foco pasa al enlace de apertura después de que React monta el resultado. Una descarga fallida devuelve el foco al botón de reintento ya habilitado. Si la persona se mueve a otro control durante la preparación, conserva ese foco. La regresión en Chrome adelanta el callback de animación respecto al render para reproducir el fallo de CI y comprobar estas condiciones.
+
 La cédula en línea y la preparada para uso sin conexión comparten cinco botones conectados: Alineaciones, Participación, Eventos, Cierre y firmas, y Resumen. La etapa actual se anuncia con `aria-current`. Las marcas indican alineaciones selladas o una cédula completa confirmada. En una incomparecencia, el indicador permite ubicar el resumen sin marcar la captura ordinaria como completada.
 
 Cada botón utiliza la misma navegación, incluido el aviso de sellado de alineaciones al intentar avanzar. El estado de guardado de la copia, sincronización y acuse sigue junto a la navegación. Para revisar, abre un partido de prueba, navega con teclado a Cierre y firmas y vuelve a Participación. En la copia offline, guarda un cambio, consulta su estado y reconecta para comprobar el acuse sin perder la etapa activa.

@@ -488,6 +488,28 @@ test("PDGLD-148: recorrido de cédula sintética en Chrome", { timeout: 180000 }
     await ev("window.networkCalls=[];window.fixtureConfirmationStatus=0");
   });
 
+  await t.test("preparación offline: restaura el foco después del render y respeta la navegación", async () => {
+    await render("offline-download-incomplete");
+    // Force the frame callback before React commits the timer's state update.
+    // Focusing the completed action must depend on its mounted DOM.
+    await ev(`window.originalRequestFrame=window.requestAnimationFrame;
+      window.requestAnimationFrame=callback=>{queueMicrotask(()=>callback(performance.now()));return 0;}`);
+    try {
+      await click("Preparar para usar sin conexión");
+      await wait("document.activeElement.textContent.trim()==='Reintentar descarga'");
+      await click("Reintentar descarga");
+      await wait("document.activeElement.textContent.trim()==='Abrir cédula'");
+    } finally {
+      await ev("window.requestAnimationFrame=window.originalRequestFrame;delete window.originalRequestFrame");
+    }
+
+    await render("offline-download-prepare");
+    await click("Preparar para usar sin conexión");
+    await ev(`document.querySelector('nav[aria-label="Escenarios de preparación"] a').focus()`);
+    await wait("document.body.innerText.includes('Disponible sin conexión · Simulación')");
+    assert.equal(await ev(`document.activeElement===document.querySelector('nav[aria-label="Escenarios de preparación"] a')`),true);
+  });
+
   await t.test("vista previa PDGLD-19/20: preparación, borrador sin red y recuperación", async () => {
     const panel = 'document.querySelector("[aria-label=\\"Estado offline simulado\\"]")';
     const status = text => wait(`${panel}.innerText.includes(${JSON.stringify(text)})`);
