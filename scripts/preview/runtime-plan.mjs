@@ -185,6 +185,14 @@ readColumns.season_breaks.push('starts_at','ends_at','reason');
 readColumns.venue_loans.push('venue_id','club_id','status','approved_by','approved_at');
 export const schedulingLoanWindowColumns = Object.freeze(['requested_by','requested_windows']);
 insert.schedule_proposals = ['id','season_id','matchday_id','created_by','competition_rule_id','parameters','conflicts','created_at','status','version'];
+// PDGLD-176: backend de cargos. No concede registro de pagos ni mutación del origen.
+read.push('charge_concepts');
+readColumns.billing_plans = ['id','season_id','club_id','season_team_id','charge_concept_id','amount','frequency','starts_at','ends_at','created_by'];
+insert.billing_plans = ['season_id','club_id','season_team_id','charge_concept_id','amount','frequency','starts_at','ends_at','created_by'];
+insert.charges = ['season_id','club_id','season_team_id','charge_concept_id','amount','currency','issued_on','due_on','period_start_date','period_end_date','billing_plan_id','created_by','version'];
+update.charges = ['amount','due_on','version'];
+insert.audit_logs.push('correlation_id');
+lock.push('billing_plans');
 export const runtimePrivileges = Object.freeze({ read, readColumns, insert, update, remove, lock });
 const literal = value => `'${value.replaceAll("'", "''")}'`;
 const array = values => `ARRAY[${values.map(literal).join(',')}]::text[]`;

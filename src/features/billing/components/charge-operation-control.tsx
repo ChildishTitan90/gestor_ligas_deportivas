@@ -11,7 +11,7 @@ import { formatChargeAmount, formatChargePeriod } from "../presentation";
 import type { BillingPlan, BillingReceipt, ChargeDetail } from "../types";
 
 type Props = { plan: BillingPlan; charge?: never } | { charge: ChargeDetail; plan?: never };
-const inputClass = "mt-1 min-h-12 w-full rounded-xl border border-border bg-surface px-3 py-2 text-primary";
+const inputClass = "mt-1 min-h-12 w-full rounded-xl border border-border bg-surface px-3 py-2 text-primary aria-invalid:border-danger";
 
 export function ChargeOperationControl({ plan, charge }: Props) {
   const router = useRouter();
@@ -19,6 +19,7 @@ export function ChargeOperationControl({ plan, charge }: Props) {
   const [command, setCommand] = useState<BillingCommand | null>(null);
   const [phase, setPhase] = useState("idle");
   const [message, setMessage] = useState("");
+  const [invalidField, setInvalidField] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<BillingReceipt | null>(null);
   const [dirty, setDirty] = useState(false);
   const [fields, setFields] = useState({
@@ -31,9 +32,14 @@ export function ChargeOperationControl({ plan, charge }: Props) {
   const pending = phase === "sending" || phase === "checking";
   const uncertain = phase === "uncertain" || phase === "retry";
   const locked = pending || uncertain;
+  const errorId = `billing-operation-${plan?.id ?? charge?.id}-error`;
+  const validation = (name: string) => ({
+    "aria-invalid": invalidField === name || undefined,
+    "aria-describedby": invalidField === name ? errorId : undefined,
+  });
 
   function update(name: keyof typeof fields, value: string) {
-    setFields(current => ({ ...current, [name]: value })); setDirty(true); setMessage(""); setCommand(null);
+    setFields(current => ({ ...current, [name]: value })); setDirty(true); setMessage(""); setInvalidField(null); setCommand(null);
   }
   function accept(result: Awaited<ReturnType<typeof saveBillingCommand>>) {
     if (result.status === "CONFIRMED") {
@@ -58,6 +64,7 @@ export function ChargeOperationControl({ plan, charge }: Props) {
     if (!parsed.success) {
       setMessage(parsed.error.issues[0].message);
       const field = parsed.error.issues[0].path.at(-1);
+      setInvalidField(typeof field === "string" ? field : null);
       if (typeof field === "string") focusFormControl(form.current, field);
       return;
     }
@@ -71,7 +78,7 @@ export function ChargeOperationControl({ plan, charge }: Props) {
       dirty={dirty} pending={pending} uncertain={uncertain} onClose={reason => {
         setOpen(false);
         if (reason === "discard") {
-          setDirty(false); setCommand(null); setMessage(""); setPhase("idle");
+          setDirty(false); setCommand(null); setMessage(""); setInvalidField(null); setPhase("idle");
           setFields({ amount: charge?.amount ?? plan?.amount ?? "", dueOn: charge?.dueOn ?? "", periodStart: "", periodEnd: "", reason: "" });
         }
       }} footer={phase === "confirmed" ? undefined : uncertain ? <>
@@ -92,13 +99,13 @@ export function ChargeOperationControl({ plan, charge }: Props) {
       </div> : <form id={`billing-operation-${plan?.id ?? charge?.id}`} ref={form} onSubmit={submit} noValidate autoComplete="off" className="space-y-3">
         <fieldset disabled={locked} className="space-y-3 disabled:opacity-70">
           {plan ? <div className="grid grid-cols-2 gap-3">
-            <label className="text-sm">Inicio del periodo<input className={inputClass} name="periodStart" type="date" value={fields.periodStart} onChange={event => update("periodStart", event.target.value)} required /></label>
-            <label className="text-sm">Fin del periodo<input className={inputClass} name="periodEnd" type="date" value={fields.periodEnd} onChange={event => update("periodEnd", event.target.value)} required /></label>
-          </div> : <label className="block text-sm">Importe (MXN)<input className={inputClass} name="amount" inputMode="decimal" value={fields.amount} onChange={event => update("amount", event.target.value)} required /></label>}
-          <label className="block text-sm">Vencimiento<input className={inputClass} name="dueOn" type="date" value={fields.dueOn} onChange={event => update("dueOn", event.target.value)} required /></label>
-          <label className="block text-sm">Motivo<textarea className={inputClass} name="reason" value={fields.reason} onChange={event => update("reason", event.target.value)} required rows={2} /></label>
+            <label className="text-sm">Inicio del periodo<input {...validation("periodStart")} className={inputClass} name="periodStart" type="date" value={fields.periodStart} onChange={event => update("periodStart", event.target.value)} required /></label>
+            <label className="text-sm">Fin del periodo<input {...validation("periodEnd")} className={inputClass} name="periodEnd" type="date" value={fields.periodEnd} onChange={event => update("periodEnd", event.target.value)} required /></label>
+          </div> : <label className="block text-sm">Importe (MXN)<input {...validation("amount")} className={inputClass} name="amount" inputMode="decimal" value={fields.amount} onChange={event => update("amount", event.target.value)} required /></label>}
+          <label className="block text-sm">Vencimiento<input {...validation("dueOn")} className={inputClass} name="dueOn" type="date" value={fields.dueOn} onChange={event => update("dueOn", event.target.value)} required /></label>
+          <label className="block text-sm">Motivo<textarea {...validation("reason")} className={inputClass} name="reason" value={fields.reason} onChange={event => update("reason", event.target.value)} required rows={2} /></label>
         </fieldset>
-        {message && <p role="alert" className="text-sm text-danger">{message}</p>}
+        {message && <p id={errorId} role="alert" className="text-sm text-danger">{message}</p>}
         {uncertain && <p role="status" className="text-sm text-primary">{phase === "retry" ? "El servidor confirmó que el intento no se aplicó. Puedes reenviar la misma intención." : "El resultado sigue sin confirmar. Consulta antes de volver a enviar."}</p>}
       </form>}
     </FormDialog>

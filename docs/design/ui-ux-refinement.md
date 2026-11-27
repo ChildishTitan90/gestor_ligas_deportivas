@@ -181,6 +181,8 @@ Pasaron las pruebas de Chrome de INE, registro y expediente con cámara y transp
 
 ## Indicador de etapas de la cédula arbitral
 
+Al preparar un partido en la vista previa offline, el foco pasa al enlace de apertura después de que React monta el resultado. Una descarga fallida devuelve el foco al botón de reintento ya habilitado. Si la persona se mueve a otro control durante la preparación, conserva ese foco. La regresión en Chrome adelanta el callback de animación respecto al render para reproducir el fallo de CI y comprobar estas condiciones.
+
 La cédula en línea y la preparada para uso sin conexión comparten cinco botones conectados: Alineaciones, Participación, Eventos, Cierre y firmas, y Resumen. La etapa actual se anuncia con `aria-current`. Las marcas indican alineaciones selladas o una cédula completa confirmada. En una incomparecencia, el indicador permite ubicar el resumen sin marcar la captura ordinaria como completada.
 
 Cada botón utiliza la misma navegación, incluido el aviso de sellado de alineaciones al intentar avanzar. El estado de guardado de la copia, sincronización y acuse sigue junto a la navegación. Para revisar, abre un partido de prueba, navega con teclado a Cierre y firmas y vuelve a Participación. En la copia offline, guarda un cambio, consulta su estado y reconecta para comprobar el acuse sin perder la etapa activa.
@@ -247,3 +249,9 @@ Pasaron las pruebas de recuperación y confirmación de correo, mensajes de acce
 ## Cargos de tesorería
 
 PDGLD-174 usa el shell de gestión y sus permisos de Cobranza. El listado conserva los filtros al volver del detalle. El alta muestra captura, revisión y resultado de demostración. La consulta de una respuesta incierta conserva los datos de la operación mientras se mantenga abierta la captura. [Diseño](treasury-charges.md) · [Contrato y validación](../validation/PDGLD-77.md)
+
+## PDGLD-176 · validación del recorrido de cargos
+
+Se conserva la composición aprobada de tesorería y sus controles compartidos. La revisión con ui-guardrails, web-design-guidelines, frontend-design e Impeccable detectó un error sin asociación al campo en el diálogo de corrección/generación. Se añadió `aria-invalid` y `aria-describedby` con mensaje identificado y borde de error; se conserva foco, captura, contrato y servicio existentes. No cambian tokens, layout ni componentes compartidos.
+
+La evidencia automatizada usa Chrome con NextAuth y PostgreSQL desechable, backend limitado y RLS. Las capturas y resultados están en `docs/validation/pdgld176/`; los cortes de transporte son deliberados, con backend/base reales. La aceptación humana sigue pendiente. El cargador de contexto de Impeccable no estuvo disponible; se leyeron las decisiones existentes y sus referencias locales, sin inventar PRODUCT.md/DESIGN.md.

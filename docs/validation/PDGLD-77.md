@@ -1,4 +1,63 @@
-# PDGLD-77 · PDGLD-175
+# PDGLD-77 · PDGLD-176
+
+## Estado y versión
+
+Trabajo sobre `feat/PDGLD-77-cargos-tesoreria`, HEAD inicial `b10a752`, con `origin/develop` actualizado e integrado localmente desde `373ee72`, sin commit de integración. La revisión manual de PDGLD-174/175 **no se realizó** según informó Víctor. Continuó la automatización a petición suya; esa aceptación humana permanece pendiente.
+
+Las pruebas usan Node.js 24.9.0, Next.js 16.4.6, NextAuth 4.24.15, Prisma 7.10.1 y Chrome 158.0.8127.37 real. Cada ejecución crea un contenedor PostgreSQL exclusivo, con datos en tmpfs y puerto loopback dinámico, aplica todas las migraciones, carga una fixture sintética con la matriz RF22 real y levanta la aplicación con `gestor_ligas_preview`, sin superusuario ni BYPASSRLS. RLS está activo en las tablas de esa base. El ámbito por persona se verifica en los servicios con sesión; las políticas SQL pertenecen al backend privado, no identifican al usuario de NextAuth.
+
+La base habitual de Docker, sus clubes/cuentas, las fotos y los documentos de Storage se conservan. Esta suite no usa Supabase ni proveedores CURP/INE, correo o almacenamiento remoto. No añade migraciones ni pagos funcionales.
+
+## Casos y evidencia reproducible
+
+`npm run test:billing` ejecuta PostgreSQL 15. `npm run test:billing -- --postgres=17` ejecuta PostgreSQL 17. Requieren Docker y Chrome; `CHROME_BIN` permite indicar su ejecutable. No reciben una conexión externa ni leen `.env` para elegir la base. Las credenciales desechables viven en el temporal del SO y se eliminan al terminar. Cada ejecución detiene su Next.js/Chrome y elimina solamente su contenedor identificado por etiqueta de propietario.
+
+La suite tiene 17 casos y el contenedor de pruebas, con comprobaciones HTTP directas contra las Server Actions reales. Las referencias se capturan del navegador compilado, sin endpoints especiales de prueba.
+
+| Comportamiento | Comprobación |
+| --- | --- |
+| Cargo pendiente y precisión | Alta sin pagos; saldo exacto; `0.01`, máximo `9999999999.99`, coma y ceros iniciales; rechazos por cero, negativo, tercer decimal, exponente y desbordamiento. PostgreSQL también rechaza cero/desbordamiento. |
+| Autoridad y contexto | Sesiones reales de Tesorería, delegado, otra liga, invitado y Comisión; anónimo, UUID inexistente, equipo/temporada inconsistente, identificadores ajenos y revocación con la misma sesión. |
+| Intención y unicidad | Reenvíos concurrentes del mismo UUID con acuse idéntico y sin auditoría adicional; UUID reutilizado con otro contenido rechazado; dos generaciones con distintas intenciones y mismo periodo crean una deuda. INSERT concurrente directo comprueba ambos índices de club/equipo. |
+| Semanal | Guardar plan no crea cargos; otro periodo produce otro cargo; repetir recupera el existente; siete días inclusivos y ventana del plan se validan. |
+| Corrección e historial | Un ganador por versión; motivo, autor y valores anteriores conservados; cualquier pago bloquea corrección y sus movimientos se conservan. |
+| Atomicidad | Trigger de fallo instalado solo en la base desechable después del efecto y antes del acuse: rollback de cargo/plan, historial y operación. La conciliación confirma NOT_APPLIED y permite el mismo intento. |
+| Consultas/consumidores | Coherencia entre importe/saldo persistidos, detalle y consulta privada; delegado limitado a su club; evento CHARGE_CREATED con UUID estable y autorización. No acredita la entrega de avisos de PDGLD-83. |
+| Interfaz real | Menú → captura → revisión → cancelación/confirmación → acuse → detalle → corrección; plan/generación/repetición. Validación y foco, retorno con Escape, descarte, captura conservada tras rechazo, Tab dentro del diálogo, escritorio/móvil y claro/oscuro. |
+| Transporte interrumpido | CDP corta la respuesta después de comprobar el commit real; la consulta recupera el mismo cargo. Otro corte antes del envío permite consultar NOT_APPLIED y reenviar exactamente la misma intención. El transporte se altera deliberadamente; sesión, servicios y base son reales. |
+| RLS/ACL | Backend limitado con RLS activo; sin INSERT de pagos, DELETE de cargos, cambio de destinatario ni lectura del ledger de Prisma. |
+
+Matriz final aprobada el 26/11/2026 (America/Mexico_City): PostgreSQL **15.19, 18/18** y PostgreSQL **17.12, 18/18**, sin omisiones, ambos con exit 0. Los JSON enumeran los 17 casos y el runner cuenta además su contenedor de pruebas. [Resultado PG15](pdgld176/pg15/results.json) · [Resultado PG17](pdgld176/pg17/results.json). Cada versión conserva ocho capturas: listado/detalle a 390 y 1440 px en claro/oscuro. Ejemplos: [listado móvil claro](pdgld176/pg17/listado-390-light.png), [listado escritorio oscuro](pdgld176/pg17/listado-1440-dark.png) y [detalle móvil oscuro](pdgld176/pg17/detalle-390-dark.png).
+
+## CI y regresión
+
+El job `billing` de `.github/workflows/ci-cd.yml` ejecuta el runner en matriz 15/17 y sube evidencia sintética. `CI listo para integrar` depende de `billing` y exige `BILLING_RESULT=success`; no hay `continue-on-error`. `test:ci` incluye una comprobación del workflow y ejecuta su shell real con success/failure/cancelled/skipped para comprobar el bloqueo. Una prueba fallida de la suite propaga exit 1 al runner.
+
+Comprobados: `npm run lint`, `npm run typecheck`, `test:theme` (7), `test:affiliation-review` (31), `test:database-config` y `test:team-registration`. `test:preview-runtime` terminó con 126 aprobadas y 2 omisiones explícitas que corresponden a comprobaciones originales de migración/seguridad en el otro perfil. `test:ci` pasó en Linux con el repositorio montado en solo lectura (99/99). En Windows, la suite general de CI contiene requisitos POSIX y pruebas de symlinks que fallan también fuera del sandbox; la ejecución Linux acreditada conserva esos controles, sin omitirlos ni debilitarlos.
+
+El workflow está preparado y su gate fue ejecutado localmente; **no hay ejecución de GitHub Actions de estos cambios**, porque no se hizo commit ni push. No se declara CI remoto aprobado ni revisión por otra persona.
+
+## Ajustes y pendientes
+
+Se completó el plan privado de Preview con lectura de conceptos/planes, INSERT limitado de planes/cargos y acuses con `correlation_id`, UPDATE de importe/vencimiento/versión y bloqueo de planes. El diálogo de generación/corrección asocia su error al campo, indica `aria-invalid` y conserva su aspecto y foco. No se reemplazaron vistas ni controles compartidos.
+
+**No aceptado: multa desde resolución oficial válida y reenvío sin duplicarla.** PDGLD-27 está pendiente de una referencia verificable con vigencia/exigibilidad. La prueba solo acredita el rechazo de FINE, incluidos reenvíos y planes legados; un UUID o una fixture no acredita esa integración. Falta acordar automatización de arbitraje por partido y su evento, tarifa/reparto y cancelaciones. No se inventó calendario ni tarifario.
+
+Preview/Production necesitan revisar y aplicar su plan de ACL/RLS privado antes del despliegue autorizado; solo se probó su provisión en PostgreSQL desechable. La unicidad original por `sanction_id` se conserva. PDGLD-78/79/82 pueden consumir la consulta privada de saldo; sus recorridos completos no están implementados por esta entrega. PDGLD-83 aún debe implementar descubrimiento/entrega y deduplicación de avisos.
+
+Para retomar: ejecutar ambos comandos, revisar los JSON y las capturas, realizar la prueba humana en el Docker habitual con [la guía local](local-app-data.md), acordar el contrato con PDGLD-27 y revisar el PR hacia develop. No cerrar PDGLD-77/176 por la parte protegida o por CI únicamente. [Borrador del PR](PDGLD-77-pr.md).
+
+## Demostración manual pendiente
+
+1. Abrir [Tesorería → Cargos](http://127.0.0.1:3000/treasury/charges) con `tesoreria-local`. Las contraseñas/cuentas existentes no se modificaron; consultar [los datos locales](local-app-data.md). Si el servidor está detenido, ejecutar `npm run dev` desde el proyecto con su configuración Docker habitual.
+2. Crear un cargo de prueba para un club afiliado, con concepto Cancha, modalidad Único, importe ficticio `65.25` MXN, periodo `01–07/04/2027`, vencimiento `15/04/2027` y motivo explícito de prueba. Elegir una combinación todavía no utilizada; si ya existe, se recupera o se rechaza por datos distintos. Revisar destinatario/importe, cancelar la primera confirmación y confirmar después. El acuse lleva al detalle; pagos sigue en cero.
+3. Modificar ese cargo a `70.50` con otro motivo. Consultar el historial y comprobar antes/después/autor. La operación queda bloqueada si hay cualquier pago asociado.
+4. Guardar un plan semanal para un equipo dentro de una ventana explícita. Verificar que aún no crea cargos. Generar siete días inclusivos con vencimiento futuro, repetir exactamente ese periodo y comprobar el mismo cargo; generar otra semana y comprobar otro cargo.
+5. Entrar como delegado del club para consultar su ámbito y con Disciplina/invitado para comprobar denegación. Multa explica el bloqueo de PDGLD-27. Para las pérdidas de respuesta, carreras y rollback usar la suite desechable, que deja sus efectos de prueba fuera de esta base manual.
+
+La revisión visual automatizada conservó los tokens, la jerarquía y la composición aprobadas. No sustituye la prueba humana ni la aceptación reglamentaria. Se comprobó de nuevo `origin/develop=373ee72` al finalizar; sus correcciones de cédula y pruebas siguen integradas localmente, sin commit, push ni merge de PR.
+
+## Registro histórico de PDGLD-175
 
 ## Estado actual
 

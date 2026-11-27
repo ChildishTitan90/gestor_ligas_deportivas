@@ -277,10 +277,39 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
+  billing:
+    name: Tesorería HTTP y Chrome PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [15, 17]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Probar cargos, concurrencia, rollback, sesión, ámbito y recuperación
+        run: npm run test:billing -- --postgres=${{ matrix.postgres }}
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+      - name: Conservar evidencia sintética
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pdgld176-pg${{ matrix.postgres }}
+          path: docs/validation/pdgld176/pg${{ matrix.postgres }}/
+          if-no-files-found: warn
+
   checks:
     name: CI listo para integrar
     if: ${{ always() }}
-    needs: [app, database, refereeing, match-reports]
+    needs: [app, database, refereeing, match-reports, billing]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
@@ -288,6 +317,7 @@ jobs:
       DATABASE_RESULT: ${{ needs.database.result }}
       REFEREEING_RESULT: ${{ needs.refereeing.result }}
       MATCH_REPORTS_RESULT: ${{ needs.match-reports.result }}
+      BILLING_RESULT: ${{ needs.billing.result }}
     steps:
       - name: Exigir que todas las comprobaciones pasen
         run: |
@@ -295,6 +325,7 @@ jobs:
           test "$DATABASE_RESULT" = "success"
           test "$REFEREEING_RESULT" = "success"
           test "$MATCH_REPORTS_RESULT" = "success"
+          test "$BILLING_RESULT" = "success"
 
   deploy:
     name: Migraciones Supabase producción

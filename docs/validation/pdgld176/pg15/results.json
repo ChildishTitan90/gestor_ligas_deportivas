@@ -1,0 +1,29 @@
+{
+  "ticket": "PDGLD-176",
+  "postgres": "15.19 (Debian 15.19-1.pgdg13+2)",
+  "passed": [
+    "Perfil limitado con RLS, sin pagos, borrados, cambio de origen ni ledger",
+    "Recorrido Chrome real, cancelación, validación, teclado, foco, incertidumbre tras commit, corrección y semanal",
+    "Cargo válido nace pendiente con importe exacto y cero pagos",
+    "Importes inválidos, precisión, límites Decimal(12,2) y contrato estricto",
+    "Destinatario inexistente, temporada inconsistente y liga ajena se rechazan",
+    "Sin permiso no se crea, modifica, genera ni concilia, incluso por POST directo",
+    "Misma intención concurrente devuelve el mismo acuse sin duplicar auditoría",
+    "Misma clave con contenido distinto se rechaza también en conciliación",
+    "Plan guardado no genera; dos generaciones concurrentes producen un cargo",
+    "Otro periodo semanal cobra una vez; reejecutar, periodo inválido y plan ajeno",
+    "Índices PostgreSQL rechazan dos INSERT directos concurrentes sin bloqueo de aplicación",
+    "Modificación concurrente conserva autor, motivo, valores anteriores y versión",
+    "Pagos existentes bloquean corrección y saldo usa Decimal; no se borran movimientos",
+    "Fallo después del efecto revierte cargo, plan, acuse e historial; misma intención se recupera",
+    "Multas protegidas: UUID de resolución no acredita PDGLD-27 y nunca crea deuda",
+    "Consulta privada, ID ajeno, filtros y consistencia listado/detalle/consumidores",
+    "Pérdida de permiso impide reenvío y conciliación de un acuse anterior"
+  ],
+  "blocked": [
+    "Multa desde resolución válida PDGLD-27: integración ausente"
+  ],
+  "transportFault": "Respuesta real interrumpida después de commit; conciliada por intención",
+  "runtime": "gestor_ligas_preview con RLS",
+  "at": "2026-11-27T05:07:00.353Z"
+}
