@@ -19,8 +19,12 @@ y página. Las páginas anteriores se recorren mediante enlaces.
 - Filtros: ámbito autorizado, tipo de entidad, usuario y fechas inclusivas.
 - Con varios ámbitos se exige elegir uno; no se selecciona otra liga al filtrar.
 - Las fechas y horas usan la zona del ámbito seleccionado, indicada en pantalla.
-- El listado muestra operación, entidad, usuario, motivo permitido y fecha.
+- El listado muestra operación, entidad, registro afectado, usuario, motivo permitido y fecha.
 - El detalle separa los valores anteriores y posteriores que pueden mostrarse.
+- El identificador completo del registro permite distinguir partidos, resultados
+  y expedientes diferentes sin mostrar nombres personales ni agregar botones.
+  Aprobación, solicitud de correcciones y reenvío de afiliación tienen etiquetas
+  propias. Los motivos libres permanecen reservados.
 - Se distinguen carga, selección pendiente, vacío, filtros inválidos, error y
   acceso denegado. Un registro invisible no se presenta como historial inexistente.
 

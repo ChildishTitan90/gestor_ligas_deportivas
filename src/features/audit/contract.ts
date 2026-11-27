@@ -21,7 +21,7 @@ export type AuditFilters = z.infer<typeof auditFiltersSchema>;
 export type AuditScope = { value: string; label: string; timezone: string };
 export type AuditEntry = {
   id: string; at: string; actor: string; action: string; entity: string; name: string;
-  scope: string; timezone: string; reason: string;
+  scope: string; timezone: string; reason: string; reference: string;
 };
 export type AuditChange = { field: string; before: string; after: string };
 export type AuditDetail = AuditEntry & { changes: AuditChange[] };

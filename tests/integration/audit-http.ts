@@ -7,7 +7,7 @@ import {Browser} from "./auth.test.mjs";
 import {childEnvironment} from "../../scripts/ci/delegate-isolated-runtime.mjs";
 import {launchChrome} from "../e2e/chrome-session.mjs";
 
-export async function verifyAuditHttp(f:{actors:Record<string,string>;a:{id:string};ea:{id:string};eb:{id:string}},password:string) {
+export async function verifyAuditHttp(f:{actors:Record<string,string>;a:{id:string};ea:{id:string};eb:{id:string};reviewEvents:{id:string;label:string;reference:string}[];allowedEvent:{id:string};allowedReason:string;referenceEvents:{id:string;entity:string;reference:string}[]},password:string) {
   const target=new URL(process.env.DATABASE_URL??"");
   assert.match(target.pathname,/^\/pdgld91_test_[a-f0-9]{16}$/);
   assert.ok(["127.0.0.1","localhost","[::1]"].includes(target.hostname));
@@ -42,6 +42,29 @@ export async function verifyAuditHttp(f:{actors:Record<string,string>;a:{id:stri
     assert.match(response.headers.get("cache-control")??"",/private, no-store/);
     const body=await response.json();assert.ok(body.entries.length>0);
     assert.ok(!JSON.stringify(body).includes("NEVER_SHOW_"));
+    const reviewsResponse=await a.request(path+"&entity=club_affiliations");assert.equal(reviewsResponse.status,200);
+    const reviews=await reviewsResponse.json();
+    assert.ok(!JSON.stringify(reviews).includes("Marina Robles Soto"));
+    for(const event of f.reviewEvents){
+      const row=reviews.entries.find((row:{id:string})=>row.id===event.id);assert.ok(row);
+      assert.equal(row.action,event.label);assert.equal(row.reference,event.reference);
+      assert.equal(row.reason,"Motivo reservado por privacidad.");
+      const response=await a.request(`/api/audit/${event.id}`);assert.equal(response.status,200);
+      const detail=await response.json();
+      assert.equal(detail.action,event.label);assert.equal(detail.reason,"Motivo reservado por privacidad.");
+      assert.ok(!JSON.stringify(detail).includes("Marina Robles Soto"));
+    }
+    assert.equal(reviews.entries.find((row:{id:string})=>row.id===f.allowedEvent.id).reason,f.allowedReason);
+    for(const event of f.referenceEvents){
+      const response=await a.request(`/api/audit/${event.id}`);assert.equal(response.status,200);
+      const detail=await response.json();assert.equal(detail.reference,event.reference);
+      assert.equal(detail.reason,"Motivo reservado por privacidad.");
+      assert.ok(!JSON.stringify(detail).includes("Marina Robles Soto"));
+      const listResponse=await a.request(path+`&entity=${event.entity}`);assert.equal(listResponse.status,200);
+      const list=await listResponse.json();
+      assert.equal(list.entries.find((row:{id:string})=>row.id===event.id).reference,event.reference);
+      assert.equal((await denied.request(`/api/audit/${event.id}`)).status,403);
+    }
     const page=await a.request(`/audit?scope=${f.a.id}`);
     assert.equal(page.status,200);const pageHtml=await page.text();
     assert.ok(pageHtml.includes("Bitácora de operaciones") && !pageHtml.includes("NEVER_SHOW_"));

@@ -29,11 +29,37 @@ export function actorLabel(value: unknown) {
 }
 const actionLabels: Record<string, string> = {
   INSERT: "Alta", UPDATE: "Actualización", DELETE: "Baja",
+  AFFILIATION_APPROVE: "Afiliación aprobada", AFFILIATION_REQUEST_CORRECTIONS: "Correcciones de afiliación solicitadas",
+  AFFILIATION_RESUBMIT: "Correcciones de afiliación reenviadas",
+  ACCOUNT_EMAIL_REQUESTED: "Cambio de correo solicitado", ACCOUNT_EMAIL_CONFIRMED: "Cambio de correo confirmado",
   PLAYER_CORRECTION_REQUESTED: "Corrección solicitada", PLAYER_CORRECTION_APPLIED: "Corrección aplicada",
   PLAYER_CORRECTION_RETURNED: "Corrección devuelta", PLAYER_CORRECTION_REASSESSED: "Elegibilidad reevaluada",
   PLAYER_REGISTERED: "Jugador registrado", PLAYER_IDENTITY_REVIEWED: "Identidad revisada",
+  PLAYER_IDENTITY_CREATED: "Identidad registrada", PLAYER_AUTO_ACTIVATED: "Jugador habilitado automáticamente",
+  PLAYER_MANUAL_ACTIVATED: "Habilitación de jugador revisada",
+  PLAYER_AGE_EXCEPTION_CAPTURED: "Excepción de edad capturada", PLAYER_AGE_EXCEPTION_REQUESTED: "Excepción de edad solicitada",
+  PLAYER_AGE_EXCEPTION_DECIDED: "Excepción de edad resuelta",
+  PLAYER_INE_PREPARED: "Verificación de identificación preparada", PLAYER_INE_RESULT: "Resultado de verificación de identificación registrado",
+  MATCH_SCHEDULED: "Partido programado", MATCH_RESCHEDULED: "Partido reprogramado",
+  SCHEDULE_VERSION: "Versión de programación registrada", ACTIVATE_APPROVED_SCHEDULE: "Programación aprobada activada",
 };
-export function actionLabel(action: string) { return actionLabels[action] ?? "Operación registrada"; }
+export function actionLabel(action: string) { return Object.hasOwn(actionLabels,action) ? actionLabels[action] : "Operación registrada"; }
+
+// Solo literales emitidos por el servidor y revisados para cada tipo de evento.
+// Un motivo libre no puede considerarse anónimo por no contener patrones conocidos.
+const allowedReasons: Partial<Record<keyof typeof auditEntities, Record<string, readonly string[]>>> = {
+  club_affiliations: {
+    INSERT: ["PDGLD-57: solicitud de afiliación"],
+    AFFILIATION_RESUBMIT: ["PDGLD-60: reenvío de correcciones"],
+    AFFILIATION_APPROVE: ["PDGLD-60: revisión de afiliación"],
+    AFFILIATION_REQUEST_CORRECTIONS: ["PDGLD-60: revisión de afiliación"],
+  },
+};
+export function reasonLabel(table: keyof typeof auditEntities, action: string, reason: unknown): string {
+  const reasons=allowedReasons[table];
+  return typeof reason === "string" && reasons && Object.hasOwn(reasons,action) && reasons[action].includes(reason)
+    ? reason : "Motivo reservado por privacidad.";
+}
 
 function visibleValue(value: unknown) {
   if (value === null || value === undefined) return "Sin valor registrado";

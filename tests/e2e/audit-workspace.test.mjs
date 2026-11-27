@@ -23,7 +23,7 @@ import {AuditWorkspaceView,AuditDetailView} from './src/features/audit/component
 const root=createRoot(document.getElementById('root'));
 const scope='d7434364-46d5-40f9-8d44-19d67683c468';
 const filters={scope,entity:'clubs',actor:'secretaria'};
-const entry={id:'e490887c-daf7-4f25-8507-ab70b0240180',at:'2030-01-03T18:30:00.123456Z',actor:'@secretaria',action:'Actualización',entity:'Clubes',name:'Club Deportivo Norte',scope:'Liga de prueba',timezone:'America/Mexico_City',reason:'Corrección autorizada del nombre del club'};
+const entry={id:'e490887c-daf7-4f25-8507-ab70b0240180',at:'2030-01-03T18:30:00.123456Z',reference:'6b672264-cd29-4d22-a0f4-8ac73309c6ff',actor:'@secretaria',action:'Actualización',entity:'Clubes',name:'Club Deportivo Norte',scope:'Liga de prueba',timezone:'America/Mexico_City',reason:'Corrección autorizada del nombre del club'};
 const scopes=[{value:scope,label:'Liga de prueba',timezone:'America/Mexico_City'}];
 const workspace={filters,scopes,selected:scopes[0],entries:[entry],next:null};
 window.showList=()=>flushSync(()=>root.render(<AuditWorkspaceView workspace={workspace}/>));
@@ -45,7 +45,9 @@ window.runTest=async()=>{
  const values=new FormData(document.querySelector('form'));
  check(values.get('scope')===scope && values.get('entity')==='clubs' && values.get('actor')==='secretaria','Filtros no serializables');
  const row=document.querySelector('section a');check(row.href.includes('/audit/'+entry.id)&&row.href.includes('entity=clubs'),'Se perdió la consulta al abrir el detalle');
+ check(document.body.textContent.includes(entry.reference),'El listado omite el registro afectado');
  window.showDetail();
+ check(document.body.textContent.includes(entry.reference),'El detalle omite el registro afectado');
  check(document.querySelector('[aria-current=step]').textContent.includes('Detalle'),'Paso actual incorrecto en detalle');
  check(document.querySelectorAll('button').length===0,'El detalle agregó botones innecesarios');
  check(document.body.textContent.includes('Antes')&&document.body.textContent.includes('Después'),'No se distinguen los cambios');

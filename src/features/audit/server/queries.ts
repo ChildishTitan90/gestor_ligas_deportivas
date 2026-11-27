@@ -7,7 +7,7 @@ import { requireOperationalUser } from "@/server/auth/session";
 import { AuthorizationError, getPermissionGrants } from "@/server/auth/authorization";
 import { venueTimeToIso } from "@/features/venues/time";
 import { auditFiltersSchema, auditEntities, type AuditFilters, type AuditEntry, type AuditWorkspace } from "../contract";
-import { actionLabel, actorLabel, projectChanges, visibleText } from "../projection";
+import { actionLabel, actorLabel, projectChanges, reasonLabel, visibleText } from "../projection";
 
 export class AuditInputError extends Error {
   readonly status = 400;
@@ -71,17 +71,18 @@ function visibleScope(rights: Access) {
 
 type Row = {
   id:string; at:string; username:string|null; action:string; table_name:keyof typeof auditEntities;
-  entity_name:string|null; reason:string; league_id:string|null; league_name:string|null; timezone:string|null;
+  entity_name:string|null; entity_reference:string; reason:string; league_id:string|null; league_name:string|null; timezone:string|null;
   previous_data?:unknown; new_data?:unknown;
 };
 const selectFields = Prisma.sql`e.id, to_char(e.occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at,
-  u.username, e.action, e.table_name, e.entity_name, e.reason, e.league_id, l.name AS league_name,
+  u.username, e.action, e.table_name, e.entity_name, e.entity_id AS entity_reference, e.reason, e.league_id, l.name AS league_name,
   l.timezone`;
 function entry(row: Row): AuditEntry {
   return { id:row.id, at:row.at, actor:actorLabel(row.username), action:actionLabel(row.action),
     entity:auditEntities[row.table_name], name:visibleText(row.entity_name,auditEntities[row.table_name]),
     scope:row.league_id ? visibleText(row.league_name,"Liga") : "Actividad general",
-    timezone:row.timezone ?? "America/Mexico_City", reason:visibleText(row.reason,"Motivo reservado por privacidad."),
+    timezone:row.timezone ?? "America/Mexico_City", reason:reasonLabel(row.table_name,row.action,row.reason),
+    reference:row.entity_reference,
   };
 }
 

@@ -54,18 +54,40 @@ test("bitácora real: ámbito, datos mínimos, orden estable, inmutabilidad y ro
       const season=await tx.seasons.create({data:{league_id:a.id,sport_id:sport.id,name:"Temporada de prueba",start_date:new Date("2030-01-01"),end_date:new Date("2030-12-31")}});
       const team=await tx.teams.create({data:{club_id:ca.id,name:"Equipo A",reference_number:randomUUID()}});
       const affiliation=await tx.club_affiliations.create({data:{season_id:season.id,club_id:ca.id,league_id:a.id,reference_number:randomUUID(),uniform_colors:"Azul",status:"APPROVED",requested_by:actors.global}});
+      const reviewEvents=[];
+      for(const [action,label] of [["AFFILIATION_APPROVE","Afiliación aprobada"],["AFFILIATION_REQUEST_CORRECTIONS","Correcciones de afiliación solicitadas"],["AFFILIATION_RESUBMIT","Correcciones de afiliación reenviadas"]]){
+        const event=await tx.audit_logs.create({data:{user_id:actors.global,action,table_name:"club_affiliations",entity_id:affiliation.id,
+          reason:"Se corrigió el registro de Marina Robles Soto por una situación familiar",new_data:{status:"PENDING",observations:"Marina Robles Soto"}}});
+        reviewEvents.push({id:event.id,label,reference:affiliation.id});
+      }
+      const allowedReason="PDGLD-60: revisión de afiliación";
+      const allowedEvent=await tx.audit_logs.create({data:{user_id:actors.global,action:"AFFILIATION_APPROVE",table_name:"club_affiliations",entity_id:affiliation.id,reason:allowedReason}});
       const category=await tx.categories.create({data:{league_id:a.id,sport_id:sport.id,name:"Abierta sintética"}});
       const rule=await tx.competition_rules.create({data:{season_id:season.id,version_number:1}});
       const seasonCategory=await tx.season_categories.create({data:{season_id:season.id,category_id:category.id,competition_rule_id:rule.id,hierarchy_order:1,type:"OPEN",age_cutoff_date:new Date("2030-01-01"),competition_format:"GENERAL_TABLE",eligibility_pending:false,player_policy:{...syntheticPlayerPolicy(),registrationDays:[1,2,3,4,5,6,7]}}});
       const group=await tx.groups.create({data:{season_id:season.id,season_category_id:seasonCategory.id,name:"General"}});
       await tx.club_affiliation_categories.create({data:{affiliation_id:affiliation.id,season_id:season.id,category_id:category.id,authorized_by:actors.global,authorized_at:new Date()}});
       const enrollment=await tx.season_teams.create({data:{season_id:season.id,team_id:team.id,club_id:ca.id,season_category_id:seasonCategory.id,group_id:group.id}});
+      const awayTeam=await tx.teams.create({data:{club_id:ca.id,name:"Equipo visitante sintético",reference_number:randomUUID()}});
+      const away=await tx.season_teams.create({data:{season_id:season.id,team_id:awayTeam.id,club_id:ca.id,season_category_id:seasonCategory.id,group_id:group.id}});
+      const day=await tx.matchdays.create({data:{season_id:season.id,number:1,start_date:new Date("2030-01-01"),end_date:new Date("2030-01-07")}});
+      const referenceEvents=[];
+      for(let index=1;index<=2;index++){
+        const match=await tx.matches.create({data:{season_id:season.id,group_id:group.id,matchday_id:day.id,number:`SYN-${index}`,home_team_id:enrollment.id,away_team_id:away.id}});
+        const result=await tx.match_results.create({data:{match_id:match.id,home_score:0,away_score:0,source:"ADMINISTRATIVE",validated_by:actors.global}});
+        const disciplinary=await tx.disciplinary_cases.create({data:{season_id:season.id,reference_number:`AUDIT-SYN-${index}`,opened_by:actors.global,description:"Expediente sintético"}});
+        for(const [entity,reference] of [["matches",match.id],["match_results",result.id],["disciplinary_cases",disciplinary.id]]){
+          const event=await tx.audit_logs.create({data:{user_id:actors.global,action:"UPDATE",table_name:entity,entity_id:reference,
+            reason:"Marina Robles Soto vive en Calle Acacia 42",new_data:{season_id:season.id}}});
+          referenceEvents.push({id:event.id,entity,reference});
+        }
+      }
       const prefix="SIAA001010HMNLRR0",alphabet="0123456789ABCDEFGHIJKLMNÑOPQRSTUVWXYZ";
       const checksum=(10-[...prefix].reduce((sum,char,index)=>sum+alphabet.indexOf(char)*(18-index),0)%10)%10;
       const player=await tx.people.create({data:{first_name:"Jugador sintético",paternal_surname:"Prueba",curp:prefix+checksum,birth_date:new Date("2000-10-10")}});
       const registration=await tx.player_registrations.create({data:{person_id:player.id,season_id:season.id,season_team_id:enrollment.id,reference_number:randomUUID()}});
       const ep=await tx.audit_logs.create({data:{user_id:actors.global,action:"PLAYER_REGISTERED",table_name:"player_registrations",entity_id:registration.id,new_data:{status:"ACTIVE",curp:"NEVER_SHOW_PLAYER"},reason:"Alta de jugador sintético"}});
-      return {actors,a,b,ca,cb,ea,eb,account,unknown,missing,ambiguous,secret,spoof,ep};
+      return {actors,a,b,ca,cb,ea,eb,account,unknown,missing,ambiguous,secret,spoof,ep,reviewEvents,allowedEvent,allowedReason,referenceEvents};
     });
     const list=(actor=f.actors.a,filters:object={})=>getAuditWorkspaceForActor(actor,{scope:f.a.id,...filters});
     await assert.rejects(list(f.actors.denied),{message:"FORBIDDEN"});
@@ -76,6 +98,18 @@ test("bitácora real: ámbito, datos mínimos, orden estable, inmutabilidad y ro
     for(const event of [f.unknown,f.missing,f.ambiguous,f.spoof])await assert.rejects(getAuditDetailForActor(f.actors.global,event.id),{message:"FORBIDDEN"});
     await assert.rejects(getAuditDetailForActor(f.actors.a,f.account.id),{message:"FORBIDDEN"});
     const detail=await getAuditDetailForActor(f.actors.a,f.ea.id);
+    assert.equal(detail.reference,f.ca.id);
+    for(const event of f.reviewEvents){
+      const detail=await getAuditDetailForActor(f.actors.a,event.id);
+      assert.equal(detail.action,event.label);assert.equal(detail.reference,event.reference);
+      assert.equal(detail.reason,"Motivo reservado por privacidad.");
+      assert.ok(!JSON.stringify(detail).includes("Marina Robles Soto"));
+    }
+    assert.equal((await getAuditDetailForActor(f.actors.a,f.allowedEvent.id)).reason,f.allowedReason);
+    for(const event of f.referenceEvents){
+      assert.equal((await getAuditDetailForActor(f.actors.a,event.id)).reference,event.reference);
+      await assert.rejects(getAuditDetailForActor(f.actors.b,event.id),{message:"FORBIDDEN"});
+    }
     assert.ok(detail.changes.some(change=>change.field==="Nombre del club"));
     assert.equal((await getAuditDetailForActor(f.actors.global,f.account.id)).entity,"Cuentas");
     assert.equal((await getAuditDetailForActor(f.actors.a,f.ep.id)).entity,"Jugadores");

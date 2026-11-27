@@ -41,7 +41,8 @@ export function AuditWorkspaceView({ workspace }: { workspace: AuditWorkspace })
         {entries.length===0?<p role="status" className="p-6 text-sm text-muted">No hay operaciones visibles con estos filtros.</p>:<ul className="divide-y divide-border">
           {entries.map(item=><li key={item.id}><Link href={`/audit/${item.id}${query?`?${query}`:""}`} className="block space-y-2 px-5 py-4 transition-colors hover:bg-background focus-visible:outline-2 focus-visible:outline-offset-[-3px]">
             <div className="flex flex-wrap items-baseline justify-between gap-2"><p className="font-medium">{item.action} · {item.name}</p><time dateTime={item.at} className="text-xs text-muted">{date(item.at,item.timezone)}</time></div>
-            <p className="text-sm text-muted">{item.actor} · {item.entity}</p><p className="break-words text-sm">{item.reason}</p>
+            <p className="text-sm text-muted">{item.actor} · {item.entity}</p>
+            <p className="break-all text-xs text-muted">Registro: {item.reference}</p><p className="break-words text-sm">{item.reason}</p>
           </Link></li>)}
         </ul>}
       </section>}
@@ -61,6 +62,7 @@ export function AuditDetailView({ entry, filters }: {entry:AuditDetail;filters:A
       <div><h2 className="text-xl font-semibold">{entry.action} · {entry.name}</h2><p className="mt-1 text-sm text-muted">{entry.entity} · {entry.scope}</p></div>
       <dl className="grid gap-5 sm:grid-cols-2"><div><dt className="text-sm text-muted">Realizado por</dt><dd className="mt-1 font-medium">{entry.actor}</dd></div>
         <div><dt className="text-sm text-muted">Fecha y hora</dt><dd className="mt-1"><time dateTime={entry.at}>{date(entry.at,entry.timezone)}</time><span className="mt-1 block text-xs text-muted">{entry.timezone}</span></dd></div>
+        <div className="sm:col-span-2"><dt className="text-sm text-muted">Registro afectado</dt><dd className="mt-1 break-all font-mono text-sm">{entry.reference}</dd></div>
         <div className="sm:col-span-2"><dt className="text-sm text-muted">Motivo</dt><dd className="mt-1 break-words">{entry.reason}</dd></div></dl>
       <div className="border-t border-border pt-5"><h3 className="font-semibold">Cambios registrados</h3>
         {entry.changes.length===0?<p className="mt-3 text-sm text-muted">Esta operación no contiene cambios de campos visibles para esta consulta.</p>:<dl className="mt-3 divide-y divide-border">

@@ -52,6 +52,22 @@ El detalle proyecta exclusivamente una lista positiva por tipo; objetos y
 campos adicionales se omiten. Textos con patrones reservados se sustituyen
 por un mensaje de privacidad. Los textos se renderizan como texto, nunca HTML.
 
+El motivo tiene una política más restrictiva: solo se muestran literales exactos
+del servidor aprobados en una lista por entidad y acción. Inicialmente incluye
+los motivos fijos de alta, revisión y reenvío de afiliación. Cualquier otro motivo,
+incluso un texto sin patrones de secretos, se sustituye por «Motivo reservado por
+privacidad.». No se intenta detectar nombres o direcciones con una expresión
+regular. Añadir una variante exige revisar su procedencia y autorizar el literal;
+no se incorporan observaciones ni nombres desde el snapshot.
+
+Las acciones ya emitidas de aprobación, solicitud de correcciones y reenvío de
+afiliación tienen etiquetas distintas. Las acciones desconocidas mantienen una
+etiqueta neutral sin reflejar el código recibido. Listado y detalle incluyen
+`reference`, el UUID completo del registro afectado, distinto del `id` del evento.
+Se selecciona de `entity_id` únicamente en las filas que pasan el mismo control
+de permiso, contexto histórico y liga. No da acceso a otro módulo ni concede
+permisos; no agrega consultas a nombres personales o documentos.
+
 Los filtros son ámbito, tipo de entidad, usuario exacto sin distinguir mayúsculas
 y fechas inclusivas en la zona del ámbito. Validación y errores no reflejan
 datos privados. La paginación usa 25 registros con orden fecha/id descendente,
@@ -100,3 +116,25 @@ transiciones incorporadas por el equipo. La repetición de la integración
 PostgreSQL 15/17 de esta versión quedó pendiente: el motor local de Docker
 devolvió un error interno antes de crear las bases. El resultado anterior no
 sustituye la ejecución del CI sobre la versión final.
+
+## Correcciones de revisión — 26/11/2026
+
+Se integró `develop` en `373ee72` y se atendieron los tres hallazgos del PR #69:
+motivos de lista cerrada por entidad/acción, etiquetas distintas de afiliación
+y referencia autorizada del registro afectado. Pasaron TypeScript, ESLint,
+cuatro pruebas puras y cuatro recorridos de componentes en Chrome (390/1440 px,
+claro/oscuro). También pasó la integración completa HTTP y navegación con
+NextAuth y rol SQL limitado en PostgreSQL 15 y 17 temporales.
+
+La prueba de API verifica motivos con nombre y dirección ficticios, observaciones
+privadas en snapshots, motivos literales permitidos, las tres acciones de
+afiliación y dos registros distintos de partidos, resultados y expedientes.
+Comprueba referencias exactas y rechazo por ámbito ajeno, además de conservar
+la cobertura de paginación, revocación, inmutabilidad y rollback. Las bases y
+procesos temporales se retiraron al finalizar. Las pruebas siguen conectadas
+al workflow existente de aplicación y PostgreSQL 15/17.
+
+El CI remoto anterior de `0d50673` pasó bitácora en ambos motores, pero falló en
+cédula PG17. No se atribuye ese fallo a `develop` sin reproducirlo; esta corrección
+no modifica cédula. Falta ejecutar el CI sobre el nuevo commit y la revisión
+del equipo antes de aprobar o cerrar la historia.
