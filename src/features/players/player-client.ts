@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {admissionRuleSchema,type AdmissionRule} from "./age-exception";
 import { curpCheckOutcomes, identityFields } from "./curp-verification";
+import { providerRetryStateSchema } from "./provider-retry";
 
 export class PlayerRequestError extends Error {
   constructor(public readonly code: string, public readonly uncertain = false, public readonly rule?:AdmissionRule) { super(code); }
@@ -24,6 +25,7 @@ export async function playerRequest(actorId: string, path: string, body?: unknow
 export const playerResultSchema = z.object({ registrationId: z.uuid(), status: z.string(), identityReviewStatus: z.string().nullable(),curpVerification:z.string().optional(),ageExceptionPending:z.boolean().optional() });
 export const playerListSchema = z.array(playerResultSchema.extend({ displayName: z.string(),jerseyNumber:z.number().int().nullable().optional(),seasonTeamId:z.uuid().optional(),teamName:z.string().optional(),clubName:z.string().optional(),seasonName:z.string().optional() }));
 export const curpStateSchema = z.object({ registrationId: z.uuid(), identityVersion: z.number().int().positive(), checkId: z.uuid().nullable(),
+  ...providerRetryStateSchema.shape,
   registrationStatus:z.string().optional(),identityReviewStatus:z.string().nullable().optional(),
   status: z.enum([...curpCheckOutcomes, "PENDING", "NOT_PERFORMED", "NOT_CONFIGURED"]),
   mismatchedFields: z.array(z.enum(identityFields)), checkedAt: z.string().nullable(), replayed: z.boolean() });

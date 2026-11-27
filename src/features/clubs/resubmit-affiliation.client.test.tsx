@@ -54,5 +54,6 @@ test("captura de corrección presenta los datos, observaciones y firmas registra
   assert.match(markup, /AFL-SINTETICO/); assert.match(markup, /value="Club sintético"/);
   assert.match(markup, /Precisar colores &lt;script&gt;/); assert.doesNotMatch(markup, /<script>/);
   assert.equal((markup.match(/Firma registrada/g) ?? []).length, 3);
-  assert.match(markup, /Reenviar correcciones/); assert.doesNotMatch(markup, /Solicitud registrada/);
+  assert.match(markup, /Continuar a directivos y firmas/);
+  assert.doesNotMatch(markup, /Reenviar correcciones|Correcciones recibidas/);
 });

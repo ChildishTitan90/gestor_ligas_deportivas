@@ -7,7 +7,7 @@ import {launchChrome,closeTestServer,bounded} from './chrome-session.mjs';
 
 // Navegador real, todas las respuestas sintéticas; sin Next, base, Storage ni proveedor.
 test('INE: solo lectura, envío explícito, doble envío e incertidumbre en navegador', {timeout:45000}, async t => {
-  const cameraCss=(await readFile('src/app/globals.css','utf8')).split('\n').filter(line=>line.startsWith('.ine-live')).join('\n');
+  const cameraCss=(await readFile('src/app/globals.css','utf8')).split('\n').filter(line=>line.startsWith('.ine-') || line.startsWith('@keyframes ine-guide-turn')).join('\n');
   const bundle = await build({bundle:true,write:false,platform:'browser',format:'iife',jsx:'automatic',
     define:{'process.env.NODE_ENV':'"development"'},stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`
       import React from 'react';
@@ -39,7 +39,7 @@ test('INE: solo lectura, envío explícito, doble envío e incertidumbre en nave
           check(options.body.get('selfie') instanceof File,'Selfie missing');
           return new Promise((resolve,reject)=>{late=()=>reject(Error('Synthetic lost response'));});
         }
-        gets++;return Response.json({...initial,canSubmit:true,attemptId:id(3),status:'UNCERTAIN'});
+        gets++;return Response.json({...initial,canSubmit:true,attemptId:id(3),status:gets===1?'UNCERTAIN':'STORAGE_FAILED'});
       };
       (async()=>{
         flushSync(()=>root.render(<IneVerificationPanel actorId={actor} initial={initial}/>));
@@ -47,14 +47,20 @@ test('INE: solo lectura, envío explícito, doble envío e incertidumbre en nave
         check(posts===0 && gets===0,'Render contacted provider');
         flushSync(()=>root.render(<IneVerificationPanel key="editable" actorId={actor} initial={{...initial,canSubmit:true}}/>));
         check(cameraRequests.length===0,'Camera started without explicit click');
-        const activate=()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Activar cámara');
-        flushSync(()=>activate().click());await wait(()=>document.body.textContent.includes('No se autorizó la cámara'));
+        const button=label=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent===label);
+        const click=label=>flushSync(()=>button(label).click());
+        const liveFrame=()=>document.querySelector('.ine-live-frame');
+        const activeStep=()=>document.querySelector('[aria-label="Pasos de captura de INE"] [aria-current="step"]')?.textContent;
+        click('Iniciar con cámara');
+        check(activeStep().includes('Frente') && liveFrame().querySelector('.ine-guide-front'),'Front guide missing in the camera frame');
+        check(liveFrame().querySelector('video').hidden,'Live camera obscured the front guide');
+        await wait(()=>document.body.textContent.includes('No se autorizó la cámara'));
         check(document.querySelector('[name=front]'),'Permission denial removed file fallback');
-        denyCamera=false;flushSync(()=>activate().click());
-        await wait(()=>Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Tomar esta foto' && !b.disabled));
-        const live=document.querySelector('.ine-live-document').getBoundingClientRect();check(Math.abs(live.width/live.height-1.586)<.02,'Camera viewport stretched vertically');
+        denyCamera=false;click('Activar cámara');
+        await wait(()=>button('Tomar esta foto') && !button('Tomar esta foto').disabled);
+        const live=liveFrame().getBoundingClientRect();check(Math.abs(live.width/live.height-1.586)<.02,'Camera viewport stretched vertically');
         check(cameraRequests.at(-1).audio===false && cameraRequests.at(-1).video.facingMode.ideal==='environment','Wrong camera or microphone requested');
-        flushSync(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Tomar esta foto').click());
+        click('Tomar esta foto');
         await wait(()=>document.querySelector('.ine-capture-preview img'));
         const preview=document.querySelector('.ine-capture-preview img');await preview.decode();check(Math.abs(preview.naturalWidth/preview.naturalHeight-1.586)<.02,'Captured image does not match horizontal guide');
         check(cameraStreams.every(s=>s.getTracks().every(t=>t.readyState==='ended')),'Capture left camera running');
@@ -64,35 +70,34 @@ test('INE: solo lectura, envío explícito, doble envío e incertidumbre en nave
         const form=document.querySelector('form');check(form,'Capture missing');
         check(!document.querySelector('[name=charge]'),'Consent should appear at final review only');
         check(document.querySelectorAll('input[name=front]').length===1 && !document.querySelector('[name=back]'),'Capture did not start with front only');
-        for(const [p,next] of [['front','Continuar al reverso'],['back','Continuar a la selfie'],['selfie','Revisar imágenes']]){
-          const files=new DataTransfer();
-          const png=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII='),c=>c.charCodeAt(0));
-          files.items.add(new File([png],p+'.png',{type:'image/png'}));
-          const input=document.querySelector('[name='+p+']');input.files=files.files;
-          flushSync(()=>input.dispatchEvent(new Event('change',{bubbles:true})));
-          if(p==='back'){
-            flushSync(()=>activate().click());await wait(()=>cameraStreams.length===2);
-          }
-          if(p==='selfie'){
-            lateCamera=true;flushSync(()=>activate().click());await wait(()=>resolveCamera);
-            check(cameraRequests.at(-1).video.facingMode.ideal==='user','Selfie did not request front camera');
-          }
-          const button=Array.from(document.querySelectorAll('button')).find(b=>b.textContent===next);
-          check(!button.disabled,'Selected photo did not enable next step');
-          flushSync(()=>button.click());
-          if(p==='back')check(cameraStreams[1].getTracks().every(t=>t.readyState==='ended'),'Changing step left camera running');
-          if(p==='selfie'){
-            const delayed=syntheticCamera();resolveCamera(delayed);await wait(()=>delayed.getTracks().every(t=>t.readyState==='ended'));
-            check(!document.querySelector('.ine-device-camera'),'Final review kept camera mounted');
-          }
-          check(posts===0 && gets===0,'Capture step consumed credits');
-        }
+        check(liveFrame().contains(preview) && Math.abs(liveFrame().getBoundingClientRect().height-live.height)<1,'Captured image moved out of the camera frame');
+        const beforeReverse=cameraRequests.length;
+        click('Continuar al reverso');
+        const reverseFrame=liveFrame();
+        const turn=reverseFrame.querySelector('.ine-guide-card-back');
+        check(activeStep().includes('Reverso') && turn?.getAnimations().length===1,'Reverse animation did not start in the camera frame');
+        check(cameraRequests.length===beforeReverse && reverseFrame.querySelector('video').hidden,'Camera hid the reverse animation');
+        await wait(()=>button('Tomar esta foto') && !button('Tomar esta foto').disabled);
+        check(liveFrame()===reverseFrame && cameraRequests.length===beforeReverse+1,'Reverse did not resume camera in place');
+        click('Tomar esta foto');await wait(()=>reverseFrame!==liveFrame() && liveFrame().querySelector('.ine-capture-preview img'));
+        check(cameraStreams[1].getTracks().every(t=>t.readyState==='ended'),'Reverse capture left camera running');
+        lateCamera=true;click('Continuar a la selfie');await wait(()=>resolveCamera);
+        check(cameraRequests.at(-1).video.facingMode.ideal==='user','Selfie did not request front camera');
+        const files=new DataTransfer();
+        const png=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII='),c=>c.charCodeAt(0));
+        files.items.add(new File([png],'selfie.png',{type:'image/png'}));
+        const input=document.querySelector('[name=selfie]');input.files=files.files;
+        flushSync(()=>input.dispatchEvent(new Event('change',{bubbles:true})));
+        click('Revisar imágenes');
+        const delayed=syntheticCamera();resolveCamera(delayed);await wait(()=>delayed.getTracks().every(t=>t.readyState==='ended'));
+        check(!document.querySelector('.ine-device-camera'),'Final review kept camera mounted');
+        check(posts===0 && gets===0,'Capture step consumed credits');
         check(document.querySelectorAll('.ine-capture-summary img').length===3,'Review did not preserve all photos');
         check(form.checkValidity(),'Complete photos should allow explicit verification');
         check(!document.querySelector('[name=charge]') && !document.body.textContent.includes('20 tokens'),'Technical billing UI still visible');
         check([...document.querySelectorAll('button')].some(b=>b.textContent==='Verificar identidad'),'Human verification action missing');
         const repeat=Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Repetir reverso');
-        flushSync(()=>repeat.click());check(document.body.textContent.includes('Gira tu credencial') && document.querySelector('.ine-guide-card-back'),'Reverse instructions and animated card missing');
+        flushSync(()=>repeat.click());check(document.body.textContent.includes('Gira tu credencial') && liveFrame().querySelector('.ine-capture-preview img'),'Reverse instructions and preserved preview missing');
         check(document.activeElement.textContent.includes('Reverso'),'Step did not receive accessible focus');
         flushSync(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Continuar a la selfie').click());
         flushSync(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Revisar imágenes').click());
@@ -106,17 +111,25 @@ test('INE: solo lectura, envío explícito, doble envío e incertidumbre en nave
         check(posts===1,'Receipt retried paid call');
         check(document.querySelector('fieldset').disabled,'Uncertainty silently unlocked');
         check(!localStorage.length && !sessionStorage.length,'Images persisted in browser storage');
+        click('Actualizar resultado');await wait(()=>button('Revisar fotos para reintentar'));
+        click('Revisar fotos para reintentar');
+        check(document.querySelectorAll('.ine-capture-summary img').length===3 && posts===1,'Technical retry lost photos or started another query');
         flushSync(()=>root.render(<IneVerificationPanel key="verified" actorId={actor} initial={{...initial,canSubmit:true,attemptId:id(3),status:'IDENTITY_VERIFIED'}}/>));
         check(document.body.textContent.includes('Identidad verificada:'),'Missing automatic identity status');
         check(!document.querySelector('form') && !document.querySelector('.ine-device-camera'),'Verified identity allows another capture');
-        check(posts===1 && gets===1,'Showing verified identity contacted provider');
-        flushSync(()=>root.render(<IneVerificationPanel key="retry" actorId={actor} initial={{...initial,canSubmit:true,attemptId:id(3),status:'ADMIN_REVIEW_REQUIRED'}}/>));
+        check(posts===1 && gets===2,'Showing verified identity contacted provider');
+        flushSync(()=>root.render(<IneVerificationPanel key="review" actorId={actor} initial={{...initial,canSubmit:true,attemptId:id(3),status:'ADMIN_REVIEW_REQUIRED',mismatchedFields:['firstName'],missingFields:['birthDate']}}/>));
+        check(!button('Iniciar con cámara') && !button('Usar fotos del dispositivo'),'INE review offered a new attempt');
+        check(document.body.textContent.includes('Campos que no coinciden: nombre') && document.body.textContent.includes('fecha de nacimiento'),'INE review did not explain the recorded reason');
+        flushSync(()=>root.render(<IneVerificationPanel key="retry" actorId={actor} initial={{...initial,canSubmit:true,attemptId:id(3),status:'STORAGE_FAILED'}}/>));
         check(!document.querySelector('form'),'Previous outcome reopened capture automatically');
-        flushSync(()=>[...document.querySelectorAll('button')].find(b=>b.textContent==='Preparar nuevas fotos').click());
+        const beforeFiles=cameraRequests.length;
+        click('Usar fotos del dispositivo');
         for(const [part,next] of [['front','Continuar al reverso'],['back','Continuar a la selfie'],['selfie','Revisar imágenes']]){const files=new DataTransfer();files.items.add(new File([new Uint8Array([1])],part+'.jpg',{type:'image/jpeg'}));const field=document.querySelector('[name='+part+']');field.files=files.files;flushSync(()=>field.dispatchEvent(new Event('change',{bubbles:true})));flushSync(()=>[...document.querySelectorAll('button')].find(b=>b.textContent===next).click());}
         check(!document.querySelector('form').checkValidity(),'Retry omitted explicit confirmation');
+        check(cameraRequests.length===beforeFiles,'File-only capture requested the camera');
         check(document.querySelectorAll('input[type=checkbox]').length===1 && document.querySelector('[name=previousCharge]'),'Retry confirmation is not concise');
-        check(posts===1 && gets===1,'Preparing retry contacted provider');
+        check(posts===1 && gets===2,'Preparing retry contacted provider');
         const dossier={registrationId,configuration:'MISSING',configurationIssues:['MISSING_CURP_REQUIREMENT'],approvalAllowed:false,referenceDate:'2026-11-01',minorAtRegistration:false,canUpload:true,guardianConsent:'NOT_REQUIRED',requirements:[{id:id(20),typeId:id(21),quantity:1,required:false,recorded:0,approved:0,missing:0}],documentTypes:[{id:id(21),name:'Foto del jugador',code:'PHOTO'}],documents:[]};
         flushSync(()=>root.render(<PlayerDossier actorId={actor} initial={dossier} storageConfigured={true}/>));
         const choose=document.getElementById('document-requirement');choose.focus();
@@ -126,11 +139,15 @@ test('INE: solo lectura, envío explícito, doble envío e incertidumbre en nave
         check(document.querySelectorAll('input[type=file]').length===1,'Player photo has duplicate file selectors');
         check(document.getElementById('document-file').accept==='image/jpeg,image/png','Photo accepts non-images');
         check(!document.querySelector('input[capture]'),'Photo still uses redundant native camera selector');
-        check(posts===1 && gets===1,'Selecting player photo contacted a provider');
+        check(posts===1 && gets===2,'Selecting player photo contacted a provider');
         let curpPosts=0,refreshed=0;
         const curpState={registrationId,identityVersion:1,checkId:null,status:'NOT_PERFORMED',mismatchedFields:[],checkedAt:null,replayed:false,registrationStatus:'INELIGIBLE',identityReviewStatus:'NOT_REQUIRED'};
+        const discrepancy=async()=>Response.json({...curpState,status:'DISCREPANCY',checkId:id(30),mismatchedFields:['birthDate']});
+        flushSync(()=>root.render(<CurpVerificationPanel key="discrepancy" actorId={actor} registrationId={registrationId} providerConfigured={true} fetcher={discrepancy}/>));
+        await wait(()=>document.body.textContent.includes('Campos que no coinciden: fecha de nacimiento'));
+        check(![...document.querySelectorAll('button')].some(b=>!b.closest('dialog') && ['Verificar CURP','Reintentar verificación'].includes(b.textContent)),'CURP discrepancy offered a new attempt');
         const curpFetch=async(path,options)=>{if(options.method==='POST'){curpPosts++;check(JSON.parse(options.body).confirmCharge===true,'CURP did not require explicit cost confirmation');return Response.json({...curpState,checkId:id(32),status:'VERIFIED',registrationStatus:'ACTIVE'});}return Response.json(curpState);};
-        flushSync(()=>root.render(<CurpVerificationPanel actorId={actor} registrationId={registrationId} providerConfigured={true} fetcher={curpFetch} onRegistrationChange={()=>refreshed++}/>));
+        flushSync(()=>root.render(<CurpVerificationPanel key="initial" actorId={actor} registrationId={registrationId} providerConfigured={true} fetcher={curpFetch} onRegistrationChange={()=>refreshed++}/>));
         await wait(()=>Array.from(document.querySelectorAll('button')).some(b=>!b.closest('dialog') && b.textContent==='Verificar CURP' && !b.disabled));
         check(curpPosts===0,'CURP charged on opening panel');
         flushSync(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Verificar CURP').click());
@@ -159,5 +176,5 @@ test('INE: solo lectura, envío explícito, doble envío e incertidumbre en nave
   const browser=await launchChrome(`http://127.0.0.1:${server.address().port}`,{signal:t.signal,commandTimeoutMs:15000,waitForDocument:true});
   t.after(()=>browser.close());
   await browser.command('Emulation.setDeviceMetricsOverride',{width:375,height:812,deviceScaleFactor:1,mobile:true});
-  assert.deepEqual(await bounded(result,30000,'INE: resultado de recorrido sintético',t.signal),{ok:true,posts:1,gets:1});
+  assert.deepEqual(await bounded(result,30000,'INE: resultado de recorrido sintético',t.signal),{ok:true,posts:1,gets:2});
 });

@@ -180,6 +180,13 @@ try {
   const rows = await browser.evaluate(`Array.from(document.querySelectorAll('[data-testid="standing-row"]')).map(row=>Array.from(row.children).map(cell=>cell.textContent.trim()))`);
   assert.deepEqual(rows, [['1','Águilas','2','1','1','0','4','2','2','4'],['2','Búhos','2','1','0','1','1','2','-1','3'],['3','Delfines','1','0','1','0','2','2','0','1'],['4','Coyotes','1','0','0','1','0','1','-1','0']]);
   assert.equal(await browser.evaluate(`document.body.textContent.includes('Reglamento v7') && document.body.textContent.includes('Clasificación v1') && document.body.textContent.includes('Jornada 2')`), true);
+  const fixedCut = await browser.evaluate(`[...document.querySelectorAll('main a')].find(link => link.textContent.trim() === 'Fijar jornada 2')?.getAttribute('href')`);
+  assert.equal(new URL(fixedCut, origin).searchParams.get('matchdayId'), fixture.matchdays[1]);
+  await navigate(fixedCut);
+  await wait(`document.querySelector('#standing-table-heading')?.textContent.includes('Jornada 2') && document.body.textContent.includes('Corte seleccionado')`);
+  assert.equal(await browser.evaluate(`[...document.querySelectorAll('main a')].some(link => link.textContent.trim() === 'Fijar jornada 2')`), false);
+  assert.equal(await browser.evaluate(`document.querySelector('[data-testid="standing-version"]').textContent.includes('Clasificación v1')`), true);
+  await navigate(path(fixture.filters.groupId));
   await screenshot('desktop-light.png', 1440, 1000, 'light');
   await screenshot('desktop-dark.png', 1440, 1000, 'dark');
   await screenshot('mobile-light.png', 390, 844, 'light');

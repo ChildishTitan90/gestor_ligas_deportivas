@@ -37,7 +37,13 @@ test('Expediente: selector único, cámara alternativa, vista previa y sustituci
       if(url==='/api/player-registrations/'+id(2)+'/documents')return Response.json(dossier());
       throw Error('Unexpected synthetic endpoint');
     };
-    window.fixture={calls,get pickerClicks(){return pickerClicks;},fail(){failConfirmation=true;},async choose(kind){
+    window.fixture={calls,get pickerClicks(){return pickerClicks;},fail(){failConfirmation=true;},showReview(complete){
+      const initial=dossier();
+      initial.requirements=initial.requirements.map(requirement=>({...requirement,recorded:requirement.quantity,approved:complete?requirement.quantity:0,missing:0}));
+      if(complete)initial.documents=initial.documents.map(document=>({...document,reviewStatus:'VALIDATED'}));
+      initial.dossierComplete=complete;
+      flushSync(()=>root.render(<PlayerDossier key={String(complete)} actorId={id(1)} initial={initial} storageConfigured/>));
+    },async choose(kind){
       let file;if(kind==='pdf'){const p=await PDFDocument.create();p.addPage();file=new File([await p.save()],'constancia.pdf',{type:'application/pdf'});}
       else if(kind==='invalid')file=new File(['invalid'],'archivo.txt',{type:'text/plain'});
       else file=new File([Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII='),c=>c.charCodeAt(0))],'foto.png',{type:'image/png'});
@@ -54,16 +60,19 @@ test('Expediente: selector único, cámara alternativa, vista previa y sustituci
   const evaluate=expression=>browser.evaluate(expression);
   const wait=expression=>evaluate(`(async()=>{const until=Date.now()+5000;while(!(${expression})){if(Date.now()>until)throw Error('Expediente: condición pendiente: '+${JSON.stringify(expression)});await new Promise(r=>setTimeout(r,20));}})()`);
   const click=text=>evaluate(`(()=>{const b=Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()===${JSON.stringify(text)});if(!b||b.disabled)throw Error('Botón no disponible: '+${JSON.stringify(text)});b.focus();b.click();})()`);
-  async function screenshot(name,width,height,theme){
+  async function screenshot(name,width,height,theme,progress=false){
     if(!shots)return;
     await browser.command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<600});
-    await evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)};document.getElementById('dossier-upload-form').scrollIntoView({block:'start'});new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`);
+    await evaluate(`document.documentElement.dataset.theme=${JSON.stringify(theme)};${progress ? 'window.scrollTo(0,0)' : "document.getElementById('dossier-upload-form').scrollIntoView({block:'start'})"};new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`);
     assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true,'Sin desbordamiento con estilos reales');
-    assert.equal(await evaluate('document.querySelector("button[aria-controls=document-file]").getBoundingClientRect().height>=48'),true);
+    if(!progress)assert.equal(await evaluate('document.querySelector("button[aria-controls=document-file]").getBoundingClientRect().height>=48'),true);
     const result=await browser.command('Page.captureScreenshot',{format:'png'}),path=join(shots,name+'.png');
     await writeFile(path,Buffer.from(result.data,'base64'));console.log(`Captura sintética: ${path}`);
   }
-  await wait('window.fixture');await click('Sustituir CURP');
+  await wait('window.fixture');
+  const activeStep='document.querySelector(\'[aria-label="Avance del expediente"] [aria-current="step"]\')';
+  assert.equal(await evaluate(`${activeStep}.lastElementChild.textContent.trim()`),'Documentos');
+  await click('Sustituir CURP');
   await wait('document.getElementById("document-file")');
   assert.equal(await evaluate('document.getElementById("document-slot")===null'),true,'Un documento individual no pide posición');
   assert.equal(await evaluate('document.querySelectorAll("input[type=file]").length'),1);
@@ -99,4 +108,11 @@ test('Expediente: selector único, cámara alternativa, vista previa y sustituci
   const operations=await evaluate('window.fixture.calls.filter(c=>c.url==="/api/player-documents/uploads").map(c=>c.body)');
   assert.equal(operations.length,3);assert.equal(operations[2].slot,2);
   assert.equal(await evaluate('window.fixture.calls.filter(c=>c.method==="PUT").length'),3,'El reintento de confirmación no vuelve a subir los bytes');
+  await evaluate('window.fixture.showReview(false)');
+  assert.equal(await evaluate(`${activeStep}.lastElementChild.textContent.trim()`),'Revisión documental');
+  await screenshot('etapas-escritorio-claro',1280,710,'light',true);
+  await evaluate('window.fixture.showReview(true)');
+  assert.equal(await evaluate(activeStep+' === null'),true);
+  assert.equal(await evaluate('document.querySelector(\'[aria-label="Avance del expediente"]\').textContent.match(/Etapa completada/g).length'),3);
+  await screenshot('etapas-celular-oscuro',390,750,'dark',true);
 });

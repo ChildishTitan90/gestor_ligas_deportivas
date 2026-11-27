@@ -1,8 +1,8 @@
 import { ProposalReview } from "@/features/scheduling/components/proposal-review";
 import { venueLocalTime } from "@/features/venues/time";
 import { TeamSwapBoard } from "@/features/scheduling/components/team-swap-board";
-import { ProgressSteps } from "@/features/scheduling/components/progress-steps";
-import { ProposalStatus } from "@/features/scheduling/components/proposal-status";
+import { ProposalProgress, ProposalStatus } from "@/features/scheduling/components/proposal-status";
+import { ManagementPageHeader } from "@/components/layout/management-page-header";
 import { AdjustmentPreview } from "@/features/scheduling/components/adjustment-preview";
 import { listScheduleProposals } from "@/features/scheduling/server/proposals";
 import { AuthorizationError } from "@/server/auth/authorization";
@@ -17,7 +17,9 @@ const statusLabels: Record<string, string> = {
   APPROVED: "Aprobada para operación",
 };
 
-export default async function ScheduleProposalsPage() {
+export default async function ScheduleProposalsPage({ searchParams }: {
+  searchParams: Promise<{ propuesta?: string | string[] }>;
+}) {
   let workspace;
   try {
     workspace = await listScheduleProposals();
@@ -27,37 +29,39 @@ export default async function ScheduleProposalsPage() {
   }
 
   const { actorId, proposals } = workspace;
-  return <div className="mx-auto max-w-5xl space-y-6 px-5 py-8">
-    <header>
-      <p className="text-sm text-muted">Competencias</p>
-      <h1 className="text-3xl font-semibold">Propuestas de programación</h1>
-    </header>
+  const { propuesta } = await searchParams;
+  const selected = proposals.find(proposal => proposal.id === propuesta);
+  const visible = selected ? [selected, ...proposals.filter(proposal => proposal.id !== selected.id)] : proposals;
+  return <div className="mx-auto w-full max-w-5xl space-y-6">
+    <ManagementPageHeader title="Propuestas de programación"
+      description="Consulta los encuentros, ajusta los pendientes y revisa el estado de la propuesta."
+      back={{ href: "/access", label: "Volver al panel" }} />
     {proposals.length === 0 && <div className="space-y-3 rounded-2xl border border-border bg-surface p-5">
       <p>No hay propuestas guardadas en las ligas a las que tienes acceso.</p>
       <p className="text-sm text-muted">Primero genera una propuesta para la temporada y el grupo. Después podrás volver aquí para consultar y ajustar las jornadas.</p>
       <Link href="/competitions/scheduling" className="inline-flex min-h-12 items-center rounded-xl border border-border px-4 font-semibold text-primary">Ir a generar calendario</Link>
     </div>}
-    {proposals.map(proposal => {
+    {visible.map(proposal => {
       const league = proposal.seasons.leagues;
       const format = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short", timeZone: league.timezone });
-      return <details key={proposal.id} className="rounded-2xl border border-border bg-surface p-5">
-        <summary className="cursor-pointer font-semibold">
-          {league.name} · {proposal.seasons.name} · {proposal.generated ? "Calendario del grupo" : `Jornada ${proposal.matchdays.number}`} · {statusLabels[proposal.status] ?? proposal.status}
+      const awaitingActivation = proposal.status === "APPROVED" && !!proposal.generated && proposal.operationalCount !== proposal.generated.matches.length;
+      return <details key={proposal.id} id={`propuesta-${proposal.id}`} open={selected?.id === proposal.id ? true : undefined}
+        className="scroll-mt-28 rounded-2xl border border-border bg-surface px-4 py-2 sm:px-5">
+        <summary className="cursor-pointer py-3 font-semibold text-primary">
+          {proposal.generated ? "Calendario del grupo" : `Jornada ${proposal.matchdays.number}`} · {awaitingActivation ? "Aprobada · Activación pendiente" : statusLabels[proposal.status] ?? proposal.status}
+          <span className="ml-2 text-sm font-normal text-muted">{league.name} · {proposal.seasons.name}</span>
         </summary>
+        <div className="pb-3">
         <p className="mt-3 text-sm text-muted">
           {format.format(proposal.created_at)} · Reglamento v{proposal.competition_rules.version_number} · Propuesta v{proposal.version}
         </p>
-        {(["DRAFT", "IN_REVIEW", "APPROVED"].includes(proposal.status)) && <div className="mt-4"><ProgressSteps label="Estado de la propuesta" current={proposal.status === "DRAFT" ? 0 : proposal.status === "IN_REVIEW" ? 1 : 2} steps={[
-          {label:"Borrador",detail:"Prepara y ajusta los encuentros."},
-          {label:"En revisión",detail:"La propuesta espera una decisión."},
-          {label:"Aprobada",detail:"La programación autorizada queda lista para operar."},
-        ]} /></div>}
-        <ProposalStatus status={proposal.status} canEdit={proposal.canEdit} pendingCount={proposal.generated ? proposal.generated.matches.filter(match => !match.venueId || !match.start).length : proposal.matches.filter(match => !match.venues || !match.starts_at).length} />
+        <div className="mt-4"><ProposalProgress status={proposal.status} generated={!!proposal.generated} awaitingActivation={awaitingActivation} /></div>
+        <ProposalStatus status={proposal.status} canEdit={proposal.canEdit} awaitingActivation={awaitingActivation} pendingCount={proposal.generated ? proposal.generated.matches.filter(match => !match.venueId || !match.start).length : proposal.matches.filter(match => !match.venues || !match.starts_at).length} />
         {proposal.status === "APPROVED" && proposal.generated && <p className="mt-4"><a
           href={`/api/scheduling/proposals/${proposal.id}/pdf`} download
-          className="primary-action inline-flex min-h-12 items-center rounded-xl px-4 py-2 text-sm font-semibold">Descargar programación en PDF</a></p>}
+          className="primary-action inline-flex min-h-12 items-center rounded-xl px-4 py-2 text-sm font-semibold">Descargar propuesta aprobada en PDF</a></p>}
         {proposal.canActivate && <ActivateApproved proposalId={proposal.id} version={proposal.version} />}
-        {proposal.status === "APPROVED" && proposal.generated && proposal.operationalCount !== proposal.generated.matches.length && !proposal.canActivate && <p role="status" className="mt-4 text-sm text-muted">Esta propuesta no tiene todos sus partidos operativos registrados. La autoridad de la liga debe revisar su activación.</p>}
+        {awaitingActivation && !proposal.canActivate && <p role="status" className="mt-4 text-sm text-muted">Esta propuesta no tiene todos sus partidos operativos registrados. La autoridad de la liga debe revisar su activación.</p>}
         {proposal.generated && <section className="mt-4 space-y-3" aria-label="Encuentros propuestos">
           <p className="text-sm text-muted">Versión de temporada {proposal.generated.seasonVersion}</p>
           <TeamSwapBoard key={`${proposal.id}:${proposal.version}`} matches={proposal.generated.matches} byes={proposal.generated.byes}
@@ -89,6 +93,7 @@ export default async function ScheduleProposalsPage() {
           context={`${league.name} · ${proposal.seasons.name}`}
           operations={proposal.canReview ? ["approve", "return"] : ["submit"]}
           matches={Object.fromEntries(proposal.matches.map(match => [match.id, match.number]))} />}
+        </div>
       </details>;
     })}
   </div>;

@@ -29,23 +29,26 @@ export function OfflinePreviewList({ scenario }: { scenario: PreviewDownloadCase
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const action = useRef<HTMLButtonElement>(null);
   const openReport = useRef<HTMLDivElement>(null);
+  const focusOrigin = useRef<HTMLButtonElement | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  useEffect(() => {
+    if (status === "downloading") return;
+    const origin = focusOrigin.current;
+    focusOrigin.current = null;
+    if (!origin || (document.activeElement !== document.body && document.activeElement !== origin)) return;
+    const target = status === "ready" ? openReport.current?.querySelector("a") : action.current;
+    target?.focus();
+  }, [status]);
   const failed = status === "incomplete" || status === "space";
   const Icon = status === "downloading" ? LoaderCircle : status === "ready" ? Check : failed ? TriangleAlert : Download;
 
   function prepare() {
-    const triggeredBy = action.current;
-    const restoreFocus = document.activeElement === triggeredBy;
+    focusOrigin.current = document.activeElement === action.current ? action.current : null;
     setStatus("downloading");
     timer.current = setTimeout(() => {
       const outcome = attempted || scenario === "prepare" ? "ready" : scenario;
       setStatus(outcome);
       setAttempted(true);
-      if (restoreFocus) requestAnimationFrame(() => {
-        if (document.activeElement !== document.body && document.activeElement !== triggeredBy) return;
-        if (outcome === "ready") openReport.current?.querySelector("a")?.focus();
-        else action.current?.focus();
-      });
     }, 1000);
   }
 

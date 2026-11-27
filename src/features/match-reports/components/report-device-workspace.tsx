@@ -21,7 +21,7 @@ export type ReportDeviceControls = {
   confirmation: ReportDemoData["confirmation"];
   setReport: Dispatch<SetStateAction<MatchReportPresentation>>;
   run(kind: ReportOperation["kind"], action?: ReportOperation["clockAction"]): void;
-  confirmNoShow(): Promise<void>; connected: boolean;
+  confirmNoShow(): Promise<void>; connected: boolean; syncing: boolean;
   locked: boolean; notice: ReactNode; safelyStored: boolean;
 };
 
@@ -341,6 +341,6 @@ function DeviceCapture({ initial, serverReference }: { initial: LocalReport; ser
   const viewData = { ...record.data, players: record.data.players.map(player => ({ ...player, photoUrl: photoUrls.get(player.id) ?? null })) };
   return <ReportWorkspace key={record.draftId} data={viewData} live={{ actorId }} device={{
     report: record.data.report, match: record.data.match, confirmation: record.data.confirmation, setReport, run: (kind, action) => void run(kind, action),
-    locked, notice, confirmNoShow, connected, safelyStored: !otherTab && !saving && !localFailed && savedRevision === record.revision,
+    locked, notice, confirmNoShow, connected, syncing, safelyStored: !otherTab && !saving && !localFailed && savedRevision === record.revision,
   }} />;
 }

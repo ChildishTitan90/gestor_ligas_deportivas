@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { ManagementPageHeader } from "@/components/layout/management-page-header";
 import { SelectField } from "@/components/ui/select-field";
 import { AuthorizationError } from "@/server/auth/authorization";
 import { AuthAccessError } from "@/server/auth/session";
@@ -44,7 +45,13 @@ export default async function GovernancePage({ searchParams }: { searchParams: P
   const bodyOptions = data.bodies.map(item => ({ value: item.id, label: item.name }));
   const visibleBodies = body ? [body] : data.bodies;
   return <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6">
-    <h1 className="text-2xl font-semibold">{title}</h1>
+    <ManagementPageHeader title={title} description="Consulta quién ocupa cada cargo y durante qué periodo."
+      back={{ href: "/access", label: "Volver al panel" }}
+      context={[
+        { label: "Liga", value: league.name },
+        { label: "Órgano", value: body?.name ?? "Todos los órganos" },
+        { label: "Vigencia", value: periodLabels[data.period] },
+      ]} />
     {filters.error && <p role="alert">{errorMessages[filters.error] ?? errorMessages.UNAVAILABLE}</p>}
     {filters.saved === "1" && <p role="status">Cambio registrado en el historial de la liga.</p>}
 
@@ -113,8 +120,12 @@ export default async function GovernancePage({ searchParams }: { searchParams: P
             {position.appointments.map(appointment => {
               const start = dateString(appointment.starts_at);
               const end = dateString(appointment.ends_at);
+              const status = start > today ? "Futuro" : end && end < today ? "Finalizado" : "Vigente";
               return <li key={appointment.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
-                <div><p className="font-semibold">{fullName(appointment.people)}</p><p>{start} · {end || "Sin fecha final"}</p></div>
+                <div className="space-y-1">
+                  <p className="font-semibold">{fullName(appointment.people)}</p>
+                  <p className="text-sm text-muted">{status} · Del <time dateTime={start}>{start}</time>{end ? <> al <time dateTime={end}>{end}</time></> : " en adelante"}</p>
+                </div>
                 {canEdit && (!end || end >= today) && <GovernanceForm title="Finalizar nombramiento"
                   description={`Se conserva el historial de ${fullName(appointment.people)} en el cargo.`}
                   submit="Guardar fecha final" operation="finish" leagueId={league.id}>

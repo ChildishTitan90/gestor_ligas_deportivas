@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Check, ClipboardCheck, ClipboardPenLine, FlaskCo
 import { ActionLink } from "@/components/ui/action-link";
 import { FormDialog } from "@/components/ui/form-dialog";
 import { SelectField } from "@/components/ui/select-field";
+import { ProcessSteps } from "@/components/ui/process-steps";
 import { createReportClient, ReportClientError, reportUuid } from "../report-client";
 import { updateDraftLineup, halfReservationData } from "../lineup-draft";
 import { capturedScore } from "../score";
@@ -103,29 +104,24 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panelHeading = useRef<HTMLHeadingElement>(null);
   const resumeButton = useRef<HTMLButtonElement>(null);
-  const stageNavigation = useRef<HTMLElement>(null);
   const backHref = live ? "/matches" : offlinePreview ? offlinePreviewPath : REPORT_DEMO_PATH;
   const previewWithoutNetwork = Boolean(offlinePreview && !previewConnected);
   const confirmed = report.status === "CONFIRMED";
   const confirmationUnavailable = Boolean(live && confirmation?.available !== true);
   const confirmationMessage = confirmation?.message ?? reportErrorMessage("CONFIRMATION_DEPENDENCIES_PENDING");
+  const noShowBlockedReason = device && (!device.connected
+    ? "Conéctate para confirmar el resultado. La copia permanece en el dispositivo."
+    : device.syncing ? "Espera a que termine la sincronización para confirmar el resultado." : "");
   const locked = confirmed || !match.status.captureAllowed || (device ? device.locked : ["saving", "stale", "uncertain", "denied", "session"].includes(state));
   const sealed = Boolean(report.lineupsLock) || confirmed;
+  const fullReportConfirmed = confirmed && !report.noShow;
+  const completedSteps = [Boolean(report.lineupsLock) || fullReportConfirmed, fullReportConfirmed, fullReportConfirmed, fullReportConfirmed, fullReportConfirmed];
   const sealIssues = lineupSealIssues(data, report);
   const invalidJerseys = Object.keys(jerseyErrors(data, report)).length > 0;
   const eventLocked = locked || !sealed || match.status.code !== "IN_PROGRESS";
   const issues = reviewReportPresentation(data, report);
   const captureInMemory = (stage >= 0 || resumeStage !== null) && !confirmed && (device ? !device.safelyStored : !live || ["dirty", "saving", "uncertain", "stale", "error", "denied"].includes(state));
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  useEffect(() => {
-    const navigation = stageNavigation.current;
-    const currentStep = navigation?.querySelector('[aria-current="step"]');
-    if ((!offlinePreview && !device) || !navigation || !currentStep) return;
-    const viewport = navigation.getBoundingClientRect();
-    const step = currentStep.getBoundingClientRect();
-    if (step.right > viewport.right) navigation.scrollLeft += step.right - viewport.right + 8;
-    else if (step.left < viewport.left) navigation.scrollLeft -= viewport.left - step.left + 8;
-  }, [offlinePreview, device, stage]);
   useEffect(() => {
     if (!offlinePreview || state !== "dirty") return;
     const save = setTimeout(() => {
@@ -279,7 +275,7 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
     requestAnimationFrame(() => resumeButton.current?.focus());
   }
   async function confirmNoShowOfficial() {
-    if (!live || noShowOfficialPending) return;
+    if (!live || noShowOfficialPending || noShowBlockedReason) return;
     if (device) {
       setNoShowOfficialPending(true);
       try { await device.confirmNoShow(); setNoShowOfficialOpen(false); setMessage("Resultado confirmado. La copia y sus acuses permanecen en el dispositivo."); }
@@ -315,22 +311,34 @@ export function ReportWorkspace({ data, live, offlinePreview, device }: { data: 
   return <div className="space-y-5" data-report-workspace="">
     <div className="flex flex-wrap items-center justify-between gap-3">{device ? <a href="/offline/report" className={secondaryButton} onClick={event => { if (captureInMemory) { event.preventDefault(); setLeaveOpen(true); } }}><ArrowLeft size={17} aria-hidden="true" />Mis cédulas en este dispositivo</a> : <ActionLink href={backHref} variant="secondary" onClick={event => { if (captureInMemory) { event.preventDefault(); setLeaveOpen(true); } }}><ArrowLeft size={17} aria-hidden="true" /> {live ? "Mis partidos" : offlinePreview ? "Vista previa offline" : "Casos de demostración"}</ActionLink>}<span className="flex items-center gap-2 text-xs font-semibold text-muted">{live ? <ClipboardPenLine size={16} aria-hidden="true" /> : <FlaskConical size={16} aria-hidden="true" />} {device ? "Cédula arbitral" : live ? "Cédula online" : offlinePreview ? "PDGLD-19/20 · Vista previa offline" : "PDGLD-148 · Datos sintéticos"}</span></div>
     {live ? <ReportNotice>Guarda el avance de la cédula para continuar después. {device && "Cada edición se escribe en este dispositivo. "}{confirmationUnavailable && confirmationMessage}</ReportNotice> : offlinePreview ? <ReportNotice><strong>Vista previa offline · Datos sintéticos.</strong> La red, el guardado y los acuses son simulados. La captura vive en esta página y se pierde al recargar o salir. Usa únicamente datos y firmas de ejemplo.</ReportNotice> : <div className="rounded-xl border border-accent bg-surface px-4 py-3 text-sm leading-6"><strong>Demo sintética · Solo memoria.</strong> {stage < 0 ? "La sesión es real; el partido, su designación y las respuestas son simulados. Sin persistencia ni almacenamiento offline. " : "Se pierde al salir. "}No ingreses datos ni firmas reales.</div>}
-    {live && match.status.code === "NO_SHOW" && report.status === "DRAFT" && report.noShow && report.noShow.absent !== "BOTH" && <section className="space-y-3 rounded-2xl border border-border bg-surface p-5"><h2 className="font-semibold">Incomparecencia pendiente de confirmación</h2><p className="text-sm">El árbitro asignado puede confirmar el resultado {proposedNoShowScore(report.noShow)?.home} – {proposedNoShowScore(report.noShow)?.away} y actualizar la clasificación.</p>{device && !device.connected && <p className="text-sm">Conéctate para confirmar el resultado. La copia permanece en el dispositivo.</p>}<button type="button" className={primaryButton} disabled={Boolean(device && !device.connected)} onClick={() => setNoShowOfficialOpen(true)}>Confirmar resultado por incomparecencia</button></section>}
-    <FormDialog open={noShowOfficialOpen} title="Confirmar incomparecencia" description="El árbitro asignado debe revisar el resultado antes de confirmarlo." pending={noShowOfficialPending} onClose={() => setNoShowOfficialOpen(false)} footer={<button type="button" className={primaryButton} disabled={noShowOfficialPending} onClick={() => void confirmNoShowOfficial()}>{noShowOfficialPending ? "Confirmando…" : "Confirmar resultado"}</button>}><p>Se registrará el resultado {report.noShow && proposedNoShowScore(report.noShow)?.home} – {report.noShow && proposedNoShowScore(report.noShow)?.away} y se actualizará la clasificación.</p></FormDialog>
+    {live && match.status.code === "NO_SHOW" && report.status === "DRAFT" && report.noShow && report.noShow.absent !== "BOTH" && <section className="space-y-3 rounded-2xl border border-border bg-surface p-5">
+      <h2 className="font-semibold">Incomparecencia pendiente de confirmación</h2>
+      <p className="text-sm">El árbitro asignado puede confirmar el resultado {proposedNoShowScore(report.noShow)?.home} – {proposedNoShowScore(report.noShow)?.away} y actualizar la clasificación.</p>
+      {noShowBlockedReason && !noShowOfficialOpen && <p role="status" className="text-sm">{noShowBlockedReason}</p>}
+      <button type="button" className={primaryButton} disabled={Boolean(noShowBlockedReason)} onClick={() => setNoShowOfficialOpen(true)}>Confirmar resultado por incomparecencia</button>
+    </section>}
+    <FormDialog open={noShowOfficialOpen} title="Confirmar incomparecencia" description="El árbitro asignado debe revisar el resultado antes de confirmarlo." pending={noShowOfficialPending} onClose={() => setNoShowOfficialOpen(false)}
+      footer={<button type="button" className={primaryButton} disabled={noShowOfficialPending || Boolean(noShowBlockedReason)} onClick={() => void confirmNoShowOfficial()}>{noShowOfficialPending ? "Confirmando…" : "Confirmar resultado"}</button>}>
+      <p>Se registrará el resultado {report.noShow && proposedNoShowScore(report.noShow)?.home} – {report.noShow && proposedNoShowScore(report.noShow)?.away} y se actualizará la clasificación.</p>
+      {noShowBlockedReason && !noShowOfficialPending && <p role="status" className="mt-3 text-sm">{noShowBlockedReason}</p>}
+    </FormDialog>
     {viewState === "denied" ? <section className="rounded-3xl border border-border bg-surface p-7 text-center"><LockKeyhole className="mx-auto mb-4 text-muted" size={32} aria-hidden="true" /><h1 className="text-2xl font-semibold text-primary">Acceso denegado</h1><p className="mx-auto mt-3 max-w-lg text-muted">La designación o el permiso para este partido no están vigentes en este caso sintético. Una sesión iniciada no autoriza por sí sola la captura.</p></section>
       : viewState === "loading" ? <section className="rounded-3xl border border-border bg-surface p-7" aria-busy="true"><h1 className="flex items-center gap-3 text-xl font-semibold"><LoaderCircle className="motion-safe:animate-spin" aria-hidden="true" /> Cargando partido y cédula…</h1><p role="status" className="mt-3 text-muted">Espera simulada. No hay una consulta de datos en curso.</p><div className="my-6 h-24 rounded-xl bg-soft" aria-hidden="true" /><button type="button" className={secondaryButton} onClick={() => setViewState("ready")}>Completar carga simulada</button></section>
         : viewState === "error" ? <section className="rounded-3xl border border-danger bg-danger-surface p-7"><h1 className="text-xl font-semibold text-danger">No se pudo consultar la cédula</h1><p role="alert" className="my-4 text-danger">Error sintético. No se puede afirmar que la información esté guardada.</p><button type="button" className={secondaryButton} onClick={() => setViewState("ready")}>Reintentar consulta simulada</button></section> : <>
           <h1 className="text-2xl font-semibold tracking-tight text-primary">{stage < 0 ? (live ? "Partido autorizado" : "Partido asignado · Demostración") : (confirmed || !match.status.captureAllowed) ? "Consultar cédula" : "Capturar cédula arbitral"}</h1>
           <MatchHeader match={match} report={report} compact={stage >= 0} />
           {stage < 0 && device?.notice}{stage < 0 ? <section className="rounded-2xl border border-border bg-surface p-5 sm:p-7"><div className="flex items-start gap-3"><ClipboardPenLine size={26} className="shrink-0 text-primary" aria-hidden="true" /><div><h2 className="text-lg font-semibold text-primary">Tu cédula comienza en este partido</h2><p className="mt-2 text-sm leading-6 text-muted">{live ? "El servidor verificó tu permiso y ámbito para este partido. La elegibilidad se vuelve a comprobar al guardar." : "Designación aprobada y permiso de captura: ejemplos sintéticos. El acceso funcional se integrará con los servicios autorizados del partido."}</p></div></div>{!match.status.captureAllowed ? <div className="mt-5"><ReportNotice>Partido {match.status.label.toLocaleLowerCase("es")}: {live ? "el estado actual no permite capturar la cédula." : "la captura está bloqueada en este caso. La política definitiva de estados depende de PDGLD-85."}</ReportNotice></div> : <button type="button" className={`${primaryButton} mt-5 w-full sm:w-auto`} ref={resumeButton} onClick={openCapture}>{resumeStage !== null ? "Retomar borrador de ejemplo" : "Capturar cédula"} <ArrowRight size={18} aria-hidden="true" /></button>}</section> : <>
-            <nav ref={stageNavigation} aria-label="Secciones de la cédula" className="sticky top-16 z-10 overflow-x-auto lg:top-20 rounded-2xl border border-border bg-surface p-2"><ol className="flex min-w-max gap-1">{steps.map((label, index) => <li key={label}><button type="button" aria-label={label} aria-current={stage === index ? "step" : undefined} className={`flex min-h-12 items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold ${stage === index ? "border-accent bg-soft text-primary" : "border-transparent text-muted hover:bg-background"}`} onClick={() => move(index)}><span className="text-xs" aria-hidden="true">{index + 1 < 10 ? `0${index + 1}` : index + 1}</span>{label}</button></li>)}</ol>{offlinePreview && <p aria-hidden="true" className="sticky left-0 px-2 pt-1 text-xs font-medium text-muted">{previewDraftLabel(previewStatus)} · Simulación</p>}</nav>
+            <nav aria-label="Secciones de la cédula" className="sticky top-16 z-10 rounded-2xl border border-border bg-surface px-1.5 pt-2 lg:top-20">
+              <ProcessSteps steps={steps} current={stage} completedSteps={completedSteps} onStepChange={move} />
+              {offlinePreview && <p aria-hidden="true" className="px-2 pb-2 text-xs font-medium text-muted">{previewDraftLabel(previewStatus)} · Simulación</p>}
+            </nav>
             {device?.notice || previewPanel || <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted"><p role="status" className="flex items-center gap-2">{state === "saving" ? <LoaderCircle size={15} className="motion-safe:animate-spin" aria-hidden="true" /> : confirmed ? <LockKeyhole size={15} aria-hidden="true" /> : <span className="size-2 rounded-full bg-current" aria-hidden="true" />}{operationText}</p><p>Partido v{match.version} · Cédula v{report.version}</p></div>}
             {message && <p role="status" className="rounded-xl border border-border bg-surface p-4 text-sm leading-6">{message}</p>}
             {state === "stale" && <div role="alert" className="space-y-3 rounded-2xl border border-danger bg-danger-surface p-5"><h2 className="font-semibold text-danger">Cambió la versión de referencia</h2><p className="text-sm text-danger">Tu captura v{operation?.expectedReportVersion ?? report.version} sigue intacta en memoria. No se puede guardar ni confirmar sobre una versión distinta.</p>{live ? <ActionLink variant="secondary" href={`/matches/${match.id}/report`} target="_blank" rel="noopener noreferrer">Abrir versión vigente en otra pestaña</ActionLink> : <button type="button" className={secondaryButton} onClick={() => setCompareOpen(true)}>Comparar versiones simuladas</button>}</div>}
             {state === "uncertain" && <div role="alert" className="space-y-3 rounded-2xl border border-accent bg-surface p-5"><h2 className="font-semibold text-primary">No conocemos el resultado</h2><p className="text-sm leading-6">Se conserva la operación y su versión. La edición está bloqueada. Consulta primero: un fallo de respuesta no significa que falló el guardado.</p><p className="break-all text-xs text-muted">Operación: {operation?.id} · Base v{operation?.expectedReportVersion}</p><div className="flex flex-wrap gap-2"><button type="button" className={secondaryButton} disabled={previewWithoutNetwork} onClick={() => queryResult(true)}>{live ? "Consultar acuse en servidor" : "Simular consulta: aplicada"}</button>{live ? <button type="button" className={secondaryButton} onClick={() => operation && runOperation(operation.kind, operation)}>Reenviar misma operación</button> : <button type="button" className={secondaryButton} disabled={previewWithoutNetwork} onClick={() => queryResult(false)}>Simular consulta: no aplicada</button>}</div></div>}
             {state === "denied" && <ReportNotice danger>Acceso denegado. No se puede continuar guardando ni confirmando. La captura pendiente permanece en esta página.</ReportNotice>}
             {state === "error" && operation && !(operation.kind === "confirm" && confirmationUnavailable) && <button type="button" className={secondaryButton} disabled={previewWithoutNetwork} onClick={() => runOperation(operation.kind, operation)}>{live ? "Reintentar misma operación" : "Reintentar misma operación simulada"}</button>}
-            <h2 ref={panelHeading} tabIndex={-1} className="sr-only scroll-mt-40">{steps[stage]}</h2>
+            <h2 ref={panelHeading} tabIndex={-1} className="sr-only scroll-mt-48">{steps[stage]}</h2>
             {stage === 0 && sealed && <><div className="flex flex-wrap gap-2" aria-label="Modo de captura"><button type="button" aria-pressed={captureMode === "live"} className={captureMode === "live" ? primaryButton : secondaryButton} onClick={() => setCaptureMode("live")}>Captura en vivo</button><button type="button" aria-pressed={captureMode === "posterior"} className={captureMode === "posterior" ? primaryButton : secondaryButton} onClick={() => setCaptureMode("posterior")}>Captura posterior</button></div>{captureMode === "live" ? <ReportClock device={Boolean(device)} clock={report.clock ?? null} locked={locked} dialog={clockDialog} onDialog={setClockDialog} onAction={action => runOperation("clock", undefined, undefined, action)} /> : <ReportNotice>Usa Participación y Eventos para registrar posteriormente lo ocurrido. Los minutos se indican manualmente.</ReportNotice>}</>}
             <div hidden={stage !== 0}>
               {!sealed && match.status.code === "CONFIRMED" && <section className="mb-5 space-y-3 rounded-2xl border border-border bg-surface p-5" aria-label="Registrar incomparecencia">

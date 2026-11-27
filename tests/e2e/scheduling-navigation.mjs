@@ -42,11 +42,13 @@ try {
       owner_club_id=(SELECT id FROM sports_management.clubs ORDER BY id LIMIT 1);
     INSERT INTO sports_management.files(storage_key,original_name,mime_type,size_bytes,uploaded_by)
       SELECT 'synthetic-browser-letter','Carta sintética','application/pdf',0,actor FROM public.scheduling_fixture;
-    INSERT INTO sports_management.venue_loans(season_id,venue_id,club_id,letter_file_id,status,approved_by,approved_at,requested_by,request_hash,requested_windows)
+    INSERT INTO sports_management.venue_loans(season_id,venue_id,club_id,letter_file_id,status,approved_by,approved_at,requested_by,request_hash,requested_windows,
+      owner_decision_required,owner_decision,owner_reviewed_by,owner_reviewed_at,owner_review_reason)
       SELECT f.season,v.id,c.id,fi.id,'APPROVED',f.actor,now(),f.outsider,repeat('a',64),
         (SELECT jsonb_agg(jsonb_build_object('startsAt',to_char(a.starts_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
           'endsAt',to_char(a.ends_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ORDER BY a.starts_at)
-         FROM sports_management.venue_availability a WHERE a.venue_id=v.id)
+         FROM sports_management.venue_availability a WHERE a.venue_id=v.id),
+      true,'APPROVED',f.reviewer,now(),'Autorización sintética del club propietario'
       FROM public.scheduling_fixture f CROSS JOIN sports_management.venues v
       CROSS JOIN sports_management.clubs c CROSS JOIN sports_management.files fi
       WHERE fi.storage_key='synthetic-browser-letter';
@@ -234,7 +236,7 @@ try {
   assert.equal(pendingCount,0);
   await browser.evaluate("document.querySelector('summary').click()");
   const detail=await browser.evaluate("document.querySelector('details[open]').innerText");
-  for(const label of ['Local','Visitante','Cancha sintetica','Fecha y horario','2030','Descansa','Equipo']) assert.ok(detail.includes(label),label);
+  for(const label of ['Local','Visitante','Cancha sintetica','Fecha y horario','2030','Descansa','Equipo']) assert.ok(detail.includes(label),`Falta ${label} en la jornada sintética: ${detail.slice(0,500)}`);
   assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'1');
   await browser.command('Page.reload');
   await wait("location.pathname==='/competitions/scheduling' && document.querySelector('#schedule-season')",'Pantalla tras recarga');
@@ -251,6 +253,8 @@ try {
   await wait("document.querySelector('summary')?.textContent==='Jornada 1'",'Propuesta recuperada');
   await browser.evaluate("document.querySelector('summary').click()");
   const restored = await browser.evaluate("document.querySelector('details[open]').innerText");
+  const proposalHref = await browser.evaluate("document.querySelector('a[href*=\"/scheduling/proposals?propuesta=\"]')?.href");
+  assert.equal(new URL(proposalHref).searchParams.get("propuesta"), savedOperation);
   for (const label of ['Local','Visitante','Cancha sintetica','Fecha y horario','Descansa']) assert.ok(restored.includes(label),label);
   assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'1');
   const currentVersion = (await db.query("SELECT version FROM sports_management.seasons WHERE id=$1",[fixture.season])).rows[0].version;
@@ -297,6 +301,9 @@ try {
     else assert.ok(alert.includes(message));
   }
   assert.equal((await db.query('SELECT count(*) FROM sports_management.schedule_proposals')).rows[0].count,'2');
+  await browser.command("Page.navigate", { url: proposalHref });
+  await wait(`document.getElementById(${JSON.stringify(`propuesta-${savedOperation}`)})?.open === true`, "Abre el detalle de la propuesta exacta");
+  assert.equal(await browser.evaluate("document.querySelector('details[id^=propuesta-]').id"), `propuesta-${savedOperation}`);
   console.log('Chrome: propuesta con canchas compartidas aprobadas, recuperación sin duplicado y conflictos verificados.');
 } finally {
   try {await browser?.close();} finally {

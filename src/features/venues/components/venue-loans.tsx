@@ -2,9 +2,11 @@
 
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { ManagementPageHeader } from "@/components/layout/management-page-header";
 import { DirectSignatureField } from "@/components/ui/direct-signature-field";
 import { FormDialog } from "@/components/ui/form-dialog";
 import { PrivateDocumentPreview } from "@/components/ui/private-document-preview";
+import { ProcessSteps } from "@/components/ui/process-steps";
 import { SelectField } from "@/components/ui/select-field";
 import type { VenueLoanWorkspace } from "../server/loan-workspace";
 import { sendVenueLoan, venueLoanRecoveryStore, type VenueLoanCapture } from "../venue-loan-recovery.client";
@@ -14,6 +16,29 @@ const secondary = "min-h-11 rounded-xl border border-border px-4 py-2 text-sm fo
 const field = "mt-1 min-h-11 w-full rounded-xl border border-border bg-surface px-3 py-2";
 const labels: Record<string, string> = { PENDING: "Pendiente", APPROVED: "Aprobada", REJECTED: "Rechazada" };
 const emptyWindow = () => ({ id: crypto.randomUUID(), start: "", end: "" });
+
+function LoanProgress({ row }: { row: VenueLoanWorkspace["rows"][number] }) {
+  if (!Object.hasOwn(labels, row.status)) return <div className="space-y-2 text-sm">
+    <p>{row.status}</p>
+    {row.reason && <p className="text-muted">{row.reason}</p>}
+  </div>;
+  const leagueStage = row.reviewStage === "LEAGUE";
+  const reviewer = leagueStage ? "la liga" : "el club dueño";
+  const steps = row.ownerReviewRequired ? ["Solicitud", "Club dueño", "Liga"] : ["Solicitud", "Liga"];
+  const completedSteps = row.ownerReviewRequired
+    ? [true, leagueStage, row.status === "APPROVED"]
+    : [true, row.status === "APPROVED"];
+  const message = row.status === "APPROVED" ? "Uso autorizado en los horarios aprobados."
+    : row.status === "REJECTED" ? `Rechazada por ${reviewer}.`
+      : `Pendiente de revisión por ${reviewer}.`;
+  const reasonLabel = row.status === "PENDING" ? "Observación del club dueño" : "Motivo de la decisión";
+  return <div className="min-w-0 space-y-2">
+    <ProcessSteps label={`Etapas del préstamo de ${row.venue}`} steps={steps}
+      current={row.ownerReviewRequired && leagueStage ? 2 : 1} completedSteps={completedSteps} />
+    <p className="text-sm font-medium text-primary">{message}</p>
+    {row.reason && <p className="text-sm text-muted">{reasonLabel}. {row.reason}</p>}
+  </div>;
+}
 
 export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
   const router = useRouter();
@@ -40,6 +65,7 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
     label: "Carta de préstamo", path: "/api/venue-loans", body: { kind: "preview", requestId: selected.id },
   } : null, [selected]);
   const rows = workspace.rows.filter(row => filter === "ALL" || row.status === filter);
+  const canRequest = Boolean(unconfirmed) || workspace.contexts.some(context => context.venues.length > 0);
 
   const store = venueLoanRecoveryStore(workspace.actorId);
 
@@ -197,41 +223,45 @@ export function VenueLoans({ workspace }: { workspace: VenueLoanWorkspace }) {
   }
 
   return <div className="mx-auto max-w-5xl space-y-6 px-5 py-8">
-    <header className="flex flex-wrap items-end justify-between gap-4">
-      <div><p className="text-sm text-muted">Competencias / Canchas</p><h1 className="text-3xl font-semibold">Préstamos de canchas</h1>
-        <p className="mt-2 text-sm text-muted">Solicitudes con carta privada y horarios de uso.</p></div>
-      {(unconfirmed || workspace.contexts.some(c => c.venues.length > 0)) &&
+    <ManagementPageHeader title="Préstamos de canchas"
+      description="Consulta quién revisa cada solicitud y qué horarios se autorizaron. La reserva de cada partido se confirma al programarlo."
+      back={{ href: "/access", label: "Volver al panel" }} />
+    {(canRequest || workspace.canClean) && <div className="flex flex-wrap items-center gap-3">
+      {canRequest &&
         <button className={primary} disabled={opening} onClick={openRequest}>
           {unconfirmed ? "Recuperar solicitud" : "Solicitar préstamo"}
         </button>}
-    </header>
-    {workspace.canClean && <button type="button" className={secondary} disabled={pending} onClick={cleanCancelledFiles}>
-      {pending && !mode ? "Revisando archivos…" : "Limpiar archivos pendientes"}
-    </button>}
+      {workspace.canClean && <button type="button" className={secondary} disabled={pending} onClick={cleanCancelledFiles}>
+        {pending && !mode ? "Revisando archivos…" : "Limpiar archivos pendientes"}
+      </button>}
+    </div>}
     {notice && <p role="status">{notice}</p>}
     {!mode && error && <p role="alert">{error}</p>}
     {!!workspace.rows.length && <div className="max-w-xs"><label htmlFor="loan-status" className="text-sm font-semibold">Estado</label>
       <SelectField id="loan-status" value={filter} onValueChange={setFilter} searchable={false}
         options={[{ value: "ALL", label: "Todos" }, ...Object.entries(labels).map(([value, label]) => ({ value, label }))]} /></div>}
     {rows.length === 0 && <p className="rounded-2xl border border-border bg-surface p-5 text-muted">No hay solicitudes para mostrar.</p>}
-    <div className="grid gap-4 md:grid-cols-2">{rows.map(row => <article key={row.id} className="space-y-3 rounded-2xl border border-border bg-surface p-5">
-      <div className="flex flex-wrap justify-between gap-2"><h2 className="text-lg font-semibold">{row.venue}</h2>
-        <span className="rounded-full border border-border px-3 py-1 text-sm">{labels[row.status] ?? row.status}</span></div>
-      <p className="text-sm text-muted">{row.club} · {row.season}</p>
-      {row.stage && <p className="text-sm">{row.stage}</p>}
-      <div className="space-y-1 text-sm">
-        <h3 className="font-semibold">{row.status === "APPROVED" ? "Horarios aprobados" : "Horarios solicitados"}</h3>
-        {row.windows.length > 0 ? <>
-          <p className="text-muted">{row.zone}</p>
-          <ul className="list-disc space-y-1 pl-5">
-            {row.windows.map(window => <li key={window}>{window}</li>)}
-          </ul>
-        </> : <p className="text-muted">No hay horarios registrados.</p>}
+    <div className="space-y-3">{rows.map(row => <article key={row.id}
+      className="grid gap-4 rounded-2xl border border-border bg-surface p-4 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] sm:gap-6">
+      <div className="min-w-0 space-y-2">
+        <h2 className="text-lg font-semibold text-primary">{row.venue}</h2>
+        <p className="text-sm text-muted">{row.club} · {row.season}</p>
+        <div className="space-y-1 text-sm">
+          <h3 className="font-semibold">{row.status === "APPROVED" ? "Horarios aprobados" : "Horarios solicitados"}</h3>
+          {row.windows.length > 0 ? <>
+            <p className="text-muted">{row.zone}</p>
+            <ul className="list-disc space-y-1 pl-5">
+              {row.windows.map(window => <li key={window}>{window}</li>)}
+            </ul>
+          </> : <p className="text-muted">No hay horarios registrados.</p>}
+        </div>
       </div>
-      {row.reason && <p className="text-sm">{row.reason}</p>}
-      {row.review && <button className={secondary} onClick={() => {
-        setSelected(row); setDecision(""); setReason(""); setError(""); setMode("review");
-      }}>Revisar</button>}
+      <div className="min-w-0 space-y-3">
+        <LoanProgress row={row} />
+        {row.review && <button className={secondary} onClick={() => {
+          setSelected(row); setDecision(""); setReason(""); setError(""); setMode("review");
+        }}>Revisar</button>}
+      </div>
     </article>)}</div>
     {mode && <FormDialog open title={mode === "submit" ? "Solicitar préstamo" : "Revisar solicitud"}
       description={mode === "submit" ? "Elige el contexto y adjunta la carta." : `${selected?.venue} · ${selected?.club}`}

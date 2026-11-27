@@ -8,9 +8,9 @@ export const metadata: Metadata = {
 };
 export default async function EmailConfirmationPage() {
   const current = await getCurrentAccount();
-  return <PublicShell current={current}>
-    <section aria-labelledby="email-confirmation-title" className="mx-auto max-w-xl space-y-6 rounded-3xl border border-border bg-surface p-6 sm:p-9">
-      <h1 id="email-confirmation-title" className="text-2xl font-semibold text-primary">Confirmar nuevo correo</h1>
+  return <PublicShell football current={current} showSignIn={false}>
+    <section aria-labelledby="email-confirmation-title" className="mx-auto max-w-xl space-y-5 rounded-3xl border border-border bg-surface p-5 sm:p-8">
+      <h1 id="email-confirmation-title" className="text-2xl font-semibold tracking-tight text-primary">Confirmar nuevo correo</h1>
       <EmailConfirmationForm />
     </section>
   </PublicShell>;

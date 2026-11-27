@@ -11,6 +11,10 @@ export const affiliationResultSchema = z.strictObject({
 
 export type AffiliationResult = z.infer<typeof affiliationResultSchema>;
 
+export function affiliationFollowUpHref(clubId: string, seasonId: string) {
+  return `/affiliations/new?${new URLSearchParams({ context: `${clubId}:${seasonId}` })}`;
+}
+
 const messages: Record<string, string> = {
   UNAUTHENTICATED:
     "Tu sesión terminó. Inicia sesión para continuar.",

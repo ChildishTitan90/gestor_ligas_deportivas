@@ -21,7 +21,7 @@ export function StandingsFilters({ catalog, initial, matchdays }: { catalog: Sta
   const categories = catalog.categories.filter(c => c.seasonId === filters.seasonId);
   const groups = catalog.groups.filter(g => g.categoryId === filters.categoryId);
   return <form action="/standings" method="get" aria-label="Filtros de clasificación" className="space-y-4 rounded-2xl border border-border bg-surface p-4 sm:p-6">
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-4 min-[380px]:grid-cols-2 xl:grid-cols-4">
       <label htmlFor="standing-competition">Competencia<SelectField id="standing-competition" name="competitionId" required value={filters.competitionId ?? ''}
         onValueChange={value => change('competitionId', value)} options={catalog.competitions.map(c => ({ value: c.id, label: c.name }))} /></label>
       <label htmlFor="standing-season">Temporada<SelectField id="standing-season" name="seasonId" required disabled={!filters.competitionId} value={filters.seasonId ?? ''}
@@ -31,13 +31,15 @@ export function StandingsFilters({ catalog, initial, matchdays }: { catalog: Sta
       <label htmlFor="standing-group">Grupo<SelectField id="standing-group" name="groupId" required disabled={!filters.categoryId} value={filters.groupId ?? ''}
         onValueChange={value => change('groupId', value)} options={groups.map(g => ({ value: g.id, label: g.name }))} /></label>
     </div>
-    <p id="standing-filter-help" className="text-sm text-muted">Solo aparecen competencias de tu ámbito. Cambiar un filtro limpia las selecciones dependientes.</p>
     <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
       <label htmlFor="standing-matchday" className="sm:min-w-60">Jornada de corte<SelectField id="standing-matchday" name="matchdayId"
         disabled={!filters.groupId || !initial.seasonId || filters.seasonId !== initial.seasonId || !matchdays.length} value={filters.matchdayId ?? ''}
-        onValueChange={value => change('matchdayId', value)} placeholder="Última jornada disponible"
-        options={[{ value: '', label: 'Última jornada disponible' }, ...matchdays.map(d => ({ value: d.id, label: `Jornada ${d.number}` }))]} /></label>
+        onValueChange={value => change('matchdayId', value)} placeholder="Última jornada de la temporada"
+        options={[{ value: '', label: 'Última jornada de la temporada' }, ...matchdays.map(d => ({ value: d.id, label: `Jornada ${d.number}` }))]} /></label>
       <Submit />
     </div>
+    {filters.groupId && filters.seasonId !== initial.seasonId && <p className="text-sm text-muted">
+      Consulta la clasificación para cargar las jornadas de la temporada seleccionada.
+    </p>}
   </form>;
 }

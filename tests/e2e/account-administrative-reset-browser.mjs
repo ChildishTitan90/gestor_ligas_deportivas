@@ -146,26 +146,26 @@ export async function verifyAdministrativeResetBrowser(config) {
     const wait=async(fn,...args)=>{for(let i=0;i<240;i++){try{if(await run(fn,...args))return;}catch{}await new Promise(r=>setTimeout(r,250));}throw Error('RESET_UI_TIMEOUT');};
     const key=async(key,code)=>{for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key===' '?'Space':key,windowsVirtualKeyCode:code,...(type==='keyDown'&&['Enter',' '].includes(key)?{text:key==='Enter'?'\r':' '}:{})});};
     const click=async text=>{
-      await wait(text=>[...document.querySelectorAll('button,a')].some(e=>e.textContent===text&&!e.disabled&&Object.keys(e).some(k=>k.startsWith('__reactProps$'))),text);
-      const point=await run(text=>{const e=[...document.querySelectorAll('button,a')].find(e=>e.textContent===text&&!e.disabled);e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};},text);
+      await wait(text=>[...document.querySelectorAll('button,a')].some(e=>(e.textContent===text||e.getAttribute('aria-label')===text)&&!e.disabled&&Object.keys(e).some(k=>k.startsWith('__reactProps$'))),text);
+      const point=await run(text=>{const e=[...document.querySelectorAll('button,a')].find(e=>(e.textContent===text||e.getAttribute('aria-label')===text)&&!e.disabled);e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};},text);
       for(const type of ['mousePressed','mouseReleased'])await command('Input.dispatchMouseEvent',{type,...point,button:'left',clickCount:1});
     };
     const set=async(name,value)=>{await wait(name=>{const e=document.querySelector(`[name="${name}"]`);return e&&Object.keys(e).some(k=>k.startsWith('__reactProps$'));},name);
       await run((name,value)=>{const e=document.querySelector(`[name="${name}"]`);Object.getOwnPropertyDescriptor(e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));},name,value);};
     const go=async path=>{await command('Page.navigate',{url:target.baseUrl+path});await wait(()=>document.readyState==='complete');};
     const login=async(user,password)=>{await command('Network.clearBrowserCookies');await go('/login');assert.equal(await run(async(email,password)=>{const {csrfToken}=await(await fetch('/api/auth/csrf')).json();const response=await fetch('/api/auth/callback/credentials',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({email,password,csrfToken,json:'true',callbackUrl:'/access'})});return response.ok&&!new URL((await response.json()).url,location.origin).searchParams.has('error');},user.email,password),true);};
-    const open=async user=>{await go(`/accounts?search=${user.username}`);await click(`Ver detalle de @${user.username}`);await wait(()=>!!document.querySelector('dialog[open] dd'));};
+    const openReset=async user=>{await click(`Restablecer acceso de @${user.username}`);await wait(()=>!!document.querySelector('dialog[open] [name=identityVerified]:enabled'));};
     const fill=async()=>{
       await run(()=>document.querySelector('[data-select-field="verificationMethod"]').focus());await key('ArrowDown',40);await key('Enter',13);
       await wait(()=>document.querySelector('[name="verificationMethod"]').value==='IN_PERSON');
       await key('Tab',9);assert.equal(await run(()=>document.activeElement.name),'identityVerified');
       await key(' ',32);await set('reason','Verificación sintética de identidad en persona');await run(()=>document.querySelector('[name="confirmed"]').click());
     };
-    await command('Page.enable');await command('Network.enable');await login(actor,fixturePassword);await open(main);
+    await command('Page.enable');await command('Network.enable');await login(actor,fixturePassword);await go(`/accounts?search=${main.username}`);await openReset(main);
     context.case='reset-browser-keyboard';
     assert.equal(await run(()=>document.querySelector('dialog[open]').contains(document.activeElement)),true);
-    await key('Escape',27);await wait(()=>!document.querySelector('dialog[open]'));assert.equal(await run(()=>document.activeElement.textContent.startsWith('Ver detalle de @')),true);
-    await key('Enter',13);await wait(()=>!!document.querySelector('dialog[open] dd'));await click('Restablecer acceso');await fill();
+    await key('Escape',27);await wait(()=>!document.querySelector('dialog[open]'));assert.equal(await run(()=>document.activeElement.textContent==='Restablecer acceso'),true);
+    await key('Enter',13);await wait(()=>!!document.querySelector('dialog[open] [name=identityVerified]:enabled'));await fill();
     for(const theme of ['light','dark'])for(const width of [1280,390]){
       await command('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width===390});await run(theme=>document.documentElement.dataset.theme=theme,theme);
       assert.equal(await run(()=>document.documentElement.scrollWidth<=innerWidth+2),true);
@@ -174,7 +174,8 @@ export async function verifyAdministrativeResetBrowser(config) {
     context.case='reset-browser-stale-review';
     await db.query('UPDATE sports_management.users SET maintenance_revision=maintenance_revision+1 WHERE id=$1',[main.id]);
     await click('Confirmar y guardar');await wait(()=>document.body.textContent.includes('La cuenta cambió desde que la abriste'));
-    await click('Revisar versión actual');await wait(()=>[...document.querySelectorAll('button')].some(e=>e.textContent==='Restablecer acceso'));await click('Restablecer acceso');await fill();
+    await click('Revisar versión actual');await wait(()=>!!document.querySelector('dialog[open] dd'));await key('Escape',27);
+    await wait(()=>!document.querySelector('dialog[open]'));await openReset(main);await fill();
     context.case='reset-browser-lost-response';
     let drop=true,posts=0;
     socket.addEventListener('message',event=>{

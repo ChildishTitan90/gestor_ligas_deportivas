@@ -1,4 +1,5 @@
 import { ageExceptionMessages } from "./age-exception";
+import type { CurpCheckStatus, CurpMismatch } from "./curp-verification";
 export const playerErrorMessages: Record<string, string> = {
   ...ageExceptionMessages,
   JERSEY_NUMBER_LOCKED: "El dorsal ya fue asignado y queda fijo hasta una nueva temporada.",
@@ -21,11 +22,25 @@ export const playerErrorMessages: Record<string, string> = {
   RETRY_CONFIRMATION_REQUIRED: "La consulta anterior pudo tener un cobro. Revisa el resultado antes de decidir una nueva consulta.",
 };
 
-export const curpStatusLabels: Record<string, string> = {
-  NOT_PERFORMED: "Sin consulta externa", NOT_CONFIGURED: "Proveedor no configurado",
-  PENDING: "Consulta pendiente de respuesta", VERIFIED: "Datos coincidentes con CURP",
-  DISCREPANCY: "Los datos no coinciden; requieren revisión", NOT_FOUND: "Consulta sin resultado",
-  INVALID_CREDENTIALS: "Acceso al proveedor no disponible", INSUFFICIENT_BALANCE: "Saldo insuficiente en el proveedor",
-  UNAVAILABLE: "Proveedor temporalmente no disponible", UNEXPECTED_RESPONSE: "Respuesta del proveedor no reconocida",
-  UNCERTAIN: "Resultado y posible cobro sin confirmar", STALE: "Comprobación invalidada por cambio de datos",
+export const identityFieldLabels: Record<CurpMismatch, string> = {
+  curp: "CURP",
+  firstName: "nombre",
+  paternalSurname: "primer apellido",
+  maternalSurname: "segundo apellido",
+  birthDate: "fecha de nacimiento",
+};
+
+export const curpStatusLabels: Record<CurpCheckStatus, string> = {
+  NOT_PERFORMED: "CURP pendiente de verificar.",
+  NOT_CONFIGURED: "La verificación externa de CURP aún no está configurada.",
+  PENDING: "Consulta en proceso. Actualiza el estado para ver la respuesta.",
+  VERIFIED: "CURP verificada. Los datos de RENAPO coinciden con el registro del jugador.",
+  DISCREPANCY: "CURP sin verificar. Los datos del registro y los de RENAPO no coinciden. Consulta a Secretaría para revisar la identidad.",
+  NOT_FOUND: "CURP sin verificar. RENAPO no devolvió un registro para esta clave. Pide a Secretaría que revise la CURP registrada.",
+  INVALID_CREDENTIALS: "El servicio rechazó el acceso de la Liga. Pide apoyo a administración.",
+  INSUFFICIENT_BALANCE: "El servicio no tiene saldo para esta consulta. Pide apoyo a administración.",
+  UNAVAILABLE: "El servicio de CURP está temporalmente fuera de servicio. Puedes reintentar más tarde.",
+  UNEXPECTED_RESPONSE: "El servicio devolvió una respuesta que no se pudo interpretar. Pide apoyo a administración para revisar la consulta.",
+  UNCERTAIN: "El resultado de la consulta sigue sin confirmarse. Consulta el estado del intento y pide apoyo a administración si persiste.",
+  STALE: "Los datos del jugador cambiaron. La comprobación anterior ya no está vigente.",
 };

@@ -127,6 +127,7 @@ Las páginas de servidor consultan la capa de datos directamente; no llamar por 
 
 ## UI/UX y convenciones
 
+- Para cambios de interfaz, sigue la [guía visual para agentes de desarrollo](CLAUDE.md) y las skills indicadas en ella.
 - Carpetas/archivos nuevos en inglés y kebab-case; componentes React en PascalCase. Conservar el alias `@/*` existente. Los textos de producto y documentación del equipo se escriben en español.
 - `components/ui` contiene controles genéricos; `features/*/components` contiene pantallas y componentes de negocio. Compartir un componente cuando existe una necesidad real de reutilización.
 - Conservar Tailwind 4, Geist y los tokens vigentes de `styles/tokens.css`; los estilos compartidos están en `src/app/globals.css`. No introducir configuraciones de Tailwind 3, otra paleta o paquetes UI por iniciativa propia.
@@ -190,6 +191,12 @@ Consultar y revisar la skill pertinente antes de aplicarla; una referencia en es
 - `docs/ci-cd.md`: comprobaciones y liberación controlada.
 - `docs/revision-entorno.md`: validaciones realizadas y dependencias pendientes.
 - Next.js: `node_modules/next/dist/docs/01-app/01-getting-started/02-project-structure.md`, `01-app/02-guides/data-security.md`, `01-app/02-guides/authentication.md` y `01-app/02-guides/progressive-web-apps.md`.
+
+## Invariantes de orientación y continuidad
+
+- Cada recorrido identifica su ubicación, objetivo y contexto autorizado. Representar con pasos las etapas que la persona puede completar y mostrar por separado el estado oficial y el próximo responsable del trámite.
+- Explicar requisitos y bloqueos antes de enviar. La acción principal nombra su efecto real. Distinguir captura en pantalla, guardado local, acuse del servidor, resultado incierto, corrección y conflicto según el contrato vigente. Advertir antes de descartar datos y conservar la intención original para reintentos permitidos.
+- Aplicar los cambios compartidos deliberadamente dentro del recorrido revisado. Reutilizar tokens, temas, layout y controles vigentes. Verificar pantallas consumidoras, teclado, foco, ambos temas y móvil/escritorio. Registrar por separado evidencia renderizada, pruebas simuladas y recorridos con sesión y backend aislados.
 
 ## Selectores desplegables compartidos
 

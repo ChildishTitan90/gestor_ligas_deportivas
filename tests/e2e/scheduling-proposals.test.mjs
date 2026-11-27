@@ -2,10 +2,20 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
 import { build } from "esbuild";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { compile } from "@tailwindcss/node";
+import { Scanner } from "@tailwindcss/oxide";
 import { closeTestServer, launchChrome, waitForTestDone } from "./chrome-session.mjs";
 
 for (const width of [390, 1440]) for (const theme of ["light", "dark"]) {
 test(`PDGLD-139: ajuste recuperable y revisión · ${width}px · ${theme}`, { timeout: 60_000 }, async t => {
+  const screenshotDir = process.env.SCHEDULING_SCREENSHOTS;
+  const stylesheet = resolve("src/app/globals.css");
+  const css = screenshotDir
+    ? (await compile(await readFile(stylesheet, "utf8"), { base: resolve("src/app"), onDependency() {} }))
+      .build(new Scanner({ sources: [{ base: resolve("src"), pattern: "**/*.{ts,tsx}", negated: false }] }).scan())
+    : "";
   const bundle = await build({
     bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic",
     define: { "process.env.NODE_ENV": '"development"', "process.env": "{}" },
@@ -19,10 +29,16 @@ import { GeneratedEncounterDraft } from './src/features/scheduling/components/ge
 import { SchedulingWorkspace } from './src/features/scheduling/components/scheduling-workspace';
 import { ProgressSteps } from './src/features/scheduling/components/progress-steps';
 import { TeamSwapBoard } from './src/features/scheduling/components/team-swap-board';
-import { ProposalStatus } from './src/features/scheduling/components/proposal-status';
+import { ProposalProgress, ProposalStatus } from './src/features/scheduling/components/proposal-status';
 import { PendingReasons } from './src/features/scheduling/components/pending-reasons';
 const root = createRoot(document.getElementById('root'));
 const mount = element => flushSync(() => root.render(element));
+window.showProposalEvidence = () => mount(<main className="mx-auto w-full max-w-3xl space-y-4 p-5 sm:p-8">
+  <h1 className="text-2xl font-semibold text-primary">Propuestas de programación</h1>
+  <p className="text-sm text-muted">Liga de demostración · Temporada de prueba</p>
+  <ProposalProgress status="APPROVED" generated awaitingActivation />
+  <ProposalStatus status="APPROVED" pendingCount={0} canEdit={false} awaitingActivation />
+</main>);
 const check = (value, message) => { if (!value) throw Error(message); };
 const wait = async fn => {
   for (let n=0; n<200; n++) {
@@ -189,7 +205,7 @@ window.runTest = async () => {
     flushSync(() => document.querySelector('[role=option]').click());
   }
   check(document.querySelector('[aria-label="Tu recorrido"] [aria-current="step"]').textContent.includes('Preparar propuesta'), 'Paso de preparación incorrecto');
-  check(document.querySelector('[aria-label="Tu recorrido"] li').textContent.includes('Completado'), 'No se marcó el contexto completado');
+  check(document.querySelector('[aria-label="Tu recorrido"] li').textContent.includes('Etapa completada'), 'No se marcó el contexto completado');
   const full={round:1,home:'a',away:'b',venueId:venue,start:'2026-11-18T18:00:00.000Z',end:'2026-11-18T19:30:00.000Z'};
   async function generate(match, optimal) {
     presentation={matches:[match],byes:[],timezone:'UTC',venueNames:{[venue]:'Unidad'},teamNames:{a:'Águilas',b:'Tigres'},partialOptimal:optimal};
@@ -205,7 +221,9 @@ window.runTest = async () => {
   }
   const complete=await generate(full,true);
   check(document.querySelector('[aria-label="Tu recorrido"] [aria-current="step"]').textContent.includes('Consultar calendario'), 'Paso de consulta incorrecto');
-  check([...document.querySelectorAll('[aria-label="Tu recorrido"] li')].filter(el=>el.textContent.includes('Completado')).length===2, 'No se marcaron los pasos anteriores');
+  check([...document.querySelectorAll('[aria-label="Tu recorrido"] li')].filter(el=>el.textContent.includes('Etapa completada')).length===2, 'No se marcaron los pasos anteriores');
+  const savedLink=document.querySelector('a[href*="/scheduling/proposals?propuesta="]');
+  check(savedLink && savedLink.hash==='#propuesta-'+new URL(savedLink.href).searchParams.get('propuesta'), 'El enlace no abre la propuesta guardada');
   check(complete.includes('Unidad') && complete.includes('Fecha y horario') && !complete.includes('Hay encuentros pendientes'), 'Presentación de propuesta completa incorrecta');
   const missing={...full,venueId:null,start:null,end:null,factors:['NO_OPENING','LOAN_WINDOW']};
   const pendingText=await generate(missing,true);
@@ -221,8 +239,12 @@ window.runTest = async () => {
     mount(<ProgressSteps label="Estado de la propuesta" steps={steps} current={index} />);
     const nav=document.querySelector('[aria-label="Estado de la propuesta"]');
     check(nav.querySelector('[aria-current="step"]').textContent.includes(steps[index].label), 'Estado actual incorrecto');
-    check([...nav.querySelectorAll('li')].filter(el=>el.textContent.includes('Completado')).length===index, 'Pasos completados incorrectos');
+    check([...nav.querySelectorAll('li')].filter(el=>el.textContent.includes('Etapa completada')).length===index, 'Pasos completados incorrectos');
   }
+  mount(<ProposalProgress status="APPROVED" generated awaitingActivation />);
+  check(document.querySelector('[aria-current="step"]').textContent.includes('Registro de partidos'), 'La aprobación no debe marcar la activación completa');
+  mount(<ProposalProgress status="APPROVED" generated awaitingActivation={false} />);
+  check(!document.querySelector('[aria-current="step"]') && document.querySelectorAll('li .sr-only').length===4, 'No se completaron las etapas tras registrar los partidos');
   const ids={a:'7ad37d56-9f1c-41e2-b190-df47b9f41304',b:'9c6e7ad6-3283-4f3f-a011-a58f337da107',c:'e37f479b-862d-4f47-9dda-6f5f5b8ca002',d:'267fa560-37de-4c7d-a236-12340ed2749e'};
   const rows=[[1,'a','d'],[1,'b','c'],[2,'c','a'],[2,'d','b'],[3,'a','b'],[3,'c','d']].map(([round,home,away],index)=>({
     encounterIndex:index,round,matchdayId:'day'+round,homeId:ids[home],awayId:ids[away],home:home.toUpperCase(),away:away.toUpperCase(),
@@ -262,7 +284,7 @@ window.runTest = async () => {
       return;
     }
     response.setHeader("Content-Type", "text/html; charset=utf-8");
-    response.end('<!doctype html><div id="root"></div><script>window.fixtureErrors=[];window.addEventListener("error",event=>window.fixtureErrors.push(event.message));</script><script src="/bundle.js"></script>');
+    response.end(`<!doctype html><html lang="es"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><div id="root"></div><script>window.fixtureErrors=[];window.addEventListener("error",event=>window.fixtureErrors.push(event.message));</script><script src="/bundle.js"></script></html>`);
   });
   t.after(() => closeTestServer(server));
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -282,5 +304,14 @@ window.runTest = async () => {
   await browser.evaluate(`document.documentElement.dataset.theme = "${theme}";
     window.testDone = window.runTest(); true`);
   assert.equal(await waitForTestDone(browser), true);
+  if (screenshotDir) {
+    await browser.evaluate("window.showProposalEvidence();window.scrollTo(0,0);new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");
+    assert.equal(await browser.evaluate("document.documentElement.scrollWidth <= innerWidth"), true);
+    await mkdir(screenshotDir, { recursive: true });
+    const shot = await browser.command("Page.captureScreenshot", { format: "png" });
+    const path = resolve(screenshotDir, `propuesta-${theme}-${width}.png`);
+    await writeFile(path, Buffer.from(shot.data, "base64"));
+    t.diagnostic(path);
+  }
 });
 }
