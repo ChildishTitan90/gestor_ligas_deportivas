@@ -8,7 +8,8 @@ La rama conserva las vistas y el diseño de PDGLD-174, conecta los servicios de 
 
 ## Validación
 
-- `npm run test:billing` y `npm run test:billing -- --postgres=17`: **18/18 en PostgreSQL 15.19 y 18/18 en 17.12**. NextAuth, HTTP/Server Actions, Chrome y PostgreSQL desechable, con backend limitado y RLS. Incluyen concurrencia, rollback, revocación, IDOR, precisión, historial y recuperación tras cortar una respuesta después del commit.
+- Revisión del PR #74: Tesorería conserva consulta de saldo e historial de cargos de club/equipo después de desactivar su club. La regresión comprueba también ámbito, falta de permiso, bloqueo de escrituras y conservación de registros. La resolución de contexto operativa no se amplía para otros módulos.
+- `npm run test:billing` y `npm run test:billing -- --postgres=17`: **19/19 en PostgreSQL 15.19 y 19/19 en 17.12**, incluida la regresión de club inactivo del PR #74. NextAuth, HTTP/Server Actions, Chrome y PostgreSQL desechable, con backend limitado y RLS. Incluyen concurrencia, rollback, revocación, IDOR, precisión, historial y recuperación tras cortar una respuesta después del commit.
 - Typecheck, lint y regresiones pertinentes; resultados y capturas en [PDGLD-77.md](PDGLD-77.md).
 - Job de matriz `billing` requerido por `CI listo para integrar`. El shell del gate se prueba con éxito, fallo, cancelación y omisión. La ejecución remota de Actions queda pendiente de publicar la rama.
 

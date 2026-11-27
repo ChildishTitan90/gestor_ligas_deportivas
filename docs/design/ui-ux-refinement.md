@@ -1,5 +1,21 @@
 # Refinamiento de UI y UX
 
+## Corrección de foco del acuse de afiliación — 26/11/2026
+
+El CI del PR #69 (`88d7405`) falló al exigir foco en «Correcciones recibidas».
+El formulario programaba el enfoque con `requestAnimationFrame` después de
+actualizar el estado; ese callback podía ejecutarse antes del montaje del acuse
+o demorarse con los cuadros del navegador. El enfoque ahora se realiza desde
+un efecto asociado al acuse confirmado, después de montar su encabezado.
+
+La prueba del recorrido reproduce cuadros retrasados tanto al recuperar el
+reenvío como al confirmar un alta. Falló con el código anterior en la misma
+aserción del CI y pasó con la corrección, conservando las comprobaciones de
+firmas, envío único, mismo cuerpo/versión y acuse confirmado. Se usan Chrome
+y transporte sintético; no es una nueva aceptación con datos reales.
+También pasaron las 31 pruebas de revisión/reenvío de afiliación. La nueva
+ejecución de CI queda pendiente de subir el commit.
+
 Auditoría del 23 de noviembre de 2026. Las primeras pruebas se ejecutaron sobre `7303aa8`, que era `origin/develop` al iniciar. `develop` avanzó a `9766e12` con el PR #56. Tras la autorización de Víctor, la rama local `refactor/ui-ux-navegacion-y-flujos` avanzó a ese commit. En la revisión también se pidió compactar el módulo de arbitraje. Su entrega se registra al final del documento.
 
 El boceto aportó la idea de mostrar dónde está la persona, qué falta, qué se confirmó y quién actúa después. Cada recorrido utiliza las etapas, documentos y acciones que admite su contrato.

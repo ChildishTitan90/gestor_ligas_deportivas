@@ -18,6 +18,7 @@
     "Fallo después del efecto revierte cargo, plan, acuse e historial; misma intención se recupera",
     "Multas protegidas: UUID de resolución no acredita PDGLD-27 y nunca crea deuda",
     "Consulta privada, ID ajeno, filtros y consistencia listado/detalle/consumidores",
+    "Desactivar club conserva deuda e historial autorizados de club/equipo y bloquea escrituras",
     "Pérdida de permiso impide reenvío y conciliación de un acuse anterior"
   ],
   "blocked": [
@@ -25,5 +26,5 @@
   ],
   "transportFault": "Respuesta real interrumpida después de commit; conciliada por intención",
   "runtime": "gestor_ligas_preview con RLS",
-  "at": "2026-11-27T05:03:59.087Z"
+  "at": "2026-11-27T06:05:54.939Z"
 }

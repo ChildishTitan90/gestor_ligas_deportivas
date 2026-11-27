@@ -135,7 +135,10 @@
     "test:standings-confirmation": "node --conditions=react-server --import tsx scripts/match-reports-local.mts --standings-confirmation",
     "test:standings-workspace": "node scripts/test-standings-workspace.mjs",
     "test:standings": "node --import tsx --test src/features/standings/calculation.test.ts",
-    "test:standings-integration": "node scripts/test-standings-isolated.mjs"
+    "test:standings-integration": "node scripts/test-standings-isolated.mjs",
+    "test:audit": "node --import tsx --test src/features/audit/projection.test.ts",
+    "test:audit:browser": "node --test tests/e2e/audit-workspace.test.mjs",
+    "test:audit:integration": "node scripts/test-audit.mjs --http --browser"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

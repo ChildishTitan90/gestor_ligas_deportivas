@@ -7,6 +7,7 @@ import pg from 'pg';
 import { billingJourney } from '../e2e/billing-journey.mjs';
 import { readChargeBalanceForActor, readChargeCreatedEventForActor } from '../../src/features/billing/server/consumer-queries.ts';
 import { getPrisma } from '../../src/server/db/prisma.ts';
+import { assertPermission, resolveAuthorizationContext } from '../../src/server/auth/authorization.ts';
 
 test('PDGLD-176 HTTP, sesión, PostgreSQL y RLS reales', { timeout: 540000 }, async t => {
   assert.equal(process.env.BILLING_ISOLATED, '1');
@@ -226,6 +227,55 @@ test('PDGLD-176 HTTP, sesión, PostgreSQL y RLS reales', { timeout: 540000 }, as
       const [event] = await q("SELECT id FROM sports_management.audit_logs WHERE table_name='charges' AND action='INSERT' AND entity_id=$1", [receipt.chargeId]);
       assert.deepEqual(await readChargeCreatedEventForActor(fixture.users.delegate176, event.id), { eventId: event.id, kind: 'CHARGE_CREATED', chargeId: receipt.chargeId });
       await assert.rejects(readChargeCreatedEventForActor(fixture.users.other176, event.id));
+    });
+    await check('Desactivar club conserva deuda e historial autorizados de club/equipo y bloquea escrituras', async () => {
+      const clubCommand = create({ concept: 'VENUE', amount: '42.35', periodStart: `${fixture.year}-08-01`, periodEnd: `${fixture.year}-08-07` });
+      const teamCommand = create({ concept: 'VENUE', amount: '57.20', recipient: { kind: 'TEAM', seasonTeamId: fixture.team }, periodStart: `${fixture.year}-08-01`, periodEnd: `${fixture.year}-08-07` });
+      const clubCharge = await confirmed(clubCommand), teamCharge = await confirmed(teamCommand);
+      const correction = { action: 'MODIFY', input: { operationId: randomUUID(), chargeId: clubCharge.chargeId, version: 1, amount: '43.35', dueOn: fixture.due, reason: 'Corrección anterior a la inactividad' } };
+      await confirmed(correction);
+      const snapshot = await q('SELECT * FROM sports_management.charges WHERE id=ANY($1::uuid[]) ORDER BY id', [[clubCharge.chargeId, teamCharge.chargeId]]);
+      const audit = await q("SELECT * FROM sports_management.audit_logs WHERE table_name='charges' AND entity_id=ANY($1::uuid[]) ORDER BY id", [[clubCharge.chargeId, teamCharge.chargeId]]);
+      const html = async (path, cookie) => (await fetch(origin + path, { headers: { cookie }, redirect: 'manual' })).text();
+      try {
+        await q("UPDATE sports_management.clubs SET status='INACTIVE',version=version+1 WHERE id=ANY($1::uuid[])", [fixture.clubs]);
+        const clubBalance = await readChargeBalanceForActor(fixture.users.treasury176, clubCharge.chargeId);
+        const teamBalance = await readChargeBalanceForActor(fixture.users.treasury176, teamCharge.chargeId);
+        assert.equal(clubBalance.balance, '43.35'); assert.equal(clubBalance.paid, '0.00');
+        assert.equal(teamBalance.balance, '57.20'); assert.equal(teamBalance.paid, '0.00');
+        const list = await html('/treasury/charges', treasury);
+        for (const chargeId of [clubCharge.chargeId, teamCharge.chargeId]) assert.ok(list.includes(chargeId), 'La deuda sigue en el listado autorizado');
+        const filtered = await html('/treasury/charges?recipient=' + fixture.clubs[0], treasury);
+        assert.ok(filtered.includes(clubCharge.chargeId) && !filtered.includes(teamCharge.chargeId));
+        const detail = await html('/treasury/charges/' + clubCharge.chargeId, treasury);
+        assert.ok(detail.includes('43.35') && detail.includes('Corrección anterior a la inactividad') && detail.includes('@treasury176'));
+        assert.ok(!detail.includes('Modificar cargo'));
+        const teamDetail = await html('/treasury/charges/' + teamCharge.chargeId, treasury);
+        assert.ok(teamDetail.includes('57.20') && teamDetail.includes('PDGLD176 cargo sintético'));
+        const capture = await html('/treasury/charges/new', treasury);
+        assert.ok(!capture.includes('Monarcas sintético') && !capture.includes('Pumas sintético'), 'La captura no ofrece destinatarios inactivos');
+        await rejected(fresh(clubCommand), 'FORBIDDEN'); await rejected(fresh(teamCommand), 'FORBIDDEN');
+        await rejected({ ...correction, input: { ...correction.input, operationId: randomUUID(), version: 2 } }, 'FORBIDDEN');
+        await rejected(fresh(generation), 'FORBIDDEN');
+        for (const [chargeId, amount] of [[clubCharge.chargeId, '43.35'], [teamCharge.chargeId, '57.20']]) {
+          for (const [name, cookie] of [['other176', other], ['guest176', guest], ['board176', board]]) {
+            await assert.rejects(readChargeBalanceForActor(fixture.users[name], chargeId), { code: 'FORBIDDEN' });
+            const denied = await html('/treasury/charges/' + chargeId, cookie);
+            assert.ok(!denied.includes(amount) && !denied.includes('Corrección anterior a la inactividad'));
+          }
+        }
+        // La excepción de lectura no reactiva asignaciones de club ni concede otras lecturas.
+        await assert.rejects(readChargeBalanceForActor(fixture.users.delegate176, clubCharge.chargeId), { code: 'FORBIDDEN' });
+        const context = { seasonId: fixture.season, clubId: fixture.clubs[0] };
+        await assert.rejects(getPrisma().$transaction(tx => assertPermission(tx, fixture.users.treasury176, { module: 'clubs', action: 'READ', context })), { code: 'FORBIDDEN' });
+        await assert.rejects(getPrisma().$transaction(tx => resolveAuthorizationContext(tx, context)), { code: 'FORBIDDEN' });
+        const [event] = audit.filter(row => row.action === 'INSERT' && row.entity_id === clubCharge.chargeId);
+        assert.deepEqual(await readChargeCreatedEventForActor(fixture.users.treasury176, event.id), { eventId: event.id, kind: 'CHARGE_CREATED', chargeId: clubCharge.chargeId });
+        assert.deepEqual(await q('SELECT * FROM sports_management.charges WHERE id=ANY($1::uuid[]) ORDER BY id', [[clubCharge.chargeId, teamCharge.chargeId]]), snapshot);
+        assert.deepEqual(await q("SELECT * FROM sports_management.audit_logs WHERE table_name='charges' AND entity_id=ANY($1::uuid[]) ORDER BY id", [[clubCharge.chargeId, teamCharge.chargeId]]), audit);
+      } finally {
+        await q("UPDATE sports_management.clubs SET status='ACTIVE',version=version+1 WHERE id=ANY($1::uuid[])", [fixture.clubs]);
+      }
     });
     await check('Pérdida de permiso impide reenvío y conciliación de un acuse anterior', async () => {
       await q("UPDATE sports_management.user_roles SET starts_at=now()-interval '2 days',ends_at=now()-interval '1 day' WHERE user_id=$1", [fixture.users.treasury176]);

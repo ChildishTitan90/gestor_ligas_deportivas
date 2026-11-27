@@ -6,6 +6,12 @@ Las entradas de servidor reciben `BillingCommand`, validan Zod y obtienen la ide
 
 La representación monetaria compartida es una cadena normalizada con dos decimales. Prisma conserva `Decimal(12,2)` y los cálculos usan `Prisma.Decimal`. El baseline exige MXN y vencimiento igual o posterior a emisión. La corrección modifica importe/vencimiento con versión esperada y motivo. El contexto y periodo originales permanecen como identidad del cargo.
 
+### Consulta después de desactivar un club · revisión del PR #74
+
+Desactivar el destinatario no elimina la deuda. El catálogo de `billing:READ` conserva los clubes afiliados y equipos de temporada aunque su club ya no esté activo. El autorizador admite ese contexto histórico exclusivamente para `billing:READ`; conserva la validación de identidad, concesión vigente, liga activa, temporada, afiliación/pertenencia y ámbito. Así Tesorería puede consultar listado, detalle, saldo e historial de esos cargos.
+
+La excepción no reactiva asignaciones de rol cuyo club está inactivo, ni permite leer otro club/liga sin una concesión que lo cubra. La resolución pública de contextos operativos y los demás módulos mantienen sus restricciones. Captura, alta, modificación y generación siguen exigiendo que el club esté activo. No hay cambio de modelo, migración, ACL/RLS ni de los registros financieros para resolver este defecto.
+
 ## Unicidad, concurrencia y auditoría
 
 La migración `20261125010000_pdgld175_charge_integrity` agrega índices únicos para club y equipo sobre temporada, concepto y ambas fechas del periodo. La liga y categoría del equipo se derivan de esa inscripción. Se conserva la unicidad original por sanción y por plan/inicio de periodo. Las filas canceladas siguen ocupando su clave de negocio. Su tratamiento futuro requiere la política correspondiente.

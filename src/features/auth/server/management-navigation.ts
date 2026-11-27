@@ -1,4 +1,5 @@
 import "server-only";
+import { canReadAudit } from "@/features/audit/server/queries";
 import { canReadStandings } from "@/features/standings/server/queries";
 import { canReadCatalog } from "@/features/discipline/server/catalog";
 
@@ -112,6 +113,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   const administration: ManagementNavigationGroup = { label: "Administración", items: [] };
   if (accountMaintenance || accounts) administration.items.push({ href: "/accounts", label: "Administrar cuentas", icon: "accounts" });
   if (governance) administration.items.push({ href: "/governance", label: "Órganos y cargos", icon: "overview" });
+  if (await allowed(canReadAudit)) administration.items.push({href:"/audit",label:"Bitácora de operaciones",icon:"review"});
   if (administration.items.length) groups.push(administration);
   if (catalog) groups.push({ label: "Disciplina", items: [{ href: "/discipline/catalog", label: "Catálogo disciplinario", icon: "review" }] });
   if (await allowed(canReadCharges)) groups.push({ label: "Tesorería", items: [{ href: "/treasury/charges", label: "Cargos", icon: "overview" }] });

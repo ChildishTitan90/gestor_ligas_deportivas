@@ -1,6 +1,18 @@
 # PDGLD-77 · PDGLD-176
 
-## Estado y versión
+## Corrección de la revisión del PR #74 · 27/11/2026
+
+La revisión de `49ab72a` identificó un caso omitido: una deuda existente desaparecía para Tesorería al desactivar el club. Se corrigieron el catálogo y la resolución de contexto para `billing:READ`, conservando concesiones vigentes y los controles de liga, temporada y pertenencia. Las escrituras continúan bloqueadas para un club inactivo y sus equipos; no se reactivan asignaciones de club ni se amplían lecturas de otros módulos.
+
+La nueva regresión crea cargos de club/equipo, corrige un importe con motivo, desactiva ambos clubes y consulta por HTTP el listado, filtro y detalle/historial, además de comprobar el saldo y evento privados. Verifica rechazo de alta, corrección y generación, otra liga, invitado y Comisión. También verifica la resolución operativa normal, la pérdida de la asignación de un delegado de club inactivo y que ni cargos ni su historial se modifiquen por consultar.
+
+Base de esta corrección: `49ab72a` con `origin/develop=60dfa29` integrado localmente sin commit. Se conservan las correcciones de foco y el módulo de bitácora de PDGLD-91. La batería actual añade un caso al runner existente, por lo que quedan 18 casos y el contenedor de pruebas (19 tests). **PostgreSQL 15.19: 19/19; PostgreSQL 17.12: 19/19**, ambos con sesión HTTP real, backend limitado, RLS y exit 0. [Resultado PG15](pdgld176/pg15/results.json) · [Resultado PG17](pdgld176/pg17/results.json). Se regeneraron los JSON/capturas al ejecutar los comandos de la sección siguiente. Pasaron `npm run typecheck`, `npm run lint`, `npm run test:audit` (4/4), `npm run test:ci` en Linux (99/99) y `npm run test:authorization` (ambos reportes: 55/55 y 63/63). Esta última conserva los casos de baja/reactivación de club, ámbitos, revocación en la misma sesión, cuentas y afiliaciones.
+
+Durante la ejecución se detectaron una descarga transitoria fallida de Google Fonts y una carrera del harness entre el foco inicial del diálogo y la validación. Se conserva el foco inicial seguro y ahora la prueba lo espera antes de intentar validar; no se cambió el diseño ni se omitió la comprobación de foco del error. La suite posterior de PostgreSQL 15 completó el recorrido y el caso nuevo con sesión, backend, RLS y base reales.
+
+El verde de CI y las 18 comprobaciones de la entrega anterior no cubrían esta regresión. La corrección actual aún no se publicó ni se ejecutó en Actions. Las multas desde resolución oficial de PDGLD-27 continúan pendientes/bloqueadas; esta corrección y una eventual integración parcial **no permiten cerrar toda PDGLD-77**.
+
+## Estado y versión de la entrega inicial · 26/11/2026
 
 Trabajo sobre `feat/PDGLD-77-cargos-tesoreria`, HEAD inicial `b10a752`, con `origin/develop` actualizado e integrado localmente desde `373ee72`, sin commit de integración. La revisión manual de PDGLD-174/175 **no se realizó** según informó Víctor. Continuó la automatización a petición suya; esa aceptación humana permanece pendiente.
 
@@ -35,7 +47,7 @@ El job `billing` de `.github/workflows/ci-cd.yml` ejecuta el runner en matriz 15
 
 Comprobados: `npm run lint`, `npm run typecheck`, `test:theme` (7), `test:affiliation-review` (31), `test:database-config` y `test:team-registration`. `test:preview-runtime` terminó con 126 aprobadas y 2 omisiones explícitas que corresponden a comprobaciones originales de migración/seguridad en el otro perfil. `test:ci` pasó en Linux con el repositorio montado en solo lectura (99/99). En Windows, la suite general de CI contiene requisitos POSIX y pruebas de symlinks que fallan también fuera del sandbox; la ejecución Linux acreditada conserva esos controles, sin omitirlos ni debilitarlos.
 
-El workflow está preparado y su gate fue ejecutado localmente; **no hay ejecución de GitHub Actions de estos cambios**, porque no se hizo commit ni push. No se declara CI remoto aprobado ni revisión por otra persona.
+El workflow y su gate se comprobaron localmente. La revisión recibida informa CI completo verde para `49ab72a`; ese resultado no cubría el caso de club inactivo. La corrección local posterior aún necesita publicarse y ejecutar Actions; no se atribuye el verde anterior a los cambios nuevos.
 
 ## Ajustes y pendientes
 

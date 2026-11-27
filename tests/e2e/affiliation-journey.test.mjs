@@ -115,8 +115,12 @@ test('el alta requiere revisión y firmas, y un reenvío incierto conserva la in
   await wait(`!!document.querySelector('a[target="_blank"]')`);
   assert.match(await evaluate(`document.querySelector('a[target="_blank"]').search`), /context=/);
   assert.equal(await evaluate(`Boolean(${button('Volver a editar')})`), false);
+  // Simula cuadros retrasados: el acuse debe anunciarse al quedar disponible.
+  await evaluate(`window.originalRequestFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = callback => setTimeout(() => callback(performance.now()), 10000)`);
   await click('Reintentar el mismo envío');
   await wait(`document.activeElement.textContent === 'Correcciones recibidas'`);
+  await evaluate('window.requestAnimationFrame = window.originalRequestFrame');
   const bodies = await evaluate('window.writes');
   assert.equal(bodies.length, 2);
   assert.equal(bodies[0], bodies[1]);
@@ -149,8 +153,10 @@ test('el alta requiere revisión y firmas, y un reenvío incierto conserva la in
   await click('Revisar solicitud');
   await wait(currentStep('Revisar solicitud'));
   assert.equal(await evaluate('window.writes.length'), 0);
+  await evaluate('window.requestAnimationFrame = callback => setTimeout(() => callback(performance.now()), 10000)');
   await click('Enviar a revisión');
   await wait(`document.activeElement.textContent === 'Solicitud recibida'`);
+  await evaluate('window.requestAnimationFrame = window.originalRequestFrame');
   assert.deepEqual(await evaluate('window.uploads'), ['PRESIDENT','SECRETARY','TREASURER']);
   const posted = await evaluate('JSON.parse(window.writes[0])');
   assert.equal(posted.officers.SECRETARY.signatureFileId.endsWith('0012'), true);

@@ -9,6 +9,7 @@ export class BillingError extends Error {}
 export async function billingCatalog(tx: Prisma.TransactionClient, actorId: string, action: PermissionAction = "READ"): Promise<BillingSeason[]> {
   const grants = (await getActorPermissionGrants(tx, actorId)).filter(grant => grant.module === "billing" && grant.action === action);
   if (!grants.length) throw new AuthorizationError();
+  const operationalClub = action === "READ" ? {} : { status: "ACTIVE" };
   const seasons = await tx.seasons.findMany({
     where: { leagues: { is_active: true }, OR: grants.map(grant => ({
       ...(grant.leagueId ? { league_id: grant.leagueId } : {}),
@@ -16,11 +17,11 @@ export async function billingCatalog(tx: Prisma.TransactionClient, actorId: stri
       ...(grant.contextOnly && !grant.leagueId && !grant.clubId ? { id: { in: [] } } : {}),
     })) },
     select: { id: true, name: true, league_id: true, leagues: { select: { name: true } },
-      club_affiliations: { where: { clubs: { status: "ACTIVE" } }, select: { club_id: true, clubs: { select: { name: true } } } },
+      club_affiliations: { where: { clubs: operationalClub }, select: { club_id: true, clubs: { select: { name: true } } } },
     }, orderBy: [{ start_date: "desc" }, { id: "asc" }],
   });
   const teams = await tx.season_teams.findMany({
-    where: { season_id: { in: seasons.map(season => season.id) }, teams: { clubs: { status: "ACTIVE" } } },
+    where: { season_id: { in: seasons.map(season => season.id) }, teams: { clubs: operationalClub } },
     select: { id: true, season_id: true, club_id: true, teams: { select: { name: true, clubs: { select: { name: true } } } },
       season_categories: { select: { categories: { select: { name: true } } } },
       groups: { select: { season_categories: { select: { categories: { select: { name: true } } } } } },

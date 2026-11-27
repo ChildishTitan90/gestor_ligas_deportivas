@@ -121,6 +121,7 @@ export async function billingJourney(origin, fixture, db) {
     assert.equal((await db.query('SELECT count(*)::int n FROM sports_management.charges')).rows[0].n, 1);
     await click('Ver cargo'); await text('Historial de modificaciones');
     await click('Modificar cargo');
+    await wait("document.querySelector('dialog[open] [data-dialog-initial]')===document.activeElement", 'Foco inicial del diálogo de corrección');
     await set('dialog input[name="amount"]', '0'); await set('dialog textarea[name="reason"]', 'Corrección sintética con motivo');
     await click('Modificar cargo', 'dialog[open]');
     await wait("document.activeElement?.name==='amount' && document.activeElement.getAttribute('aria-invalid')==='true'", 'Error de modificación asociado al campo');
