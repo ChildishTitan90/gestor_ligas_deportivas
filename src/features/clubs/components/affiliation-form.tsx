@@ -2,7 +2,7 @@
 import { DirectSignatureField } from "./direct-signature-field";
 import { UniformKitFields } from "./uniform-kit-fields";
 import { describeKits, uniformKitsSchema } from "../uniform-kits";
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ActionLink } from "@/components/ui/action-link";
 import { focusFormControl } from "@/components/ui/focus-form-control";
 import { ProcessSteps } from "@/components/ui/process-steps";
@@ -106,6 +106,9 @@ function AffiliationFormContent({
   const [review, setReview] = useState<AffiliationFormValues | null>(null);
   const [phase, setPhase] = useState<SubmissionPhase>("editing");
   const [receipt, setReceipt] = useState<AffiliationResult | null>(null);
+  useEffect(() => {
+    if (receipt) receiptHeading.current?.focus();
+  }, [receipt]);
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState("");
   const finished = !!receipt;
@@ -353,7 +356,6 @@ function invalidateSignatureForOfficer(name: string) {
       if (outcome.kind === "confirmed") {
         setReceipt(outcome.result);
         setPhase("editing");
-        requestAnimationFrame(() => receiptHeading.current?.focus());
       } else {
         setMessage(outcome.message);
         setPhase(outcome.kind === "rejected" ? "rejected" : outcome.kind === "unconfirmed" ? "uncertain" : "blocked");
