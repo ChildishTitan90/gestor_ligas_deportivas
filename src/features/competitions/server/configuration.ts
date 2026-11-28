@@ -4,6 +4,7 @@ import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "@/server/auth/session";
 import { assertPermission, lockAuthorization } from "@/server/auth/authorization";
 import { ruleDraftSchema } from "../schemas";
+import { playoffDatesRequired } from "../playoff-qualification";
 
 export class CompetitionError extends Error {
   constructor(public readonly code: string, public readonly status = 400) { super(code); }
@@ -50,10 +51,14 @@ export async function createCompetitionRuleDraft(seasonId: string, input: unknow
     // el ámbito para evitar invertir FOR UPDATE/FOR SHARE entre escritores.
     await tx.$queryRaw`SELECT id FROM sports_management.seasons WHERE id = ${seasonId}::uuid FOR UPDATE`;
     await assertPermission(tx, actor.id, { module: "competitions", action: "UPDATE", context: { seasonId } });
-    const season = await tx.seasons.findUniqueOrThrow({ where: { id: seasonId }, select: { status: true, version: true, league_id: true } });
+    const season = await tx.seasons.findUniqueOrThrow({ where: { id: seasonId }, select: { status: true, version: true, league_id: true, start_date: true, end_date: true } });
     if (season.status === "CLOSED") throw new CompetitionError("SEASON_CLOSED", 409);
     if (season.version !== data.expectedSeasonVersion) throw new CompetitionError("STALE_CONFIGURATION", 409);
-    const venueIds = [...new Set(data.calendar.scheduling?.venueStages.flatMap(stage => stage.venueIds) ?? [])];
+    if (data.calendar.playoff && (data.calendar.playoff.regularDeadline < season.start_date.toISOString().slice(0, 10) || data.calendar.playoff.regularDeadline >= season.end_date.toISOString().slice(0, 10))) throw new CompetitionError("INVALID_PLAYOFF_DEADLINE");
+    const playoff = data.calendar.playoff;
+    if (playoff && (!playoff.dates || playoff.dates.length !== playoffDatesRequired(playoff.format) || playoff.dates.some((date, index) => date <= playoff.regularDeadline || date > season.end_date.toISOString().slice(0, 10) || (index > 0 && date <= playoff.dates![index - 1])))) throw new CompetitionError("INVALID_PLAYOFF_DATES");
+    const neutralIds = playoff?.venuePolicy?.mode === "NEUTRAL" ? playoff.venuePolicy.venueIds : [];
+    const venueIds = [...new Set([...(data.calendar.scheduling?.venueStages.flatMap(stage => stage.venueIds) ?? []), ...neutralIds])];
     if (venueIds.length) {
       const count = await tx.venues.count({ where: { id: { in: venueIds }, league_id: season.league_id, is_active: true } });
       if (count !== venueIds.length) throw new CompetitionError("INVALID_SCHEDULING_VENUES");

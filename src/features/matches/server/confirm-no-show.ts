@@ -10,6 +10,7 @@ import { proposedNoShowScore } from "@/features/match-reports/no-show";
 import type { ConfirmationEffects } from "@/features/match-reports/server/confirmation-effects";
 import { calculateConfirmedNoShowStandingsInTransaction } from "@/features/standings/server/service";
 import { MatchTransitionError } from "../transition-rules";
+import { advancePlayoffResultInTransaction } from "@/features/competitions/server/playoff-advance";
 
 const schema=z.strictObject({matchId:z.uuid(),reportId:z.uuid(),operationId:z.uuid(),
   expectedMatchVersion:z.number().int().positive(),expectedReportVersion:z.number().int().positive()});
@@ -62,6 +63,7 @@ export async function confirmNoShowInTransaction(tx:Prisma.TransactionClient,act
   await tx.match_reports.update({where:{id:report.id},data:{status:"CONFIRMED",confirmed_at:confirmedAt,version:{increment:1},
     draft_data:{...stored,...(presentation?{presentation}:{})} as Prisma.InputJsonValue}});
   await calculateConfirmedNoShowStandingsInTransaction(tx,actorId,report.id);
+  await advancePlayoffResultInTransaction(tx,match.id);
   await effects.openIncidentCases(tx,{actorId,matchId:match.id,reportId:report.id,operationId:input.operationId,
     expectedMatchVersion:input.expectedMatchVersion,homeScore:score.home,awayScore:score.away,eventIds:[],dismissals:[]});
   const receipt={matchId:match.id,reportId:report.id,matchVersion:match.version+1,reportVersion:report.version+1};

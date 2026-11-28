@@ -32,6 +32,34 @@ export async function verifyRefereeingAcceptance(c:Context){
     if(available)await mutateRefereeing(actors.comision,cmd("availability",{refereeId:ref,expectedVersion:await version(ref),startsAt:"2026-12-05T00:00:00Z",endsAt:"2026-12-11T00:00:00Z",available:true}));
     return ref;
   }
+  // Un cruce entre grupos solo es válido cuando pertenece a una llave real de liguilla.
+  const otherGroup=await scalar("INSERT INTO sports_management.groups(season_id,season_category_id,name) VALUES($1,$2,$3) RETURNING id",[season,sc,`B-${randomUUID()}`]);
+  async function otherGroupClub(){
+    const club=await scalar("INSERT INTO sports_management.clubs(league_id,name,reference_number) VALUES($1,'Club de grupo B',$2) RETURNING id",[league,randomUUID()]);
+    await db.query("INSERT INTO sports_management.club_affiliations(season_id,club_id,league_id,reference_number,uniform_colors,status,requested_by) VALUES($1,$2,$3,$4,'Sintético','APPROVED',$5)",[season,club,league,randomUUID(),actors.comision]);
+    const team=await scalar("INSERT INTO sports_management.teams(club_id,name,reference_number) VALUES($1,'Equipo B',$2) RETURNING id",[club,randomUUID()]);
+    const entry=await scalar("INSERT INTO sports_management.season_teams(season_id,team_id,club_id,season_category_id,status) VALUES($1,$2,$3,$4,'REGISTERED') RETURNING id",[season,team,club,sc]);
+    await db.query('UPDATE sports_management.season_teams SET group_id=$2 WHERE id=$1',[entry,otherGroup]);
+    return {club,entry};
+  }
+  const visitor=await otherGroupClub(),nonPlaying=await otherGroupClub();
+  const knockout=await newMatch('2026-12-10T16:00Z','2026-12-10T18:00Z');
+  await assert.rejects(db.query('UPDATE sports_management.matches SET away_team_id=$2 WHERE id=$1',[knockout,visitor.entry]),/En fase regular ambos teams/);
+  const neutral=await newRef(),refA=await newRef(true,true,clubs[3]),refB=await newRef(true,true,nonPlaying.club);
+  const stage=await scalar(`INSERT INTO sports_management.competition_stages(season_id,season_category_id,competition_rule_id,name,sort_order,format)
+    SELECT $1,$2,competition_rule_id,'Liguilla de prueba',coalesce((SELECT max(sort_order)+1 FROM sports_management.competition_stages WHERE season_category_id=$2),1),'{"kind":"PLAYOFF_8"}'::jsonb
+    FROM sports_management.season_categories WHERE id=$2 RETURNING id`,[season,sc]);
+  const home=(await db.query('SELECT home_team_id FROM sports_management.matches WHERE id=$1',[knockout])).rows[0].home_team_id;
+  const bracket=await scalar('INSERT INTO sports_management.brackets(stage_id,season_id,number,team_a_id,team_b_id) VALUES($1,$2,1,$3,$4) RETURNING id',[stage,season,home,visitor.entry]);
+  await db.query('UPDATE sports_management.matches SET stage_id=$2,away_team_id=$3 WHERE id=$1',[knockout,stage,visitor.entry]);
+  assert.ok((await assess(knockout,neutral)).blockers.some(b=>b.code==='INVALID_TEAMS'));
+  await db.query('INSERT INTO sports_management.bracket_matches(bracket_id,match_id,leg_number) VALUES($1,$2,1)',[bracket,knockout]);
+  assert.ok(!(await assess(knockout,neutral)).blockers.some(b=>b.code==='INVALID_TEAMS'));
+  for(const ref of [refA,refB])assert.ok((await assess(knockout,ref)).blockers.some(b=>b.code==='CLUB_IN_GROUP'));
+  const knockoutProposal=await mutateRefereeing(actors.programador,cmd('propose',{refereeId:neutral,matchId:knockout,expectedMatchVersion:1}));
+  await mutateRefereeing(actors.comision,cmd('approve',{assignmentId:knockoutProposal.id,expectedVersion:knockoutProposal.version,expectedMatchVersion:1}));
+  assert.equal((await db.query('SELECT status FROM sports_management.referee_assignments WHERE id=$1',[knockoutProposal.id])).rows[0].status,'APPROVED');
+  checks.push('liguilla-grupos-distintos-imparcialidad-y-aprobacion');
   // Cuotas reales: cinco contextos independientes y registros no válidos fuera del conteo.
   for(const [count,required] of [[0,0],[1,1],[4,1],[5,2],[9,3]]){
     const club=await scalar("INSERT INTO sports_management.clubs(league_id,name,reference_number) VALUES($1,'Cuota sintética',$2) RETURNING id",[league,randomUUID()]);

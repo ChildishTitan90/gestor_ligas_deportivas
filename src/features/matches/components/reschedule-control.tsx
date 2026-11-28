@@ -11,6 +11,8 @@ import { ProgressSteps } from "@/features/scheduling/components/progress-steps";
 const messages:Record<string,string>={FORBIDDEN:"No tienes autorización vigente para reprogramar este partido.",
   STALE_MATCH:"El partido cambió. Consulta su versión vigente antes de reprogramar.",
   INVALID_LOCAL_TIME:"La fecha u hora no es válida para la zona de la liga.",INVALID_RESCHEDULE_DATE:"Elige una fecha futura dentro de la temporada; en caso de incomparecencia debe ser posterior al encuentro anterior.",
+  PLAYOFF_ROUND_DATE:"Elige la fecha definida para esta ronda y partido de liguilla en la configuración del torneo.",
+  PLAYOFF_DATES_REQUIRED:"La configuración de fechas de liguilla está incompleta. Solicita a la liga que la revise.",
   VENUE_NOT_AVAILABLE:"La cancha no está disponible o autorizada para ese horario.",VENUE_STAGE:"El reglamento no permite esta cancha en la jornada.",
   RESERVATION_CONFLICT:"La cancha o uno de los equipos ya tiene otra reserva en ese horario.",
   SEASON_BREAK:"La fecha coincide con un descanso de temporada.",TEAM_SUSPENDED:"Un equipo tiene una restricción de participación para ese horario.",

@@ -10,64 +10,72 @@ export type SchedulePdfData = {
 /** Una instantánea de la propuesta aprobada; no publica ni reserva partidos. */
 export async function createSchedulePdf(data:SchedulePdfData):Promise<Uint8Array> {
   const pdf=await PDFDocument.create();
-  pdf.setTitle("Programación de jornadas"); pdf.setSubject(data.variant === "updated" ? "Programación actualizada" : "Propuesta aprobada");
-  const regular=await pdf.embedFont(StandardFonts.Helvetica), bold=await pdf.embedFont(StandardFonts.HelveticaBold);
-  const color=rgb(0.10,0.20,0.24), muted=rgb(0.32,0.39,0.41), accent=rgb(0.75,0.36,0.22);
-  const width=595.28, height=841.89, left=44, right=width-44;
-  let page!:PDFPage;
-  let y=0, pages=0;
-  const safe=(value:string)=>Array.from(value.replace(/[\r\n\t]+/g," ")).map(char=>{
-    try { regular.encodeText(char); return char; } catch { return "?"; }
-  }).join("");
-  function line(text:string,font:PDFFont,size:number,x:number,top:number,colorValue=color) {
-    page.drawText(safe(text),{x,y:top-size,size,font,color:colorValue});
-  }
-  function wrap(text:string,font:PDFFont,size:number,max:number) {
-    const words=safe(text).split(/\s+/), lines:string[]=[]; let current="";
-    for (let word of words) {
+  pdf.setTitle("Programación de jornadas");
+  pdf.setSubject(data.variant === "updated" ? "Programación actualizada" : "Propuesta aprobada");
+  const regular=await pdf.embedFont(StandardFonts.Helvetica),bold=await pdf.embedFont(StandardFonts.HelveticaBold);
+  const width=595.28,height=841.89,left=38,right=width-38,usable=right-left;
+  const ink=rgb(0.08,0.12,0.14),muted=rgb(0.32,0.36,0.38),shade=rgb(0.94,0.95,0.95);
+  const columns=[146,146,127,100];
+  let page!:PDFPage,y=0;
+  const safe=(s:string)=>Array.from(s.replace(/[\r\n\t]+/g," ")).map(c=>{try{regular.encodeText(c);return c;}catch{return "?";}}).join("");
+  function wrap(value:string,font:PDFFont,size:number,max:number) {
+    const lines:string[]=[];let current="";
+    for(let word of safe(value).split(/\s+/)) {
       while(word && font.widthOfTextAtSize(word,size)>max) {
         if(current){lines.push(current);current="";}
-        let n=1; while(n<word.length && font.widthOfTextAtSize(word.slice(0,n+1),size)<=max)n++;
+        let n=1;while(n<word.length&&font.widthOfTextAtSize(word.slice(0,n+1),size)<=max)n++;
         lines.push(word.slice(0,n));word=word.slice(n);
       }
-      const candidate=current ? current+" "+word : word;
-      if(current && font.widthOfTextAtSize(candidate,size)>max){lines.push(current);current=word;} else current=candidate;
+      const candidate=current?`${current} ${word}`:word;
+      if(current&&font.widthOfTextAtSize(candidate,size)>max){lines.push(current);current=word;} else current=candidate;
     }
     if(current)lines.push(current);return lines.length?lines:[""];
   }
+  function center(value:string,font:PDFFont,size:number,top:number) {
+    for(const part of wrap(value,font,size,usable)) {
+      page.drawText(part,{x:(width-font.widthOfTextAtSize(part,size))/2,y:top-size,font,size,color:ink});top-=size+4;
+    }
+    return top;
+  }
+  const dateTime=new Intl.DateTimeFormat("es-MX",{dateStyle:"short",timeStyle:"short",timeZone:data.timezone});
   function newPage() {
-    page=pdf.addPage([width,height]); pages++;
-    page.drawRectangle({x:0,y:height-73,width,height:73,color});
-    line("PROGRAMACIÓN DE JORNADAS",bold,16,left,height-24,rgb(1,1,1));
-    line(wrap((data.variant === "updated" ? "Programación actualizada · " : "Programación aprobada · ") + data.league,regular,9,right-left)[0],regular,9,left,height-48,rgb(0.88,0.92,0.92));
-    y=height-93;
+    page=pdf.addPage([width,height]);y=height-34;
+    y=center("PROGRAMACIÓN DE JORNADAS",bold,15,y)-3;
+    y=center(`${data.league} · ${data.season}`,bold,10,y);
+    y=center(`${data.category} · Grupo ${data.group}`,regular,9,y)-2;
+    y=center(`${data.variant==="updated"?"Programación actualizada":"Programación aprobada"} · Versión ${data.version}`,regular,8,y)-2;
+    y=center(`Generado: ${dateTime.format(data.generatedAt)} · ${data.timezone}`,regular,8,y)-12;
   }
-  function ensure(space:number) {if(y-space<48)newPage();}
-  function text(textValue:string,font:PDFFont,size:number,indent=0,colorValue=color) {
-    for(const part of wrap(textValue,font,size,right-left-indent)){ensure(size+5);line(part,font,size,left+indent,y,colorValue);y-=size+5;}
+  function heading(round:number,continued=false) {
+    if(y<130)newPage();
+    y=center(`JORNADA ${round}${continued?" · CONTINUACIÓN":""}`,bold,11,y)-7;
+    row(["LOCAL","VISITANTE","CANCHA","FECHA Y HORA"],true);
   }
-  const format=new Intl.DateTimeFormat("es-MX",{dateStyle:"long",timeStyle:"short",timeZone:data.timezone});
+  function row(values:string[],header=false) {
+    const size=header?8:9,font=header?bold:regular,lineHeight=12;
+    const lines=values.map((value,i)=>wrap(value,font,size,columns[i]-12));
+    const rowHeight=Math.max(24,Math.max(...lines.map(l=>l.length))*lineHeight+10);
+    let x=left;
+    for(let i=0;i<columns.length;i++) {
+      page.drawRectangle({x,y:y-rowHeight,width:columns[i],height:rowHeight,borderWidth:0.6,borderColor:muted,...(header?{color:shade}:{})});
+      lines[i].forEach((text,j)=>page.drawText(text,{x:x+6,y:y-10-size-j*lineHeight,size,font,color:ink}));
+      x+=columns[i];
+    }
+    y-=rowHeight;
+  }
   newPage();
-  text(`${data.season} · ${data.category} · Grupo ${data.group}`,bold,12);
-  text(`Versión ${data.version} · Generado: ${format.format(data.generatedAt)} · ${data.timezone}`,regular,9,0,muted);
-  text(data.variant === "updated" ? "Versión registrada tras la reprogramación." : "La información corresponde a la propuesta aprobada en el momento de la descarga.",regular,9,0,muted);
-  y-=8;
   const rounds=[...new Set([...data.matches.map(m=>m.round),...data.byes.map(b=>b.round)])].sort((a,b)=>a-b);
   for(const round of rounds) {
-    ensure(58); page.drawRectangle({x:left,y:y-22,width:right-left,height:22,color:rgb(0.93,0.95,0.95)});
-    line(`JORNADA ${round}`,bold,10,left+8,y-5,accent);y-=32;
+    heading(round);
     const matches=data.matches.filter(m=>m.round===round).sort((a,b)=>(a.start?Date.parse(a.start):Infinity)-(b.start?Date.parse(b.start):Infinity)||a.home.localeCompare(b.home));
-    for(const match of matches) {
-      const title=`${match.home}  vs.  ${match.away}`;
-      const detail=`${match.status === "CANCELED" ? "Cancelado · " : ""}${match.start?format.format(new Date(match.start)):"Horario pendiente"} · ${match.venue}`;
-      const required=(wrap(title,bold,10,right-left-16).length+wrap(detail,regular,9,right-left-16).length)*15+8;
-      ensure(required); text(title,bold,10,8);text(detail,regular,9,8,muted);y-=5;
+    const items=[...matches.map(match=>[match.home,match.away,match.venue,`${match.status==="CANCELED"?"Cancelado · ":""}${match.start?dateTime.format(new Date(match.start)):"Horario pendiente"}`]),...data.byes.filter(bye=>bye.round===round).map(bye=>[bye.team,"DESCANSA","—","—"])];
+    for(const values of items) {
+      const needed=Math.max(24,Math.max(...values.map((value,i)=>wrap(value,regular,9,columns[i]-12).length))*12+10);
+      if(y-needed<48){newPage();heading(round,true);}
+      row(values);
     }
-    for(const bye of data.byes.filter(b=>b.round===round)){ensure(22);text(`Descansa: ${bye.team}`,regular,9,8,muted);}
-    y-=8;
+    y-=18;
   }
-  for(let index=0;index<pdf.getPageCount();index++) {
-    const target=pdf.getPages()[index];target.drawText(`Página ${index+1} de ${pages}`,{x:left,y:25,size:8,font:regular,color:muted});
-  }
+  const pages=pdf.getPages();pages.forEach((target,index)=>target.drawText(`Página ${index+1} de ${pages.length}`,{x:left,y:25,size:8,font:regular,color:muted}));
   return pdf.save();
 }

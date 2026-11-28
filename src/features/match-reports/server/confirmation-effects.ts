@@ -5,6 +5,7 @@ import { ReportError, type ReportReceipt } from "../contract";
 import type { ReportDemoData } from "../types";
 import { finishConfirmedReportMatch } from "@/features/matches/server/report-finish";
 import { openIncidentCases } from "./incident-cases";
+import { advancePlayoffResultInTransaction } from "@/features/competitions/server/playoff-advance";
 
 export const confirmationBlockers: string[] = [];
 export type ConfirmationContext = { actorId: string; matchId: string; reportId: string; operationId: string; expectedMatchVersion: number; homeScore: number; awayScore: number; eventIds: string[]; dismissals: { eventId: string; playerId: string; teamId: string; reason: "SECOND_CAUTION" | "DIRECT_RED" }[] };
@@ -31,5 +32,7 @@ export async function applyConfirmationEffects(tx: Prisma.TransactionClient, con
     throw error;
   }
   await effects.openIncidentCases(tx, context);
+  const match = await tx.matches.findUniqueOrThrow({ where: { id: context.matchId }, select: { stage_id: true } });
+  if (match.stage_id) await advancePlayoffResultInTransaction(tx, context.matchId);
   return { formatVersion: 1, operationId: context.operationId, matchId: context.matchId, reportId: context.reportId, reportVersion: report.version, matchVersion, status: "CONFIRMED" };
 }

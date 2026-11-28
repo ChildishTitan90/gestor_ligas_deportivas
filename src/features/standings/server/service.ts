@@ -46,7 +46,7 @@ async function projectStandings(tx: Tx, scope: Awaited<ReturnType<typeof context
     JOIN sports_management.matchdays d ON d.id=m.matchday_id AND d.season_id=m.season_id
     JOIN sports_management.match_statuses ms ON ms.id=m.status_id
     LEFT JOIN sports_management.match_reports mr ON mr.match_id=m.id
-    WHERE m.group_id=${groupId}::uuid AND m.season_id=${seasonId}::uuid AND d.number<=${scope.number} AND m.deleted_at IS NULL ORDER BY m.id`;
+    WHERE m.group_id=${groupId}::uuid AND m.season_id=${seasonId}::uuid AND d.number<=${scope.number} AND m.deleted_at IS NULL AND m.stage_id IS NULL ORDER BY m.id`;
   const rows = calculateStandings(teams.map(t => t.id), results, configuration);
   const events = await tx.$queryRaw<StandingEvent[]>`SELECT e.id, m.id AS "matchId", mr.id AS "reportId", mr.version AS "reportVersion", mr.source AS "reportSource", et.code,
     e.season_team_id AS "teamId", l.registration_id AS "playerId"
@@ -54,7 +54,7 @@ async function projectStandings(tx: Tx, scope: Awaited<ReturnType<typeof context
     JOIN sports_management.match_reports mr ON mr.id=e.match_report_id
     JOIN sports_management.matches m ON m.id=mr.match_id JOIN sports_management.matchdays d ON d.id=m.matchday_id
     LEFT JOIN sports_management.lineups l ON l.id=e.lineup_id
-    WHERE m.group_id=${groupId}::uuid AND m.season_id=${seasonId}::uuid AND d.number<=${scope.number} AND m.deleted_at IS NULL AND mr.status='CONFIRMED' ORDER BY e.id`;
+    WHERE m.group_id=${groupId}::uuid AND m.season_id=${seasonId}::uuid AND d.number<=${scope.number} AND m.deleted_at IS NULL AND m.stage_id IS NULL AND mr.status='CONFIRMED' ORDER BY e.id`;
   const eligible = results.filter(eligibleResult);
   const officialEvents = events.flatMap(e => {
     const result = eligible.find(r => r.matchId === e.matchId);
@@ -114,7 +114,7 @@ async function calculateConfirmedStandingsInTransaction(tx: Tx, actorId: string,
   if (isolation.level !== 'serializable') throw Error('STANDINGS_SERIALIZABLE_REQUIRED');
   const report = await tx.match_reports.findUniqueOrThrow({ where: { id: z.uuid().parse(reportId) }, select: { match_id: true, status: true, confirmed_at: true, draft_data: true } });
   const match = await reportAccess(tx, actorId, report.match_id, 'UPDATE');
-  const source = await tx.matches.findUniqueOrThrow({ where: { id: match.id }, select: { group_id: true, matchday_id: true } });
+  const source = await tx.matches.findUniqueOrThrow({ where: { id: match.id }, select: { group_id: true, matchday_id: true, competition_stages: { select: { format: true } } } });
   const result = await tx.match_results.findUnique({ where: { match_id: match.id }, select: { source: true, counts_in_standings: true, home_score: true, away_score: true, offending_team_id: true } });
   if (report.status !== 'CONFIRMED' || !report.confirmed_at || match.match_statuses.code !== 'FINISHED' || result?.source !== expectedSource || !result.counts_in_standings) throw Error('CONFIRMED_RESULT_REQUIRED');
   if (expectedSource === 'DEFAULT') {
@@ -124,6 +124,8 @@ async function calculateConfirmedStandingsInTransaction(tx: Tx, actorId: string,
     const offender = draft.data.noShow.absent === 'HOME' ? match.home_team_id : match.away_team_id;
     if (!score || result.home_score !== score.home || result.away_score !== score.away || result.offending_team_id !== offender) throw Error('CONFIRMED_RESULT_REQUIRED');
   }
+  const stageFormat=source.competition_stages?.format;
+  if(stageFormat && typeof stageFormat==='object' && !Array.isArray(stageFormat) && stageFormat.kind==='PLAYOFF_8') return [];
   if (!source.group_id || !source.matchday_id) throw Error('INVALID_STANDING_CONTEXT');
   const scope = await context(tx, actorId, { groupId: source.group_id, matchdayId: source.matchday_id }, true, true);
   // Refresh existing later cuts too: late confirmation must not leave saved tables stale.

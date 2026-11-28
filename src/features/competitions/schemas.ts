@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { schedulingPolicySchema } from "@/features/scheduling/schemas";
 import { categoryDocumentPolicySchema } from "./document-policy";
+import { playoffRulesSchema } from "./playoff-qualification";
 
 /** Datos iniciales de una liga; la autoridad se comprueba en servidor. */
 export const createLeagueSchema = z.strictObject({
@@ -35,6 +36,7 @@ export const ruleDraftSchema = z.strictObject({
     matchDurationMinutes: z.number().int().positive(),
     complexOnlyFinalRounds: z.number().int().nonnegative().optional(),
     scheduling: schedulingPolicySchema.optional(),
+    playoff: playoffRulesSchema.extend({ regularDeadline: z.iso.date(), dates: z.array(z.iso.date()).min(3).max(6).optional() }).optional(),
   }).refine(calendar => !calendar.scheduling || calendar.rounds <= 4, {
     path: ["rounds"], message: "La programación admite hasta cuatro vueltas.",
   }),

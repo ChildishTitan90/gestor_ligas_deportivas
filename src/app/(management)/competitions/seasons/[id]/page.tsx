@@ -1,4 +1,7 @@
 import { SchedulingPolicyFields } from "@/features/competitions/components/scheduling-policy-fields";
+import { PlayoffFields } from "@/features/competitions/components/playoff-fields";
+import { playoffRulesSchema } from "@/features/competitions/playoff-qualification";
+import { z } from "zod";
 import { schedulingPolicySchema } from "@/features/scheduling/schemas";
 import { RuleParameter } from "@/features/competitions/components/rule-parameter";
 import { TieBreakerFields } from "@/features/competitions/components/tie-breaker-fields";
@@ -50,6 +53,8 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
   const calendar = latest.calendar;
   const previousScheduling = calendar && typeof calendar === "object" && !Array.isArray(calendar)
     ? schedulingPolicySchema.safeParse(calendar.scheduling) : null;
+  const previousPlayoff = calendar && typeof calendar === "object" && !Array.isArray(calendar)
+    ? playoffRulesSchema.extend({ regularDeadline: z.iso.date(), dates: z.array(z.iso.date()).optional() }).safeParse(calendar.playoff) : null;
   function previousNumber(group: string, key: string) {
     const value = latest[group];
     if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
@@ -104,6 +109,7 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
         <span id="complex-only-final-rounds-help" className="mt-1 block text-sm text-muted">Usa 0 para desactivar la restricción o deja el campo vacío si aún no se ha definido.</span>
       </label>
       <SchedulingPolicyFields venues={data.venues} initial={previousScheduling?.success ? previousScheduling.data : undefined} />
+      <PlayoffFields initial={previousPlayoff?.success ? previousPlayoff.data : undefined} seasonStart={data.dates?.startDate} seasonEnd={data.dates?.endDate} venues={data.venues} />
       <p>El borrador conserva las versiones anteriores. Su creación no publica ni aprueba las reglas.</p>
     </ConfigurationForm>}
       {rules.map((rule, index) => <details key={rule.id} open={index === 0} className="rounded-2xl border border-border bg-surface p-5"><summary className="min-h-12 cursor-pointer font-semibold">Versión {rule.version} · {rule.status === "DRAFT" ? "Borrador" : rule.status === "APPROVED" ? "Aprobado" : rule.status}{index === 0 ? " · Última versión" : " · Historial"}</summary>
