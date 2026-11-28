@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { getPrisma } from '../../src/server/db/prisma';
 import { previewPlayoffQualifiersForActor } from '../../src/features/competitions/server/playoff-qualifiers';
-import { confirmPlayoffBracketForActor, readConfirmedPlayoffBracketForActor } from '../../src/features/competitions/server/playoff-bracket';
+import { confirmPlayoffBracketForActor, readConfirmedPlayoffBracketForActor, validatePlayoffStandingsForActor } from '../../src/features/competitions/server/playoff-bracket';
 import { randomUUID } from 'node:crypto';
 import { createPlayoffQuarterfinalsForActor } from '../../src/features/competitions/server/playoff-matches';
 import { advancePlayoffResultInTransaction } from '../../src/features/competitions/server/playoff-advance';
@@ -20,6 +20,7 @@ async function main() { try {
   const result = await previewPlayoffQualifiersForActor(item.actor, item.season, item.category);
   assert.equal(result.qualified.length, 8);
   assert.deepEqual(result.qualified.map(team => team.teamId), item.expected);
+  if(!result.standingsValidated) await validatePlayoffStandingsForActor(item.actor,{seasonId:item.season,categoryId:item.category,fingerprint:result.fingerprint,reason:'Validar clasificación Preview'});
  }
  const first=fixture[0];
  await db.$transaction(async tx=>{

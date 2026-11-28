@@ -6,7 +6,7 @@ import { Prisma } from '@prisma/client';
 import { getPrisma } from '../../src/server/db/prisma';
 import { calculateForActor, calculateStandingsInTransaction, readStandingsForActor } from '../../src/features/standings/server/service';
 import { previewPlayoffQualifiersForActor } from '../../src/features/competitions/server/playoff-qualifiers';
-import { confirmPlayoffBracketForActor, readConfirmedPlayoffBracketForActor } from '../../src/features/competitions/server/playoff-bracket';
+import { confirmPlayoffBracketForActor, readConfirmedPlayoffBracketForActor, validatePlayoffStandingsForActor } from '../../src/features/competitions/server/playoff-bracket';
 import { createPlayoffQuarterfinalsForActor } from '../../src/features/competitions/server/playoff-matches';
 import { getRescheduleSlotsInTransaction } from '../../src/features/matches/server/reschedule-slots';
 import { rescheduleAbsentMatchInTransaction } from '../../src/features/matches/server/reschedule';
@@ -219,6 +219,19 @@ test('liguilla selecciona ocho equipos solo con temporada regular oficial comple
   command.fingerprint=(await previewPlayoffQualifiersForActor(actor,season,sc)).fingerprint;
   await assert.rejects(confirmPlayoffBracketForActor(randomUUID(),command));
   await assert.rejects(confirmPlayoffBracketForActor(actor,{...command,fingerprint:'0'.repeat(64)}),/PLAYOFF_STANDINGS_CHANGED/);
+  await assert.rejects(confirmPlayoffBracketForActor(actor,command),/PLAYOFF_STANDINGS_NOT_VALIDATED/);
+  const validation={seasonId:season,categoryId:sc,fingerprint:command.fingerprint,reason:'Validar clasificación sintética'};
+  await assert.rejects(validatePlayoffStandingsForActor(randomUUID(),validation));
+  const validated=await validatePlayoffStandingsForActor(actor,validation);
+  assert.equal(validated.validated.length,1);
+  assert.deepEqual((await validatePlayoffStandingsForActor(actor,validation)).validated,validated.validated);
+  assert.equal((await q("SELECT count(*)::int n FROM sports_management.audit_logs WHERE entity_id=$1 AND action='STANDINGS_VALIDATED'",[validated.validated[0].id]))[0].n,1);
+  await q('UPDATE sports_management.match_results SET version=version+1 WHERE match_id=$1',[ids[0]]);
+  await assert.rejects(confirmPlayoffBracketForActor(actor,command),/PLAYOFF_STANDINGS_CHANGED/);
+  await assert.rejects(validatePlayoffStandingsForActor(actor,validation),/PLAYOFF_STANDINGS_CHANGED/);
+  command.fingerprint=(await previewPlayoffQualifiersForActor(actor,season,sc)).fingerprint;
+  await assert.rejects(confirmPlayoffBracketForActor(actor,command),/PLAYOFF_STANDINGS_NOT_VALIDATED/);
+  await validatePlayoffStandingsForActor(actor,{...validation,fingerprint:command.fingerprint});
   await q(`CREATE FUNCTION pg_temp.reject_playoff_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='PLAYOFF_BRACKET_CONFIRMED' THEN RAISE EXCEPTION 'fallo de auditoría sintético'; END IF; RETURN NEW; END $$;
     CREATE TRIGGER test_playoff_audit BEFORE INSERT ON sports_management.audit_logs FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_playoff_audit()`);
   try { await assert.rejects(confirmPlayoffBracketForActor(actor,command)); }
@@ -232,6 +245,9 @@ test('liguilla selecciona ocho equipos solo con temporada regular oficial comple
   const approvalAudit=await q("SELECT user_id,reason,new_data FROM sports_management.audit_logs WHERE entity_id=$1 AND action='PLAYOFF_BRACKET_CONFIRMED'",[saved.id]);
   assert.equal(approvalAudit.length,1); assert.equal(approvalAudit[0].user_id,actor); assert.equal(approvalAudit[0].reason,command.reason);
   assert.equal(approvalAudit[0].new_data.fingerprint,command.fingerprint);
+  const official=(await previewPlayoffQualifiersForActor(actor,season,sc)).standingVersions;
+  assert.deepEqual(approvalAudit[0].new_data.standingVersions,official);
+  assert.deepEqual((await q('SELECT format FROM sports_management.competition_stages WHERE id=$1',[saved.id]))[0].format.standingVersions,official);
   await assert.rejects(getPrisma().$transaction(tx=>assertPlayoffsComplete(tx,season)),{code:'UNRESOLVED_PLAYOFF'});
   await assert.rejects(closeSeasonForActor(actor,season,closeInput),{code:'UNRESOLVED_PLAYOFF'});
   assert.equal((await q('SELECT status FROM sports_management.seasons WHERE id=$1',[season]))[0].status,'ACTIVE');
@@ -329,6 +345,7 @@ test('liguilla selecciona ocho equipos solo con temporada regular oficial comple
   await q("UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=$2,approved_at=now() WHERE id=$1",[autoRule,actor]);
   await q('UPDATE sports_management.season_categories SET competition_rule_id=$2 WHERE id=$1',[cases[2].category,autoRule]);
   const autoQualifiers=await previewPlayoffQualifiersForActor(actor,season,cases[2].category);
+  await validatePlayoffStandingsForActor(actor,{seasonId:season,categoryId:cases[2].category,fingerprint:autoQualifiers.fingerprint,reason:'Validar clasificación automática'});
   const groupOrder=(await q('SELECT id FROM sports_management.groups WHERE season_category_id=$1 ORDER BY name',[cases[2].category])).map(row=>row.id);
   const autoBracket=await confirmPlayoffBracketForActor(actor,{seasonId:season,categoryId:cases[2].category,fingerprint:autoQualifiers.fingerprint,groupOrder,operationId:randomUUID(),reason:'Aprobar llaves automáticas'});
   const auto=await createPlayoffQuarterfinalsForActor(actor,{seasonId:season,categoryId:cases[2].category,reason:'Programar cuartos automáticos',homeChoices:{}});
@@ -357,6 +374,7 @@ test('liguilla selecciona ocho equipos solo con temporada regular oficial comple
     await q("INSERT INTO sports_management.venue_availability(venue_id,type,starts_at,ends_at) VALUES($1,'AVAILABLE','2030-07-07T08:00:00Z','2030-07-07T20:00:00Z')",[field]);
   }
   const homeQualifiers=await previewPlayoffQualifiersForActor(actor,season,cases[3].category);
+  await validatePlayoffStandingsForActor(actor,{seasonId:season,categoryId:cases[3].category,fingerprint:homeQualifiers.fingerprint,reason:'Validar clasificación de local'});
   const homeOrder=(await q('SELECT id FROM sports_management.groups WHERE season_category_id=$1 ORDER BY name',[cases[3].category])).map(row=>row.id);
   const homeBracket=await confirmPlayoffBracketForActor(actor,{seasonId:season,categoryId:cases[3].category,fingerprint:homeQualifiers.fingerprint,groupOrder:homeOrder,operationId:randomUUID(),reason:'Aprobar llaves con local'});
   const choices=await q('SELECT id,team_a_id FROM sports_management.brackets WHERE stage_id=$1 AND number BETWEEN 1 AND 4',[homeBracket.id]);
@@ -405,7 +423,7 @@ test('liguilla selecciona ocho equipos solo con temporada regular oficial comple
   }
   assert.equal((await createPlayoffQuarterfinalsForActor(actor,{seasonId:season,categoryId:sc,round:'final',reason:'Crear final sintética',homeChoices:{}})).created,1);
   await assert.rejects(createPlayoffQuarterfinalsForActor(actor,{seasonId:season,categoryId:sc,round:'final',reason:'Crear final sintética',homeChoices:{}}),/PLAYOFF_MATCHES_ALREADY_CREATED/);
-  const finalMatch=(await q('SELECT bm.match_id,m.home_team_id FROM sports_management.bracket_matches bm JOIN sports_management.brackets b ON b.id=bm.bracket_id JOIN sports_management.matches m ON m.id=bm.match_id WHERE b.stage_id=$1 AND b.number=7',[saved.id]))[0];
+  const finalMatch=(await q('SELECT bm.match_id,m.home_team_id,m.away_team_id FROM sports_management.bracket_matches bm JOIN sports_management.brackets b ON b.id=bm.bracket_id JOIN sports_management.matches m ON m.id=bm.match_id WHERE b.stage_id=$1 AND b.number=7',[saved.id]))[0];
   await q("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('FINISHED') WHERE id=$1",[finalMatch.match_id]);
   await q("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by) VALUES($1,2,0,'MATCH_REPORT',$2)",[finalMatch.match_id,actor]);
   await q("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'PAPER','CONFIRMED',now())",[finalMatch.match_id,randomUUID(),actor]);
@@ -418,7 +436,8 @@ test('liguilla selecciona ocho equipos solo con temporada regular oficial comple
   const championName=(await q('SELECT t.name FROM sports_management.season_teams st JOIN sports_management.teams t ON t.id=st.team_id WHERE st.id=$1',[finalMatch.home_team_id]))[0].name;
   const finalView=await readConfirmedPlayoffBracketForActor(actor,season,sc);
   assert.ok(finalView.confirmed);
-  if(finalView.confirmed) assert.equal(finalView.champion,championName);
+  const runnerUpName=(await q('SELECT t.name FROM sports_management.season_teams st JOIN sports_management.teams t ON t.id=st.team_id WHERE st.id=$1',[finalMatch.away_team_id]))[0].name;
+  if(finalView.confirmed) { assert.equal(finalView.champion,championName); assert.equal(finalView.runnerUp,runnerUpName); }
   const afterPlayoffs=await previewPlayoffQualifiersForActor(actor,season,sc);
   assert.equal(afterPlayoffs.fingerprint,command.fingerprint,'los resultados de liguilla no cambian el cálculo de fase regular');
   assert.deepEqual(afterPlayoffs.qualified.map(team=>team.teamId),teams.slice(0,8));

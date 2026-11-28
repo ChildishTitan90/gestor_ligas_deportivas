@@ -164,7 +164,10 @@ lock.push('referee_presentations');
 // PDGLD-147: solamente captura privada; sin escritura en resultados, clasificación o estados.
 read.push('lineups','player_period_participations','match_report_syncs','event_types','standing_entries');
 readColumns.standing_entries = ['id','standing_version_id','season_team_id','points','rank','score_for'];
-readColumns.standing_versions.push('season_id','calculation_data');
+// Validación oficial: el servidor comprueba autorización y vigencia antes de actualizar.
+// El entorno Preview existente requiere volver a aplicar este plan con su cuenta administradora.
+readColumns.standing_versions.push('season_id','calculation_data','validated_by');
+update.standing_versions = ['status','validated_by'];
 readColumns.match_results.push('validated_by');
 insert.match_results = ['match_id','home_score','away_score','source','validated_by','offending_team_id','reason','counts_in_standings','validated_at','version'];
 insert.standing_versions = ['season_id','group_id','matchday_id','competition_rule_id','version_number','input_fingerprint','calculation_data'];

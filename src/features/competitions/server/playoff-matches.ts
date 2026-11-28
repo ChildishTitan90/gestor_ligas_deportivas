@@ -28,6 +28,8 @@ export async function createPlayoffQuarterfinalsForActor(actorId:string,input:un
     if(!stage) throw Error("PLAYOFF_BRACKET_REQUIRED");
     const qualifiers=await previewPlayoffQualifiersInTransaction(tx,actorId,data.seasonId,data.categoryId);
     if((stage.format as {fingerprint?:string}).fingerprint!==qualifiers.fingerprint) throw Error("PLAYOFF_STANDINGS_CHANGED");
+    const savedVersions=z.array(z.object({groupId:z.uuid(),matchdayId:z.uuid(),id:z.uuid(),version:z.number().int().positive()})).safeParse((stage.format as {standingVersions?:unknown}).standingVersions);
+    if(!qualifiers.standingsValidated || !savedVersions.success || savedVersions.data.length!==qualifiers.standingVersions.length || qualifiers.standingVersions.some(current=>!savedVersions.data.some(saved=>saved.groupId===current.groupId && saved.matchdayId===current.matchdayId && saved.id===current.id && saved.version===current.version))) throw Error("PLAYOFF_STANDINGS_NOT_VALIDATED");
     const rule=await tx.competition_rule_parameters.findFirst({where:{competition_rule_id:stage.competition_rule_id,parameter_key:"calendar",requires_validation:false,validated_by:{not:null}},select:{parameter_value:true}});
     const parsed=z.object({playoff:playoffRulesSchema.extend({regularDeadline:z.iso.date(),dates:z.array(z.iso.date())})}).safeParse(rule?.parameter_value);
     if(!parsed.success) throw Error("PLAYOFF_DATES_REQUIRED");

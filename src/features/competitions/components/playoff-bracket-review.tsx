@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { SelectField } from "@/components/ui/select-field";
 import { PlayoffPenaltiesForm } from "./playoff-penalties-form";
 
-type Preview = { fingerprint: string; groupOrder: string[]; operationId: string; rounds: { number: number; teams: string[]; bracketId?: string; teamIds?: string[] }[] };
+type Preview = { fingerprint: string; standingsValidated:boolean; groupOrder: string[]; operationId: string; rounds: { number: number; teams: string[]; bracketId?: string; teamIds?: string[] }[] };
 const errors: Record<string, string> = {
   PLAYOFF_STANDINGS_CHANGED: "Los resultados cambiaron. Genera y revisa un cuadro actualizado.", PLAYOFF_ALREADY_CONFIRMED: "Esta categoría ya tiene un cuadro confirmado.",
+  PLAYOFF_STANDINGS_NOT_VALIDATED: "La clasificación vigente aún no está validada por la liga.",
+  SEASON_CLOSED: "La temporada está cerrada y no permite validar clasificaciones.",
   OFFICIAL_RESULTS_INCOMPLETE: "Faltan resultados oficiales o cédulas confirmadas en la fase regular.", REGULAR_SCHEDULE_INCOMPLETE: "La programación regular está incompleta o excede su fecha límite.",
   UNRESOLVED_STANDINGS: "Hay posiciones empatadas sin resolver. Revisa la clasificación.", PLAYOFF_RULE_REQUIRED: "Falta un reglamento de liguilla aprobado.",
   INSUFFICIENT_TEAMS: "Algún grupo no tiene equipos suficientes.", UNSUPPORTED_GROUP_COUNT: "La liguilla requiere uno, dos, cuatro u ocho grupos.",
@@ -15,6 +18,7 @@ const errors: Record<string, string> = {
   PLAYOFF_PREVIOUS_ROUND_INCOMPLETE: "Faltan ganadores oficiales de la ronda anterior.",
 };
 export function PlayoffBracketReview({ seasonId, categoryId }: { seasonId: string; categoryId: string }) {
+  const router=useRouter();
   const [preview, setPreview] = useState<Preview | null>(null);
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState("");
@@ -29,12 +33,13 @@ export function PlayoffBracketReview({ seasonId, categoryId }: { seasonId: strin
   const [penaltyCandidates, setPenaltyCandidates] = useState<{bracketId:string;number:number;teams:string[]}[]>([]);
   const [laterRounds,setLaterRounds]=useState<{bracketId:string;number:number;teamIds:(string|null)[];teams:string[];created:boolean}[]>([]);
   const [champion,setChampion]=useState<string|null>(null);
+  const [runnerUp,setRunnerUp]=useState<string|null>(null);
   const guard = useRef(false);
   useEffect(() => {
     const abort = new AbortController();
     fetch("/api/competitions/playoff-bracket", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "read", seasonId, categoryId }), signal: abort.signal })
       .then(async response => { if (!response.ok) throw Error("read failed"); return response.json(); })
-      .then(data => { if (data.confirmed && Array.isArray(data.rounds)) { setConfirmedRounds(data.rounds); setMatchesCreated(Boolean(data.created)); setPenaltyCandidates(Array.isArray(data.penaltyCandidates)?data.penaltyCandidates:[]); setLaterRounds(Array.isArray(data.laterRounds)?data.laterRounds:[]); setChampion(typeof data.champion==='string'?data.champion:null); setDone(true); } })
+      .then(data => { if (data.confirmed && Array.isArray(data.rounds)) { setConfirmedRounds(data.rounds); setMatchesCreated(Boolean(data.created)); setPenaltyCandidates(Array.isArray(data.penaltyCandidates)?data.penaltyCandidates:[]); setLaterRounds(Array.isArray(data.laterRounds)?data.laterRounds:[]); setChampion(typeof data.champion==='string'?data.champion:null); setRunnerUp(typeof data.runnerUp==='string'?data.runnerUp:null); setDone(true); } })
       .catch(() => { if (!abort.signal.aborted) { setReadFailed(true); setMessage("No se pudo consultar el cuadro confirmado. Actualiza la página para volver a intentar."); } })
       .finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
@@ -65,9 +70,21 @@ export function PlayoffBracketReview({ seasonId, categoryId }: { seasonId: strin
     } catch { setMessage("No se confirmó el resultado. Actualiza la página para consultar si se crearon los partidos."); setReadFailed(true); }
     finally { guard.current=false; setPending(false); }
   }
+  async function validateStandings() {
+    if(guard.current || !preview) return;
+    guard.current=true; setPending(true); setMessage("");
+    try {
+      const response=await fetch('/api/competitions/playoff-bracket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'validateStandings',command:{seasonId,categoryId,fingerprint:preview.fingerprint,reason:reason.trim()}})});
+      const result=await response.json();
+      if(!response.ok) { setMessage(response.status===403?'No tienes permiso para validar la clasificación.':errors[result.code]??'No se pudo validar la clasificación.'); if(result.code==='PLAYOFF_STANDINGS_CHANGED') setPreview(null); return; }
+      setPreview({...preview,standingsValidated:true}); setMessage('Clasificación validada. Revisa los cruces antes de confirmar el cuadro.'); router.refresh();
+    } catch { setMessage('No se confirmó la validación. Consulta el cuadro de nuevo antes de continuar.'); setPreview(null); }
+    finally { guard.current=false; setPending(false); }
+  }
   return <section className="space-y-4 rounded-2xl border border-border bg-surface p-5" aria-labelledby="playoff-review-title">
     <h2 id="playoff-review-title" className="text-xl font-semibold">Revisar liguilla</h2>
     {champion && <p role="status" className="rounded-xl border border-border p-3"><strong>Campeón:</strong> {champion}</p>}
+    {runnerUp && <p className="rounded-xl border border-border p-3"><strong>Subcampeón:</strong> {runnerUp}</p>}
     <p className="text-sm text-muted">El cuadro usa los resultados oficiales de todos los grupos. En cuatro u ocho grupos se propone un sorteo para revisar.</p>
     {loading && <p role="status">Consultando cuadro confirmado…</p>}
     {!done && <button type="button" className="min-h-12 rounded-xl border border-border px-4" disabled={pending || uncertain || loading || readFailed} onClick={() => send("preview")}>{preview ? "Proponer otro cuadro" : "Consultar cuadro"}</button>}
@@ -82,7 +99,9 @@ export function PlayoffBracketReview({ seasonId, categoryId }: { seasonId: strin
         {laterRounds.some(item=>!item.created && item.teamIds.every(Boolean)) && <><label className="block">Motivo para crear partidos<textarea className="mt-1 min-h-24 w-full rounded-xl border border-border bg-surface p-3" value={reason} disabled={pending||readFailed} onChange={event=>setReason(event.target.value)} maxLength={500} /></label>{laterRounds.filter(item=>!item.created&&item.teamIds.every(Boolean)).some(item=>item.number<=6) && <button type="button" className="primary-action min-h-12 rounded-xl px-5" disabled={pending||readFailed||reason.trim().length<8} onClick={()=>createMatches("semifinals")}>Crear semifinales</button>} {laterRounds.some(item=>item.number===7&&!item.created&&item.teamIds.every(Boolean)) && <button type="button" className="primary-action min-h-12 rounded-xl px-5" disabled={pending||readFailed||reason.trim().length<8} onClick={()=>createMatches("final")}>Crear final</button>}</>}
       </div>}
       {done && penaltyCandidates.length>0 && <details className="rounded-xl border border-border p-4"><summary className="cursor-pointer font-semibold">Registrar tanda de penales</summary><div className="mt-4 space-y-3">{penaltyCandidates.map(candidate=><PlayoffPenaltiesForm key={candidate.bracketId} seasonId={seasonId} candidate={candidate} onConfirmed={()=>setPenaltyCandidates(items=>items.filter(item=>item.bracketId!==candidate.bracketId))} />)}</div></details>}
-      {!done && <><label className="block">Motivo de la aprobación<textarea className="mt-1 min-h-24 w-full rounded-xl border border-border bg-surface p-3" value={reason} disabled={pending || uncertain} onChange={e => setReason(e.target.value)} maxLength={500} /></label><button type="button" className="primary-action min-h-12 rounded-xl px-5" disabled={pending || reason.trim().length < 8} onClick={() => send("confirm")}>{uncertain ? "Reintentar confirmación" : "Confirmar cuadro"}</button></>}
+      {!done && <><label className="block">Motivo de la aprobación<textarea className="mt-1 min-h-24 w-full rounded-xl border border-border bg-surface p-3" value={reason} disabled={pending || uncertain} onChange={e => setReason(e.target.value)} maxLength={500} /></label>
+        {!preview!.standingsValidated && <><p role="status">La clasificación todavía no está validada. La autoridad de la liga debe revisarla y validarla antes de confirmar los cruces.</p><button type="button" className="primary-action min-h-12 rounded-xl px-5" disabled={pending || reason.trim().length<8} onClick={validateStandings}>Validar clasificación</button></>}
+        <button type="button" className="primary-action min-h-12 rounded-xl px-5" disabled={pending || !preview!.standingsValidated || reason.trim().length < 8} onClick={() => send("confirm")}>{uncertain ? "Reintentar confirmación" : "Confirmar cuadro"}</button></>}
     </div>}
     {message && <p role="status">{message}</p>}
   </section>;

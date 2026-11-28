@@ -34,6 +34,7 @@ export async function previewPlayoffQualifiersInTransaction(tx: Prisma.Transacti
     if (rule.status !== "APPROVED" || !parameter || parameter.requires_validation || !parameter.validated_by || !calendar.success) throw Error("PLAYOFF_RULE_REQUIRED");
     const groups = [];
     const fingerprints: string[] = [];
+    const standingVersions: {groupId:string;matchdayId:string;id:string|null;version:number|null;validated:boolean}[] = [];
     for (const group of category.groups) {
       const teams = await tx.season_teams.findMany({ where: { group_id: group.id, status: { in: ["REGISTERED", "ACTIVE"] } }, select: { id: true } });
       if (teams.length < 2) throw Error("INCOMPLETE_GROUP");
@@ -50,6 +51,10 @@ export async function previewPlayoffQualifiersInTransaction(tx: Prisma.Transacti
       if (days.length !== expected || days.some((day, i) => day.number !== i + 1 || day.end_date.toISOString().slice(0, 10) > calendar.data.playoff.regularDeadline) || !validateScheduleStructure(teams.map(t => t.id), days, calendar.data.rounds, matches).ok) throw Error("REGULAR_SCHEDULE_INCOMPLETE");
       if (matches.some(match => !match.id || !eligibleResult(match) || (match.source === "MATCH_REPORT" && !match.confirmedAt))) throw Error("OFFICIAL_RESULTS_INCOMPLETE");
       const standings = await projectStandingsForActorInTransaction(tx, actorId, { groupId: group.id, matchdayId: days[days.length - 1].id });
+      const matchdayId=days[days.length - 1].id;
+      const latest=await tx.standing_versions.findFirst({where:{group_id:group.id,matchday_id:matchdayId,competition_rule_id:rule.id},orderBy:{version_number:'desc'},select:{id:true,version_number:true,status:true,input_fingerprint:true,validated_by:true}});
+      const validated=!!latest && latest.status==='VALIDATED' && !!latest.validated_by && latest.input_fingerprint===standings.fingerprint;
+      standingVersions.push({groupId:group.id,matchdayId,id:validated?latest!.id:null,version:validated?latest!.version_number:null,validated});
       fingerprints.push(`${group.id}:${standings.fingerprint}`);
       if (standings.rows.length !== teams.length || standings.rows.some(row => !teams.some(team => team.id === row.teamId))) throw Error("STANDINGS_TEAM_SET_CHANGED");
       groups.push({ id: group.id, teams: standings.rows });
@@ -57,5 +62,5 @@ export async function previewPlayoffQualifiersInTransaction(tx: Prisma.Transacti
     const result = qualifyForPlayoffs(groups);
     if (!result.ok) throw Error(result.code);
     const fingerprint = createHash("sha256").update(JSON.stringify({ seasonId, categoryId, ruleId: rule.id, fingerprints })).digest("hex");
-    return { ...result, fingerprint };
+    return { ...result, fingerprint, standingVersions, standingsValidated:standingVersions.every(item=>item.validated) };
 }
