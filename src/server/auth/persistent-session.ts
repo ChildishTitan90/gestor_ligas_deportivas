@@ -6,6 +6,7 @@ import type { User } from "next-auth";
 import { getPrisma } from "@/server/db/prisma";
 import { getIdleTimeoutMs, isSessionExpired } from "./idle-policy";
 import { lockAuthUser } from "./lock-user";
+import { MFA_PENDING_MS } from "./two-factor-crypto";
 
 export function hashSessionKey(key: string) {
   return createHash("sha256").update(key).digest("hex");
@@ -20,10 +21,15 @@ export async function createIdentityToken(identity: User): Promise<JWT> {
       (user.admin_reset_expires_at && user.admin_reset_expires_at <= now) ||
       (user.locked_until && user.locked_until > now)) return {};
 
-    const expiresAt = new Date(Math.min(now.getTime() + getIdleTimeoutMs(), user.admin_reset_expires_at?.getTime() ?? Infinity));
+    const factor = await tx.mfa_factors.findUnique({where:{user_id:user.id},select:{encrypted_secret:true}});
+    const mfaPending = !!factor?.encrypted_secret;
+    const mfaDeadline = mfaPending ? new Date(now.getTime() + MFA_PENDING_MS) : null;
+    const expiresAt = new Date(Math.min(mfaDeadline?.getTime() ?? Infinity, now.getTime() + getIdleTimeoutMs(), user.admin_reset_expires_at?.getTime() ?? Infinity));
     await tx.sessions.create({
       data: {
         user_id: user.id,
+        mfa_state: mfaPending ? "PENDING" : "VERIFIED",
+        mfa_expires_at: mfaDeadline,
         token_hash: hashSessionKey(sid),
         created_at: now,
         last_activity_at: now,
@@ -31,9 +37,12 @@ export async function createIdentityToken(identity: User): Promise<JWT> {
       },
     });
     // La sesión y su único evento de acceso se confirman o revierten juntos.
-    await tx.authentication_events.create({ data: { user_id: user.id, action: "LOGIN_OK", occurred_at: now } });
+    if (!mfaPending) {
+      await tx.authentication_events.create({ data: { user_id: user.id, action: "LOGIN_OK", occurred_at: now } });
+    }
     return {
       sub: user.id,
+      secondFactor: mfaPending ? "PENDING" : "VERIFIED",
       userVersion: user.version,
       mustChangePassword: identity.mustChangePassword || user.must_change_password,
       sid,
@@ -66,7 +75,7 @@ export async function validateIdentitySession(identity: { sid: string; sub: stri
     const session = await tx.sessions.findUnique({
       where: { token_hash: tokenHash },
       select: {
-        id: true, user_id: true, last_activity_at: true, expires_at: true, revoked_at: true,
+        id: true, user_id: true, mfa_state: true, mfa_expires_at: true, last_activity_at: true, expires_at: true, revoked_at: true,
         users: { select: { id: true, is_active: true, locked_until: true, must_change_password: true, version: true, admin_reset_expires_at: true } },
       },
     });
@@ -74,7 +83,7 @@ export async function validateIdentitySession(identity: { sid: string; sub: stri
     const now = new Date(); // Siempre después de obtener el bloqueo.
     const idleMs = getIdleTimeoutMs();
     const user = session.users;
-    if (isSessionExpired(session, now, idleMs) || !user.is_active || user.version !== identity.userVersion ||
+    if ((session.mfa_state !== "VERIFIED" && (!session.mfa_expires_at || session.mfa_expires_at <= now)) || isSessionExpired(session, now, idleMs) || !user.is_active || user.version !== identity.userVersion ||
         (user.admin_reset_expires_at && user.admin_reset_expires_at <= now) ||
       (user.locked_until && user.locked_until > now)) {
       // Una configuración más permisiva posterior no resucita una sesión rechazada.
@@ -82,11 +91,11 @@ export async function validateIdentitySession(identity: { sid: string; sub: stri
       return null;
     }
     let expiresAt = new Date(Math.min(session.expires_at.getTime(), session.last_activity_at.getTime() + idleMs, user.admin_reset_expires_at?.getTime() ?? Infinity));
-    if (recordActivity) {
+    if (recordActivity && session.mfa_state === "VERIFIED") {
       expiresAt = new Date(Math.min(now.getTime() + idleMs, user.admin_reset_expires_at?.getTime() ?? Infinity));
       await tx.sessions.update({ where: { id: session.id }, data: { last_activity_at: now, expires_at: expiresAt } });
     }
-    return { userId: user.id, userVersion: user.version, mustChangePassword: user.must_change_password,
+    return { userId: user.id, secondFactor: session.mfa_state as "VERIFIED" | "PENDING" | "RECOVERY", userVersion: user.version, mustChangePassword: user.must_change_password,
       idleExpiresAt: expiresAt.getTime() };
   });
 }

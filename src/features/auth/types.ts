@@ -1,4 +1,5 @@
 export type AuthIdentity = {
+  secondFactor?: "VERIFIED" | "PENDING" | "RECOVERY";
   id: string;
   mustChangePassword: boolean;
 };

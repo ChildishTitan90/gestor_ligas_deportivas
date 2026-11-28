@@ -45,7 +45,7 @@ export function getAuthOptions(): NextAuthOptions {
         return {
           expires: token.sub && token.idleExpiresAt
             ? new Date(token.idleExpiresAt).toISOString() : session.expires,
-          user: token.sub ? { id: token.sub, mustChangePassword: token.mustChangePassword !== false } : undefined,
+          user: token.sub ? { id: token.sub, mustChangePassword: token.mustChangePassword !== false, ...(token.secondFactor && token.secondFactor !== "VERIFIED" ? { secondFactor: token.secondFactor } : {}) } : undefined,
         };
       },
       async redirect({ url, baseUrl }) {

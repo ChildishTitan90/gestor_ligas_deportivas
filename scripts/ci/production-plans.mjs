@@ -32,6 +32,7 @@ export const DISTRIBUTION_PLAN = Object.freeze({
 // Cada migración se revisó con RLS en Supabase y sin acceso de roles de API.
 // El checksum impide que un cambio posterior herede esta autorización.
 export const PRIVATE_TABLE_PLANS = Object.freeze([
+  ['20261128010000_pdgld33_two_factor', '25ad1c48ce7edb808494ddfa705949cb07867f7acdd97be5bb59b0514059fc5f', ['mfa_factors', 'mfa_recovery_codes']],
   ['20261119010000_pdgld32_public_recovery_budgets', 'e27ced30438e7471134be4a77456538136323a4c7569958b6b01125e10332a73', ['password_recovery_budgets']],
   ['20261114060000_pdgld141_referee_credentials', 'eb25559ba42a6fa347c9c292ca73999bb67e71d198ad33dff088d086d41c18b9', ['referee_presentation_credentials']],
   ['20261114020000_pdgld141_referee_presentations', '81d8a7c7d2e66c3d3573df6a4246ef5ce96e1c1002fb335f8e0ef6631ca0af2a', ['referee_presentations']],

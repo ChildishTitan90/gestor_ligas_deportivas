@@ -5,7 +5,7 @@ import { getAuthOptions } from "./options";
 import { refreshIdentityToken } from "./token";
 
 /** Private cookie identity for writes; never part of the public session DTO. */
-export async function getPrivateRequestIdentity(request: Request) {
+export async function getPrivateRequestIdentity(request: Request, allowSecondFactor = false) {
   try {
     // Ignore Authorization: this entry uses the same HttpOnly cookie as NextAuth.
     const cookieRequest = new NextRequest(request.url, { headers: { cookie: request.headers.get("cookie") ?? "" } });
@@ -13,7 +13,9 @@ export async function getPrivateRequestIdentity(request: Request) {
     if (!token) return null;
     const current = await refreshIdentityToken(token);
     if (typeof current.sub !== "string" || typeof current.userVersion !== "number") return null;
-    return { id: current.sub, userVersion: current.userVersion };
+    if (!allowSecondFactor && current.secondFactor !== "VERIFIED") return null;
+    if (typeof current.sid !== "string") return null;
+    return { id: current.sub, userVersion: current.userVersion, sid: current.sid };
   } catch {
     console.error("[auth] REQUEST_IDENTITY_UNAVAILABLE");
     return null;

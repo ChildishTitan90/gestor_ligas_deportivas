@@ -14,6 +14,7 @@ export const metadata: Metadata = { title: "Iniciar sesión" };
 export default async function LoginPage() {
   const session = await getAuthSession();
 
+  if (session?.user?.secondFactor && session.user.secondFactor !== "VERIFIED") redirect("/two-factor");
   if (session?.user) {
     redirect(session.user.mustChangePassword ? "/change-password" : "/access");
   }

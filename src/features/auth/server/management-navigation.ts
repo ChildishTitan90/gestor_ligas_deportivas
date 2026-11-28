@@ -26,6 +26,8 @@ import { canAccessRecorderWorkspace } from "@/features/matches/server/recorder-w
 import { canUseReportWorkspace } from "@/features/match-reports/server/service";
 import { canReadRefereeing } from "@/features/referees/server/service";
 import { canAccessRefereePresentations } from "@/features/referees/server/presentations";
+import { getPrisma } from "@/server/db/prisma";
+import { mfaEligible } from "@/server/auth/two-factor";
 import { canReadOwnRefereeAvailability } from "@/features/referees/server/own-availability";
 const canAccessMatchEligibility = async () => canUseReportWorkspace((await requireOperationalUser()).id);
 
@@ -56,7 +58,7 @@ async function navigationCapabilities(checks: (() => Promise<boolean>)[]) {
 
 /** Presentación de rutas implementadas. Cada destino conserva su propia autorización. */
 export async function getManagementNavigation(): Promise<ManagementNavigationGroup[]> {
-  await requireOperationalUser();
+  const actor = await requireOperationalUser();
   const [teams, capture, review, accounts, players, playerReview, seasons, leagues, participations, maintenance, accountMaintenance, matchEligibility, venues, recorder, governance, catalog, venueLoans, scheduling, standings] = await navigationCapabilities([
     async () => (await getTeamEnrollmentCatalogs({ limit: 1 })).clubs.length > 0,
     canAccessAffiliationCapture,
@@ -113,6 +115,7 @@ export async function getManagementNavigation(): Promise<ManagementNavigationGro
   if (accountMaintenance || accounts) administration.items.push({ href: "/accounts", label: "Administrar cuentas", icon: "accounts" });
   if (governance) administration.items.push({ href: "/governance", label: "Órganos y cargos", icon: "overview" });
   if (await allowed(canReadAudit)) administration.items.push({href:"/audit",label:"Bitácora de operaciones",icon:"review"});
+  if (await getPrisma().$transaction(tx => mfaEligible(tx, actor.id))) administration.items.push({href:"/account/security",label:"Verificación en dos pasos",icon:"accounts"});
   if (administration.items.length) groups.push(administration);
   if (catalog) groups.push({ label: "Disciplina", items: [{ href: "/discipline/catalog", label: "Catálogo disciplinario", icon: "review" }] });
   return groups;

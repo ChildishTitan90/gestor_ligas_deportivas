@@ -14,6 +14,7 @@ declare module "next-auth" {
 
 declare module "next-auth/jwt" {
   interface JWT {
+    secondFactor?: "VERIFIED" | "PENDING" | "RECOVERY";
     userVersion?: number;
     mustChangePassword?: boolean;
     sid?: string;

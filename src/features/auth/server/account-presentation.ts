@@ -1,4 +1,5 @@
 import "server-only";
+import { redirect } from "next/navigation";
 
 import type { Prisma } from "@prisma/client";
 import type { AccountPresentation, AuthIdentity, CurrentAccount } from "../types";
@@ -10,6 +11,7 @@ import { accountRoleLabel } from "@/features/accounts/delegate-position";
 export async function getCurrentAccount({ includeAssignments = false } = {}): Promise<CurrentAccount | null> {
   const session = await getAuthSession();
   if (!session?.user) return null;
+  if (session.user.secondFactor && session.user.secondFactor !== "VERIFIED") redirect("/two-factor");
   const identity = session.user;
   const account = await getPrisma().$transaction((tx) =>
     readAccountPresentation(tx, identity, includeAssignments && !identity.mustChangePassword));

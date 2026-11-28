@@ -20,6 +20,7 @@ export async function refreshIdentityToken(token: JWT, recordActivity = false): 
     if (!session) return {};
     return {
       sub: session.userId,
+      secondFactor: session.secondFactor,
       userVersion: session.userVersion,
       mustChangePassword: parsed.data.mustChangePassword || session.mustChangePassword,
       sid: parsed.data.sid,

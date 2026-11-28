@@ -16,8 +16,9 @@ dotenv.config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet:
 const previewCompetitions = process.argv.includes('--preview-competitions');
 const previewMatches = process.argv.includes('--preview-match-transitions');
 const previewCatalog = process.argv.includes('--preview-catalog');
+const twoFactor = process.argv.includes('--two-factor');
 const previewRecovery = process.argv.includes('--preview-recovery');
-const previewRuntime = process.argv.includes('--preview') || previewCompetitions || previewMatches || previewCatalog || previewRecovery;
+const previewRuntime = process.argv.includes('--preview') || previewCompetitions || previewMatches || previewCatalog || previewRecovery || twoFactor;
 const playerDemo = process.argv.includes('--player-demo');
 const playerParticipations = process.argv.includes('--player-participations');
 
@@ -57,7 +58,7 @@ function command(commandArgs, env, showTestOutput = false) {
       if (showTestOutput) {
         let safe = output.replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, '[conexión omitida]');
         safe=safe.replace(/https?:\/\/[^\s"']*\/storage\/v1\/[^\s"']+/gi,'[enlace privado omitido]');
-        for (const key of ['DATABASE_URL', 'DIRECT_URL', 'NEXTAUTH_SECRET','SUPABASE_URL','SUPABASE_STORAGE_SERVER_KEY','VMX_API_KEY'])
+        for (const key of ['DATABASE_URL', 'DIRECT_URL', 'NEXTAUTH_SECRET','MFA_ENCRYPTION_KEY','SUPABASE_URL','SUPABASE_STORAGE_SERVER_KEY','VMX_API_KEY'])
           if (env[key]) safe = safe.replaceAll(env[key], '[secreto omitido]');
         safe = safe.replace(/\$argon2(?:id|i|d)\$[^\s"']+/g, '[hash omitido]');
         console.log(safe);
@@ -207,7 +208,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 try {
-  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--player-demo', '--player-participations', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--preview-competitions', '--preview-catalog', '--preview-recovery', '--competitions', '--players', '--documents-real', '--club-maintenance', '--match-transitions', '--preview-match-transitions'].includes(arg)))
+  if (process.argv.slice(2).length > 1 || process.argv.slice(2).some((arg) => !['--demo', '--affiliation-demo', '--player-demo', '--player-participations', '--authorization', '--benchmark-options', '--affiliations', '--team-enrollments', '--preview', '--preview-competitions', '--preview-catalog', '--preview-recovery', '--two-factor', '--competitions', '--players', '--documents-real', '--club-maintenance', '--match-transitions', '--preview-match-transitions'].includes(arg)))
     throw new Error('Uso: node scripts/test-auth.mjs [--demo | --affiliation-demo | --authorization | --benchmark-options | --affiliations | --team-enrollments | --preview | --preview-competitions | --preview-recovery | --preview-match-transitions | --match-transitions | --competitions | --players | --documents-real | --club-maintenance].');
   if (existsSync(fileURLToPath(new URL(playerDemo?'../.next-player-manual/dev/lock':'../.next-auth-tests/dev/lock', import.meta.url)))) {
     throw new Error('Detén el servidor npm run dev antes de ejecutar estas pruebas.');
@@ -234,7 +235,8 @@ try {
     NEXTAUTH_URL: baseUrl, NEXTAUTH_SECRET: randomBytes(48).toString('base64url'),
     NEXT_TELEMETRY_DISABLED: '1', AUTH_TEST_RUN: '1', AUTH_IDLE_TIMEOUT_MINUTES: '30',
     AUTH_MAX_FAILED_ATTEMPTS: '5', AUTH_LOCKOUT_MINUTES: '15', NODE_ENV: 'development' };
-  if (previewRecovery) {
+  if (twoFactor) childEnv.MFA_ENCRYPTION_KEY = randomBytes(32).toString('hex');
+  if (previewRecovery || twoFactor) {
     childEnv.ACCOUNT_EMAIL_ENABLED = 'false';
     childEnv.PASSWORD_RECOVERY_ENABLED = 'false';
   }
@@ -377,6 +379,10 @@ try {
       process.stdin.once('end', finish);
       process.stdin.resume();
     });
+  } else if (twoFactor) {
+    stage = 'segundo factor HTTP y Chrome con PostgreSQL temporal y rol limitado';
+    await command(['--conditions=react-server', '--import', 'tsx', '--test', 'tests/integration/two-factor.test.ts'],
+      { ...childEnv, MFA_TEST_ADMIN_URL: databaseUrl }, true);
   } else if (previewRecovery) {
     stage = 'recuperación por correo simulado con rol limitado y RLS';
     await command(['--conditions=react-server', '--import', 'tsx', '--test', 'tests/integration/password-recovery.test.ts'],

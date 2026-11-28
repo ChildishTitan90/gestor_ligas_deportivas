@@ -5,7 +5,7 @@ export const PREVIEW_PROJECT = 'loaztwwpwsaqzdtdtvvj';
 export const PREVIEW_ROLE = 'gestor_ligas_preview';
 export const PREVIEW_MARKER = `PDGLD_PRUEBAS_ONLY=${PREVIEW_PROJECT}`;
 
-const read = ['password_recovery_budgets', 'account_email_changes', 'password_resets', 'player_category_levels','player_category_participations','sanctions','audit_logs', 'authentication_events', 'categories', 'charges', 'club_affiliations',
+const read = ['mfa_factors', 'mfa_recovery_codes', 'password_recovery_budgets', 'account_email_changes', 'password_resets', 'player_category_levels','player_category_participations','sanctions','audit_logs', 'authentication_events', 'categories', 'charges', 'club_affiliations',
   'club_affiliation_categories', 'club_officers', 'clubs', 'correction_authorizations', 'disciplinary_cases',
   'document_requirements','document_types','player_documents','files', 'groups', 'leagues', 'match_events', 'match_reports', 'matches', 'payment_voids', 'payments',
   'people', 'permissions', 'player_registrations', 'player_status_history', 'player_curp_checks', 'referee_assignments', 'referees', 'role_permissions',
@@ -45,6 +45,8 @@ const readColumns = {
   standing_versions: ['id', 'group_id', 'matchday_id', 'competition_rule_id', 'version_number', 'status', 'calculated_at', 'input_fingerprint'], venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'reviewed_by', 'review_reason', 'approved_by', 'approved_at', 'owner_decision_required', 'owner_decision', 'owner_reviewed_by', 'owner_reviewed_at', 'owner_review_reason'],
 };
 const insert = {
+  mfa_factors: ['user_id', 'revision', 'failed_attempts'],
+  mfa_recovery_codes: ['user_id', 'code_hash', 'created_at'],
   disciplinary_cases: ['id','season_id','reference_number','event_id','status','opened_by','created_at','description'],
   matches: ['season_id','group_id','matchday_id','number','home_team_id','away_team_id','venue_id','starts_at','ends_at','reserved_until','status_id','schedule_proposal_id'],
   team_byes: ['season_id','matchday_id','season_team_id'],
@@ -90,7 +92,7 @@ const insert = {
   people: ['first_name', 'paternal_surname', 'maternal_surname', 'created_at', 'identity_version'],
   player_curp_checks: ['operation_key', 'actor_id', 'person_id', 'registration_id', 'identity_version', 'fingerprint', 'status', 'mismatched_fields'],
   role_permissions: ['role_id', 'permission_id', 'context_only'],
-  sessions: ['user_id', 'token_hash', 'created_at', 'last_activity_at', 'expires_at'],
+  sessions: ['user_id', 'token_hash', 'created_at', 'last_activity_at', 'expires_at', 'mfa_state', 'mfa_expires_at'],
   seasons: ['league_id', 'sport_id', 'name', 'start_date', 'end_date', 'status', 'version'],
   season_categories: ['season_id', 'category_id', 'competition_rule_id', 'hierarchy_order', 'type', 'eligibility_pending', 'competition_format'],
   teams: ['club_id', 'name', 'reference_number', 'status', 'version', 'created_at'],
@@ -102,6 +104,8 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at', 'maintenance_revision'],
 };
 const update = {
+  mfa_factors: ['encrypted_secret', 'last_step', 'pending_secret', 'pending_id', 'pending_expires_at', 'pending_session_hash', 'revision', 'failed_attempts', 'blocked_until'],
+  mfa_recovery_codes: ['consumed_at'],
   password_recovery_budgets: ['window_start','hits'],
   matches: ['status_id', 'version', 'venue_id', 'starts_at', 'ends_at', 'reserved_until'],
   venue_loans: ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at', 'owner_decision', 'owner_reviewed_by', 'owner_reviewed_at', 'owner_review_reason'],
@@ -131,7 +135,7 @@ const update = {
   club_officers: ['person_id', 'signature_file_id'],
   groups: ['name'],
   role_permissions: ['context_only'],
-  sessions: ['revoked_at', 'last_activity_at', 'expires_at'],
+  sessions: ['revoked_at', 'last_activity_at', 'expires_at', 'mfa_state', 'mfa_expires_at'],
   seasons: ['name', 'start_date', 'end_date', 'version', 'status', 'team_registration_closed_at', 'competition_starts_at', 'closed_at'],
   season_categories: ['competition_rule_id', 'hierarchy_order', 'type', 'competition_format',
     'player_policy', 'minimum_age', 'maximum_age', 'age_cutoff_date', 'eligibility_pending'],

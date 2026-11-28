@@ -5,7 +5,7 @@ import type { AuthIdentity } from "@/features/auth/types";
 import { getAuthOptions } from "./options";
 
 export class AuthAccessError extends Error {
-  constructor(public readonly code: "UNAUTHENTICATED" | "PASSWORD_CHANGE_REQUIRED") {
+  constructor(public readonly code: "UNAUTHENTICATED" | "PASSWORD_CHANGE_REQUIRED" | "MFA_REQUIRED") {
     super(code);
   }
   get status() { return this.code === "UNAUTHENTICATED" ? 401 : 403; }
@@ -20,6 +20,7 @@ export function getAuthSession() {
 export async function requireAuthenticatedUser(): Promise<AuthIdentity> {
   const session = await getAuthSession();
   if (!session?.user) throw new AuthAccessError("UNAUTHENTICATED");
+  if (session.user.secondFactor && session.user.secondFactor !== "VERIFIED") throw new AuthAccessError("MFA_REQUIRED");
   return session.user;
 }
 

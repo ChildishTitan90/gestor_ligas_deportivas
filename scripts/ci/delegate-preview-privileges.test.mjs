@@ -17,7 +17,7 @@ test('PDGLD-118: altas y mantenimiento usan columnas explícitas, sin permisos a
     'password_hash', 'must_change_password', 'failed_login_attempts', 'locked_until', 'version',
     'username', 'email', 'is_active', 'maintenance_revision', 'email_verified_at', 'admin_reset_expires_at', 'admin_reset_consumed_at',
   ]);
-  assert.deepEqual(runtimePrivileges.update.sessions, ['revoked_at', 'last_activity_at', 'expires_at']);
+  assert.deepEqual(runtimePrivileges.update.sessions, ['revoked_at', 'last_activity_at', 'expires_at', 'mfa_state', 'mfa_expires_at']);
   assert.deepEqual(runtimePrivileges.insert.audit_logs, ['id','user_id','action','table_name','entity_id','previous_data','new_data','reason','occurred_at']);
   assert.equal(runtimePrivileges.update.audit_logs, undefined);
   assert.equal(runtimePrivileges.update.roles, undefined);
