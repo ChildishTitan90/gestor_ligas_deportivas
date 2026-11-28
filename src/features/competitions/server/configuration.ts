@@ -57,7 +57,8 @@ export async function createCompetitionRuleDraft(seasonId: string, input: unknow
     if (data.calendar.playoff && (data.calendar.playoff.regularDeadline < season.start_date.toISOString().slice(0, 10) || data.calendar.playoff.regularDeadline >= season.end_date.toISOString().slice(0, 10))) throw new CompetitionError("INVALID_PLAYOFF_DEADLINE");
     const playoff = data.calendar.playoff;
     if (playoff && (!playoff.dates || playoff.dates.length !== playoffDatesRequired(playoff.format) || playoff.dates.some((date, index) => date <= playoff.regularDeadline || date > season.end_date.toISOString().slice(0, 10) || (index > 0 && date <= playoff.dates![index - 1])))) throw new CompetitionError("INVALID_PLAYOFF_DATES");
-    const venueIds = [...new Set(data.calendar.scheduling?.venueStages.flatMap(stage => stage.venueIds) ?? [])];
+    const neutralIds = playoff?.venuePolicy?.mode === "NEUTRAL" ? playoff.venuePolicy.venueIds : [];
+    const venueIds = [...new Set([...(data.calendar.scheduling?.venueStages.flatMap(stage => stage.venueIds) ?? []), ...neutralIds])];
     if (venueIds.length) {
       const count = await tx.venues.count({ where: { id: { in: venueIds }, league_id: season.league_id, is_active: true } });
       if (count !== venueIds.length) throw new CompetitionError("INVALID_SCHEDULING_VENUES");

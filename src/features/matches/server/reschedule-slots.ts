@@ -8,6 +8,7 @@ import { venueLocalTime, venueTimeToIso } from "@/features/venues/time";
 import { MatchTransitionError } from "../transition-rules";
 import type { Prisma } from "@prisma/client";
 import { assertPlayoffDate } from "./playoff-date";
+import { playoffVenueAllowed } from "./playoff-venue";
 
 const querySchema = z.object({ matchId: z.uuid(), venueId: z.uuid(), date: z.iso.date(), expectedVersion: z.number().int().positive() });
 const calendarSchema = z.object({ complexOnlyFinalRounds: z.number().int().nonnegative().optional(), scheduling: z.object({ venueStages: z.array(z.object({ fromRound: z.number(), toRound: z.number(), venueIds: z.array(z.uuid()) })) }).optional() }).passthrough();
@@ -47,6 +48,7 @@ export async function getRescheduleSlotsInTransaction(tx: Prisma.TransactionClie
       if(match.starts_at?.getTime()===start.getTime() && match.venue_id===input.venueId && !["NO_SHOW","DRAFT"].includes(match.match_statuses.code)) continue;
       const options=await loadHomeVenueOptions(tx,actorId,{seasonId:match.season_id,matchdayId:match.matchday_id,homeSeasonTeamId:match.home_team_id,awaySeasonTeamId:match.away_team_id,startsAt:start,complexOnlyFinalRounds:policy.data.complexOnlyFinalRounds??0});
       const option=options.find(o=>o.venueId===input.venueId); if(!option) continue;
+      if(!await playoffVenueAllowed(tx,match.id,input.venueId,input.date,option.source)) continue;
       const last=venueLocalTime(new Date(option.reservedUntil.getTime()-1),season.leagues.timezone).slice(0,10);
       if(last>endDate || breaks.some(b=>input.date<=b.ends_at.toISOString().slice(0,10)&&last>=b.starts_at.toISOString().slice(0,10)) || sanctions.some(s=>s.starts_at<option.endsAt && (!s.ends_at || s.ends_at>start))) continue;
       if(last!==input.date) {

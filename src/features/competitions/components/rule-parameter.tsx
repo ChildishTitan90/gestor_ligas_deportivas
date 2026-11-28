@@ -12,6 +12,7 @@ const labels: Record<string, string> = {
   quarterfinals: "Cuartos de final", semifinals: "Semifinales", final: "Final", preliminaryTiebreaker: "Desempate en cuartos y semifinales",
   SINGLE: "Partido único", HOME_AND_AWAY: "Ida y vuelta", STANDING_POSITION: "Mejor posición", PENALTIES: "Penales",
   dates: "Fechas previstas de liguilla",
+  venuePolicy: "Cancha de liguilla", mode: "Modalidad", HOME: "Cancha del local", NEUTRAL: "Canchas neutrales",
 };
 
 function Value({ value, field, venueNames }: { value: unknown; field: string; venueNames: Record<string, string> }) {

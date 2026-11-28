@@ -5,6 +5,9 @@ import { requireOperationalUser } from "@/server/auth/session";
 import { assertPermission, lockAuthorization } from "@/server/auth/authorization";
 import { playoffHomeOrder, playoffRoundDates, playoffRulesSchema } from "../playoff-qualification";
 import { previewPlayoffQualifiersInTransaction } from "./playoff-qualifiers";
+import { getRescheduleSlotsInTransaction } from "@/features/matches/server/reschedule-slots";
+import { rescheduleAbsentMatchInTransaction } from "@/features/matches/server/reschedule";
+import { randomUUID } from "node:crypto";
 
 const schema = z.strictObject({ seasonId:z.uuid(), categoryId:z.uuid(), reason:z.string().trim().min(8).max(500), homeChoices:z.record(z.uuid(), z.uuid()).default({}), round:z.enum(["quarterfinals","semifinals","final"]).default("quarterfinals") });
 
@@ -30,7 +33,7 @@ export async function createPlayoffQuarterfinalsForActor(actorId:string,input:un
     if(!parsed.success) throw Error("PLAYOFF_DATES_REQUIRED");
     const schedule=playoffRoundDates(parsed.data.playoff.format,parsed.data.playoff.dates);
     if(!schedule.ok) throw Error(schedule.code);
-    const season=await tx.seasons.findUniqueOrThrow({where:{id:data.seasonId},select:{status:true,start_date:true,end_date:true}});
+    const season=await tx.seasons.findUniqueOrThrow({where:{id:data.seasonId},select:{status:true,start_date:true,end_date:true,league_id:true}});
     if(season.status==="CLOSED") throw Error("SEASON_CLOSED");
     const roundDates=schedule.dates[data.round];
     if(roundDates.some(date=>date<=parsed.data.playoff.regularDeadline || date<season.start_date.toISOString().slice(0,10) || date>season.end_date.toISOString().slice(0,10))) throw Error("INVALID_PLAYOFF_DATES");
@@ -63,12 +66,23 @@ export async function createPlayoffQuarterfinalsForActor(actorId:string,input:un
       days.set(date,day.id);
     }
     const draftStatus=await tx.match_statuses.findUniqueOrThrow({where:{code:"DRAFT"},select:{id:true}});
+    let scheduled=0;
     for(const match of planned) {
-      const home=await tx.season_teams.findFirstOrThrow({where:{id:match.home,season_id:data.seasonId},select:{group_id:true}});
+      const home=await tx.season_teams.findFirstOrThrow({where:{id:match.home,season_id:data.seasonId},select:{group_id:true,club_id:true}});
       if(!home.group_id) throw Error("INVALID_PLAYOFF_TEAMS");
       const [created]=await tx.$queryRaw<{id:string}[]>`INSERT INTO sports_management.matches (season_id,group_id,matchday_id,stage_id,number,home_team_id,away_team_id,status_id) VALUES (${data.seasonId}::uuid,${home.group_id}::uuid,${days.get(match.date)!}::uuid,${stage.id}::uuid,${`LIG-${stage.id}-${match.number}-${match.leg}`},${match.home}::uuid,${match.away}::uuid,${draftStatus.id}::uuid) RETURNING id`;
       await tx.bracket_matches.create({data:{bracket_id:match.bracketId,match_id:created.id,leg_number:match.leg}});
+      const policy=parsed.data.playoff.venuePolicy;
+      if(policy) {
+        const candidates=await tx.venues.findMany({where:{league_id:season.league_id,is_active:true,...(policy.mode === "NEUTRAL" ? {id:{in:policy.venueIds}} : {OR:[{owner_club_id:home.club_id},{venue_loans:{some:{season_id:data.seasonId,club_id:home.club_id,status:"APPROVED"}}},{home_venue_assignments:{some:{season_team_id:match.home}}}]})},select:{id:true},orderBy:{name:"asc"}});
+        for(const venue of candidates) {
+          const slots=await getRescheduleSlotsInTransaction(tx,actorId,{matchId:created.id,venueId:venue.id,date:match.date,expectedVersion:1});
+          if(!slots.length) continue;
+          await rescheduleAbsentMatchInTransaction(tx,actorId,{matchId:created.id,operationId:randomUUID(),expectedVersion:1,venueId:venue.id,startsAtLocal:slots[0].value,reason:data.reason});
+          scheduled++;break;
+        }
+      }
     }
-    return {stageId:stage.id,created:planned.length};
-  },{isolationLevel:"Serializable",timeout:30000});
+    return {stageId:stage.id,created:planned.length,scheduled,pending:planned.length-scheduled};
+  },{isolationLevel:"Serializable",timeout:120000});
 }

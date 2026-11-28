@@ -87,9 +87,10 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
         regularDeadline: fields.playoffDeadline,
         format: { quarterfinals: fields.playoffQuarterfinals, semifinals: fields.playoffSemifinals, final: fields.playoffFinal },
         preliminaryTiebreaker: fields.playoffTiebreaker,
+        venuePolicy: fields.playoffVenueMode === "NEUTRAL" ? { mode: "NEUTRAL", venueIds: formData.getAll("playoffNeutralVenues").map(String) } : { mode: "HOME" },
         dates: formData.getAll("playoffDates").map(String),
       } };
-      for (const key of ["playoffEnabled", "playoffDeadline", "playoffQuarterfinals", "playoffSemifinals", "playoffFinal", "playoffTiebreaker", "playoffDates"]) delete payload[key];
+      for (const key of ["playoffEnabled", "playoffDeadline", "playoffQuarterfinals", "playoffSemifinals", "playoffFinal", "playoffTiebreaker", "playoffDates", "playoffVenueMode", "playoffNeutralVenues"]) delete payload[key];
       payload.tieBreakers = formData.getAll("tieBreakers").flatMap(value => String(value).split(",")).map(value => value.trim()).filter(Boolean);
       for (const key of ["win", "draw", "loss", "rounds", "matchDurationMinutes", "tieBreakers"]) if (key !== "tieBreakers") delete payload[key];
     }

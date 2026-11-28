@@ -109,7 +109,7 @@ export default async function ConfigurationPage({ params }: { params: Promise<{ 
         <span id="complex-only-final-rounds-help" className="mt-1 block text-sm text-muted">Usa 0 para desactivar la restricción o deja el campo vacío si aún no se ha definido.</span>
       </label>
       <SchedulingPolicyFields venues={data.venues} initial={previousScheduling?.success ? previousScheduling.data : undefined} />
-      <PlayoffFields initial={previousPlayoff?.success ? previousPlayoff.data : undefined} seasonStart={data.dates?.startDate} seasonEnd={data.dates?.endDate} />
+      <PlayoffFields initial={previousPlayoff?.success ? previousPlayoff.data : undefined} seasonStart={data.dates?.startDate} seasonEnd={data.dates?.endDate} venues={data.venues} />
       <p>El borrador conserva las versiones anteriores. Su creación no publica ni aprueba las reglas.</p>
     </ConfigurationForm>}
       {rules.map((rule, index) => <details key={rule.id} open={index === 0} className="rounded-2xl border border-border bg-surface p-5"><summary className="min-h-12 cursor-pointer font-semibold">Versión {rule.version} · {rule.status === "DRAFT" ? "Borrador" : rule.status === "APPROVED" ? "Aprobado" : rule.status}{index === 0 ? " · Última versión" : " · Historial"}</summary>

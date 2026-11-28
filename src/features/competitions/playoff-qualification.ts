@@ -11,6 +11,10 @@ export type PlayoffFormat = z.infer<typeof playoffFormatSchema>;
 export const playoffRulesSchema = z.strictObject({
   format: playoffFormatSchema,
   preliminaryTiebreaker: z.enum(["STANDING_POSITION", "PENALTIES"]),
+  venuePolicy: z.discriminatedUnion("mode", [
+    z.strictObject({ mode: z.literal("HOME") }),
+    z.strictObject({ mode: z.literal("NEUTRAL"), venueIds: z.array(z.uuid()).min(1).max(50).refine(ids => new Set(ids).size === ids.length) }),
+  ]).optional(),
 });
 
 export function tiedPlayoffResolution(round: "QUARTERFINAL" | "SEMIFINAL" | "FINAL", criterion: "STANDING_POSITION" | "PENALTIES", firstPosition: number | null, secondPosition: number | null) {

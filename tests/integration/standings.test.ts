@@ -8,6 +8,8 @@ import { calculateForActor, calculateStandingsInTransaction, readStandingsForAct
 import { previewPlayoffQualifiersForActor } from '../../src/features/competitions/server/playoff-qualifiers';
 import { confirmPlayoffBracketForActor, readConfirmedPlayoffBracketForActor } from '../../src/features/competitions/server/playoff-bracket';
 import { createPlayoffQuarterfinalsForActor } from '../../src/features/competitions/server/playoff-matches';
+import { getRescheduleSlotsInTransaction } from '../../src/features/matches/server/reschedule-slots';
+import { rescheduleAbsentMatchInTransaction } from '../../src/features/matches/server/reschedule';
 import { advancePlayoffResultInTransaction } from '../../src/features/competitions/server/playoff-advance';
 import { confirmPlayoffPenaltiesForActor } from '../../src/features/competitions/server/playoff-penalties';
 import { roundRobin } from '../../src/features/scheduling/generator';
@@ -299,6 +301,79 @@ test('liguilla selecciona ocho equipos solo con temporada regular oficial comple
   assert.equal(concurrent.length,1);
   assert.equal(concurrent[0].venues,1);
   assert.equal(concurrent[0].teams,2);
+  // Un reglamento independiente evita alterar los casos anteriores de Preview.
+  const automaticVenue=await id("INSERT INTO sports_management.venues(league_id,code,name,address,is_league_sports_complex,match_duration_minutes,buffer_minutes) VALUES($1,'AUTO-LIG','Cancha neutral automática','Prueba',true,90,15) RETURNING id",[league]);
+  await q("INSERT INTO sports_management.venue_availability(venue_id,type,starts_at,ends_at) VALUES($1,'AVAILABLE','2030-07-07T08:00:00Z','2030-07-07T20:00:00Z')",[automaticVenue]);
+  const autoRule=await id('INSERT INTO sports_management.competition_rules(season_id,version_number) VALUES($1,2) RETURNING id',[season]);
+  await q(`INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by)
+    SELECT $1,parameter_key,CASE WHEN parameter_key='calendar' THEN jsonb_set(parameter_value::jsonb,'{playoff,venuePolicy}',jsonb_build_object('mode','NEUTRAL','venueIds',jsonb_build_array($3::text))) ELSE parameter_value::jsonb END,validated_by
+    FROM sports_management.competition_rule_parameters WHERE competition_rule_id=$2`,[autoRule,rule,automaticVenue]);
+  await q("UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=$2,approved_at=now() WHERE id=$1",[autoRule,actor]);
+  await q('UPDATE sports_management.season_categories SET competition_rule_id=$2 WHERE id=$1',[cases[2].category,autoRule]);
+  const autoQualifiers=await previewPlayoffQualifiersForActor(actor,season,cases[2].category);
+  const groupOrder=(await q('SELECT id FROM sports_management.groups WHERE season_category_id=$1 ORDER BY name',[cases[2].category])).map(row=>row.id);
+  const autoBracket=await confirmPlayoffBracketForActor(actor,{seasonId:season,categoryId:cases[2].category,fingerprint:autoQualifiers.fingerprint,groupOrder,operationId:randomUUID(),reason:'Aprobar llaves automáticas'});
+  const auto=await createPlayoffQuarterfinalsForActor(actor,{seasonId:season,categoryId:cases[2].category,reason:'Programar cuartos automáticos',homeChoices:{}});
+  assert.equal(auto.created,4); assert.equal(auto.scheduled,4); assert.equal(auto.pending,0);
+  const autoMatches=await q(`SELECT m.id,m.version,m.venue_id,m.starts_at,
+    (SELECT count(*)::int FROM sports_management.venue_reservations r WHERE r.match_id=m.id) venues,
+    (SELECT count(*)::int FROM sports_management.team_reservations r WHERE r.match_id=m.id) teams
+    FROM sports_management.matches m WHERE m.stage_id=$1`,[autoBracket.id]);
+  assert.equal(autoMatches.length,4);
+  for(const match of autoMatches) { assert.equal(match.venue_id,automaticVenue); assert.ok(match.starts_at); assert.equal(match.venues,1); assert.equal(match.teams,2); }
+  await getPrisma().$transaction(async tx=>{
+    const match=autoMatches[0];
+    const slots=await getRescheduleSlotsInTransaction(tx,actor,{matchId:match.id,venueId:venue,date:'2030-07-07',expectedVersion:match.version});
+    assert.deepEqual(slots,[]);
+    await assert.rejects(rescheduleAbsentMatchInTransaction(tx,actor,{matchId:match.id,operationId:randomUUID(),expectedVersion:match.version,venueId:venue,startsAtLocal:'2030-07-07T18:00',reason:'Cambio fuera de canchas neutrales'}),{code:'VENUE_STAGE'});
+  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:60000});
+  const homeRule=await id('INSERT INTO sports_management.competition_rules(season_id,version_number) VALUES($1,3) RETURNING id',[season]);
+  await q(`INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by)
+    SELECT $1,parameter_key,CASE WHEN parameter_key='calendar' THEN jsonb_set(parameter_value::jsonb,'{playoff,venuePolicy}','{"mode":"HOME"}'::jsonb) ELSE parameter_value::jsonb END,validated_by
+    FROM sports_management.competition_rule_parameters WHERE competition_rule_id=$2`,[homeRule,rule]);
+  await q("UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=$2,approved_at=now() WHERE id=$1",[homeRule,actor]);
+  await q('UPDATE sports_management.season_categories SET competition_rule_id=$2 WHERE id=$1',[cases[3].category,homeRule]);
+  for(const [index,team] of cases[3].expected.entries()) {
+    const club=(await q('SELECT club_id FROM sports_management.season_teams WHERE id=$1',[team]))[0].club_id;
+    const field=await id("INSERT INTO sports_management.venues(league_id,code,name,address,is_league_sports_complex,owner_club_id,match_duration_minutes,buffer_minutes) VALUES($1,$2,$2,'Prueba',false,$3,90,15) RETURNING id",[league,`HOME-${index}`,club]);
+    await q("INSERT INTO sports_management.venue_availability(venue_id,type,starts_at,ends_at) VALUES($1,'AVAILABLE','2030-07-07T08:00:00Z','2030-07-07T20:00:00Z')",[field]);
+  }
+  const homeQualifiers=await previewPlayoffQualifiersForActor(actor,season,cases[3].category);
+  const homeOrder=(await q('SELECT id FROM sports_management.groups WHERE season_category_id=$1 ORDER BY name',[cases[3].category])).map(row=>row.id);
+  const homeBracket=await confirmPlayoffBracketForActor(actor,{seasonId:season,categoryId:cases[3].category,fingerprint:homeQualifiers.fingerprint,groupOrder:homeOrder,operationId:randomUUID(),reason:'Aprobar llaves con local'});
+  const choices=await q('SELECT id,team_a_id FROM sports_management.brackets WHERE stage_id=$1 AND number BETWEEN 1 AND 4',[homeBracket.id]);
+  // Uno de los locales no tiene cancha propia activa: la liga le asigna un complejo.
+  const assignedTeam=choices[0].team_a_id;
+  await q('UPDATE sports_management.venues SET is_active=false WHERE owner_club_id=(SELECT club_id FROM sports_management.season_teams WHERE id=$1)',[assignedTeam]);
+  const assignedVenue=await id("INSERT INTO sports_management.venues(league_id,code,name,address,is_league_sports_complex,match_duration_minutes,buffer_minutes) VALUES($1,'HOME-ASSIGNED','Cancha asignada por liga','Prueba',true,90,15) RETURNING id",[league]);
+  await q("INSERT INTO sports_management.venue_availability(venue_id,type,starts_at,ends_at) VALUES($1,'AVAILABLE','2030-07-07T08:00:00Z','2030-07-07T20:00:00Z')",[assignedVenue]);
+  await q("INSERT INTO sports_management.home_venue_assignments(season_team_id,venue_id,weekday,start_time,starts_at,ends_at) VALUES($1,$2,7,'12:00','2030-07-07','2030-07-07')",[assignedTeam,assignedVenue]);
+  const homeAuto=await createPlayoffQuarterfinalsForActor(actor,{seasonId:season,categoryId:cases[3].category,reason:'Programar canchas de local',homeChoices:Object.fromEntries(choices.map(row=>[row.id,row.team_a_id]))});
+  assert.equal(homeAuto.scheduled,4); assert.equal(homeAuto.pending,0);
+  const homeMatches=await q(`SELECT m.id,m.version,m.home_team_id,m.venue_id,m.starts_at,v.owner_club_id,t.club_id,
+    (SELECT count(*)::int FROM sports_management.venue_reservations r WHERE r.match_id=m.id) venues,
+    (SELECT count(*)::int FROM sports_management.team_reservations r WHERE r.match_id=m.id) teams
+    FROM sports_management.matches m JOIN sports_management.venues v ON v.id=m.venue_id JOIN sports_management.season_teams t ON t.id=m.home_team_id WHERE m.stage_id=$1`,[homeBracket.id]);
+  assert.equal(homeMatches.length,4);
+  for(const match of homeMatches) {
+    if(match.home_team_id===assignedTeam) assert.equal(match.venue_id,assignedVenue);
+    else assert.equal(match.owner_club_id,match.club_id);
+    assert.ok(match.starts_at); assert.equal(match.venues,1); assert.equal(match.teams,2);
+  }
+  const assignedMatch=homeMatches.find(match=>match.home_team_id===assignedTeam);
+  assert.ok(assignedMatch);
+  await getPrisma().$transaction(async tx=>{
+    const slots=await getRescheduleSlotsInTransaction(tx,actor,{matchId:assignedMatch.id,venueId:assignedVenue,date:'2030-07-07',expectedVersion:assignedMatch.version});
+    assert.ok(slots.some(slot=>slot.value==='2030-07-07T15:00'));
+    const moved=await rescheduleAbsentMatchInTransaction(tx,actor,{matchId:assignedMatch.id,operationId:randomUUID(),expectedVersion:assignedMatch.version,venueId:assignedVenue,startsAtLocal:'2030-07-07T15:00',reason:'Cambiar horario en cancha asignada'});
+    assert.equal(moved.replayed,false);
+  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:60000});
+  const movedReservations=await q(`SELECT m.starts_at,m.venue_id,
+    (SELECT count(*)::int FROM sports_management.venue_reservations r WHERE r.match_id=m.id) venues,
+    (SELECT count(*)::int FROM sports_management.team_reservations r WHERE r.match_id=m.id) teams
+    FROM sports_management.matches m WHERE m.id=$1`,[assignedMatch.id]);
+  assert.equal(movedReservations[0].starts_at.toISOString(),'2030-07-07T15:00:00.000Z');
+  assert.equal(movedReservations[0].venue_id,assignedVenue); assert.equal(movedReservations[0].venues,1); assert.equal(movedReservations[0].teams,2);
   const semifinalMatches=await q('SELECT bm.match_id FROM sports_management.bracket_matches bm JOIN sports_management.brackets b ON b.id=bm.bracket_id WHERE b.stage_id=$1 AND b.number IN (5,6) ORDER BY b.number',[saved.id]);
   assert.equal(semifinalMatches.length,2);
   for(const item of semifinalMatches) {

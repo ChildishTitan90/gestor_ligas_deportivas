@@ -11,6 +11,7 @@ import { captureUpdatedSchedule } from "@/features/scheduling/server/updated-sch
 import { rescheduleSchema } from "../schemas";
 import { MatchTransitionError } from "../transition-rules";
 import { assertPlayoffDate } from "./playoff-date";
+import { playoffVenueAllowed } from "./playoff-venue";
 
 const policySchema=z.object({complexOnlyFinalRounds:z.number().int().nonnegative().optional(),
   scheduling:z.object({venueStages:z.array(z.object({fromRound:z.number().int().positive(),toRound:z.number().int().positive(),venueIds:z.array(z.uuid()).min(1)}))}).optional()}).passthrough();
@@ -88,6 +89,7 @@ export async function rescheduleAbsentMatchInTransaction(tx:Prisma.TransactionCl
     homeSeasonTeamId:match.home_team_id,awaySeasonTeamId:match.away_team_id,startsAt:start,complexOnlyFinalRounds:policy.data.complexOnlyFinalRounds??0});
   const option=options.find(value=>value.venueId===input.venueId);
   if(!option) throw new MatchTransitionError("VENUE_NOT_AVAILABLE");
+  if(!await playoffVenueAllowed(tx,match.id,input.venueId,date,option.source)) throw new MatchTransitionError("VENUE_STAGE");
   const conflicts=await tx.$queryRaw<{busy:boolean}[]>`SELECT EXISTS (
     SELECT 1 FROM sports_management.venue_reservations WHERE match_id <> ${match.id}::uuid
       AND venue_id = ${input.venueId}::uuid AND time_range && tstzrange(${start},${option.reservedUntil},'[)')

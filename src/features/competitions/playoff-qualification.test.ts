@@ -32,6 +32,15 @@ test("cada ronda admite un partido o ida y vuelta y suma las fechas necesarias",
   assert.equal(playoffFormatSchema.safeParse({ ...format, final: "OTHER" }).success, false);
 });
 
+test("la política de canchas neutrales exige identificadores válidos y no repetidos", () => {
+ const base={format:{quarterfinals:"SINGLE",semifinals:"SINGLE",final:"SINGLE"},preliminaryTiebreaker:"PENALTIES"};
+ const id="550e8400-e29b-41d4-a716-446655440000";
+ assert.equal(playoffRulesSchema.safeParse({...base,venuePolicy:{mode:"NEUTRAL",venueIds:[id]}}).success,true);
+ assert.equal(playoffRulesSchema.safeParse({...base,venuePolicy:{mode:"NEUTRAL",venueIds:[]}}).success,false);
+ assert.equal(playoffRulesSchema.safeParse({...base,venuePolicy:{mode:"NEUTRAL",venueIds:[id,id]}}).success,false);
+ assert.equal(playoffRulesSchema.safeParse({...base,venuePolicy:{mode:"HOME"}}).success,true);
+});
+
 test("el desempate elegido aplica antes de la final; la final requiere penales", () => {
   const format = { quarterfinals: "SINGLE", semifinals: "SINGLE", final: "HOME_AND_AWAY" };
   assert.equal(playoffRulesSchema.safeParse({ format, preliminaryTiebreaker: "STANDING_POSITION" }).success, true);

@@ -61,7 +61,7 @@ export function PlayoffBracketReview({ seasonId, categoryId }: { seasonId: strin
       if(response.status>=500) throw Error("uncertain");
       const result=await response.json();
       if(!response.ok) { setMessage(response.status===403?"No tienes permiso para crear los partidos.":errors[result.code]??"No se pudieron crear los partidos. Revisa las fechas y la localía."); return; }
-      if(round==="quarterfinals") setMatchesCreated(true); else setLaterRounds(items=>items.map(item=>round==="semifinals" && item.number>=5 && item.number<=6 || round==="final" && item.number===7 ? {...item,created:true}:item)); setMessage("Partidos creados. Falta asignar cancha y horario.");
+      if(round==="quarterfinals") setMatchesCreated(true); else setLaterRounds(items=>items.map(item=>round==="semifinals" && item.number>=5 && item.number<=6 || round==="final" && item.number===7 ? {...item,created:true}:item)); setMessage(`Partidos creados: ${result.scheduled ?? 0} con cancha y horario; ${result.pending ?? result.created} pendientes de asignación.`);
     } catch { setMessage("No se confirmó el resultado. Actualiza la página para consultar si se crearon los partidos."); setReadFailed(true); }
     finally { guard.current=false; setPending(false); }
   }
