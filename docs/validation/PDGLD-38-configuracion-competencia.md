@@ -258,7 +258,7 @@ aprobada como fixture de este recorrido.
 8. Una nueva sesión del delegado consultó ambas inscripciones: General y Grupo A -
    integral respectivamente, conservando el estado Inscrito y sus identidades.
 
-![Resultado real en la consulta del delegado](images/PDGLD-96-formatos.png)
+Resultado real en la consulta del delegado (captura retirada por limpieza)
 
 Durante el recorrido se encontraron y corrigieron dos defectos de integración:
 

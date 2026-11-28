@@ -1,4 +1,5 @@
 import "server-only";
+import { chargeScheduledMatchesInTransaction } from "@/features/billing/server/automation-service";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, AuthorizationError, lockAuthorization } from "@/server/auth/authorization";
@@ -31,6 +32,7 @@ async function createOperationalMatches(tx:Prisma.TransactionClient,proposalId:s
     await tx.$executeRaw`INSERT INTO sports_management.team_byes (season_id,matchday_id,season_team_id)
       VALUES ${Prisma.join(values)} ON CONFLICT (matchday_id,season_team_id) DO NOTHING`;
   }
+  await chargeScheduledMatchesInTransaction(tx, seasonId, proposalId);
 }
 
 export async function validateAdjustment(

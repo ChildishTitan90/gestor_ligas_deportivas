@@ -2,6 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { runtimePrivileges } from '../preview/runtime-plan.mjs';
 
+test('PDGLD-77: mandatos solo de lectura/alta y origen de cargos inmutable; sin pagos', () => {
+  assert.ok(runtimePrivileges.read.includes('billing_automation_policies'));
+  assert.ok(runtimePrivileges.insert.billing_automation_policies.includes('request_hash'));
+  assert.equal(runtimePrivileges.update.billing_automation_policies, undefined);
+  assert.equal(runtimePrivileges.remove.includes('billing_automation_policies'), false);
+  assert.ok(runtimePrivileges.insert.charges.includes('automation_source'));
+  assert.ok(runtimePrivileges.insert.charges.includes('automation_policy_id'));
+  assert.deepEqual(runtimePrivileges.update.charges, ['amount', 'due_on', 'version']);
+  assert.equal(runtimePrivileges.insert.payments, undefined);
+  assert.deepEqual(runtimePrivileges.insert.matches, ['season_id','group_id','matchday_id','number','home_team_id','away_team_id','venue_id','starts_at','ends_at','reserved_until','status_id','schedule_proposal_id']);
+  assert.equal(runtimePrivileges.insert.matches.includes('stage_id'), false);
+});
+
 test('PDGLD-107: Preview puede insertar cargo y vigencia, sin editar ni eliminar asignaciones', () => {
   assert.deepEqual(runtimePrivileges.insert.user_roles, [
     'user_id', 'role_id', 'league_id', 'club_id', 'starts_at', 'delegate_position', 'ends_at',
@@ -18,7 +31,7 @@ test('PDGLD-118: altas y mantenimiento usan columnas explícitas, sin permisos a
     'username', 'email', 'is_active', 'maintenance_revision', 'email_verified_at', 'admin_reset_expires_at', 'admin_reset_consumed_at',
   ]);
   assert.deepEqual(runtimePrivileges.update.sessions, ['revoked_at', 'last_activity_at', 'expires_at']);
-  assert.deepEqual(runtimePrivileges.insert.audit_logs, ['id','user_id','action','table_name','entity_id','previous_data','new_data','reason','occurred_at']);
+  assert.deepEqual(runtimePrivileges.insert.audit_logs, ['id','user_id','action','table_name','entity_id','previous_data','new_data','reason','occurred_at','correlation_id']);
   assert.equal(runtimePrivileges.update.audit_logs, undefined);
   assert.equal(runtimePrivileges.update.roles, undefined);
   assert.equal(runtimePrivileges.update.user_roles, undefined);

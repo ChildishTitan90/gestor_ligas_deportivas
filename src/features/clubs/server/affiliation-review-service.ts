@@ -1,5 +1,6 @@
 import { readSeasonIdentityHistory } from "@/features/players/server/season-identity-history";
 import "server-only";
+import { chargeRegistrationInTransaction } from "@/features/billing/server/automation-service";
 import { uniformKitsSchema } from "../uniform-kits";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -178,6 +179,7 @@ export async function reviewAffiliation(id: string, input: unknown) {
           authorizedAt: reviewedAt.toISOString() } : {}),
         ...(data.decision === "REQUEST_CORRECTIONS" ? { observations: data.observations } : {}) },
       reason: "PDGLD-60: revisión de afiliación" } });
+    if (data.decision === "APPROVE") await chargeRegistrationInTransaction(tx, "CLUB_AFFILIATION", id);
     return summary(updated);
   }, { timeout: 15_000 });
 }

@@ -1,0 +1,41 @@
+{
+  "ticket": "PDGLD-176",
+  "postgres": "15.19 (Debian 15.19-1.pgdg13+2)",
+  "passed": [
+    "Perfil limitado con RLS, sin pagos, borrados, cambio de origen ni ledger",
+    "Recorrido Chrome real, cancelación, validación, teclado, foco, incertidumbre tras commit, corrección y semanal",
+    "Cargo válido nace pendiente con importe exacto y cero pagos",
+    "Importes inválidos, precisión, límites Decimal(12,2) y contrato estricto",
+    "Destinatario inexistente, temporada inconsistente y liga ajena se rechazan",
+    "Sin permiso no se crea, modifica, genera ni concilia, incluso por POST directo",
+    "Misma intención concurrente devuelve el mismo acuse sin duplicar auditoría",
+    "Misma clave con contenido distinto se rechaza también en conciliación",
+    "Plan guardado no genera; dos generaciones concurrentes producen un cargo",
+    "Otro periodo semanal cobra una vez; reejecutar, periodo inválido y plan ajeno",
+    "Índices PostgreSQL rechazan dos INSERT directos concurrentes sin bloqueo de aplicación",
+    "Modificación concurrente conserva autor, motivo, valores anteriores y versión",
+    "Pagos existentes bloquean corrección y saldo usa Decimal; no se borran movimientos",
+    "Fallo después del efecto revierte cargo, plan, acuse e historial; misma intención se recupera",
+    "Multas protegidas: UUID de resolución no acredita PDGLD-27 y nunca crea deuda",
+    "Consulta privada, ID ajeno, filtros y consistencia listado/detalle/consumidores",
+    "Automatización HTTP: permiso/ámbito, precisión, revisión e intención recuperable",
+    "Afiliación HTTP con sesión de Secretaría crea exactamente un cargo bajo mandato de Tesorería",
+    "Inscripción HTTP del delegado crea un cargo; repetir la clave recupera equipo y deuda",
+    "Programar partido dispara arbitraje para ambos equipos; DRAFT y descanso no cobran",
+    "Dos generaciones simultáneas y cambio de tarifa preservan cargos anteriores; otra jornada cobra una vez",
+    "Rollback de programación revierte partido, cargos, reservas y auditoría; permite reintentar",
+    "Reconciliación real de lote: 20 equipos en 14 jornadas, 280 cargos y repetición sin duplicados",
+    "Jornadas distintas con fechas iguales cobran una vez cada una; manual y automático no se duplican",
+    "Fase PLAYOFF_8 y partidos con stage_id quedan excluidos sin borrar deudas previas",
+    "Cron HTTP exige secreto y entorno/proyecto; reejecutar conserva deuda y pagos",
+    "Configuración Chrome con sesión: revisión, Escape, respuesta perdida, reintento y ambos temas/tamaños",
+    "Desactivar club conserva deuda e historial autorizados de club/equipo y bloquea escrituras",
+    "Pérdida de permiso impide reenvío y conciliación de un acuse anterior"
+  ],
+  "blocked": [
+    "Multa desde resolución válida PDGLD-27: integración ausente"
+  ],
+  "transportFault": "Respuesta real interrumpida después de commit; conciliada por intención",
+  "runtime": "gestor_ligas_preview con RLS",
+  "at": "2026-11-28T18:43:19.697Z"
+}

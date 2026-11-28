@@ -10,9 +10,9 @@ const labels: Record<string, string> = {
   RED_CARDS: "Tarjetas rojas · menos es mejor", YELLOW_CARDS: "Tarjetas amarillas · menos es mejor",
 };
 
-function Value({ value, field, venueNames }: { value: unknown; field: string; venueNames: Record<string, string> }) {
-  if (Array.isArray(value)) return <ol className="list-decimal space-y-1 pl-6">{value.map((item, index) => <li key={index}><Value value={item} field={field} venueNames={venueNames} /></li>)}</ol>;
-  if (value !== null && typeof value === "object") return <dl className="grid gap-3 sm:grid-cols-2">{Object.entries(value).map(([key, item]) => <div key={key} className="rounded-xl bg-background p-3"><dt className="text-sm text-muted">{labels[key] ?? key}</dt><dd className="mt-1 font-medium"><Value value={item} field={key} venueNames={venueNames} /></dd></div>)}</dl>;
+function Value({ value, field, venueNames, depth = 0 }: { value: unknown; field: string; venueNames: Record<string, string>; depth?: number }) {
+  if (Array.isArray(value)) return <ol className="min-w-0 list-decimal space-y-2 pl-6">{value.map((item, index) => <li key={index} className="min-w-0"><Value value={item} field={field} venueNames={venueNames} depth={depth + 1} /></li>)}</ol>;
+  if (value !== null && typeof value === "object") return <dl className={`grid min-w-0 gap-3 ${depth === 0 ? "sm:grid-cols-2" : ""}`}>{Object.entries(value).map(([key, item]) => <div key={key} className={`min-w-0 ${item !== null && typeof item === "object" ? "col-span-full" : depth === 0 ? "rounded-xl bg-background p-3" : ""}`}><dt className="text-sm text-muted">{labels[key] ?? key}</dt><dd className="mt-1 min-w-0 font-medium"><Value value={item} field={key} venueNames={venueNames} depth={depth + 1} /></dd></div>)}</dl>;
   if (typeof value === "number") return <>{value}{["matchDurationMinutes", "slotStepMinutes"].includes(field) ? " minutos" : ["win", "draw", "loss"].includes(field) ? (value === 1 ? " punto" : " puntos") : ""}</>;
   if (typeof value === "string") return <span className="whitespace-pre-wrap break-words">{field === "venueIds" ? (venueNames[value] ?? "Cancha no disponible") : (labels[value] ?? value)}</span>;
   return <>{value === null ? "Sin especificar" : value === true ? "Sí" : value === false ? "No" : "Dato no disponible"}</>;

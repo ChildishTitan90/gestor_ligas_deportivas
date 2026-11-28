@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-export function useAffiliationLeaveWarning(message: string | null) {
+export function useUnsavedChangesWarning(message: string | null) {
   useEffect(() => {
     if (!message) return;
     function unload(event: BeforeUnloadEvent) {

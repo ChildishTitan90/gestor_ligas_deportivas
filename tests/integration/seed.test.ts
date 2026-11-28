@@ -71,8 +71,8 @@ async function snapshot(client: pg.Client): Promise<Snapshot> {
     WHERE table_schema = 'sports_management' AND table_type = 'BASE TABLE'
     ORDER BY table_name
   `);
-  assert.equal(tables.length, 111,
-    'La base debe conservar las 110 tablas anteriores y la tabla privada de cuotas públicas de PDGLD-32.');
+  assert.equal(tables.length, 112,
+    'La base debe conservar las 111 tablas anteriores y la tabla privada de cuotas públicas de PDGLD-32.');
   assert.ok(tables.some(({ table_name }) => table_name === 'club_affiliation_categories'),
     'Debe existir la tabla de categorías de afiliación de PDGLD-57.');
   assert.ok(tables.some(({ table_name }) => table_name === 'team_enrollment_operations'),

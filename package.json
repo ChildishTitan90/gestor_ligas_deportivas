@@ -16,6 +16,8 @@
     "fsevents": false
   },
   "scripts": {
+    "test:billing-ui": "node --import tsx --test tests/e2e/billing-presentation.test.mjs",
+    "test:billing": "node scripts/test-billing-isolated.mjs",
     "test:match-transitions": "node --import tsx --test src/features/matches/transition-rules.test.ts src/features/matches/transition-presentation.test.ts",
     "test:match-transition-browser": "node --test tests/e2e/match-transition-controls.test.mjs",
     "test:match-transitions-db": "node --conditions=react-server --import tsx --test tests/integration/match-transitions.test.ts",
@@ -66,7 +68,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit --incremental false",
     "postinstall": "prisma generate",
-    "test:ci": "node --test scripts/ci/ci136-port-plan.test.mjs scripts/ci/chrome-page-discovery.test.mjs scripts/ci/player-identity-isolated-profile.test.mjs scripts/ci/account-diagnostics.test.mjs scripts/ci/migration-helpers.test.mjs scripts/ci/production-plans.test.mjs scripts/ci/preview-fixture-target.test.mjs scripts/ci/delegate-position-fixture-target.test.mjs scripts/ci/delegate-preview-privileges.test.mjs scripts/ci/delegate-isolated-runtime.test.mjs scripts/preview/connection.test.mjs",
+    "test:ci": "node --test scripts/ci/billing-ci.test.mjs scripts/ci/ci136-port-plan.test.mjs scripts/ci/chrome-page-discovery.test.mjs scripts/ci/player-identity-isolated-profile.test.mjs scripts/ci/account-diagnostics.test.mjs scripts/ci/migration-helpers.test.mjs scripts/ci/production-plans.test.mjs scripts/ci/preview-fixture-target.test.mjs scripts/ci/delegate-position-fixture-target.test.mjs scripts/ci/delegate-preview-privileges.test.mjs scripts/ci/delegate-isolated-runtime.test.mjs scripts/preview/connection.test.mjs",
     "test:delegate-model": "node --conditions=react-server --import tsx --test tests/integration/delegate-positions.test.ts",
     "test:delegate-isolated": "node scripts/test-delegate-isolated.mjs",
     "test:account-isolated": "node scripts/test-delegate-isolated.mjs --account-integration",

@@ -1,5 +1,9 @@
 # Refinamiento de UI y UX
 
+## Reglas de calendario y claridad semanal · 28/11/2026
+
+Con ui-guardrails, web-design-guidelines y las referencias locales de composición se preservaron shell, tokens, temas y controles. Los objetos anidados de reglas se apilan; solo valores simples del primer nivel comparten columnas. Se evita comprimir repetidamente el ancho de las canchas. La sección semanal distingue configuración guardada y deuda generada, con explicación de la acción y las fechas habilitadas. El formato de fecha civil compartido elimina las diferencias de rangos entre servidor y navegador. Prueba de hidratación y capturas de componentes con CSS real en 390/1440 px, ambos temas; recorrido de cargos con sesión/PostgreSQL 15 real. [Evidencia y alcance](../validation/PDGLD-77.md).
+
 ## Corrección de foco del acuse de afiliación — 26/11/2026
 
 El CI del PR #69 (`88d7405`) falló al exigir foco en «Correcciones recibidas».
@@ -262,3 +266,17 @@ La portada, el portal de fútbol y el inicio de sesión conservan su diseño ori
 La recuperación muestra los pasos de solicitud, nueva contraseña y actualización confirmada. El acuse de solicitud conserva el mensaje neutral. Un enlace inválido vuelve al paso de solicitar otro y la última etapa requiere el acuse de actualización. El cambio obligatorio indica que después corresponde volver a iniciar sesión. La confirmación de correo distingue la acción explícita del resultado, que puede ser confirmado, inválido o incierto. Ambos recorridos aceptan un enlace nuevo en la misma pestaña y conservan el formulario al usar «Saltar al contenido».
 
 Pasaron las pruebas de recuperación y confirmación de correo, mensajes de acceso y temas, incluida la suite de recuperación con PostgreSQL temporal, rol limitado, RLS y transporte simulado. En Chrome con NextAuth se comprobó el recorrido de espectadores, el inicio de sesión y el cambio obligatorio con inicio posterior usando la contraseña nueva. Las respuestas simuladas permitieron comprobar el acuse neutral, el enlace inválido, el enlace nuevo en la misma pestaña, el foco del resultado y el acuse final de recuperación y correo. Se revisó el ancho a 320 px y se guardaron capturas en claro y oscuro a 390 y 1440 px.
+## Cargos de tesorería
+
+PDGLD-174 usa el shell de gestión y sus permisos de Cobranza. El listado conserva los filtros al volver del detalle. El alta muestra captura, revisión y resultado de demostración. La consulta de una respuesta incierta conserva los datos de la operación mientras se mantenga abierta la captura. [Diseño](treasury-charges.md) · [Contrato y validación](../validation/PDGLD-77.md)
+
+## PDGLD-176 · validación del recorrido de cargos
+
+Se conserva la composición aprobada de tesorería y sus controles compartidos. La revisión con ui-guardrails, web-design-guidelines, frontend-design e Impeccable detectó un error sin asociación al campo en el diálogo de corrección/generación. Se añadió `aria-invalid` y `aria-describedby` con mensaje identificado y borde de error; se conserva foco, captura, contrato y servicio existentes. No cambian tokens, layout ni componentes compartidos.
+
+La evidencia automatizada usa Chrome con NextAuth y PostgreSQL desechable, backend limitado y RLS. Las capturas y resultados están en `docs/validation/pdgld176/`; los cortes de transporte son deliberados, con backend/base reales. La aceptación humana sigue pendiente. El cargador de contexto de Impeccable no estuvo disponible; se leyeron las decisiones existentes y sus referencias locales, sin inventar PRODUCT.md/DESIGN.md.
+### Cargos automáticos · PDGLD-77 · 28/11/2026
+
+Entrada desde Cargos a una configuración por temporada y evento, conservando shell, encabezado, tokens, SelectField y FormDialog. El texto distingue afiliación aprobada, inscripción y equipo/jornada programada de la modalidad semanal manual. Sin tarifas o plazos preseleccionados. Se revisan destinatarios colectivos, importe, vencimiento y jornadas antes de autorizar; el acuse confirma la configuración real y no un pago. La captura se conserva al cancelar revisión o ante rechazo; respuesta incierta bloquea cambios y reintenta el payload/UUID original. Listado/detalle identifican el origen automático y revisión de Tesorería. Evidencia real de la configuración se agrega al runner de tesorería, en ambos temas y anchos 390/1440; no acredita selección oficial de clasificados ni despliegue remoto.
+
+Las capturas generadas de PDGLD-77 se conservan localmente en `.artifacts/billing/` y como artefactos de CI; no se versionan en docs. Se mantienen los registros de validación y sus resultados JSON.

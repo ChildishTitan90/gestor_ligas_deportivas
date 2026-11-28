@@ -126,6 +126,12 @@ async function readPermissionGrants(
 export async function resolveAuthorizationContext(
   tx: Prisma.TransactionClient, input: AuthorizationContext,
 ): Promise<ResolvedAuthorizationContext> {
+  return resolveContext(tx, input, false);
+}
+
+async function resolveContext(
+  tx: Prisma.TransactionClient, input: AuthorizationContext, includeInactiveClubs: boolean,
+): Promise<ResolvedAuthorizationContext> {
   const parsed = contextSchema.safeParse(input);
   if (!parsed.success) throw new AuthorizationError();
   const context = parsed.data;
@@ -176,7 +182,7 @@ export async function resolveAuthorizationContext(
     const teams = await tx.$queryRaw<{ clubId: string; leagueId: string }[]>`
       SELECT t.club_id AS "clubId", c.league_id AS "leagueId"
       FROM sports_management.teams t JOIN sports_management.clubs c ON c.id = t.club_id
-      WHERE t.id = ${context.teamId}::uuid AND c.status = 'ACTIVE' FOR SHARE OF t, c
+      WHERE t.id = ${context.teamId}::uuid AND (${includeInactiveClubs} OR c.status = 'ACTIVE') FOR SHARE OF t, c
     `;
     if (!teams.length || (matchTeamIds && !matchTeamIds.includes(context.teamId))) throw new AuthorizationError();
     setClub(teams[0].clubId);
@@ -192,7 +198,7 @@ export async function resolveAuthorizationContext(
   for (const clubId of clubIds) {
     const clubs = await tx.$queryRaw<{ leagueId: string }[]>`
       SELECT league_id AS "leagueId" FROM sports_management.clubs
-      WHERE id = ${clubId}::uuid AND status = 'ACTIVE' FOR SHARE
+      WHERE id = ${clubId}::uuid AND (${includeInactiveClubs} OR status = 'ACTIVE') FOR SHARE
     `;
     if (!clubs.length) throw new AuthorizationError();
     setLeague(clubs[0].leagueId);
@@ -229,7 +235,10 @@ export async function assertPermission(
 ): Promise<PermissionGrant[]> {
   if (!permissionSchema.safeParse(request).success) throw new AuthorizationError();
   const grants = await getPermissionGrants(tx, actorId, request.module, request.action);
-  const context = await resolveAuthorizationContext(tx, request.context);
+  // Una deuda conserva su contexto histórico aunque el destinatario deje de operar.
+  // Solo billing:READ admite ese recurso; identidad, concesiones vigentes y ámbito
+  // siguen verificándose. No reactiva asignaciones ligadas a un club inactivo.
+  const context = await resolveContext(tx, request.context, request.module === "billing" && request.action === "READ");
   const permitted = grants.filter((grant) => grantCoversContext(grant, context));
   if (!permitted.length) throw new AuthorizationError();
   return permitted;
