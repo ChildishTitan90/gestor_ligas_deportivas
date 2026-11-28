@@ -105,7 +105,7 @@ function Recipient({ charge }: { charge: ChargeSummary }) {
 function Concept({ charge }: { charge: ChargeSummary }) {
   return <>
     <p className="font-medium text-primary">{chargeConceptLabels[charge.concept]}</p>
-    <p className="mt-1 text-xs text-muted">{charge.frequency === "ONCE" ? "Único" : "Semanal"}</p>
+    <p className="mt-1 text-xs text-muted">{charge.automation?.label ?? (charge.frequency === "ONCE" ? "Único" : "Semanal")}</p>
   </>;
 }
 

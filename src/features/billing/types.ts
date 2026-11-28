@@ -13,6 +13,7 @@ export type ChargeTerms = Pick<ChargeCapture, "amount" | "dueOn" | "periodStart"
   currency: "MXN";
   season: ChargeSeason;
   recipient: ChargeRecipient;
+  automation?: { label: string; revision: number };
 };
 
 export type ChargeSummary = ChargeTerms & {

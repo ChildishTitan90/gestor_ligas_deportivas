@@ -6,6 +6,12 @@ import type { CreateCharge } from "../schemas";
 
 export class BillingError extends Error {}
 
+export function isChargeConstraintConflict(error: unknown) {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  const adapter = error.meta?.driverAdapterError as { cause?: { originalCode?: string } } | undefined;
+  return error.code === "P2002" || (adapter?.cause?.originalCode ?? error.meta?.code) === "23P01";
+}
+
 export async function billingCatalog(tx: Prisma.TransactionClient, actorId: string, action: PermissionAction = "READ"): Promise<BillingSeason[]> {
   const grants = (await getActorPermissionGrants(tx, actorId)).filter(grant => grant.module === "billing" && grant.action === action);
   if (!grants.length) throw new AuthorizationError();

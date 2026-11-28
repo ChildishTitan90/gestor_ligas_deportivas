@@ -1,4 +1,5 @@
 import "server-only";
+import { chargeScheduledMatchesInTransaction } from "@/features/billing/server/automation-service";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
@@ -122,5 +123,6 @@ export async function rescheduleAbsentMatchInTransaction(tx:Prisma.TransactionCl
     if(proposal?.status==="APPROVED" && storedProposalSchema.safeParse(proposal.parameters).success)
       pdfVersion=await captureUpdatedSchedule(tx,seasons[0].proposal_id,actorId,input.reason);
   }
+  await chargeScheduledMatchesInTransaction(tx, match.season_id, undefined, match.id);
   return {operationId:input.operationId,matchId:match.id,appliedVersion:input.expectedVersion+1,replayed:false,pdfVersion};
 }

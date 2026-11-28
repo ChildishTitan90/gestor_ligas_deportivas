@@ -1,4 +1,5 @@
 import "server-only";
+import { chargeRegistrationInTransaction } from "@/features/billing/server/automation-service";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { getPrisma } from "@/server/db/prisma";
@@ -68,6 +69,7 @@ export async function enrollTeam(input: unknown, expectedActorId?: string) {
       });
       await tx.team_enrollment_operations.create({ data: { actor_id: actor.id, enrollment_key: data.enrollmentKey,
         club_id: data.clubId, fingerprint, outcome: "CONFIRMED", enrollment_id: enrollment.id } });
+      await chargeRegistrationInTransaction(tx, "TEAM_ENROLLMENT", enrollment.id);
       // El trigger de inscripción registra un solo evento, también dentro de ACID.
       return enrollmentResult(enrollment, false);
     }, { timeout: 15_000 });

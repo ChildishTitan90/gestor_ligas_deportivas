@@ -16,6 +16,7 @@
     "fsevents": false
   },
   "scripts": {
+    "test:billing-ui": "node --import tsx --test tests/e2e/billing-presentation.test.mjs",
     "test:billing": "node scripts/test-billing-isolated.mjs",
     "test:match-transitions": "node --import tsx --test src/features/matches/transition-rules.test.ts src/features/matches/transition-presentation.test.ts",
     "test:match-transition-browser": "node --test tests/e2e/match-transition-controls.test.mjs",

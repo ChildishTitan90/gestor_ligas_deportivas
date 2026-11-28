@@ -10,4 +10,5 @@ export const billingMessages: Record<string, string> = {
   CHARGE_HAS_PAYMENTS: "El cargo tiene pagos asociados. Su modificación requiere acordar el tratamiento con PDGLD-78.",
   RESOLUTION_UNAVAILABLE: "La multa requiere el contrato de resolución oficial de PDGLD-27.",
   POLICY_UNCONFIRMED: "Esta modificación necesita una decisión pendiente de la Liga.",
+  SEASON_CLOSED: "La temporada está cerrada. Su configuración automática ya no admite cambios.",
 };

@@ -81,6 +81,9 @@ export async function billingJourney(origin, fixture, db) {
     await browser.command('Network.enable');
     await browser.command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 950, deviceScaleFactor: 1, mobile: false });
     await wait("document.readyState==='complete'");
+    // La consulta inicial de SessionActivity también puede emitir la cookie CSRF.
+    // Esperarla evita que una respuesta de arranque sustituya el token del login.
+    await wait("performance.getEntriesByType('resource').some(r=>new URL(r.name).pathname==='/api/auth/session')", 'Sesión inicial del navegador');
     const login = await browser.evaluate(`(async()=>{const {csrfToken}=await(await fetch('/api/auth/csrf')).json();const r=await fetch('/api/auth/callback/credentials',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({csrfToken,email:'treasury176',password:${str(fixture.password)},json:'true',callbackUrl:${str(origin + '/access')}})});if(!r.ok || (await r.json()).url?.includes('error='))return null;return (await(await fetch('/api/auth/session')).json()).user?.id})()`);
     assert.equal(login, fixture.users.treasury176, 'NextAuth confirma la sesión del actor sintético');
     await nav('/treasury/charges'); await text('Cargos');
@@ -144,7 +147,7 @@ export async function billingJourney(origin, fixture, db) {
     await fill({ amount: '75.50', dueOn: fixture.due, periodStart: fixture.start, periodEnd: fixture.end, reason: 'Plan semanal sintético' });
     await click('Revisar cargo'); await click('Guardar plan semanal'); await click('Confirmar plan', 'dialog[open]'); await text('Plan semanal guardado');
     assert.equal((await db.query('SELECT count(*)::int n FROM sports_management.charges')).rows[0].n, 1, 'Guardar plan no genera cargos');
-    await click('Volver al listado'); await text('Planes semanales'); await click('Generar cargo del periodo');
+    await click('Volver al listado'); await text('Cargos semanales por generar'); await click('Generar cargo del periodo');
     const period = { periodStart: `${fixture.year}-01-04`, periodEnd: `${fixture.year}-01-10`, dueOn: fixture.due, reason: 'Generación manual sintética' };
     for (const [name, value] of Object.entries(period)) await set(`dialog [name="${name}"]`, value);
     await click('Generar cargo del periodo', 'dialog[open]'); await text('Cargo generado y confirmado.');

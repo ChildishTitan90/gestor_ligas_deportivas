@@ -67,7 +67,7 @@ export function ChargeCaptureFields({ formRef, seasons, draft, errors, onChange,
           </Field>
           <Field name="frequency" label="Modalidad" errors={errors}>
             <SelectField {...fixed("frequency")} searchable={false} onValueChange={set("frequency")}
-              options={[{ value: "ONCE", label: "Único" }, { value: "WEEKLY", label: "Semanal" }]} />
+              options={[{ value: "ONCE", label: "Único" }, { value: "WEEKLY", label: "Semanal manual" }]} />
           </Field>
           {draft.concept === "FINE" && <p role="status" className="rounded-xl border border-border bg-soft px-4 py-3 text-sm text-primary sm:col-span-2">La multa requiere una resolución oficial. El vínculo con PDGLD-27 está pendiente y este concepto queda bloqueado.</p>}
           <Field name="amount" label={weekly ? "Importe por semana (MXN)" : "Importe (MXN)"} errors={errors}>

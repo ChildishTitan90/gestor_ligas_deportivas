@@ -8,6 +8,8 @@ import { billingJourney } from '../e2e/billing-journey.mjs';
 import { readChargeBalanceForActor, readChargeCreatedEventForActor } from '../../src/features/billing/server/consumer-queries.ts';
 import { getPrisma } from '../../src/server/db/prisma.ts';
 import { assertPermission, resolveAuthorizationContext } from '../../src/server/auth/authorization.ts';
+import { billingAutomationCases } from './billing-automation.mjs';
+import { automationSettingsJourney } from '../e2e/billing-automation-journey.mjs';
 
 test('PDGLD-176 HTTP, sesión, PostgreSQL y RLS reales', { timeout: 540000 }, async t => {
   assert.equal(process.env.BILLING_ISOLATED, '1');
@@ -228,6 +230,9 @@ test('PDGLD-176 HTTP, sesión, PostgreSQL y RLS reales', { timeout: 540000 }, as
       assert.deepEqual(await readChargeCreatedEventForActor(fixture.users.delegate176, event.id), { eventId: event.id, kind: 'CHARGE_CREATED', chargeId: receipt.chargeId });
       await assert.rejects(readChargeCreatedEventForActor(fixture.users.other176, event.id));
     });
+    await billingAutomationCases({ check, q, fixture, origin, login, treasury, delegate, other });
+    await check('Configuración Chrome con sesión: revisión, Escape, respuesta perdida, reintento y ambos temas/tamaños',
+      () => automationSettingsJourney(origin, treasury, fixture, db));
     await check('Desactivar club conserva deuda e historial autorizados de club/equipo y bloquea escrituras', async () => {
       const clubCommand = create({ concept: 'VENUE', amount: '42.35', periodStart: `${fixture.year}-08-01`, periodEnd: `${fixture.year}-08-07` });
       const teamCommand = create({ concept: 'VENUE', amount: '57.20', recipient: { kind: 'TEAM', seasonTeamId: fixture.team }, periodStart: `${fixture.year}-08-01`, periodEnd: `${fixture.year}-08-07` });
@@ -243,7 +248,7 @@ test('PDGLD-176 HTTP, sesión, PostgreSQL y RLS reales', { timeout: 540000 }, as
         const teamBalance = await readChargeBalanceForActor(fixture.users.treasury176, teamCharge.chargeId);
         assert.equal(clubBalance.balance, '43.35'); assert.equal(clubBalance.paid, '0.00');
         assert.equal(teamBalance.balance, '57.20'); assert.equal(teamBalance.paid, '0.00');
-        const list = await html('/treasury/charges', treasury);
+        const list = await html('/treasury/charges?concept=VENUE', treasury);
         for (const chargeId of [clubCharge.chargeId, teamCharge.chargeId]) assert.ok(list.includes(chargeId), 'La deuda sigue en el listado autorizado');
         const filtered = await html('/treasury/charges?recipient=' + fixture.clubs[0], treasury);
         assert.ok(filtered.includes(clubCharge.chargeId) && !filtered.includes(teamCharge.chargeId));

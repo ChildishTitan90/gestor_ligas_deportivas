@@ -1,4 +1,5 @@
 import "server-only";
+import { chargeScheduledMatchesInTransaction } from "@/features/billing/server/automation-service";
 import { Prisma } from "@prisma/client";
 import { assertPermission, AuthorizationError, getPermissionGrants, lockAuthorization } from "@/server/auth/authorization";
 import { transitionSchema } from "../schemas";
@@ -112,6 +113,7 @@ export async function transitionMatchInTransaction(tx: Prisma.TransactionClient,
       ${allowed[0].to_id}::uuid, ${actorId}::uuid, ${input.reason}, ${input.expectedVersion})
     RETURNING created_at
   `;
+  if (input.toStatus === "SCHEDULED") await chargeScheduledMatchesInTransaction(tx, match.season_id, undefined, match.id);
   return receiptDto({ id: input.operationId, matchId: match.id, actorId, fromStatus: status.code,
     toStatus: input.toStatus, expectedVersion: input.expectedVersion, reason: input.reason, createdAt: history[0].created_at }, false);
 }

@@ -74,7 +74,7 @@ export function ChargeOperationControl({ plan, charge }: Props) {
   return <>
     <button type="button" className="min-h-12 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-primary hover:bg-background"
       onClick={() => setOpen(true)}>{uncertain ? "Consultar operación pendiente" : title}</button>
-    <FormDialog open={open} title={title} description={plan ? "Genera un cargo para este periodo de siete días. Puedes repetir la consulta del mismo periodo." : "Corrige el importe o vencimiento y explica el motivo."}
+    <FormDialog open={open} title={title} description={plan ? "Elige siete días consecutivos y su vencimiento. Al confirmar se creará un cargo para esta semana; no se registra un pago." : "Corrige el importe o vencimiento y explica el motivo."}
       dirty={dirty} pending={pending} uncertain={uncertain} onClose={reason => {
         setOpen(false);
         if (reason === "discard") {
@@ -88,7 +88,7 @@ export function ChargeOperationControl({ plan, charge }: Props) {
       </> : <button type="submit" form={`billing-operation-${plan?.id ?? charge?.id}`} disabled={pending} className="primary-action min-h-12 rounded-xl px-5 font-semibold disabled:opacity-50">{title}</button>}>
       <div className="mb-4 text-sm text-primary">
         <p className="font-semibold">{(plan ?? charge).recipient.name} · {(plan ?? charge).season.name}</p>
-        {plan && <p className="mt-1">Importe por periodo {formatChargeAmount(plan.amount, "MXN")}. Ventana {plan.periodEnd ? formatChargePeriod(plan.periodStart, plan.periodEnd) : plan.periodStart}.</p>}
+        {plan && <p className="mt-1">Importe de esta semana: {formatChargeAmount(plan.amount, "MXN")}. El periodo debe estar entre estas fechas: {plan.periodEnd ? formatChargePeriod(plan.periodStart, plan.periodEnd) : plan.periodStart}.</p>}
       </div>
       {phase === "confirmed" ? <div role="status" className="space-y-3 text-sm">
         <p className="font-semibold text-positive">{plan ? receipt?.existing ? "Se recuperó el cargo ya generado para este periodo." : "Cargo generado y confirmado." : "Modificación confirmada."}</p>

@@ -5,6 +5,7 @@ import { getPrisma } from "@/server/db/prisma";
 import { requireOperationalUser } from "@/server/auth/session";
 import { getActorPermissionGrants, AuthorizationError } from "@/server/auth/authorization";
 import { chargeConcept } from "../schemas";
+import { automationLabels } from "../automation";
 import type { BillingQuery } from "../navigation";
 import type { BillingPlan, BillingSeason, ChargeDetail, ChargeFilters, ChargeSummary } from "../types";
 import { authorizeRecipient, billingCatalog, BillingError, recipientOf } from "./access";
@@ -21,6 +22,7 @@ const selection = {
   period_start_date: true, period_end_date: true, currency: true, version: true, issued_on: true,
   billing_plan_id: true, sanction_id: true, voided_at: true,
   charge_concepts: { select: { code: true } }, billing_plans: { select: { frequency: true } },
+  billing_automation_policies: { select: { kind: true, revision: true } },
   payments: { select: { amount: true, payment_voids: { select: { id: true } } } },
 } satisfies Prisma.chargesSelect;
 type ChargeRow = Prisma.chargesGetPayload<{ select: typeof selection }>;
@@ -33,6 +35,10 @@ function summary(row: ChargeRow, catalog: readonly BillingSeason[]): ChargeSumma
   return {
     id: row.id, version: row.version, season: { id: season.id, name: season.name, league: season.league }, recipient,
     concept: chargeConcept.parse(row.charge_concepts.code), frequency: row.billing_plans?.frequency === "WEEKLY" ? "WEEKLY" : "ONCE",
+    ...(row.billing_automation_policies ? { automation: {
+      label: automationLabels[row.billing_automation_policies.kind as keyof typeof automationLabels],
+      revision: row.billing_automation_policies.revision,
+    } } : {}),
     amount: row.amount.toFixed(2), currency: "MXN", dueOn: iso(row.due_on),
     periodStart: iso(row.period_start_date), periodEnd: iso(row.period_end_date),
     payment: { paid: paid.toFixed(2), balance: row.amount.minus(paid).toFixed(2) },

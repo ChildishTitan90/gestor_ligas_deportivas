@@ -7,7 +7,8 @@ import { requireOperationalUser } from "@/server/auth/session";
 import { lockAuthorization } from "@/server/auth/authorization";
 import { billingCommandSchema, type BillingCommand } from "../schemas";
 import type { BillingReceipt, BillingResult } from "../types";
-import { authorizeRecipient, BillingError, recipientOf } from "./access";
+import { authorizeRecipient, BillingError, recipientOf, isChargeConstraintConflict } from "./access";
+import { insertCharge } from "./charge-writer";
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return JSON.stringify(value.map(canonical));
@@ -82,34 +83,9 @@ export async function executeBillingCommand(input: unknown): Promise<BillingRece
       return receipt;
     }, { timeout: 15000 });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new BillingError("DUPLICATE_CHARGE");
+    if (isChargeConstraintConflict(error)) throw new BillingError("DUPLICATE_CHARGE");
     throw error;
   }
-}
-
-async function today(tx: Prisma.TransactionClient) {
-  const [row] = await tx.$queryRaw<{ today: string }[]>`SELECT (clock_timestamp() AT TIME ZONE 'America/Mexico_City')::date::text AS today`;
-  return row.today;
-}
-async function insertCharge(tx: Prisma.TransactionClient, actorId: string, data: {
-  season_id: string; club_id: string | null; season_team_id: string | null; charge_concept_id: string;
-  amount: Prisma.Decimal; due_on: Date; period_start_date: Date; period_end_date: Date; billing_plan_id?: string;
-}) {
-  const issued = await today(tx);
-  if (data.due_on < date(issued)) throw new BillingError("INVALID_DUE_DATE");
-  // Serializa intenciones distintas del mismo destinatario. Los índices únicos son la última defensa.
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${"charge:" + data.season_id + ":" + (data.club_id ?? data.season_team_id)},0))::text`;
-  const prior = await tx.charges.findFirst({ where: {
-    season_id: data.season_id, club_id: data.club_id, season_team_id: data.season_team_id,
-    charge_concept_id: data.charge_concept_id, period_start_date: data.period_start_date, period_end_date: data.period_end_date,
-  } });
-  if (prior) {
-    if (prior.voided_at || !prior.amount.equals(data.amount) || prior.due_on.getTime() !== data.due_on.getTime()
-      || (prior.billing_plan_id ?? null) !== (data.billing_plan_id ?? null)) throw new BillingError("DUPLICATE_CHARGE");
-    return { chargeId: prior.id, version: prior.version, existing: true };
-  }
-  const charge = await tx.charges.create({ data: { ...data, currency: "MXN", issued_on: date(issued), created_by: actorId }, select: { id: true, version: true } });
-  return { chargeId: charge.id, version: charge.version, existing: false };
 }
 
 async function createCharge(tx: Prisma.TransactionClient, actorId: string, input: Extract<BillingCommand, { action: "CREATE" }>["input"]) {

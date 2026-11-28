@@ -22,8 +22,9 @@ export function ChargeTerms({ terms, preview = false }: { terms: Terms; preview?
       <dd className="mt-0.5 text-muted">{terms.season.name}</dd>
     </div>
     <div>
-      <dt className="text-muted">Concepto y modalidad</dt>
-      <dd className="mt-1 font-medium text-primary">{chargeConceptLabels[terms.concept]} · {weekly ? "Semanal" : "Único"}</dd>
+      <dt className="text-muted">Concepto y {terms.automation ? "origen" : "modalidad"}</dt>
+      <dd className="mt-1 font-medium text-primary">{chargeConceptLabels[terms.concept]} · {terms.automation?.label ?? (weekly ? "Semanal" : "Único")}</dd>
+      {terms.automation && <dd className="mt-1 text-muted">Configuración de Tesorería · revisión {terms.automation.revision}</dd>}
     </div>
     <div>
       <dt className="text-muted">{preview && weekly ? "Ventana solicitada" : "Periodo del cargo"}</dt>
@@ -38,8 +39,8 @@ export function ChargeTerms({ terms, preview = false }: { terms: Terms; preview?
 
 export function WeeklyConditions() {
   return <div className="rounded-xl border border-border bg-soft px-4 py-3 text-sm leading-6 text-primary">
-    <p className="font-semibold">Condiciones de la recurrencia semanal</p>
-    <p>Guardar el plan habilita la generación manual de cada periodo de siete días dentro de esta ventana. Tesorería elige las fechas y el vencimiento al generar cada cargo.</p>
+    <p className="font-semibold">Cómo crear los cargos de cada semana</p>
+    <p>Primero guarda el importe y las fechas habilitadas. Después, desde Cargos, elige una semana de siete días y su vencimiento para generar un cargo. Cada semana se genera manualmente: guardar esta configuración todavía no crea una deuda ni registra un pago.</p>
   </div>;
 }
 

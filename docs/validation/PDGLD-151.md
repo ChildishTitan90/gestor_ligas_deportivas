@@ -34,7 +34,7 @@ También pasaron:
 - Jornada 1: corte acumulado y vista actual sin versión guardada. Un cambio posterior de resultado invalida la correspondencia de la versión almacenada y produce PREVIEW, sin presentar la versión obsoleta como vigente.
 - La lectura no crea versiones de clasificación; el DTO no expone fingerprint, snapshot de cálculo, eventos internos ni datos de cuentas.
 - Apertura del selector mediante Enter, selección de opciones, limpieza del grupo al reseleccionar categoría y FormData. Esto no equivale a una auditoría completa de teclado o accesibilidad.
-- Claro/oscuro y escritorio 1440 px/móvil 390 px sin desbordamiento horizontal; tabla en escritorio y tarjetas en móvil. Capturas reales del navegador con datos sintéticos: [escritorio claro](pdgld151/desktop-light.png), [escritorio oscuro](pdgld151/desktop-dark.png), [móvil claro](pdgld151/mobile-light.png), [móvil oscuro](pdgld151/mobile-dark.png). Se inspeccionaron visualmente escritorio claro y móvil oscuro.
+- Claro/oscuro y escritorio 1440 px/móvil 390 px sin desbordamiento horizontal; tabla en escritorio y tarjetas en móvil. Capturas reales del navegador con datos sintéticos: escritorio claro (captura retirada por limpieza), escritorio oscuro (captura retirada por limpieza), móvil claro (captura retirada por limpieza), móvil oscuro (captura retirada por limpieza). Se inspeccionaron visualmente escritorio claro y móvil oscuro.
 
 ## Verificaciones del repositorio
 

@@ -17,11 +17,13 @@ const database = `pdgld48_test_${nonce}`;
 const privateRoot = mkdtempSync(join(tmpdir(), 'pdgld176-'));
 const originalTypes = JSON.parse(readFileSync('tsconfig.json', 'utf8')).include;
 let generatedTypes = [];
+let generatedDirectory;
 const manifest = join(privateRoot, 'fixture.json');
 const base = { ...childEnvironment(process.env), NEXT_TELEMETRY_DISABLED: '1',
   AUTH_TEST_RUN: '1', BILLING_ISOLATED: '1', BILLING_MANIFEST: manifest,
-  BILLING_EVIDENCE: resolve(`docs/validation/pdgld176/pg${major}`),
+  BILLING_EVIDENCE: resolve(`.artifacts/billing/pg${major}`),
   NEXTAUTH_SECRET: randomBytes(48).toString('hex'), ACCOUNT_EMAIL_ENABLED: 'false', PASSWORD_RECOVERY_ENABLED: 'false',
+  BILLING_CRON_SECRET: randomBytes(32).toString('hex'), BILLING_CRON_ENVIRONMENT: 'LOCAL', BILLING_CRON_PROJECT_REF: 'local-isolated',
   VMX_API_KEY: '', SUPABASE_URL: '', SUPABASE_STORAGE_SERVER_KEY: '', RESEND_API_KEY: '',
   ...(process.env.CHROME_BIN ? { CHROME_BIN: process.env.CHROME_BIN } : {}),
 };
@@ -43,7 +45,7 @@ function run(args, env, output = false) {
 }
 async function runSuite(env) {
   await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', '--test', '--test-concurrency=1', 'tests/integration/billing.test.mjs'],
+    const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', '--test', '--test-concurrency=1', process.argv.includes('--automation-only') ? 'tests/integration/billing-automation.test.mjs' : 'tests/integration/billing.test.mjs'],
       { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     const capture = stream => {
       let pending = '';
@@ -66,6 +68,7 @@ try {
   await new Promise(resolve => probe.close(resolve));
   const origin = `http://127.0.0.1:${port}`;
   generatedTypes = [`.next-auth-tests-${port}/types/**/*.ts`, `.next-auth-tests-${port}/dev/types/**/*.ts`];
+  generatedDirectory = resolve(`.next-auth-tests-${port}`);
   base.NEXTAUTH_URL = origin;
   docker(['create', '--name', container, '--label', `pdgld176.owner=${nonce}`, '--env', 'POSTGRES_HOST_AUTH_METHOD=trust',
     '--env', `POSTGRES_DB=${database}`, '--publish', '127.0.0.1::5432', '--tmpfs', '/var/lib/postgresql/data:rw,nosuid,nodev', `postgres:${major}`]);
@@ -134,4 +137,10 @@ try {
   // mkdtemp propio, comprobado bajo el temporal del SO antes de eliminarlo.
   assert.equal(resolve(privateRoot).startsWith(resolve(tmpdir()) + (process.platform === 'win32' ? '\\' : '/')), true);
   rmSync(privateRoot, { recursive: true, force: true });
+  if (generatedDirectory) {
+    assert.equal(generatedDirectory, resolve(`.next-auth-tests-${new URL(base.NEXTAUTH_URL).port}`));
+    assert.equal(generatedDirectory.startsWith(resolve('.') + (process.platform === 'win32' ? '\\' : '/')), true);
+    try { rmSync(generatedDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+    catch { console.warn('No se pudo retirar la compilación temporal de esta ejecución.'); }
+  }
 }

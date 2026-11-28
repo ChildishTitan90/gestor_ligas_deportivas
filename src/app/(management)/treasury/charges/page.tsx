@@ -25,7 +25,10 @@ export default async function ChargeListPage({ searchParams }: { searchParams: P
         <ManagementPageHeader title="Cargos" description="Consulta cargos de clubes y equipos por temporada y periodo."
           back={{ href: "/access", label: "Volver al panel" }} context={context} />
       </div>
-      {canCreate && <ActionLink className="sm:mt-[3.125rem]" href={chargesUrl(`${chargesPath}/new`, filters)}>Nuevo cargo</ActionLink>}
+      {canCreate && <div className="flex flex-wrap gap-3 sm:mt-[3.125rem]">
+        <ActionLink variant="secondary" href={`${chargesPath}/automation`}>Cargos automáticos</ActionLink>
+        <ActionLink href={chargesUrl(`${chargesPath}/new`, filters)}>Nuevo cargo</ActionLink>
+      </div>}
     </div>
     {leagues.length > 1 && <form method="get" className="flex flex-wrap items-end gap-3">
       <label className="min-w-60 flex-1 text-sm">Liga<SelectField name="league" defaultValue={league ?? ""} required options={leagues.map(value => ({ value, label: value }))} /></label>
@@ -34,13 +37,13 @@ export default async function ChargeListPage({ searchParams }: { searchParams: P
     {league ? <>
       <ChargeList filters={filters} charges={charges} seasons={seasons} total={total} page={page} />
       {plans.length > 0 && <section aria-labelledby="billing-plans" className="space-y-3">
-        <h2 id="billing-plans" className="text-lg font-semibold text-primary">Planes semanales</h2>
-        <p className="text-sm text-muted">Cada plan requiere generar sus periodos. Los cargos confirmados aparecen en el listado.</p>
+        <h2 id="billing-plans" className="text-lg font-semibold text-primary">Cargos semanales por generar</h2>
+        <p className="max-w-3xl text-sm leading-6 text-muted">Estas configuraciones guardan a quién cobrar, cuánto y durante qué fechas. No generan deudas automáticamente. Elige una semana y su vencimiento para crear el cargo; después aparecerá en el listado de arriba.</p>
         <ul className="divide-y divide-border rounded-2xl border border-border bg-surface">
           {plans.map(plan => <li key={plan.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div className="min-w-0 text-sm"><h3 className="font-semibold text-primary">{plan.recipient.name} · {chargeConceptLabels[plan.concept]}</h3>
-              <p className="mt-1 text-muted">{plan.season.name} · {formatChargeAmount(plan.amount, "MXN")} por periodo</p>
-              <p className="mt-1 text-muted">{plan.periodEnd ? formatChargePeriod(plan.periodStart, plan.periodEnd) : plan.periodStart}</p>
+              <p className="mt-1 text-muted">{plan.season.name} · {formatChargeAmount(plan.amount, "MXN")} por semana</p>
+              <p className="mt-1 text-muted">Fechas habilitadas: {plan.periodEnd ? formatChargePeriod(plan.periodStart, plan.periodEnd) : plan.periodStart}</p>
             </div>
             {plan.canGenerate && <ChargeOperationControl plan={plan} />}
           </li>)}

@@ -14,6 +14,8 @@ La excepción no reactiva asignaciones de rol cuyo club está inactivo, ni permi
 
 ## Unicidad, concurrencia y auditoría
 
+La ampliación de noviembre añade identidad automática por trámite/jornada. `20261128020000_billing_matchday_identity` limita los índices por fechas a cargos manuales y agrega exclusiones entre manuales y automáticos; dos jornadas distintas pueden compartir fechas. El origen UNIQUE e inmutable evita repetir una jornada. Véase [el contrato actualizado](billing-automation.md).
+
 La migración `20261125010000_pdgld175_charge_integrity` agrega índices únicos para club y equipo sobre temporada, concepto y ambas fechas del periodo. La liga y categoría del equipo se derivan de esa inscripción. Se conserva la unicidad original por sanción y por plan/inicio de periodo. Las filas canceladas siguen ocupando su clave de negocio. Su tratamiento futuro requiere la política correspondiente.
 
 La operación toma el bloqueo compartido RF22 y un advisory lock transaccional por UUID de intención. El acuse inmutable usa ese UUID en `audit_logs`, acción `BILLING_OPERATION`, con autor, huella canónica y resultado. Reutilizarlo con datos distintos produce `OPERATION_KEY_REUSED`. La corrección bloquea el cargo y verifica versión. La generación serializa el destinatario y los índices protegen también conexiones concurrentes. Un duplicado con datos equivalentes recupera el cargo existente. Datos monetarios, vencimiento o plan diferentes requieren consultar y corregir.
@@ -23,6 +25,8 @@ El trigger original `record_audit` conserva cada alta/corrección del cargo. El 
 El trigger de pagos toma el bloqueo del cargo antes de insertar. El trigger de corrección bloquea cambios si hay cualquier pago, incluidos movimientos anulados, conforme a la regla provisional aceptada por el usuario. Esto coordina conexiones distintas. PDGLD-78 deberá reutilizar el mismo orden de bloqueos al registrar pagos.
 
 ## Recurrencia y resolución disciplinaria
+
+La ampliación acordada el 28/11/2026 define cargos automáticos de afiliación/inscripción y arbitraje por jornada programada. Sus reglas y su integración se documentan en [emisión automática](billing-automation.md). Los párrafos siguientes conservan el contrato de semanas manuales y el estado anterior del refinamiento; el evento de arbitraje ya fue confirmado como programación.
 
 Se acordó generación manual por periodos de siete días inclusivos, con inicio, fin y vencimiento explícitos. Guardar el plan confirma su configuración. Cada generación crea o recupera un cargo dentro de la ventana. El calendario automático sigue pendiente de decisión y de un mecanismo de ejecución acordado.
 

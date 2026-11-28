@@ -18,7 +18,7 @@ try {
   const password = `Synthetic!${randomBytes(18).toString('hex')}9a`;
   const hash = await hashPassword(password);
   const users: Record<string, string> = {};
-  for (const name of ['treasury176', 'other176', 'delegate176', 'guest176', 'board176']) {
+  for (const name of ['treasury176', 'other176', 'delegate176', 'guest176', 'board176', 'secretary176', 'scheduler176']) {
     const person = await id("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES('Persona sintética','Tesorería') RETURNING id");
     users[name] = await id('INSERT INTO sports_management.users(person_id,username,email,password_hash,must_change_password) VALUES($1,$2,$3,$4,false) RETURNING id', [person, name, `${name}@example.invalid`, hash]);
   }
@@ -51,8 +51,9 @@ try {
     ['treasury176', 'TREASURER', league, null], ['other176', 'TREASURER', otherLeague, null],
     ['delegate176', 'CLUB_DELEGATE', league, clubs[0]], ['guest176', 'GUEST', null, null],
     ['board176', 'DISCIPLINARY_BOARD', league, null],
+    ['secretary176', 'SECRETARY', league, null], ['scheduler176', 'SCHEDULER', league, null],
   ]) await q("INSERT INTO sports_management.user_roles(user_id,role_id,league_id,club_id,delegate_position) SELECT $1,id,$3,$4,CASE WHEN code='CLUB_DELEGATE' THEN 'PRIMARY' ELSE NULL END FROM sports_management.roles WHERE code=$2", [users[name!], role, scopeLeague, club]);
-  writeFileSync(process.env.BILLING_MANIFEST!, JSON.stringify({ users, password, league, otherLeague, season, otherSeason, clubs, team, year, start, end, due }), { mode: 0o600 });
+  writeFileSync(process.env.BILLING_MANIFEST!, JSON.stringify({ users, password, league, otherLeague, season, otherSeason, clubs, team, year, start, end, due, group, category, sc, rule }), { mode: 0o600 });
   console.log('Fixture PDGLD-176 preparada con matriz RF22 real y datos sintéticos.');
 } finally { await db.end(); }
 }

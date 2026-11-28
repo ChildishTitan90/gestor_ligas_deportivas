@@ -229,6 +229,9 @@ model charge_concepts {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model charges {
+  automation_source String? @unique
+  automation_policy_id String? @db.Uuid
+  billing_automation_policies billing_automation_policies? @relation(fields:[automation_policy_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
   id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   season_id         String             @db.Uuid
   club_id           String?            @db.Uuid
@@ -257,8 +260,8 @@ model charges {
   payments          payments[]
 
   @@unique([billing_plan_id, period_start_date])
-  @@unique([season_id, club_id, charge_concept_id, period_start_date, period_end_date], map: "charges_club_business_period", where: raw("(club_id IS NOT NULL)"))
-  @@unique([season_id, season_team_id, charge_concept_id, period_start_date, period_end_date], map: "charges_team_business_period", where: raw("(season_team_id IS NOT NULL)"))
+  @@unique([season_id, club_id, charge_concept_id, period_start_date, period_end_date], map: "charges_club_business_period", where: raw("((club_id IS NOT NULL) AND (automation_source IS NULL))"))
+  @@unique([season_id, season_team_id, charge_concept_id, period_start_date, period_end_date], map: "charges_team_business_period", where: raw("((season_team_id IS NOT NULL) AND (automation_source IS NULL))"))
   @@index([charge_concept_id], map: "fk_charges_charge_concept_id_fkey")
   @@index([club_id], map: "fk_charges_club_id_fkey")
   @@index([club_id, season_id], map: "fk_charges_club_id_season_id_fkey")
@@ -1882,6 +1885,7 @@ model season_teams {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model seasons {
+  billing_automation_policies billing_automation_policies[]
   referee_operations referee_operations[]
   registration_history season_registration_history[]
   identity_closure season_identity_closures?
@@ -2136,6 +2140,7 @@ model user_roles {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
+  billing_automation_policies billing_automation_policies[]
   venue_loan_owner_reviews venue_loans[] @relation("VenueLoanOwnerReviewer")
   uploaded_referee_credentials referee_presentation_credentials[]
   submitted_referee_presentations referee_presentations[] @relation("presentation_requester")
@@ -2559,4 +2564,26 @@ model password_recovery_budgets {
 
   @@index([window_start], map: "password_recovery_budgets_window_start_idx")
   @@schema("sports_management")
+}
+
+/// Configuración versionada; no sustituye charges ni billing_plans.
+model billing_automation_policies {
+ id String @id @db.Uuid
+ season_id String @db.Uuid
+ kind String
+ revision Int
+ enabled Boolean
+ amount Decimal @db.Decimal(12,2)
+ due_days Int
+ first_matchday Int
+ last_matchday Int
+ created_by String @db.Uuid
+ created_at DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+ reason String
+ request_hash String @db.VarChar(64)
+ seasons seasons @relation(fields:[season_id],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ users users @relation(fields:[created_by],references:[id],onDelete:NoAction,onUpdate:NoAction)
+ charges charges[]
+ @@unique([season_id,kind,revision])
+ @@schema("sports_management")
 }
