@@ -12,6 +12,7 @@ import { getRescheduleSlotsInTransaction } from '../../src/features/matches/serv
 import { rescheduleAbsentMatchInTransaction } from '../../src/features/matches/server/reschedule';
 import { advancePlayoffResultInTransaction } from '../../src/features/competitions/server/playoff-advance';
 import { confirmPlayoffPenaltiesForActor } from '../../src/features/competitions/server/playoff-penalties';
+import { assertPlayoffsComplete, closeSeasonForActor } from '../../src/features/competitions/server/close-season';
 import { roundRobin } from '../../src/features/scheduling/generator';
 import { spawnSync } from 'node:child_process';
 import { PREVIEW_MARKER, provisionPreviewRuntime } from '../../scripts/preview/runtime-plan.mjs';
@@ -162,6 +163,7 @@ test('liguilla selecciona ocho equipos solo con temporada regular oficial comple
   await q("INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) SELECT $1,id,false FROM sports_management.permissions WHERE module='competitions' AND action='READ'",[role]);
   await q("INSERT INTO sports_management.permissions(module,action) VALUES('competitions','APPROVE') ON CONFLICT DO NOTHING");
   await q("INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) SELECT $1,id,false FROM sports_management.permissions WHERE module='competitions' AND action='APPROVE'",[role]);
+  await q("INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) SELECT $1,id,false FROM sports_management.permissions WHERE module='competitions' AND action='UPDATE' ON CONFLICT DO NOTHING",[role]);
   await q("INSERT INTO sports_management.permissions(module,action) VALUES('scheduling','UPDATE') ON CONFLICT DO NOTHING");
   await q("INSERT INTO sports_management.permissions(module,action) VALUES('scheduling','READ') ON CONFLICT DO NOTHING");
   await q("INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) SELECT $1,id,false FROM sports_management.permissions WHERE module='scheduling' AND action='UPDATE'",[role]);
@@ -208,15 +210,31 @@ test('liguilla selecciona ocho equipos solo con temporada regular oficial comple
   await q('UPDATE sports_management.match_results SET counts_in_standings=false,version=version+1 WHERE match_id=$1',[ids[0]]);
   await q('UPDATE sports_management.match_results SET counts_in_standings=true,version=version+1 WHERE match_id=$1',[ids[0]]);
   const command={seasonId:season,categoryId:sc,fingerprint:result.fingerprint,groupOrder:[],operationId:randomUUID(),reason:'Aprobar llaves de prueba'};
+  await q("UPDATE sports_management.seasons SET status='ACTIVE' WHERE id=$1",[season]);
+  const seasonVersion=(await q('SELECT version FROM sports_management.seasons WHERE id=$1',[season]))[0].version;
+  const closeInput={confirm:'CERRAR',reason:'Prueba cierre de liguilla pendiente',expectedSeasonVersion:seasonVersion};
+  await assert.rejects(closeSeasonForActor(actor,season,closeInput),{code:'UNRESOLVED_PLAYOFF'});
+  await assert.rejects(getPrisma().$transaction(tx=>assertPlayoffsComplete(tx,season)),{code:'UNRESOLVED_PLAYOFF'});
   await assert.rejects(confirmPlayoffBracketForActor(actor,command),/PLAYOFF_STANDINGS_CHANGED/);
   command.fingerprint=(await previewPlayoffQualifiersForActor(actor,season,sc)).fingerprint;
   await assert.rejects(confirmPlayoffBracketForActor(randomUUID(),command));
   await assert.rejects(confirmPlayoffBracketForActor(actor,{...command,fingerprint:'0'.repeat(64)}),/PLAYOFF_STANDINGS_CHANGED/);
+  await q(`CREATE FUNCTION pg_temp.reject_playoff_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='PLAYOFF_BRACKET_CONFIRMED' THEN RAISE EXCEPTION 'fallo de auditoría sintético'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER test_playoff_audit BEFORE INSERT ON sports_management.audit_logs FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_playoff_audit()`);
+  try { await assert.rejects(confirmPlayoffBracketForActor(actor,command)); }
+  finally { await q('DROP TRIGGER test_playoff_audit ON sports_management.audit_logs'); }
+  assert.equal((await q('SELECT count(*)::int n FROM sports_management.competition_stages WHERE season_category_id=$1',[sc]))[0].n,0);
   const replies=await Promise.allSettled([confirmPlayoffBracketForActor(actor,command),confirmPlayoffBracketForActor(actor,command)]);
   assert.ok(replies.some(reply=>reply.status==='fulfilled'));
   const saved=await confirmPlayoffBracketForActor(actor,command);
   assert.equal(saved.reused,true);
   assert.equal((await q('SELECT count(*)::int AS n FROM sports_management.brackets WHERE stage_id=$1',[saved.id]))[0].n,7);
+  const approvalAudit=await q("SELECT user_id,reason,new_data FROM sports_management.audit_logs WHERE entity_id=$1 AND action='PLAYOFF_BRACKET_CONFIRMED'",[saved.id]);
+  assert.equal(approvalAudit.length,1); assert.equal(approvalAudit[0].user_id,actor); assert.equal(approvalAudit[0].reason,command.reason);
+  assert.equal(approvalAudit[0].new_data.fingerprint,command.fingerprint);
+  await assert.rejects(getPrisma().$transaction(tx=>assertPlayoffsComplete(tx,season)),{code:'UNRESOLVED_PLAYOFF'});
+  await assert.rejects(closeSeasonForActor(actor,season,closeInput),{code:'UNRESOLVED_PLAYOFF'});
+  assert.equal((await q('SELECT status FROM sports_management.seasons WHERE id=$1',[season]))[0].status,'ACTIVE');
   const createInput={seasonId:season,categoryId:sc,reason:'Crear cuartos de prueba',homeChoices:{}};
   await assert.rejects(createPlayoffQuarterfinalsForActor(randomUUID(),createInput));
   assert.equal((await createPlayoffQuarterfinalsForActor(actor,createInput)).created,4);

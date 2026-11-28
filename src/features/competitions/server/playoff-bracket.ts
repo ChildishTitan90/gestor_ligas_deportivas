@@ -68,6 +68,8 @@ export async function confirmPlayoffBracketForActor(actorId: string, input: unkn
     await lockAuthorization(tx);
     await assertPermission(tx, actorId, { module: "competitions", action: "APPROVE", context: { seasonId: command.seasonId } });
     await tx.$queryRaw`SELECT id FROM sports_management.seasons WHERE id=${command.seasonId}::uuid FOR UPDATE`;
+    const season = await tx.seasons.findUniqueOrThrow({ where: { id: command.seasonId }, select: { status: true } });
+    if (season.status === "CLOSED") throw Error("SEASON_CLOSED");
     await tx.$queryRaw`SELECT id FROM sports_management.season_categories WHERE id=${command.categoryId}::uuid AND season_id=${command.seasonId}::uuid FOR UPDATE`;
     const qualifiers = await previewPlayoffQualifiersInTransaction(tx, actorId, command.seasonId, command.categoryId);
     if (qualifiers.fingerprint !== command.fingerprint) throw Error("PLAYOFF_STANDINGS_CHANGED");
@@ -89,6 +91,8 @@ export async function confirmPlayoffBracketForActor(actorId: string, input: unkn
     const semis = [];
     for (let i = 0; i < 2; i++) semis.push(await tx.brackets.create({ data: { stage_id: stage.id, season_id: command.seasonId, number: 5 + i, next_bracket_id: final.id, next_slot: i + 1 }, select: { id: true } }));
     for (const match of proposal.rounds.quarterfinals) await tx.brackets.create({ data: { stage_id: stage.id, season_id: command.seasonId, number: match.number, team_a_id: match.teams[0], team_b_id: match.teams[1], next_bracket_id: semis[match.winnerTo - 1].id, next_slot: (match.number - 1) % 2 + 1 } });
+    await tx.audit_logs.create({ data: { id: command.operationId, user_id: actorId, action: "PLAYOFF_BRACKET_CONFIRMED", table_name: "competition_stages", entity_id: stage.id, reason: command.reason,
+      new_data: { seasonId: command.seasonId, categoryId: command.categoryId, fingerprint: command.fingerprint, groupOrder: command.groupOrder, requestHash } } });
     return { id: stage.id, reused: false };
   }, { isolationLevel: "Serializable", timeout: 30000 });
 }

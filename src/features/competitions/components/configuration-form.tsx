@@ -25,6 +25,7 @@ const conflicts: Record<string, string> = {
   CATEGORY_ELIGIBILITY_CONFIGURED: "Esta categoría ya tiene reglas de jugadores. No se puede cambiar su tipo o reglamento desde esta operación.",
   PLAYER_POLICY_IN_USE: "Ya hay jugadores registrados con estas reglas; no se pueden sustituir.",
   UNRESOLVED_MATCHES: "Hay partidos sin resultado definitivo. El capturista debe completarlos antes del cierre.",
+  UNRESOLVED_PLAYOFF: "La liguilla tiene rondas o desempates pendientes. Completa sus resultados antes de cerrar la temporada.",
   SEASON_NOT_ACTIVE: "Solo se puede cerrar una temporada activa.",
   SEASON_CLOSED: "La temporada está cerrada y solo permite consulta.",
   COMPETITION_ALREADY_STARTED: "La competencia ya inició; esta configuración no puede modificarse.",
