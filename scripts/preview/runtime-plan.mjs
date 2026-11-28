@@ -18,6 +18,7 @@ read.push('regulation_articles', 'sanction_types', 'team_withdrawals', 'billing_
   'match_statuses', 'match_status_transitions', 'match_status_history', 'official_documents', 'publications', 'season_awards', 'season_breaks',
   'standing_versions', 'venue_loans', 'venues', 'venue_availability', 'venue_reservations', 'home_venue_assignments', 'governing_bodies', 'positions', 'appointments');
 read.push('disciplinary_rulings');
+read.push('brackets', 'bracket_matches');
 // En dependencias solo se consultan identidad/contexto para COUNT y joins.
 // No se necesitan importaciones, contenido de documentos ni resultados completos.
 const readColumns = {
@@ -35,9 +36,11 @@ const readColumns = {
   competition_rules: ['id', 'season_id', 'version_number', 'status', 'created_at', 'file_id', 'approved_by', 'approved_at'],
   // create() sin select devuelve también validated_by.
   competition_rule_parameters: ['id', 'competition_rule_id', 'parameter_key', 'parameter_value', 'requires_validation', 'validated_by'],
-  competition_stages: ['id', 'season_category_id', 'season_id'],
+  competition_stages: ['id', 'season_category_id', 'season_id', 'sort_order', 'format', 'competition_rule_id'],
+  brackets: ['id', 'stage_id', 'season_id', 'number', 'team_a_id', 'team_b_id', 'winner_id', 'next_bracket_id', 'next_slot'],
   imports: ['id', 'season_id'],
-  matchdays: ['id', 'season_id', 'number'], match_results: ['id', 'match_id', 'version', 'home_score', 'away_score', 'source', 'counts_in_standings', 'offending_team_id'], match_statuses: ['id', 'code', 'reserves_resources'],
+  matchdays: ['id', 'season_id', 'number', 'start_date', 'end_date'], match_results: ['id', 'match_id', 'version', 'home_score', 'away_score', 'source', 'counts_in_standings', 'offending_team_id'], match_statuses: ['id', 'code', 'reserves_resources'],
+  bracket_matches: ['id','bracket_id','match_id','leg_number'],
   match_status_transitions: ['id', 'from_status_id', 'to_status_id', 'role_id'],
   match_status_history: ['id', 'match_id', 'previous_status_id', 'new_status_id', 'user_id', 'reason', 'expected_version', 'created_at'],
   official_documents: ['id', 'season_id'], publications: ['id', 'season_id'],
@@ -45,8 +48,12 @@ const readColumns = {
   standing_versions: ['id', 'group_id', 'matchday_id', 'competition_rule_id', 'version_number', 'status', 'calculated_at', 'input_fingerprint'], venue_loans: ['id', 'season_id', 'club_id', 'venue_id', 'letter_file_id', 'requested_by', 'request_hash', 'requested_windows', 'status', 'reviewed_by', 'review_reason', 'approved_by', 'approved_at', 'owner_decision_required', 'owner_decision', 'owner_reviewed_by', 'owner_reviewed_at', 'owner_review_reason'],
 };
 const insert = {
+  competition_stages: ['season_id','season_category_id','competition_rule_id','name','sort_order','format'],
+  matchdays: ['season_id','number','start_date','end_date'],
+  bracket_matches: ['bracket_id','match_id','leg_number'],
+  brackets: ['stage_id','season_id','number','team_a_id','team_b_id','next_bracket_id','next_slot'],
   disciplinary_cases: ['id','season_id','reference_number','event_id','status','opened_by','created_at','description'],
-  matches: ['season_id','group_id','matchday_id','number','home_team_id','away_team_id','venue_id','starts_at','ends_at','reserved_until','status_id','schedule_proposal_id'],
+  matches: ['season_id','group_id','matchday_id','number','home_team_id','away_team_id','venue_id','starts_at','ends_at','reserved_until','status_id','schedule_proposal_id','stage_id'],
   team_byes: ['season_id','matchday_id','season_team_id'],
   password_recovery_budgets: ['bucket_key','window_start','hits'],
   home_venue_assignments: ['season_team_id', 'venue_id', 'venue_loan_id', 'weekday', 'start_time', 'starts_at', 'ends_at'],
@@ -102,6 +109,7 @@ const insert = {
   users: ['person_id', 'username', 'email', 'password_hash', 'is_active', 'must_change_password', 'failed_login_attempts', 'version', 'created_at', 'maintenance_revision'],
 };
 const update = {
+  brackets: ['winner_id','team_a_id','team_b_id'],
   password_recovery_budgets: ['window_start','hits'],
   matches: ['status_id', 'version', 'venue_id', 'starts_at', 'ends_at', 'reserved_until'],
   venue_loans: ['status', 'reviewed_by', 'reviewed_at', 'review_reason', 'approved_by', 'approved_at', 'owner_decision', 'owner_reviewed_by', 'owner_reviewed_at', 'owner_review_reason'],

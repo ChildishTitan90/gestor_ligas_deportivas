@@ -10,6 +10,7 @@ import { storedProposalSchema } from "@/features/scheduling/stored-proposal";
 import { captureUpdatedSchedule } from "@/features/scheduling/server/updated-schedule-pdf";
 import { rescheduleSchema } from "../schemas";
 import { MatchTransitionError } from "../transition-rules";
+import { assertPlayoffDate } from "./playoff-date";
 
 const policySchema=z.object({complexOnlyFinalRounds:z.number().int().nonnegative().optional(),
   scheduling:z.object({venueStages:z.array(z.object({fromRound:z.number().int().positive(),toRound:z.number().int().positive(),venueIds:z.array(z.uuid()).min(1)}))}).optional()}).passthrough();
@@ -75,6 +76,7 @@ export async function rescheduleAbsentMatchInTransaction(tx:Prisma.TransactionCl
   if(date<seasons[0].start_date.toISOString().slice(0,10)||date>seasons[0].end_date.toISOString().slice(0,10) || (absent && match.starts_at && start<=match.starts_at))
     throw new MatchTransitionError("INVALID_RESCHEDULE_DATE");
   if(!absent && !initial && match.starts_at?.getTime()===start.getTime() && match.venue_id===input.venueId) throw new MatchTransitionError("RESCHEDULE_UNCHANGED");
+  await assertPlayoffDate(tx,match.id,date);
   const category=await tx.groups.findUniqueOrThrow({where:{id:match.group_id},select:{season_categories:{select:{competition_rule_id:true}}}});
   const rule=await tx.competition_rules.findUniqueOrThrow({where:{id:category.season_categories.competition_rule_id},select:{status:true,competition_rule_parameters:{where:{parameter_key:"calendar"},select:{parameter_value:true,requires_validation:true,validated_by:true}}}});
   const param=rule.competition_rule_parameters[0],policy=policySchema.safeParse(param?.parameter_value);
@@ -97,6 +99,7 @@ export async function rescheduleAbsentMatchInTransaction(tx:Prisma.TransactionCl
   if(conflicts[0]?.busy) throw new MatchTransitionError("RESERVATION_CONFLICT");
   const finalDate=venueLocalTime(new Date(option.reservedUntil.getTime()-1),seasons[0].timezone).slice(0,10);
   if(finalDate>seasons[0].end_date.toISOString().slice(0,10)) throw new MatchTransitionError("INVALID_RESCHEDULE_DATE");
+  if(finalDate!==date) await assertPlayoffDate(tx,match.id,finalDate);
   const breaks=await tx.season_breaks.findMany({where:{season_id:match.season_id},select:{starts_at:true,ends_at:true}});
   if(breaks.some(value=>date<=value.ends_at.toISOString().slice(0,10)&&finalDate>=value.starts_at.toISOString().slice(0,10))) throw new MatchTransitionError("SEASON_BREAK");
   const sanction=await tx.sanctions.findFirst({where:{season_team_id:{in:[match.home_team_id,match.away_team_id]},blocks_participation:true,

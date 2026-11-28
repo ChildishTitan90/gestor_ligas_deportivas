@@ -171,7 +171,7 @@ export function SchedulingWorkspace({ workspace }: { workspace: Workspace }) {
               description: `${item.proposal.matches.length} partidos · ${item.id.slice(0, 8)}` }))} />
         </div> : <p>No hay propuestas guardadas para este grupo.</p>}
     </section>}
-    {result&&!result.ok&&<p role="alert" className="rounded-xl border border-border bg-surface p-4">{messages[result.code??""]??"No se pudo generar la propuesta. Revisa la configuración e inténtalo de nuevo."}</p>}
+    {result&&!result.ok&&<p role="alert" className="rounded-xl border border-border bg-surface p-4">{result.code === "REGULAR_DEADLINE_EXCEEDED" ? "Las jornadas de la fase regular exceden la fecha límite. Ajusta las fechas de la temporada o del reglamento antes de generar." : messages[result.code??""]??"No se pudo generar la propuesta. Revisa la configuración e inténtalo de nuevo."}</p>}
     {result?.conflicts?.length ? <details className="rounded-xl border border-border bg-surface p-4">
       <summary className="cursor-pointer font-semibold">{result.code === "NO_AVAILABLE_SLOT" ? "Ver encuentros sin horario viable" : "Ver encuentros considerados"} ({result.conflicts.length})</summary>
       <ul className="mt-3 space-y-2">{result.conflicts.map(match => <li key={[match.round, match.home, match.away].join("/")}>

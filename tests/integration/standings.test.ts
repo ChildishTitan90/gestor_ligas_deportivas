@@ -5,6 +5,14 @@ import pg from 'pg';
 import { Prisma } from '@prisma/client';
 import { getPrisma } from '../../src/server/db/prisma';
 import { calculateForActor, calculateStandingsInTransaction, readStandingsForActor } from '../../src/features/standings/server/service';
+import { previewPlayoffQualifiersForActor } from '../../src/features/competitions/server/playoff-qualifiers';
+import { confirmPlayoffBracketForActor, readConfirmedPlayoffBracketForActor } from '../../src/features/competitions/server/playoff-bracket';
+import { createPlayoffQuarterfinalsForActor } from '../../src/features/competitions/server/playoff-matches';
+import { advancePlayoffResultInTransaction } from '../../src/features/competitions/server/playoff-advance';
+import { confirmPlayoffPenaltiesForActor } from '../../src/features/competitions/server/playoff-penalties';
+import { roundRobin } from '../../src/features/scheduling/generator';
+import { spawnSync } from 'node:child_process';
+import { PREVIEW_MARKER, provisionPreviewRuntime } from '../../scripts/preview/runtime-plan.mjs';
 
 test('clasificación transaccional sobre PostgreSQL desechable', async t => {
  assert.equal(process.env.STANDINGS_ISOLATED,'1','Usar exclusivamente el runner desechable');
@@ -53,6 +61,10 @@ test('clasificación transaccional sobre PostgreSQL desechable', async t => {
  await q('COMMIT');
  await q("SELECT set_config('app.user_id',$1,false),set_config('app.reason','PDGLD-29: prueba sintética',false)",[actor]);
  const input={groupId:group,matchdayId:days[2]};
+ await t.test('consulta de clasificados exige permiso y reglamento de liguilla',async()=>{
+   await assert.rejects(previewPlayoffQualifiersForActor(randomUUID(),season,sc));
+   await assert.rejects(previewPlayoffQualifiersForActor(actor,season,sc),/PLAYOFF_RULE_REQUIRED/);
+ });
  let receipt: Awaited<ReturnType<typeof calculateForActor>>;
  await t.test('corte acumulado, default en ambas localías, DG generado y procedencia',async()=>{
  receipt=await calculateForActor(actor,input);
@@ -126,4 +138,196 @@ test('clasificación transaccional sobre PostgreSQL desechable', async t => {
  assert.equal((await q('SELECT counts_in_standings FROM sports_management.match_results WHERE match_id=$1',[first]))[0].counts_in_standings,true);
  });
  }finally{await db.end();await getPrisma().$disconnect();}
+});
+
+test('liguilla selecciona ocho equipos solo con temporada regular oficial completa', async () => {
+ assert.equal(process.env.STANDINGS_ISOLATED,'1');
+ const db = new pg.Client({ connectionString: process.env.DATABASE_URL }); await db.connect();
+ const q = async (sql:string,args:unknown[]=[]) => (await db.query(sql,args)).rows;
+ const id = async (sql:string,args:unknown[]=[]) => (await q(sql,args))[0].id as string;
+ try {
+  await q('BEGIN');
+  const person=await id("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES('Liguilla','Sintética') RETURNING id");
+  const actor=await id("INSERT INTO sports_management.users(person_id,username,email,password_hash,must_change_password) VALUES($1,'playoff-synthetic','playoff@example.invalid','!disabled',false) RETURNING id",[person]);
+  await q("SELECT set_config('app.user_id',$1,true),set_config('app.reason','Prueba liguilla',true)",[actor]);
+  const league=await id("INSERT INTO sports_management.leagues(name) VALUES('Liga de liguilla sintética') RETURNING id");
+  await q("UPDATE sports_management.leagues SET timezone='UTC' WHERE id=$1",[league]);
+  const venue=await id("INSERT INTO sports_management.venues(league_id,code,name,address,is_league_sports_complex,match_duration_minutes,buffer_minutes) VALUES($1,'LIG-TEST','Cancha de prueba','Prueba',true,90,15) RETURNING id",[league]);
+  await q("INSERT INTO sports_management.venue_availability(venue_id,type,starts_at,ends_at) VALUES($1,'AVAILABLE','2030-07-07T08:00:00Z','2030-07-07T20:00:00Z')",[venue]);
+  const sport=await id("INSERT INTO sports_management.sports(code,name) VALUES('PLAYOFFTEST','Sintético') RETURNING id");
+  const season=await id("INSERT INTO sports_management.seasons(league_id,sport_id,name,start_date,end_date) VALUES($1,$2,'Liguilla','2030-01-01','2030-12-31') RETURNING id",[league,sport]);
+  const role=await id("INSERT INTO sports_management.roles(code,name) VALUES('PLAYOFF_TEST','Prueba liguilla') RETURNING id");
+  await q("INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) SELECT $1,id,false FROM sports_management.permissions WHERE module='competitions' AND action='READ'",[role]);
+  await q("INSERT INTO sports_management.permissions(module,action) VALUES('competitions','APPROVE') ON CONFLICT DO NOTHING");
+  await q("INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) SELECT $1,id,false FROM sports_management.permissions WHERE module='competitions' AND action='APPROVE'",[role]);
+  await q("INSERT INTO sports_management.permissions(module,action) VALUES('scheduling','UPDATE') ON CONFLICT DO NOTHING");
+  await q("INSERT INTO sports_management.permissions(module,action) VALUES('scheduling','READ') ON CONFLICT DO NOTHING");
+  await q("INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) SELECT $1,id,false FROM sports_management.permissions WHERE module='scheduling' AND action='UPDATE'",[role]);
+  await q('INSERT INTO sports_management.user_roles(user_id,role_id,league_id) VALUES($1,$2,$3)',[actor,role,league]);
+  await q("INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) SELECT r.id,p.id,true FROM sports_management.roles r CROSS JOIN sports_management.permissions p WHERE r.code='SCHEDULER' AND p.module='scheduling' AND p.action='UPDATE' ON CONFLICT DO NOTHING");
+  await q("INSERT INTO sports_management.role_permissions(role_id,permission_id,context_only) SELECT r.id,p.id,true FROM sports_management.roles r CROSS JOIN sports_management.permissions p WHERE r.code='SCHEDULER' AND p.module='scheduling' AND p.action='READ' ON CONFLICT DO NOTHING");
+  await q("INSERT INTO sports_management.user_roles(user_id,role_id,league_id) SELECT $1,id,$2 FROM sports_management.roles WHERE code='SCHEDULER'",[actor,league]);
+  const schedulerPerson=await id("INSERT INTO sports_management.people(first_name,paternal_surname) VALUES('Programador','Segundo') RETURNING id");
+  const secondScheduler=await id("INSERT INTO sports_management.users(person_id,username,email,password_hash,must_change_password) VALUES($1,'playoff-scheduler-2','playoff-scheduler-2@example.invalid','!disabled',false) RETURNING id",[schedulerPerson]);
+  await q("INSERT INTO sports_management.user_roles(user_id,role_id,league_id) SELECT $1,id,$2 FROM sports_management.roles WHERE code='SCHEDULER'",[secondScheduler,league]);
+  const rule=await id('INSERT INTO sports_management.competition_rules(season_id,version_number) VALUES($1,1) RETURNING id',[season]);
+  for(const [key,value] of Object.entries({points:{win:3,draw:1,loss:0},tieBreakers:['GOAL_DIFFERENCE','GOALS_FOR'],calendar:{rounds:1,playoff:{regularDeadline:'2030-06-30',format:{quarterfinals:'SINGLE',semifinals:'SINGLE',final:'SINGLE'},preliminaryTiebreaker:'PENALTIES',dates:['2030-07-07','2030-07-14','2030-07-21']}}}))
+   await q('INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by) VALUES($1,$2,$3,$4)',[rule,key,JSON.stringify(value),actor]);
+  await q("UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=$2,approved_at=now() WHERE id=$1",[rule,actor]);
+  const category=await id("INSERT INTO sports_management.categories(league_id,sport_id,name) VALUES($1,$2,'Categoría liguilla') RETURNING id",[league,sport]);
+  const sc=await id("INSERT INTO sports_management.season_categories(season_id,category_id,competition_rule_id,hierarchy_order,type,age_cutoff_date) VALUES($1,$2,$3,1,'OPEN','2030-01-01') RETURNING id",[season,category,rule]);
+  const group=await id("INSERT INTO sports_management.groups(season_id,season_category_id,name) VALUES($1,$2,'General') RETURNING id",[season,sc]);
+  const teams:string[]=[];
+  for(let n=0;n<10;n++){
+   const club=await id('INSERT INTO sports_management.clubs(league_id,reference_number,name) VALUES($1,$2,$2) RETURNING id',[league,`playoff-club-${n}`]);
+   await q("INSERT INTO sports_management.club_affiliations(season_id,club_id,league_id,reference_number,uniform_colors,requested_by) VALUES($1,$2,$3,$4,'Azul',$5)",[season,club,league,`playoff-aff-${n}`,actor]);
+   const team=await id('INSERT INTO sports_management.teams(club_id,reference_number,name) VALUES($1,$2,$2) RETURNING id',[club,`playoff-team-${n}`]);
+   teams.push(await id('INSERT INTO sports_management.season_teams(season_id,team_id,club_id,group_id,season_category_id) VALUES($1,$2,$3,$4,$5) RETURNING id',[season,team,club,group,sc]));
+  }
+  const days:string[]=[]; for(let n=1;n<=9;n++)days.push(await id("INSERT INTO sports_management.matchdays(season_id,number,start_date,end_date) VALUES($1,$2,'2030-02-01'::date+($2-1)*7,'2030-02-01'::date+($2-1)*7) RETURNING id",[season,n]));
+  const ids:string[]=[];
+  let pendingResult: { match: string; homeScore: number; awayScore: number } | undefined;
+  for(const p of roundRobin(teams,1).pairings){
+   const m=await id("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,status_id) VALUES($1,$2,$3,$4,$5,$6,sports_management.get_match_status_id('FINISHED')) RETURNING id",[season,group,days[p.round-1],randomUUID(),p.home,p.away]);
+   const homeWins=teams.indexOf(p.home)<teams.indexOf(p.away);
+   if (ids.length === 0) pendingResult={match:m,homeScore:homeWins?1:0,awayScore:homeWins?0:1};
+   else await q("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by) VALUES($1,$2,$3,'MATCH_REPORT',$4)",[m,homeWins?1:0,homeWins?0:1,actor]);
+   ids.push(m);
+  }
+  await q('COMMIT');
+  await q("SELECT set_config('app.user_id',$1,false),set_config('app.reason','Prueba liguilla',false)",[actor]);
+  await assert.rejects(previewPlayoffQualifiersForActor(actor,season,sc),/OFFICIAL_RESULTS_INCOMPLETE/);
+  await q("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by) VALUES($1,$2,$3,'MATCH_REPORT',$4)",[pendingResult!.match,pendingResult!.homeScore,pendingResult!.awayScore,actor]);
+  await assert.rejects(previewPlayoffQualifiersForActor(actor,season,sc),/OFFICIAL_RESULTS_INCOMPLETE/);
+  for(const match of ids) await q("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'PAPER','CONFIRMED',now())",[match,randomUUID(),actor]);
+  const result=await previewPlayoffQualifiersForActor(actor,season,sc);
+  assert.equal(result.qualified.length,8);
+  assert.deepEqual(result.qualified.map(item=>item.teamId),teams.slice(0,8));
+  await q('UPDATE sports_management.match_results SET counts_in_standings=false,version=version+1 WHERE match_id=$1',[ids[0]]);
+  await q('UPDATE sports_management.match_results SET counts_in_standings=true,version=version+1 WHERE match_id=$1',[ids[0]]);
+  const command={seasonId:season,categoryId:sc,fingerprint:result.fingerprint,groupOrder:[],operationId:randomUUID(),reason:'Aprobar llaves de prueba'};
+  await assert.rejects(confirmPlayoffBracketForActor(actor,command),/PLAYOFF_STANDINGS_CHANGED/);
+  command.fingerprint=(await previewPlayoffQualifiersForActor(actor,season,sc)).fingerprint;
+  await assert.rejects(confirmPlayoffBracketForActor(randomUUID(),command));
+  await assert.rejects(confirmPlayoffBracketForActor(actor,{...command,fingerprint:'0'.repeat(64)}),/PLAYOFF_STANDINGS_CHANGED/);
+  const replies=await Promise.allSettled([confirmPlayoffBracketForActor(actor,command),confirmPlayoffBracketForActor(actor,command)]);
+  assert.ok(replies.some(reply=>reply.status==='fulfilled'));
+  const saved=await confirmPlayoffBracketForActor(actor,command);
+  assert.equal(saved.reused,true);
+  assert.equal((await q('SELECT count(*)::int AS n FROM sports_management.brackets WHERE stage_id=$1',[saved.id]))[0].n,7);
+  const createInput={seasonId:season,categoryId:sc,reason:'Crear cuartos de prueba',homeChoices:{}};
+  await assert.rejects(createPlayoffQuarterfinalsForActor(randomUUID(),createInput));
+  assert.equal((await createPlayoffQuarterfinalsForActor(actor,createInput)).created,4);
+  await assert.rejects(createPlayoffQuarterfinalsForActor(actor,createInput),/PLAYOFF_MATCHES_ALREADY_CREATED/);
+  assert.equal((await q("SELECT count(*)::int AS n FROM sports_management.matches WHERE stage_id=$1 AND venue_id IS NULL AND starts_at IS NULL",[saved.id]))[0].n,4);
+  const playoffMatch=(await q('SELECT bm.match_id,b.id AS bracket,b.next_bracket_id,b.next_slot,m.home_team_id FROM sports_management.bracket_matches bm JOIN sports_management.brackets b ON b.id=bm.bracket_id JOIN sports_management.matches m ON m.id=bm.match_id WHERE b.stage_id=$1 ORDER BY b.number LIMIT 1',[saved.id]))[0];
+  await q("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('FINISHED') WHERE id=$1",[playoffMatch.match_id]);
+  await q("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by) VALUES($1,2,0,'MATCH_REPORT',$2)",[playoffMatch.match_id,actor]);
+  await q("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'PAPER','CONFIRMED',now())",[playoffMatch.match_id,randomUUID(),actor]);
+  for(let n=0;n<2;n++) await getPrisma().$transaction(async tx=>{
+   await tx.$queryRaw`SELECT set_config('app.user_id',${actor},true),set_config('app.reason','Avance sintético',true)`;
+   assert.deepEqual(await advancePlayoffResultInTransaction(tx,playoffMatch.match_id),{code:'ADVANCED',winnerId:playoffMatch.home_team_id});
+  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
+  const next=(await q('SELECT team_a_id,team_b_id FROM sports_management.brackets WHERE id=$1',[playoffMatch.next_bracket_id]))[0];
+  assert.equal(playoffMatch.next_slot===1?next.team_a_id:next.team_b_id,playoffMatch.home_team_id);
+  const penaltyMatch=(await q('SELECT bm.match_id,b.id AS bracket,b.team_a_id FROM sports_management.bracket_matches bm JOIN sports_management.brackets b ON b.id=bm.bracket_id WHERE b.stage_id=$1 AND b.number=3',[saved.id]))[0];
+  await q("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('FINISHED') WHERE id=$1",[penaltyMatch.match_id]);
+  await q("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by) VALUES($1,1,1,'MATCH_REPORT',$2)",[penaltyMatch.match_id,actor]);
+  await q("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'PAPER','CONFIRMED',now())",[penaltyMatch.match_id,randomUUID(),actor]);
+  const penalties={seasonId:season,bracketId:penaltyMatch.bracket,operationId:randomUUID(),firstScore:5,secondScore:4,reason:'Confirmar penales sintéticos'};
+  await assert.rejects(confirmPlayoffPenaltiesForActor(randomUUID(),penalties));
+  assert.deepEqual(await confirmPlayoffPenaltiesForActor(actor,penalties),{winnerId:penaltyMatch.team_a_id,replayed:false});
+  assert.deepEqual(await confirmPlayoffPenaltiesForActor(actor,penalties),{winnerId:penaltyMatch.team_a_id,replayed:true});
+  await assert.rejects(confirmPlayoffPenaltiesForActor(actor,{...penalties,secondScore:3}),/OPERATION_KEY_REUSED/);
+  assert.equal((await q("SELECT count(*)::int AS n FROM sports_management.audit_logs WHERE entity_id=$1 AND action='PLAYOFF_PENALTIES_CONFIRMED'",[penaltyMatch.bracket]))[0].n,1);
+  await assert.rejects(confirmPlayoffBracketForActor(actor,{...command,operationId:randomUUID()}),/PLAYOFF_ALREADY_CONFIRMED/);
+  const secondPlayoff=(await q('SELECT bm.match_id FROM sports_management.bracket_matches bm JOIN sports_management.brackets b ON b.id=bm.bracket_id WHERE b.stage_id=$1 AND b.number=2',[saved.id]))[0];
+  await q("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('FINISHED') WHERE id=$1",[secondPlayoff.match_id]);
+  await q("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by) VALUES($1,1,0,'MATCH_REPORT',$2)",[secondPlayoff.match_id,actor]);
+  await q("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'PAPER','CONFIRMED',now())",[secondPlayoff.match_id,randomUUID(),actor]);
+  const pendingPenalty=(await q('SELECT bm.match_id,b.id AS bracket FROM sports_management.bracket_matches bm JOIN sports_management.brackets b ON b.id=bm.bracket_id WHERE b.stage_id=$1 AND b.number=4',[saved.id]))[0];
+  await q("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('FINISHED') WHERE id=$1",[pendingPenalty.match_id]);
+  await q("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by) VALUES($1,1,1,'MATCH_REPORT',$2)",[pendingPenalty.match_id,actor]);
+  await q("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'PAPER','CONFIRMED',now())",[pendingPenalty.match_id,randomUUID(),actor]);
+  const penaltiesPending={seasonId:season,bracketId:pendingPenalty.bracket,operationId:randomUUID(),firstScore:3,secondScore:5,reason:'Confirmar penales Preview'};
+  const cases: {actor:string;season:string;category:string;expected:string[];venue?:string;secondScheduler?:string;advanceMatch?:string;penalties?:typeof penalties;penaltiesPending?:typeof penalties}[] = [{ actor, season, category:sc, expected:teams.slice(0,8), venue, secondScheduler, advanceMatch:secondPlayoff.match_id,penalties,penaltiesPending }];
+  for (const [groupCount, teamCount] of [[2,5],[4,3],[8,2]] as const) {
+   const cat=await id("INSERT INTO sports_management.categories(league_id,sport_id,name) VALUES($1,$2,$3) RETURNING id",[league,sport,`Liguilla ${groupCount} grupos`]);
+   const participation=await id("INSERT INTO sports_management.season_categories(season_id,category_id,competition_rule_id,hierarchy_order,type,age_cutoff_date) VALUES($1,$2,$3,$4,'OPEN','2030-01-01') RETURNING id",[season,cat,rule,groupCount+1]);
+   const expected:string[]=[];
+   for(let g=0;g<groupCount;g++) {
+    const gid=await id('INSERT INTO sports_management.groups(season_id,season_category_id,name) VALUES($1,$2,$3) RETURNING id',[season,participation,`Grupo ${g}`]);
+    const members:string[]=[];
+    for(let n=0;n<teamCount;n++) {
+     const label=`case-${groupCount}-${g}-${n}`;
+     const club=await id('INSERT INTO sports_management.clubs(league_id,reference_number,name) VALUES($1,$2,$2) RETURNING id',[league,label]);
+     await q("INSERT INTO sports_management.club_affiliations(season_id,club_id,league_id,reference_number,uniform_colors,requested_by) VALUES($1,$2,$3,$4,'Azul',$5)",[season,club,league,label,actor]);
+     const team=await id('INSERT INTO sports_management.teams(club_id,reference_number,name) VALUES($1,$2,$2) RETURNING id',[club,label]);
+     members.push(await id('INSERT INTO sports_management.season_teams(season_id,team_id,club_id,group_id,season_category_id) VALUES($1,$2,$3,$4,$5) RETURNING id',[season,team,club,gid,participation]));
+    }
+    expected.push(...members.slice(0,8/groupCount));
+    for(const p of roundRobin(members,1).pairings) {
+     const match=await id("INSERT INTO sports_management.matches(season_id,group_id,matchday_id,number,home_team_id,away_team_id,status_id) VALUES($1,$2,$3,$4,$5,$6,sports_management.get_match_status_id('FINISHED')) RETURNING id",[season,gid,days[p.round-1],randomUUID(),p.home,p.away]);
+     const homeWins=members.indexOf(p.home)<members.indexOf(p.away);
+     await q("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by) VALUES($1,$2,$3,'MATCH_REPORT',$4)",[match,homeWins?1:0,homeWins?0:1,actor]);
+     await q("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'PAPER','CONFIRMED',now())",[match,randomUUID(),actor]);
+    }
+   }
+   cases.push({actor,season,category:participation,expected});
+  }
+  assert.match(db.database!, /^pdgld48_test_[a-f0-9]{16}$/);
+  await q(`COMMENT ON DATABASE "${db.database}" IS '${PREVIEW_MARKER}'`);
+  await q("DO $$ DECLARE t record; BEGIN FOR t IN SELECT tablename FROM pg_tables WHERE schemaname='sports_management' LOOP EXECUTE format('ALTER TABLE sports_management.%I ENABLE ROW LEVEL SECURITY',t.tablename); END LOOP; END $$");
+  await provisionPreviewRuntime(db);
+  await q("ALTER ROLE gestor_ligas_preview LOGIN PASSWORD 'synthetic-preview-only'");
+  const runtime=new URL(process.env.DATABASE_URL!); runtime.username='gestor_ligas_preview'; runtime.password='synthetic-preview-only';
+  const probe=spawnSync(process.execPath,['--conditions=react-server','--import','tsx','tests/integration/playoff-preview-probe.ts'],{encoding:'utf8',env:{...process.env,DATABASE_URL:runtime.href,PLAYOFF_PROBE:JSON.stringify(cases)}});
+  assert.equal(probe.status,0,`${probe.stdout}\n${probe.stderr}`.replaceAll(runtime.href,'[conexión omitida]'));
+  const reserved=await q(`SELECT m.id,
+    (SELECT count(*)::int FROM sports_management.venue_reservations vr WHERE vr.match_id=m.id AND vr.venue_id=$2) AS venues,
+    (SELECT count(*)::int FROM sports_management.team_reservations tr WHERE tr.match_id=m.id AND tr.season_team_id IN (m.home_team_id,m.away_team_id)) AS teams
+    FROM sports_management.matches m JOIN sports_management.competition_stages st ON st.id=m.stage_id
+    WHERE st.season_category_id=$1 AND m.venue_id=$2 AND m.starts_at='2030-07-07T12:00:00Z'`,[cases[1].category,venue]);
+  assert.equal(reserved.length,1);
+  assert.equal(reserved[0].venues,1);
+  assert.equal(reserved[0].teams,2);
+  const concurrent=await q(`SELECT m.id,
+    (SELECT count(*)::int FROM sports_management.venue_reservations vr WHERE vr.match_id=m.id AND vr.venue_id=$2) AS venues,
+    (SELECT count(*)::int FROM sports_management.team_reservations tr WHERE tr.match_id=m.id AND tr.season_team_id IN (m.home_team_id,m.away_team_id)) AS teams
+    FROM sports_management.matches m JOIN sports_management.competition_stages st ON st.id=m.stage_id
+    WHERE st.season_category_id=$1 AND m.starts_at='2030-07-07T15:00:00Z'`,[cases[1].category,venue]);
+  assert.equal(concurrent.length,1);
+  assert.equal(concurrent[0].venues,1);
+  assert.equal(concurrent[0].teams,2);
+  const semifinalMatches=await q('SELECT bm.match_id FROM sports_management.bracket_matches bm JOIN sports_management.brackets b ON b.id=bm.bracket_id WHERE b.stage_id=$1 AND b.number IN (5,6) ORDER BY b.number',[saved.id]);
+  assert.equal(semifinalMatches.length,2);
+  for(const item of semifinalMatches) {
+   await q("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('FINISHED') WHERE id=$1",[item.match_id]);
+   await q("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by) VALUES($1,2,0,'MATCH_REPORT',$2)",[item.match_id,actor]);
+   await q("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'PAPER','CONFIRMED',now())",[item.match_id,randomUUID(),actor]);
+   await getPrisma().$transaction(async tx=>{
+    await tx.$queryRaw`SELECT set_config('app.user_id',${actor},true),set_config('app.reason','Semifinal sintética',true)`;
+    assert.equal((await advancePlayoffResultInTransaction(tx,item.match_id)).code,'ADVANCED');
+   },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
+  }
+  assert.equal((await createPlayoffQuarterfinalsForActor(actor,{seasonId:season,categoryId:sc,round:'final',reason:'Crear final sintética',homeChoices:{}})).created,1);
+  await assert.rejects(createPlayoffQuarterfinalsForActor(actor,{seasonId:season,categoryId:sc,round:'final',reason:'Crear final sintética',homeChoices:{}}),/PLAYOFF_MATCHES_ALREADY_CREATED/);
+  const finalMatch=(await q('SELECT bm.match_id,m.home_team_id FROM sports_management.bracket_matches bm JOIN sports_management.brackets b ON b.id=bm.bracket_id JOIN sports_management.matches m ON m.id=bm.match_id WHERE b.stage_id=$1 AND b.number=7',[saved.id]))[0];
+  await q("UPDATE sports_management.matches SET status_id=sports_management.get_match_status_id('FINISHED') WHERE id=$1",[finalMatch.match_id]);
+  await q("INSERT INTO sports_management.match_results(match_id,home_score,away_score,source,validated_by) VALUES($1,2,0,'MATCH_REPORT',$2)",[finalMatch.match_id,actor]);
+  await q("INSERT INTO sports_management.match_reports(match_id,client_id,captured_by,source,status,confirmed_at) VALUES($1,$2,$3,'PAPER','CONFIRMED',now())",[finalMatch.match_id,randomUUID(),actor]);
+  for(let n=0;n<2;n++) await getPrisma().$transaction(async tx=>{
+   await tx.$queryRaw`SELECT set_config('app.user_id',${actor},true),set_config('app.reason','Final sintética',true)`;
+   assert.deepEqual(await advancePlayoffResultInTransaction(tx,finalMatch.match_id),{code:'ADVANCED',winnerId:finalMatch.home_team_id});
+  },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
+  const finalRow=(await q('SELECT winner_id FROM sports_management.brackets WHERE stage_id=$1 AND number=7',[saved.id]))[0];
+  assert.equal(finalRow.winner_id,finalMatch.home_team_id);
+  const championName=(await q('SELECT t.name FROM sports_management.season_teams st JOIN sports_management.teams t ON t.id=st.team_id WHERE st.id=$1',[finalMatch.home_team_id]))[0].name;
+  const finalView=await readConfirmedPlayoffBracketForActor(actor,season,sc);
+  assert.ok(finalView.confirmed);
+  if(finalView.confirmed) assert.equal(finalView.champion,championName);
+  const afterPlayoffs=await previewPlayoffQualifiersForActor(actor,season,sc);
+  assert.equal(afterPlayoffs.fingerprint,command.fingerprint,'los resultados de liguilla no cambian el cálculo de fase regular');
+  assert.deepEqual(afterPlayoffs.qualified.map(team=>team.teamId),teams.slice(0,8));
+ } finally { await db.end(); await getPrisma().$disconnect(); }
 });

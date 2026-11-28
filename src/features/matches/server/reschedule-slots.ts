@@ -7,6 +7,7 @@ import { loadHomeVenueOptions } from "@/features/venues/server/scheduling-option
 import { venueLocalTime, venueTimeToIso } from "@/features/venues/time";
 import { MatchTransitionError } from "../transition-rules";
 import type { Prisma } from "@prisma/client";
+import { assertPlayoffDate } from "./playoff-date";
 
 const querySchema = z.object({ matchId: z.uuid(), venueId: z.uuid(), date: z.iso.date(), expectedVersion: z.number().int().positive() });
 const calendarSchema = z.object({ complexOnlyFinalRounds: z.number().int().nonnegative().optional(), scheduling: z.object({ venueStages: z.array(z.object({ fromRound: z.number(), toRound: z.number(), venueIds: z.array(z.uuid()) })) }).optional() }).passthrough();
@@ -33,6 +34,7 @@ export async function getRescheduleSlotsInTransaction(tx: Prisma.TransactionClie
     if(stage && !stage.venueIds.includes(input.venueId)) return [];
     const startDate=season.start_date.toISOString().slice(0,10), endDate=season.end_date.toISOString().slice(0,10);
     if(input.date<startDate || input.date>endDate) return [];
+    await assertPlayoffDate(tx,match.id,input.date);
     const breaks=await tx.season_breaks.findMany({where:{season_id:match.season_id},select:{starts_at:true,ends_at:true}});
     const sanctions=await tx.sanctions.findMany({where:{season_team_id:{in:[match.home_team_id,match.away_team_id]},blocks_participation:true},select:{starts_at:true,ends_at:true}});
     const candidates: {value:string;label:string}[]=[];
@@ -47,6 +49,10 @@ export async function getRescheduleSlotsInTransaction(tx: Prisma.TransactionClie
       const option=options.find(o=>o.venueId===input.venueId); if(!option) continue;
       const last=venueLocalTime(new Date(option.reservedUntil.getTime()-1),season.leagues.timezone).slice(0,10);
       if(last>endDate || breaks.some(b=>input.date<=b.ends_at.toISOString().slice(0,10)&&last>=b.starts_at.toISOString().slice(0,10)) || sanctions.some(s=>s.starts_at<option.endsAt && (!s.ends_at || s.ends_at>start))) continue;
+      if(last!==input.date) {
+        try { await assertPlayoffDate(tx,match.id,last); }
+        catch (error) { if(error instanceof MatchTransitionError && error.code==="PLAYOFF_ROUND_DATE") continue; throw error; }
+      }
       const conflict=await tx.$queryRaw<{busy:boolean}[]>`SELECT EXISTS (SELECT 1 FROM sports_management.venue_reservations WHERE match_id <> ${match.id}::uuid AND venue_id=${input.venueId}::uuid AND time_range && tstzrange(${start},${option.reservedUntil},'[)')) OR EXISTS (SELECT 1 FROM sports_management.team_reservations WHERE match_id <> ${match.id}::uuid AND season_team_id IN (${match.home_team_id}::uuid,${match.away_team_id}::uuid) AND time_range && tstzrange(${start},${option.endsAt},'[)')) AS busy`;
       if(!conflict[0]?.busy) candidates.push({value,label:time});
     }

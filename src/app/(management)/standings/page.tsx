@@ -6,6 +6,7 @@ import { AuthorizationError } from '@/server/auth/authorization';
 import { getStandingWorkspace, StandingFilterError } from '@/features/standings/server/queries';
 import { StandingsFilters } from '@/features/standings/components/standings-filters';
 import { StandingsTable } from '@/features/standings/components/standings-table';
+import { PlayoffBracketReview } from '@/features/competitions/components/playoff-bracket-review';
 
 export const metadata = { title: 'Clasificación' };
 const title = 'Clasificación';
@@ -47,6 +48,7 @@ export default async function StandingsPage({ searchParams }: { searchParams: Pr
       {data.state === 'no-matchdays' && <p role="status">Esta temporada todavía no tiene jornadas.</p>}
       {data.state === 'rules-pending' && <p role="status">El reglamento vinculado aún no está aprobado o tiene parámetros pendientes. La clasificación no está disponible.</p>}
       {table && <StandingsTable table={table} context={context} fixedCutHref={fixedCutHref} />}
+      {filters.seasonId && filters.categoryId && <PlayoffBracketReview key={`${filters.seasonId}:${filters.categoryId}`} seasonId={filters.seasonId} categoryId={filters.categoryId} />}
     </>}
   </div>;
 }

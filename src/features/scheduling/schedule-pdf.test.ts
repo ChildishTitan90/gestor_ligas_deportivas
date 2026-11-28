@@ -13,5 +13,5 @@ test("PDF incluye jornadas, horarios, canchas y descansos, y pagina calendarios 
   assert.equal(pdf.getTitle(),"Programación de jornadas");
   const streams=pdf.context.enumerateIndirectObjects().flatMap(([,object])=>object instanceof PDFRawStream ? [new TextDecoder().decode(decodePDFRawStream(object).decode())] : []).join("\n");
   const encoded=(value:string)=>Buffer.from(value,"latin1").toString("hex").toUpperCase();
-  for(const value of ["JORNADA 1","JORNADA 12","Cancha municipal","Descansa: Descanso A","Equipo 1 vs. Rival 1"]) assert.ok(streams.includes(encoded(value)),value);
+  for(const value of ["JORNADA 1","JORNADA 12","LOCAL","VISITANTE","CANCHA","FECHA Y HORA","Cancha municipal","Descanso A","DESCANSA","Equipo 1","Rival 1"]) assert.ok(streams.includes(encoded(value)),value);
 });

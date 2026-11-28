@@ -29,6 +29,8 @@ const conflicts: Record<string, string> = {
   SEASON_CLOSED: "La temporada está cerrada y solo permite consulta.",
   COMPETITION_ALREADY_STARTED: "La competencia ya inició; esta configuración no puede modificarse.",
   DISTRIBUTION_REQUIRES_GROUPS: "Crea al menos un grupo antes de distribuir los equipos.",
+  INVALID_PLAYOFF_DEADLINE: "El fin de la fase regular debe estar dentro de la temporada y antes de su fecha final.",
+  INVALID_PLAYOFF_DATES: "Revisa las fechas de liguilla: deben estar ordenadas, ser posteriores al fin de la fase regular y quedar dentro de la temporada.",
   CATEGORY_NOT_AUTHORIZED: "Hay inscripciones cuya categoría ya no está autorizada. Revisa las afiliaciones antes de distribuir.",
 };
 
@@ -81,6 +83,13 @@ export function ConfigurationForm({ title, endpoint, method = "POST", version, f
         ...(typeof finalRounds === "string" && finalRounds.trim() !== "" && { complexOnlyFinalRounds: Number(finalRounds) }),
       };
       delete payload.complexOnlyFinalRounds;
+      if (fields.playoffEnabled === "yes") payload.calendar = { ...(payload.calendar as object), playoff: {
+        regularDeadline: fields.playoffDeadline,
+        format: { quarterfinals: fields.playoffQuarterfinals, semifinals: fields.playoffSemifinals, final: fields.playoffFinal },
+        preliminaryTiebreaker: fields.playoffTiebreaker,
+        dates: formData.getAll("playoffDates").map(String),
+      } };
+      for (const key of ["playoffEnabled", "playoffDeadline", "playoffQuarterfinals", "playoffSemifinals", "playoffFinal", "playoffTiebreaker", "playoffDates"]) delete payload[key];
       payload.tieBreakers = formData.getAll("tieBreakers").flatMap(value => String(value).split(",")).map(value => value.trim()).filter(Boolean);
       for (const key of ["win", "draw", "loss", "rounds", "matchDurationMinutes", "tieBreakers"]) if (key !== "tieBreakers") delete payload[key];
     }

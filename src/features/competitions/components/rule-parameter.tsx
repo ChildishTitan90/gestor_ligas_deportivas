@@ -8,6 +8,10 @@ const labels: Record<string, string> = {
   POINTS: "Puntos", GOAL_DIFFERENCE: "Diferencia de goles", GOALS_FOR: "Goles a favor",
   GOALS_AGAINST: "Goles en contra", HEAD_TO_HEAD: "Enfrentamiento directo", FAIR_PLAY: "Juego limpio",
   RED_CARDS: "Tarjetas rojas · menos es mejor", YELLOW_CARDS: "Tarjetas amarillas · menos es mejor",
+  playoff: "Liguilla de ocho equipos", regularDeadline: "Fin de fase regular", format: "Formato por ronda",
+  quarterfinals: "Cuartos de final", semifinals: "Semifinales", final: "Final", preliminaryTiebreaker: "Desempate en cuartos y semifinales",
+  SINGLE: "Partido único", HOME_AND_AWAY: "Ida y vuelta", STANDING_POSITION: "Mejor posición", PENALTIES: "Penales",
+  dates: "Fechas previstas de liguilla",
 };
 
 function Value({ value, field, venueNames }: { value: unknown; field: string; venueNames: Record<string, string> }) {

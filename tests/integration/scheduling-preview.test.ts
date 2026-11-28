@@ -13,6 +13,7 @@ import { updatedSchedulePdfForActor } from "../../src/features/scheduling/server
 import { venueLocalTime } from "../../src/features/venues/time";
 import { editStoredProposalForActor } from "../../src/features/scheduling/server/stored-proposal-edit";
 import { saveTeamSwapInTransaction } from "../../src/features/scheduling/server/team-swap";
+import { previewPlayoffQualifiersForActor } from "../../src/features/competitions/server/playoff-qualifiers";
 
 test("Preview con RLS genera y recupera una propuesta con préstamos aprobados", async () => {
   const fixture = JSON.parse(process.env.SCHEDULING_PREVIEW_FIXTURE!);
@@ -21,6 +22,8 @@ test("Preview con RLS genera y recupera una propuesta con préstamos aprobados",
     const [identity]=await db.$queryRaw<{role:string;rls:boolean}[]>`SELECT current_user::text AS role, row_security_active('sports_management.schedule_proposals') AS rls`;
     assert.equal(identity.role,"gestor_ligas_preview");
     assert.equal(identity.rls,true);
+    await assert.rejects(previewPlayoffQualifiersForActor(fixture.outsider,fixture.season,fixture.category), { message: "FORBIDDEN" });
+    await assert.rejects(previewPlayoffQualifiersForActor(fixture.actor,fixture.season,fixture.category), { message: "PLAYOFF_RULE_REQUIRED" });
     const input = { seasonId: fixture.season, categoryId: fixture.category, groupId: fixture.group_id,
       operationId: randomUUID(), expectedSeasonVersion: 1, reason: "Prueba Preview sintetica" };
     await assert.rejects(generateScheduleForActor(fixture.outsider, input), { message: "FORBIDDEN" });

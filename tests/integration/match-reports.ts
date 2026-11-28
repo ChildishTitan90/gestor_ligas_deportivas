@@ -182,19 +182,33 @@ export async function runReportAcceptance(f: Fixture) {
     const admin=new PrismaClient({adapter:new PrismaPg({connectionString:f.env.DATABASE_URL!})});
     try {
       const {confirmNoShowInTransaction}=await import("../../src/features/matches/server/confirm-no-show");
-      for (const absent of ['HOME','AWAY'] as const) {
+      for (const absent of ['HOME','AWAY'] as const) for (const playoff of [false,true]) {
       await assert.rejects(admin.$transaction(async tx=>{
         await tx.$queryRaw`SELECT set_config('app.user_id',${actors.comision},true),set_config('app.reason','Prueba de cierre por incomparecencia',true)`;
         const rules=await tx.$queryRaw<{id:string}[]>`INSERT INTO sports_management.competition_rules(season_id,version_number) SELECT ${season}::uuid,coalesce(max(version_number),0)+1 FROM sports_management.competition_rules WHERE season_id=${season}::uuid RETURNING id`;
         const rule=rules[0].id;
         for(const [key,value] of Object.entries({points:{win:3,draw:1,loss:0},tieBreakers:['GOAL_DIFFERENCE','GOALS_FOR']}))
           await tx.$executeRaw`INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by,requires_validation) VALUES(${rule}::uuid,${key},${JSON.stringify(value)}::jsonb,${actors.comision}::uuid,false)`;
+        if(playoff) {
+          const calendar={playoff:{regularDeadline:'2026-12-01',format:{quarterfinals:'SINGLE',semifinals:'SINGLE',final:'SINGLE'},preliminaryTiebreaker:'PENALTIES'}};
+          await tx.$executeRaw`INSERT INTO sports_management.competition_rule_parameters(competition_rule_id,parameter_key,parameter_value,validated_by,requires_validation) VALUES(${rule}::uuid,'calendar',${JSON.stringify(calendar)}::jsonb,${actors.comision}::uuid,false)`;
+        }
         await tx.$executeRaw`UPDATE sports_management.competition_rules SET status='APPROVED',approved_by=${actors.comision}::uuid,approved_at=now() WHERE id=${rule}::uuid`;
         await tx.$executeRaw`UPDATE sports_management.season_categories SET competition_rule_id=${rule}::uuid WHERE id=${sc}::uuid`;
         const noShow=await tx.match_statuses.findUniqueOrThrow({where:{code:'NO_SHOW'}});
         const updated=await tx.matches.update({where:{id:match},data:{status_id:noShow.id,version:{increment:1}}});
         const draft={...unauthorized.draft,noShow:{absent,notes:"Equipo ausente en prueba"}};
         const recorded=await tx.match_reports.create({data:{match_id:match,client_id:randomUUID(),captured_by:actors.capturista,source:'MOBILE',draft_data:{draft}}});
+        let nextBracket:string|undefined, sourceBracket:string|undefined;
+        if(playoff) {
+          const qualifiers=[...teams.slice(0,2),...Array.from({length:6},()=>randomUUID())].map((teamId,i)=>({teamId,rank:i+1}));
+          const stage=await tx.competition_stages.create({data:{season_id:season,season_category_id:sc,competition_rule_id:rule,name:'Liguilla incomparecencia sintética',sort_order:987,format:{kind:'PLAYOFF_8',qualifiers}}});
+          const next=await tx.brackets.create({data:{stage_id:stage.id,season_id:season,number:5}});nextBracket=next.id;
+          const bracket=await tx.brackets.create({data:{stage_id:stage.id,season_id:season,number:1,team_a_id:teams[0],team_b_id:teams[1],next_bracket_id:next.id,next_slot:1}});sourceBracket=bracket.id;
+          await tx.matches.update({where:{id:match},data:{stage_id:stage.id}});
+          await tx.bracket_matches.create({data:{bracket_id:bracket.id,match_id:match,leg_number:1}});
+        }
+        const beforeStandings=await tx.standing_versions.count({where:{group_id:group}});
         const input={matchId:match,reportId:recorded.id,operationId:randomUUID(),expectedMatchVersion:updated.version,expectedReportVersion:recorded.version};
         // From here the real closure runs under the same restricted DB role as Preview.
         await tx.$executeRawUnsafe('SET LOCAL ROLE gestor_ligas_preview');
@@ -210,9 +224,16 @@ export async function runReportAcceptance(f: Fixture) {
         assert.equal(official.home_score,absent==='HOME'?0:1);assert.equal(official.away_score,absent==='HOME'?1:0);
         assert.equal((await tx.match_reports.findUniqueOrThrow({where:{id:recorded.id}})).status,"CONFIRMED");
         assert.equal((await tx.matches.findUniqueOrThrow({where:{id:match},include:{match_statuses:true}})).match_statuses.code,"FINISHED");
-        const standing=await tx.$queryRaw<{season_team_id:string;points:number;score_for:number}[]>`SELECT e.season_team_id,e.points::int AS points,e.score_for FROM sports_management.standing_entries e JOIN sports_management.standing_versions v ON v.id=e.standing_version_id WHERE v.group_id=${group}::uuid`;
-        assert.ok(standing.some(row=>row.season_team_id===teams[absent==='HOME'?0:1]&&row.points===0&&row.score_for===0));
-        assert.ok(standing.some(row=>row.season_team_id===teams[absent==='HOME'?1:0]&&row.points===3&&row.score_for===1));
+        if(playoff) {
+          const winner=teams[absent==='HOME'?1:0];
+          assert.equal((await tx.brackets.findUniqueOrThrow({where:{id:sourceBracket!}})).winner_id,winner);
+          assert.equal((await tx.brackets.findUniqueOrThrow({where:{id:nextBracket!}})).team_a_id,winner);
+          assert.equal(await tx.standing_versions.count({where:{group_id:group}}),beforeStandings);
+        } else {
+          const standing=await tx.$queryRaw<{season_team_id:string;points:number;score_for:number}[]>`SELECT e.season_team_id,e.points::int AS points,e.score_for FROM sports_management.standing_entries e JOIN sports_management.standing_versions v ON v.id=e.standing_version_id WHERE v.group_id=${group}::uuid`;
+          assert.ok(standing.some(row=>row.season_team_id===teams[absent==='HOME'?0:1]&&row.points===0&&row.score_for===0));
+          assert.ok(standing.some(row=>row.season_team_id===teams[absent==='HOME'?1:0]&&row.points===3&&row.score_for===1));
+        }
         throw Error("NO_SHOW_CONFIRM_ROLLBACK");
       },{timeout:30000,isolationLevel:'Serializable'}),/NO_SHOW_CONFIRM_ROLLBACK/);
       }

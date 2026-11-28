@@ -15,12 +15,13 @@ import { loadApprovedLoanWindows } from "./loan-windows";
 import { pendingEncounter } from "../pending-encounters";
 import { proposeTeamSwap } from "../team-swap";
 import { storedProposalSchema } from "../stored-proposal";
+import { playoffRulesSchema } from "@/features/competitions/playoff-qualification";
 
 export class SchedulingError extends Error {
   constructor(public code: string, public status = 409) { super(code); }
 }
 const dateOnly=(d:Date)=>d.toISOString().slice(0,10);
-const calendarSchema=z.object({rounds:z.number().int().min(1).max(4),matchDurationMinutes:z.number().int().positive(),complexOnlyFinalRounds:z.number().int().nonnegative().optional(),scheduling:schedulingPolicySchema});
+const calendarSchema=z.object({rounds:z.number().int().min(1).max(4),matchDurationMinutes:z.number().int().positive(),complexOnlyFinalRounds:z.number().int().nonnegative().optional(),scheduling:schedulingPolicySchema,playoff:playoffRulesSchema.extend({regularDeadline:z.iso.date(),dates:z.array(z.iso.date()).optional()}).optional()});
 
 export async function generateSchedule(input:unknown) {
   const actor=await requireOperationalUser();
@@ -71,6 +72,7 @@ async function loadScheduleContext(tx:Prisma.TransactionClient,input:{seasonId:s
   const count=(teams.length%2?teams.length:teams.length-1)*config.data.rounds;
   const days=calendarMatchdays(seasonDays,count);
   if(!days) throw new SchedulingError("MATCHDAY_COUNT_MISMATCH");
+  if(config.data.playoff && days.some(day=>dateOnly(day.start_date)<dateOnly(season.start_date)||dateOnly(day.end_date)>config.data.playoff!.regularDeadline)) throw new SchedulingError("REGULAR_DEADLINE_EXCEEDED");
   if(config.data.scheduling.venueStages.some(s=>!seasonDays.some(d=>d.number===s.fromRound)||!seasonDays.some(d=>d.number===s.toRound))) throw new SchedulingError("INVALID_VENUE_STAGE");
   const breaks=await tx.season_breaks.findMany({where:{season_id:season.id}});
   const venues=await tx.venues.findMany({where:{league_id:season.league_id,is_active:true},include:{venue_availability:true,home_venue_assignments:{where:{season_team_id:{in:teams.map(t=>t.id)}},include:{venue_loans:{select:{status:true,season_id:true,club_id:true,venue_id:true,approved_by:true,approved_at:true}}}}}});
