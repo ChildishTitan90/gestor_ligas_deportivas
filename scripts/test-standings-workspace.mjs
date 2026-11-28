@@ -191,7 +191,12 @@ try {
   await screenshot('desktop-dark.png', 1440, 1000, 'dark');
   await screenshot('mobile-light.png', 390, 844, 'light');
   await screenshot('mobile-dark.png', 390, 844, 'dark');
-  assert.equal(await browser.evaluate(`getComputedStyle(document.querySelector('ul[aria-label="Clasificación por equipo"]')).display !== 'none'`), true);
+  assert.equal(await browser.evaluate(`(() => {
+    const region = document.querySelector('[role="region"][aria-label="Tabla de clasificación desplazable"]');
+    const table = region?.querySelector('table');
+    return !!table && getComputedStyle(table).display !== 'none' && region.tabIndex === 0 &&
+      region.scrollWidth > region.clientWidth && getComputedStyle(region).overflowX === 'auto';
+  })()`), true, 'La tabla móvil debe ser visible y desplazable con teclado');
   await choose('standing-group', fixture.pending);
   await choose('standing-category', fixture.filters.categoryId);
   assert.equal(await browser.evaluate(`document.querySelector('input[name="groupId"]').value`), '', 'Cambiar categoría limpia el grupo');
